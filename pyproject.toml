@@ -24,8 +24,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/azizur1992/papergraph"
-Issues = "https://github.com/azizur1992/papergraph/issues"
+Repository = "https://github.com/azizur100389/papergraph"
+Issues = "https://github.com/azizur100389/papergraph/issues"
 
 [project.optional-dependencies]
 dev = [

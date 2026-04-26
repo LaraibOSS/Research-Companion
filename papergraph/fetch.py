@@ -33,7 +33,7 @@ ARXIV_ABS_RE = re.compile(
 ARXIV_API = "https://export.arxiv.org/api/query"
 ARXIV_PDF_URL = "https://arxiv.org/pdf/{arxiv_id}.pdf"
 
-USER_AGENT = "papergraph/0.1 (https://github.com/azizur1992/papergraph)"
+USER_AGENT = "papergraph/0.1 (https://github.com/azizur100389/papergraph)"
 
 
 class FetchError(RuntimeError):
