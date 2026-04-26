@@ -1,0 +1,22 @@
+# 10 papers on graph-based RAG. Use as:
+#   xargs -n1 papergraph add < examples/graph-rag-corpus/papers.txt
+#   papergraph build
+#   papergraph chat "what are the main differences between these approaches?"
+
+# ----- foundational -----
+https://arxiv.org/abs/2005.11401   # RAG (Lewis et al., 2020) — the original RAG paper
+
+# ----- graph-based RAG -----
+https://arxiv.org/abs/2404.16130   # GraphRAG (Edge et al., Microsoft, 2024)
+https://arxiv.org/abs/2410.05779   # LightRAG (Guo et al., HKUDS, 2024)
+https://arxiv.org/abs/2410.20724   # HippoRAG (Gutierrez et al., 2024)
+https://arxiv.org/abs/2405.14831   # G-Retriever (He et al., 2024)
+https://arxiv.org/abs/2410.13070   # KG-RAG (multiple, 2024)
+
+# ----- multi-hop QA benchmarks (often cited as eval) -----
+https://arxiv.org/abs/1809.09600   # HotpotQA (Yang et al., 2018)
+https://arxiv.org/abs/2011.01060   # 2WikiMultiHopQA (Ho et al., 2020)
+https://arxiv.org/abs/2108.00573   # MuSiQue (Trivedi et al., 2021)
+
+# ----- neighbouring approaches -----
+https://arxiv.org/abs/2310.11511   # Self-RAG (Asai et al., 2023)
