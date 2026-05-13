@@ -1,7 +1,7 @@
 """Command-line interface for papergraph.
 
 Subcommands:
-    add <url-or-pdf> [--title T] [--authors A,B,C] [--year Y]
+    add <url-or-pdf> ... [-f FILE] [--title T] [--authors A,B,C] [--year Y]
     build [--provider anthropic|openai] [--model M] [--force]
     view [--no-open]
     chat [<question>] [--provider P] [--model M] [--depth N]
@@ -23,20 +23,61 @@ from papergraph import __version__
 def _cmd_add(args: argparse.Namespace) -> int:
     from papergraph.fetch import FetchError, add_paper
 
-    authors = [a.strip() for a in args.authors.split(",")] if args.authors else None
-    try:
-        meta = add_paper(args.target, title=args.title, authors=authors, year=args.year)
-    except FetchError as e:
-        print(f"papergraph: failed to add: {e}", file=sys.stderr)
+    # --- collect targets from positional args + --from-file -----------------
+    targets: list[str] = list(args.target) if args.target else []
+
+    if args.from_file:
+        fpath = Path(args.from_file)
+        if not fpath.is_file():
+            print(f"papergraph: file not found: {fpath}", file=sys.stderr)
+            return 1
+        for raw in fpath.read_text(encoding="utf-8").splitlines():
+            line = raw.split("#", 1)[0].strip()   # strip inline comments
+            if line:
+                targets.append(line)
+
+    if not targets:
+        print("papergraph: nothing to add. Provide targets or use --from-file.",
+              file=sys.stderr)
         return 1
-    except TypeError:
-        # add_paper rejects local-PDF kwargs for arXiv inputs by passing **local_kwargs.
-        # If the user supplied --title for an arXiv URL, we just ignore it.
-        meta = add_paper(args.target)
-    print(f"+ {meta.paper_id}  {meta.title}")
-    if meta.authors:
-        print(f"  {', '.join(meta.authors[:3])}{'...' if len(meta.authors) > 3 else ''}, {meta.year or '?'}")
-    return 0
+
+    # --- metadata flags only make sense for a single local PDF --------------
+    authors = [a.strip() for a in args.authors.split(",")] if args.authors else None
+    has_local_meta = args.title or authors or args.year
+    if has_local_meta and len(targets) > 1:
+        print("papergraph: warning: --title/--authors/--year ignored when "
+              "adding multiple targets", file=sys.stderr)
+        has_local_meta = False
+        authors = None
+
+    # --- loop through targets -----------------------------------------------
+    title = args.title if has_local_meta else None
+    year = args.year if has_local_meta else None
+    meta_authors = authors if has_local_meta else None
+
+    failed = 0
+    for target in targets:
+        try:
+            if has_local_meta:
+                try:
+                    meta = add_paper(target, title=title, authors=meta_authors, year=year)
+                except TypeError:
+                    # add_paper rejects local-PDF kwargs for arXiv inputs.
+                    meta = add_paper(target)
+            else:
+                meta = add_paper(target)
+        except FetchError as e:
+            print(f"papergraph: failed to add {target}: {e}", file=sys.stderr)
+            failed += 1
+            continue
+        print(f"+ {meta.paper_id}  {meta.title}")
+        if meta.authors:
+            print(f"  {', '.join(meta.authors[:3])}"
+                  f"{'...' if len(meta.authors) > 3 else ''}, {meta.year or '?'}")
+
+    if failed:
+        print(f"\npapergraph: {failed}/{len(targets)} paper(s) failed.", file=sys.stderr)
+    return 0 if not failed else 1
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
@@ -191,11 +232,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"papergraph {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    pa = sub.add_parser("add", help="Add an arXiv URL/ID or local PDF")
-    pa.add_argument("target", help="arXiv URL/ID (e.g. 2410.05779) or path to PDF")
-    pa.add_argument("--title", help="Title (local PDFs only)")
-    pa.add_argument("--authors", help="Comma-separated authors (local PDFs only)")
-    pa.add_argument("--year", type=int, help="Year (local PDFs only)")
+    pa = sub.add_parser("add", help="Add arXiv URL(s)/ID(s) or local PDF(s)")
+    pa.add_argument("target", nargs="*", help="arXiv URL/ID (e.g. 2410.05779) or path to PDF")
+    pa.add_argument("-f", "--from-file", metavar="FILE",
+                    help="Read targets from FILE (one per line; # comments)")
+    pa.add_argument("--title", help="Title (single local PDF only)")
+    pa.add_argument("--authors", help="Comma-separated authors (single local PDF only)")
+    pa.add_argument("--year", type=int, help="Year (single local PDF only)")
     pa.set_defaults(func=_cmd_add)
 
     pb = sub.add_parser("build", help="Run extraction on all papers and build the graph")
