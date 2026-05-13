@@ -10,6 +10,7 @@ Subcommands:
     list
     remove <paper-id>
     stats
+    export [--format {markdown,csv,json,obsidian}] [--output DIR]
 """
 from __future__ import annotations
 
@@ -444,6 +445,20 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    from papergraph.export import export_graph
+
+    output_dir = Path(args.output)
+    fmt = args.format
+    try:
+        result = export_graph(output_dir, fmt=fmt)
+    except Exception as e:
+        print(f"papergraph: export failed: {e}", file=sys.stderr)
+        return 1
+    print(f"papergraph: exported ({fmt}) to {result.resolve()}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="papergraph",
@@ -501,6 +516,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ps = sub.add_parser("stats", help="Print graph statistics as JSON")
     ps.set_defaults(func=_cmd_stats)
+
+    pe = sub.add_parser("export", help="Export the knowledge graph to a portable format")
+    pe.add_argument("--format", choices=["markdown", "csv", "json", "obsidian"],
+                    default="markdown", help="Export format (default: markdown)")
+    pe.add_argument("--output", default="./papergraph-export/",
+                    help="Output directory (default: ./papergraph-export/)")
+    pe.set_defaults(func=_cmd_export)
 
     return p
 
