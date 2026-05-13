@@ -10,12 +10,18 @@ Layout under PAPERGRAPH_DIR (default: ~/.papergraph/):
             extraction.json   # LLM-extracted entities (cached, keyed on prompt sha256)
         local__a1b2c3d4/
             ...
+        doi__10_1145_1234567_1234568/
+            ...
+        s2__abc123.../
+            ...
     graph.json                # merged cross-paper graph (NetworkX node-link)
     graph.html                # rendered interactive viz
 
 Paper IDs:
     arXiv papers:    "arxiv:2410.05779"           -> dir "arxiv__2410_05779"
     Local PDFs:      "local:<sha256[:12]>"        -> dir "local__<sha256[:12]>"
+    DOI papers:      "doi:10.1145/1234567"        -> dir "doi__10_1145_1234567"
+    S2 papers:       "s2:<40-char hex>"           -> dir "s2__<40-char hex>"
 """
 from __future__ import annotations
 
@@ -76,6 +82,16 @@ def make_arxiv_id(arxiv_id: str) -> str:
     # Strip version suffix if present.
     base = re.sub(r"v\d+$", "", arxiv_id.strip())
     return f"arxiv:{base}"
+
+
+def make_doi_id(doi: str) -> str:
+    """Create a paper ID from a DOI string, e.g. 'doi:10.1145/1234567.1234568'."""
+    return f"doi:{doi.strip()}"
+
+
+def make_s2_id(s2_id: str) -> str:
+    """Create a paper ID from a Semantic Scholar paper ID, e.g. 's2:<hex>'."""
+    return f"s2:{s2_id.strip()}"
 
 
 # ---------------------------------------------------------------------------
