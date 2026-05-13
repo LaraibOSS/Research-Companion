@@ -3,6 +3,7 @@
 Subcommands:
     add <url-or-pdf> ... [-f FILE] [--title T] [--authors A,B,C] [--year Y]
     build [--provider anthropic|openai] [--model M] [--force]
+    cost-estimate [--provider anthropic|openai] [--model M]
     view [--no-open]
     chat [<question>] [--provider P] [--model M] [--depth N]
     list
@@ -80,6 +81,95 @@ def _cmd_add(args: argparse.Namespace) -> int:
     return 0 if not failed else 1
 
 
+# ---------------------------------------------------------------------------
+# Pricing (USD per 1M tokens, as of 2025)
+# ---------------------------------------------------------------------------
+
+_PRICING: dict[str, dict[str, tuple[float, float]]] = {
+    # provider -> model-prefix -> (input_per_1M, output_per_1M)
+    "anthropic": {"default": (3.00, 15.00)},
+    "openai":    {"default": (2.50, 10.00)},
+}
+
+_DEFAULT_MODELS = {
+    "anthropic": "claude-sonnet-4-7",
+    "openai":    "gpt-4o-2024-11-20",
+}
+
+# Approximate output tokens per extraction (response is ~500-1000 tokens).
+_EST_OUTPUT_TOKENS_PER_PAPER = 800
+
+
+def _lookup_pricing(provider: str) -> tuple[float, float]:
+    """Return (input_cost_per_1M, output_cost_per_1M) for *provider*."""
+    bucket = _PRICING.get(provider, _PRICING["anthropic"])
+    return bucket["default"]
+
+
+def _estimate_cost(
+    total_input_tokens: int, total_output_tokens: int, provider: str,
+) -> float:
+    """Return estimated cost in USD."""
+    in_rate, out_rate = _lookup_pricing(provider)
+    return (total_input_tokens / 1_000_000) * in_rate + (total_output_tokens / 1_000_000) * out_rate
+
+
+def _cmd_cost_estimate(args: argparse.Namespace) -> int:
+    from papergraph.extract import MAX_PAPER_CHARS
+    from papergraph.prompts import extraction_prompt_sha256
+    from papergraph.store import list_papers, load_extraction, load_text, pdf_path
+
+    papers = list_papers()
+    if not papers:
+        print("papergraph: no papers in store. Add some first: papergraph add <url-or-pdf>",
+              file=sys.stderr)
+        return 1
+
+    provider = args.provider
+    model = args.model or _DEFAULT_MODELS.get(provider, _DEFAULT_MODELS["anthropic"])
+    prompt_sha = extraction_prompt_sha256()
+
+    cached_n = 0
+    need_extraction: list = []
+    est_input_tokens = 0
+
+    for meta in papers:
+        cached = load_extraction(meta.paper_id, prompt_sha=prompt_sha)
+        if cached is not None:
+            cached_n += 1
+            continue
+        # Not cached -- estimate token count from paper text (or PDF size).
+        text = load_text(meta.paper_id)
+        if text is not None:
+            char_count = min(len(text), MAX_PAPER_CHARS)
+        else:
+            pdf = pdf_path(meta.paper_id)
+            if pdf is not None:
+                # Rough heuristic: PDF bytes -> chars is ~0.5x for text-heavy PDFs.
+                char_count = min(int(pdf.stat().st_size * 0.5), MAX_PAPER_CHARS)
+            else:
+                char_count = MAX_PAPER_CHARS  # worst-case fallback
+        est_input_tokens += int(char_count / 4)
+        need_extraction.append(meta)
+
+    need_n = len(need_extraction)
+    est_output_tokens = need_n * _EST_OUTPUT_TOKENS_PER_PAPER
+    est_cost = _estimate_cost(est_input_tokens, est_output_tokens, provider)
+
+    print(f"\npapergraph cost-estimate (provider: {provider}, model: {model})\n")
+    print(f"  Papers in store:        {len(papers):>5}")
+    print(f"  Already cached:         {cached_n:>5}")
+    print(f"  Needing extraction:     {need_n:>5}")
+    print()
+    print(f"  Estimated input tokens:   ~{est_input_tokens:>,}")
+    print(f"  Estimated output tokens:  ~{est_output_tokens:>,}")
+    print(f"  Estimated cost:           ~${est_cost:,.2f}")
+    print()
+    print("Run `papergraph build` to proceed. Cached papers are free.")
+    print()
+    return 0
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     from papergraph.extract import ExtractionError, extract_paper
     from papergraph.graph import build_graph, graph_stats, save_graph
@@ -116,6 +206,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
     print(f"\npapergraph: extraction done in {time.perf_counter()-t0:.1f}s. "
           f"{cached_n} cached, {len(failed)} failed, {total_in}+{total_out} tokens used.")
+    if total_in + total_out > 0:
+        model_label = args.model or _DEFAULT_MODELS.get(args.provider, args.provider)
+        est = _estimate_cost(total_in, total_out, args.provider)
+        print(f"papergraph: estimated cost: ~${est:,.2f} "
+              f"(based on {args.provider} {model_label} pricing)")
 
     print("papergraph: building cross-paper graph...")
     G = build_graph(papers)
@@ -246,6 +341,11 @@ def _build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pb.add_argument("--force", action="store_true", help="Re-extract even if cached")
     pb.set_defaults(func=_cmd_build)
+
+    pce = sub.add_parser("cost-estimate", help="Estimate API cost for the next build")
+    pce.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pce.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
+    pce.set_defaults(func=_cmd_cost_estimate)
 
     pv = sub.add_parser("view", help="Render and open the interactive HTML graph")
     pv.add_argument("--no-open", action="store_true", help="Don't auto-open the browser")
