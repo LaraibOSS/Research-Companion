@@ -243,7 +243,11 @@ def _resolve_citation(ref: str, papers: list[PaperMetadata]) -> str | None:
 def save_graph(G: nx.Graph, path=None) -> None:
     p = path or graph_json_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = json_graph.node_link_data(G, edges="links")
+    try:
+        data = json_graph.node_link_data(G, edges="links")
+    except TypeError:
+        # Older networkx (<3.4) doesn't support the `edges` kwarg.
+        data = json_graph.node_link_data(G)
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
