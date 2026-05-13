@@ -11,6 +11,8 @@ Subcommands:
     remove <paper-id>
     stats
     export [--format {markdown,csv,json,obsidian}] [--output DIR]
+    discover <topic> [--limit N] [--year-min Y] [--year-max Y] [--add] [--json]
+    discover --expand [--limit N] [--min-citations N] [--add] [--json]
 """
 from __future__ import annotations
 
@@ -459,6 +461,111 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_discover(args: argparse.Namespace) -> int:
+    from papergraph.discover import expand_from_existing, search_topic
+    from papergraph.fetch import FetchError, add_paper
+
+    # --- choose mode: topic search vs expand --------------------------------
+    if args.expand:
+        from papergraph.store import list_papers as _lp
+        papers = _lp()
+        if not papers:
+            print("papergraph: no papers in store. Add some first, then use --expand.",
+                  file=sys.stderr)
+            return 1
+        print(f"papergraph: scanning citations and references of {len(papers)} paper(s)...",
+              file=sys.stderr)
+        results = expand_from_existing(
+            limit=args.limit,
+            min_citations=args.min_citations,
+        )
+        mode_label = "citation expansion"
+    else:
+        if not args.topic:
+            print("papergraph: provide a topic to search, or use --expand to scan "
+                  "citations of existing papers.", file=sys.stderr)
+            return 1
+        topic = " ".join(args.topic)
+        print(f'papergraph: searching Semantic Scholar for "{topic}"...',
+              file=sys.stderr)
+        results = search_topic(
+            topic,
+            limit=args.limit,
+            year_min=args.year_min,
+            year_max=args.year_max,
+        )
+        mode_label = "topic search"
+
+    if not results:
+        print(f"papergraph: no new papers found via {mode_label}.")
+        return 0
+
+    # --- JSON output --------------------------------------------------------
+    if args.json:
+        print(json.dumps([p.to_dict() for p in results], indent=2, ensure_ascii=False))
+        if args.add:
+            # Still add even in JSON mode.
+            _auto_add_discovered(results, add_paper, FetchError)
+        return 0
+
+    # --- pretty print -------------------------------------------------------
+    print(f"\npapergraph: {len(results)} paper(s) discovered via {mode_label}\n")
+    for i, p in enumerate(results, 1):
+        first = p.authors[0] if p.authors else "?"
+        cite = f"{first} et al." if len(p.authors) > 1 else first
+        year_str = str(p.year) if p.year else "?"
+        cites = f"{p.citation_count:,} citations" if p.citation_count else "0 citations"
+
+        # Source badge.
+        if p.arxiv_id:
+            src = f"arXiv:{p.arxiv_id}"
+        elif p.doi:
+            src = f"DOI:{p.doi}"
+        else:
+            src = "S2"
+
+        print(f"  {i:>2}. {p.title}")
+        print(f"      {cite}, {year_str} · {cites} · {src}")
+        if p.source == "reference":
+            print(f"      [referenced by your papers]")
+        elif p.source == "citation":
+            print(f"      [cites your papers]")
+
+    # --- auto-add if --add flag set -----------------------------------------
+    if args.add:
+        print()
+        added, failed = _auto_add_discovered(results, add_paper, FetchError)
+        print(f"\npapergraph: added {added}/{len(results)}, "
+              f"{failed} failed. Run `papergraph build` to extract.")
+    else:
+        print(f"\nTo add all: papergraph discover {'--expand' if args.expand else chr(34) + ' '.join(args.topic) + chr(34)} --add")
+        print(f"Or add individually:")
+        for p in results[:5]:
+            print(f"  {p.add_cmd}")
+        if len(results) > 5:
+            print(f"  ... ({len(results) - 5} more)")
+
+    print()
+    return 0
+
+
+def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, int]:
+    """Add all discovered papers to the local store. Returns (added, failed)."""
+    added = failed = 0
+    for p in results:
+        target = p.arxiv_id or p.doi or (p.s2_id if p.s2_id else None)
+        if target is None:
+            continue
+        try:
+            meta = add_paper_fn(target)
+            print(f"  + {meta.paper_id}  {meta.title[:60]}")
+            added += 1
+        except fetch_error_cls as e:
+            print(f"  x failed: {p.title[:50]}: {e}", file=sys.stderr)
+            failed += 1
+    return added, failed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="papergraph",
@@ -523,6 +630,25 @@ def _build_parser() -> argparse.ArgumentParser:
     pe.add_argument("--output", default="./papergraph-export/",
                     help="Output directory (default: ./papergraph-export/)")
     pe.set_defaults(func=_cmd_export)
+
+    pd = sub.add_parser("discover",
+                        help="Discover related papers via Semantic Scholar (topic search or citation expansion)")
+    pd.add_argument("topic", nargs="*",
+                    help="Topic to search for (e.g. 'graph-based RAG')")
+    pd.add_argument("--expand", action="store_true",
+                    help="Discover papers by following citations/references of existing papers")
+    pd.add_argument("-n", "--limit", type=int, default=20,
+                    help="Max papers to return (default 20)")
+    pd.add_argument("--year-min", type=int, default=None,
+                    help="Minimum publication year (topic search only)")
+    pd.add_argument("--year-max", type=int, default=None,
+                    help="Maximum publication year (topic search only)")
+    pd.add_argument("--min-citations", type=int, default=5,
+                    help="Minimum citation count for --expand mode (default 5)")
+    pd.add_argument("--add", action="store_true",
+                    help="Automatically add all discovered papers to the store")
+    pd.add_argument("--json", action="store_true", help="JSON output")
+    pd.set_defaults(func=_cmd_discover)
 
     return p
 
