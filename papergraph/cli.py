@@ -6,6 +6,7 @@ Subcommands:
     cost-estimate [--provider anthropic|openai] [--model M]
     view [--no-open]
     chat [<question>] [--provider P] [--model M] [--depth N]
+    search <query> [--kind K] [--limit N] [--json]
     list
     remove <paper-id>
     stats
@@ -319,6 +320,130 @@ def _cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+_SEARCH_KINDS = ("paper", "concept", "method", "dataset", "claim", "result")
+
+
+def _score_node(query: str, label: str, description: str) -> int:
+    """Score a node against a search query (case-insensitive).
+
+    Scoring:
+        +3  full query is a substring of label
+        +2  full query is a substring of description
+        +1  per individual query word found in label or description
+    """
+    q = query.lower()
+    lbl = label.lower()
+    desc = description.lower()
+    score = 0
+    if q in lbl:
+        score += 3
+    if q in desc:
+        score += 2
+    for word in q.split():
+        if word in lbl or word in desc:
+            score += 1
+    return score
+
+
+def _containing_papers(G, node_id: str) -> list[str]:
+    """Return titles of paper nodes linked to *node_id* via a ``contains`` edge."""
+    titles: list[str] = []
+    for neighbor in G.neighbors(node_id):
+        nd = G.nodes[neighbor]
+        if nd.get("kind") != "paper":
+            continue
+        edge_data = G.edges[neighbor, node_id]
+        if edge_data.get("relation") == "contains":
+            titles.append(nd.get("label", neighbor))
+    return titles
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    from papergraph.graph import load_graph
+
+    G = load_graph()
+    if G.number_of_nodes() == 0:
+        print("papergraph: graph is empty. Run `papergraph add <url>` then `papergraph build` first.",
+              file=sys.stderr)
+        return 1
+
+    query: str = args.query
+    kind_filter: list[str] | None = args.kind or None
+    limit: int = args.limit
+
+    # Score every node.
+    hits: list[tuple[int, str, dict]] = []
+    for nid, data in G.nodes(data=True):
+        kind = data.get("kind", "")
+        if kind_filter and kind not in kind_filter:
+            continue
+        label = data.get("label", "")
+        description = data.get("definition") or data.get("description") or data.get("full_text") or ""
+        score = _score_node(query, label, description)
+        if score > 0:
+            hits.append((score, nid, data))
+
+    hits.sort(key=lambda t: t[0], reverse=True)
+    hits = hits[:limit]
+
+    if not hits:
+        print(f'papergraph: no matches for "{query}"')
+        return 0
+
+    # --json mode
+    if args.json:
+        out = []
+        for score, nid, data in hits:
+            entry = {"id": nid, "kind": data.get("kind", ""), "label": data.get("label", ""),
+                     "score": score}
+            desc = data.get("definition") or data.get("description") or data.get("full_text") or ""
+            if desc:
+                entry["description"] = desc
+            if data.get("kind") != "paper":
+                papers = _containing_papers(G, nid)
+                if papers:
+                    entry["appears_in"] = papers
+            out.append(entry)
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return 0
+
+    # Pretty-print mode
+    print(f'\npapergraph: {len(hits)} match{"es" if len(hits) != 1 else ""} for "{query}"\n')
+
+    for _score, nid, data in hits:
+        kind = data.get("kind", "?")
+        label = data.get("label", nid)
+
+        if kind == "paper":
+            # Paper node: show authors + year inline.
+            authors = data.get("authors") or []
+            year = data.get("year")
+            if authors:
+                first = authors[0]
+                cite = f"{first} et al." if len(authors) > 1 else first
+                cite_str = f" ({cite}, {year or '?'})"
+            elif year:
+                cite_str = f" ({year})"
+            else:
+                cite_str = ""
+            print(f"  [{kind}]  {label}{cite_str}")
+        else:
+            desc = data.get("definition") or data.get("description") or data.get("full_text") or ""
+            suffix = f" -- {desc[:80]}" if desc else ""
+            print(f"  [{kind}]  {label}{suffix}")
+            papers = _containing_papers(G, nid)
+            if papers:
+                paper_list = ", ".join(papers[:5])
+                more = f", ... +{len(papers)-5}" if len(papers) > 5 else ""
+                if kind == "result":
+                    print(f"             -> from: {paper_list}{more}")
+                else:
+                    print(f"             -> appears in: {paper_list}{more}")
+
+    print()
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="papergraph",
@@ -357,6 +482,14 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--model", default=None)
     pc.add_argument("--depth", type=int, default=2, help="BFS hop depth (default 2)")
     pc.set_defaults(func=_cmd_chat)
+
+    pq = sub.add_parser("search", help="Search the knowledge graph by keyword")
+    pq.add_argument("query", help="Search term")
+    pq.add_argument("-k", "--kind", action="append", choices=_SEARCH_KINDS,
+                    help="Filter by node kind (repeatable)")
+    pq.add_argument("-n", "--limit", type=int, default=20, help="Max results (default 20)")
+    pq.add_argument("--json", action="store_true", help="JSON output")
+    pq.set_defaults(func=_cmd_search)
 
     pl = sub.add_parser("list", help="List papers in the local store")
     pl.add_argument("--json", action="store_true", help="JSON output")
