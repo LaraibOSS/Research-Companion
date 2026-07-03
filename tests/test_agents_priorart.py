@@ -47,3 +47,14 @@ async def test_priorart_empty_results_still_ok():
     ctx.data["_search"] = lambda q: []
     result = await PriorArtAgent().run(ctx)
     assert result.ok and result.data["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_priorart_stashes_full_papers_for_downstream():
+    store.PaperMetadata(paper_id="local:pa3", title="T", authors=[]).save()
+    ctx = AgentContext(paper_id="local:pa3", bus=Bus(), data={})
+    ctx.data["_extraction"] = {"concepts": []}
+    papers = [_paper("GraphRAG")]
+    ctx.data["_search"] = lambda q: papers
+    await PriorArtAgent().run(ctx)
+    assert ctx.data["_priorart_papers"] is papers

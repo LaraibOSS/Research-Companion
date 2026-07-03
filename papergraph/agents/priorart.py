@@ -23,6 +23,7 @@ class PriorArtAgent(Agent):
 
         search = ctx.data.get("_search") or (lambda q: search_topic(q, limit=15))
         found = await asyncio.to_thread(search, query)
+        ctx.data["_priorart_papers"] = found
         papers = [
             {"title": p.title, "year": p.year,
              "id": p.arxiv_id or p.doi or p.s2_id or ""}
