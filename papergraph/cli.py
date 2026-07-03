@@ -566,6 +566,52 @@ def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, i
     return added, failed
 
 
+# Test seam: tests monkeypatch this to inject offline lookup/search callables.
+REVIEW_CONTEXT_OVERRIDES: dict = {}
+
+
+def _cmd_review(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from papergraph.agents.base import AgentContext
+    from papergraph.agents.bus import Bus
+    from papergraph.agents.citation import CitationAgent
+    from papergraph.agents.ingest import IngestAgent
+    from papergraph.agents.orchestrator import run_agents
+    from papergraph.agents.priorart import PriorArtAgent
+
+    agents = [IngestAgent(), CitationAgent(), PriorArtAgent()]
+    ctx = AgentContext(paper_id=args.paper_id, bus=Bus(),
+                       data=dict(REVIEW_CONTEXT_OVERRIDES))
+    results = asyncio.run(run_agents(agents, ctx))
+
+    if args.json:
+        payload = {
+            "paper_id": args.paper_id,
+            "agents": {name: {"ok": r.ok, "data": r.data, "error": r.error}
+                       for name, r in results.items()},
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if all(r.ok for r in results.values()) else 1
+
+    summaries = {
+        "ingest": lambda d: f"graph: {d['graph_nodes']} nodes / {d['graph_edges']} edges",
+        "citation": lambda d: (f"{d['counts']['verified']} verified · "
+                               f"{d['counts']['suspect']} suspect · "
+                               f"{d['counts']['unverified']} unverified"),
+        "priorart": lambda d: f"{d['count']} related papers",
+    }
+    for agent in agents:
+        r = results[agent.name]
+        if r.ok:
+            print(f"  {agent.name:<10} done    {summaries[agent.name](r.data)}")
+        else:
+            print(f"  {agent.name:<10} FAILED  {r.error}")
+    ok = all(r.ok for r in results.values())
+    print(f"\n{'All agents completed.' if ok else 'Some agents failed.'}")
+    return 0 if ok else 1
+
+
 def _cmd_refcheck(args: argparse.Namespace) -> int:
     from papergraph.prompts import extraction_prompt_sha256
     from papergraph.refcheck.parse import references_from_extraction
@@ -709,6 +755,12 @@ def _build_parser() -> argparse.ArgumentParser:
     prc.add_argument("paper_id", help="ID of a paper already built (see `papergraph list`)")
     prc.add_argument("--json", action="store_true", help="JSON output")
     prc.set_defaults(func=_cmd_refcheck)
+
+    prv = sub.add_parser("review",
+                         help="Run the agent team over a paper (ingest, citations, prior art)")
+    prv.add_argument("paper_id", help="ID of a paper already built (see `papergraph list`)")
+    prv.add_argument("--json", action="store_true", help="JSON output")
+    prv.set_defaults(func=_cmd_review)
 
     return p
 
