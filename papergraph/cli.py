@@ -566,6 +566,60 @@ def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, i
     return added, failed
 
 
+def _cmd_refcheck(args: argparse.Namespace) -> int:
+    from papergraph.prompts import extraction_prompt_sha256
+    from papergraph.refcheck.parse import references_from_extraction
+    from papergraph.refcheck.retrieval import default_lookup
+    from papergraph.refcheck.validate import validate_bibliography
+    from papergraph.store import load_extraction
+
+    ext = load_extraction(args.paper_id, prompt_sha=extraction_prompt_sha256())
+    if ext is None:
+        print(
+            f"papergraph: no extraction for {args.paper_id}. Run `papergraph build` first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    refs = references_from_extraction(ext)
+    report = validate_bibliography(refs, default_lookup())
+    counts = report.counts()
+
+    if args.json:
+        payload = {
+            "paper_id": args.paper_id,
+            "counts": counts,
+            "references": [
+                {
+                    "title": ref.title,
+                    "status": verdict.status,
+                    "reasons": verdict.reasons,
+                    "doi": ref.doi,
+                    "arxiv_id": ref.arxiv_id,
+                }
+                for ref, verdict in report.entries
+            ],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    if not report.entries:
+        print("papergraph: no references found in this paper's extraction.")
+        return 0
+
+    symbol = {"verified": "OK ", "suspect": "?? ", "unverified": "XX "}
+    for ref, verdict in report.entries:
+        print(f"{symbol[verdict.status]} [{verdict.status}] {ref.title}")
+        for reason in verdict.reasons:
+            print(f"        - {reason}")
+    print(
+        f"\nSummary: {counts['verified']} verified, "
+        f"{counts['suspect']} suspect, {counts['unverified']} unverified "
+        f"({len(report.entries)} references)"
+    )
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="papergraph",
@@ -649,6 +703,12 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="Automatically add all discovered papers to the store")
     pd.add_argument("--json", action="store_true", help="JSON output")
     pd.set_defaults(func=_cmd_discover)
+
+    prc = sub.add_parser("refcheck",
+                         help="Validate a paper's references against CrossRef/OpenAlex")
+    prc.add_argument("paper_id", help="ID of a paper already built (see `papergraph list`)")
+    prc.add_argument("--json", action="store_true", help="JSON output")
+    prc.set_defaults(func=_cmd_refcheck)
 
     return p
 
