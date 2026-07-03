@@ -29,3 +29,7 @@ htmlcov/
 *.key
 *.pem
 secrets.yaml
+
+# Build artifacts and agent scratch
+graphify-out/
+.superpowers/
