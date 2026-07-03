@@ -26,5 +26,10 @@ class Bus:
         self.history.append(event)
         if self._log is not None:
             self._log.append(event)
+        # Cross-loop contract: queues may live on another thread's loop (e.g. the
+        # dashboard server).  Delivery relies on the server's 0.2 s poll timeout;
+        # put_nowait is best-effort — a RuntimeError or InvalidStateError from a
+        # torn-down loop must never propagate to the agent runner.
         for q in self._queues:
-            q.put_nowait(event)
+            with contextlib.suppress(RuntimeError, asyncio.InvalidStateError):
+                q.put_nowait(event)

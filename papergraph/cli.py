@@ -572,15 +572,8 @@ REVIEW_CONTEXT_OVERRIDES: dict = {}
 
 def _run_uvicorn_in_thread(app, port: int) -> None:
     """Start uvicorn in a daemon background thread."""
-    import threading
-
-    import uvicorn
-
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
+    from papergraph.dashboard.server import _run_uvicorn_in_thread as _real
+    _real(app, port)
 
 
 async def _run_with_state(agents, ctx, state: dict) -> dict:
@@ -611,13 +604,15 @@ async def _run_with_state(agents, ctx, state: dict) -> dict:
         with contextlib.suppress(asyncio.CancelledError):
             await tracker
         ctx.bus.unsubscribe(q)
+        state["done"] = True
 
-    state["done"] = True
     return results
 
 
 def _cmd_review(args: argparse.Namespace) -> int:
     import asyncio
+    import contextlib
+    import threading
 
     from papergraph.agents.base import AgentContext
     from papergraph.agents.benchmark import BenchmarkAgent
@@ -629,11 +624,13 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from papergraph.agents.novelty import NoveltyAgent
     from papergraph.agents.orchestrator import run_agents
     from papergraph.agents.priorart import PriorArtAgent
-    from papergraph.store import papergraph_dir
+    from papergraph.store import _id_to_dirname, papergraph_dir
 
     runs_dir = papergraph_dir() / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
-    log_path = runs_dir / f"{args.paper_id.replace(':', '_')}-{int(time.time())}.jsonl"
+    # Critical 1: use _id_to_dirname to handle DOI ids that contain '/' chars,
+    # and time_ns() to avoid same-second collisions.
+    log_path = runs_dir / f"{_id_to_dirname(args.paper_id)}-{time.time_ns()}.jsonl"
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent()]
     if not args.fast:
@@ -656,11 +653,19 @@ def _cmd_review(args: argparse.Namespace) -> int:
         state: dict = {"lanes": {}, "done": False}
         app = create_app(ctx.bus, state)
 
-        runner = ctx.data.get("_server_runner") or _run_uvicorn_in_thread
+        injected_runner = ctx.data.get("_server_runner")
+        runner = injected_runner or _run_uvicorn_in_thread
         runner(app, port)
 
         print(f"Dashboard: http://127.0.0.1:{port}")
         results = asyncio.run(_run_with_state(agents, ctx, state))
+
+        # Critical 2: when using the real uvicorn server (not an injected test
+        # runner), block so the dashboard remains accessible after agents finish.
+        if injected_runner is None:
+            print("Dashboard still running - press Ctrl+C to stop.")
+            with contextlib.suppress(KeyboardInterrupt):
+                threading.Event().wait()
     else:
         results = asyncio.run(run_agents(agents, ctx))
 

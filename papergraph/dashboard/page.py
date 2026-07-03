@@ -70,17 +70,21 @@ PAGE_HTML = """<!doctype html>
     const lanesEl = document.getElementById('lanes');
     const bannerEl = document.getElementById('banner');
 
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, function(c) {
+        return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+      });
+    }
+
     function renderLanes() {
       lanesEl.innerHTML = '';
       for (const [name, data] of Object.entries(laneStates)) {
         const laneDiv = document.createElement('div');
         laneDiv.className = 'lane';
-        const statusClass = data.status ? data.status.toLowerCase() : '';
-        laneDiv.innerHTML = `
-          <div class="lane-name">${name}</div>
-          <div class="lane-status ${statusClass}">${data.status || 'idle'}</div>
-          <div class="lane-latest">${data.latest || '-'}</div>
-        `;
+        const statusClass = data.status ? esc(data.status.toLowerCase()) : '';
+        laneDiv.innerHTML = '<div class="lane-name">' + esc(name) + '</div>'
+          + '<div class="lane-status ' + statusClass + '">' + esc(data.status || 'idle') + '</div>'
+          + '<div class="lane-latest">' + esc(data.latest || '-') + '</div>';
         lanesEl.appendChild(laneDiv);
       }
     }
@@ -88,7 +92,7 @@ PAGE_HTML = """<!doctype html>
     function addFindingToFeed(kind, summary) {
       const item = document.createElement('div');
       item.className = 'feed-item';
-      item.innerHTML = `<span class="feed-kind">[${kind}]</span> <span class="feed-text">${summary}</span>`;
+      item.innerHTML = '<span class="feed-kind">[' + esc(kind) + ']</span> <span class="feed-text">' + esc(summary) + '</span>';
       feedEl.insertBefore(item, feedEl.firstChild);
     }
 

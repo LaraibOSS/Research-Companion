@@ -145,3 +145,31 @@ def test_review_serve_uses_injected_server_and_completes(monkeypatch, capsys):
     assert rc == 0
     assert launched["port"] == 9999
     assert "127.0.0.1:9999" in out
+    # Critical 2: injected runner must NOT print the blocking Ctrl+C message
+    assert "Ctrl+C" not in out
+
+
+def _seed_with_id(pid: str):
+    """Seed a paper with a specific paper_id (for DOI / slash-containing IDs)."""
+    store.PaperMetadata(paper_id=pid, title="DOI Paper Test", authors=["A"]).save()
+    store.save_extraction(
+        pid,
+        {"concepts": [{"name": "RAG", "definition": "d"}], "methods": [], "datasets": [],
+         "claims": [], "results": [],
+         "related_work": ["Attention Is All You Need", "A Fabricated Paper Title"]},
+        prompt_sha=extraction_prompt_sha256(),
+    )
+    return pid
+
+
+def test_review_doi_id_creates_run_log(monkeypatch: pytest.MonkeyPatch, capsys):
+    """Critical 1: DOI paper_id with '/' must not crash on run-log creation."""
+    doi_pid = "doi:10.1145/12345.67890"
+    _seed_with_id(doi_pid)
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    rc = cli.main(["review", doi_pid, "--fast"])
+    assert rc == 0
+    # A run log must exist and its filename must not contain the raw '/' char.
+    runs = list((store.papergraph_dir() / "runs").glob("*.jsonl"))
+    doi_runs = [r for r in runs if "doi__10_1145_12345_67890" in r.name]
+    assert doi_runs, f"expected a DOI run log, found: {[r.name for r in runs]}"

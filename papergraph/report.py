@@ -86,7 +86,7 @@ def _section_novelty(data: dict) -> str:
         verdict = _escape(claim.get("verdict", ""))
         confidence = claim.get("confidence", 0)
         evidence_verified = claim.get("evidence_verified", False)
-        verified_badge = "✓" if evidence_verified else "✗"
+        verified_badge = "OK" if evidence_verified else "X"
         html_out += f"""        <tr>
           <td>{text}</td>
           <td>{verdict}</td>
@@ -111,7 +111,7 @@ def _section_confidence(data: dict) -> str:
         score = claim.get("score", 0)
         band = claim.get("band", 0)
         html_out += "      <div style=\"margin: 10px 0; padding: 8px; border-left: 3px solid #0066cc;\">\n"
-        html_out += f"        <strong>{score:.3f} ± {band:.3f}</strong> {text}\n"
+        html_out += f"        <strong>{score:.3f} +/- {band:.3f}</strong> {text}\n"
         html_out += "      </div>\n"
     return html_out
 
@@ -145,7 +145,7 @@ def _section_rebuttal(data: dict) -> str:
     for draft in drafts:
         concern_id = _escape(draft.get("concern_id", ""))
         verified = draft.get("evidence_status") == "verified"
-        verified_badge = "✓ VERIFIED" if verified else "⚠ CHECK"
+        verified_badge = "OK VERIFIED" if verified else "! CHECK"
         html_out += "      <div style=\"margin: 10px 0; padding: 8px; border-left: 3px solid #cc6600;\">\n"
         html_out += f"        <strong>{concern_id}</strong> [{verified_badge}]\n"
         html_out += "      </div>\n"
