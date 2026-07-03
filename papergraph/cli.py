@@ -570,6 +570,52 @@ def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, i
 REVIEW_CONTEXT_OVERRIDES: dict = {}
 
 
+def _run_uvicorn_in_thread(app, port: int) -> None:
+    """Start uvicorn in a daemon background thread."""
+    import threading
+
+    import uvicorn
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+
+
+async def _run_with_state(agents, ctx, state: dict) -> dict:
+    """Run agents while tracking their status in *state* via bus events."""
+    import asyncio
+    import contextlib
+
+    from papergraph.agents.events import AgentDone, AgentError, AgentStarted
+    from papergraph.agents.orchestrator import run_agents
+
+    q = ctx.bus.subscribe()
+
+    async def _tracker():
+        while True:
+            event = await q.get()
+            if isinstance(event, AgentStarted):
+                state["lanes"][event.agent] = "running"
+            elif isinstance(event, AgentDone):
+                state["lanes"][event.agent] = "done"
+            elif isinstance(event, AgentError):
+                state["lanes"][event.agent] = "FAILED"
+
+    tracker = asyncio.create_task(_tracker())
+    try:
+        results = await run_agents(agents, ctx)
+    finally:
+        tracker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await tracker
+        ctx.bus.unsubscribe(q)
+
+    state["done"] = True
+    return results
+
+
 def _cmd_review(args: argparse.Namespace) -> int:
     import asyncio
 
@@ -594,7 +640,29 @@ def _cmd_review(args: argparse.Namespace) -> int:
         agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent()]
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
-    results = asyncio.run(run_agents(agents, ctx))
+
+    if getattr(args, "serve", False):
+        try:
+            from papergraph.dashboard.server import create_app
+        except ImportError:
+            print(
+                "papergraph: dashboard requires fastapi and uvicorn. "
+                "Install with: pip install fastapi uvicorn",
+                file=sys.stderr,
+            )
+            return 1
+
+        port = getattr(args, "port", 8501)
+        state: dict = {"lanes": {}, "done": False}
+        app = create_app(ctx.bus, state)
+
+        runner = ctx.data.get("_server_runner") or _run_uvicorn_in_thread
+        runner(app, port)
+
+        print(f"Dashboard: http://127.0.0.1:{port}")
+        results = asyncio.run(_run_with_state(agents, ctx, state))
+    else:
+        results = asyncio.run(run_agents(agents, ctx))
 
     if args.report:
         from papergraph.report import build_report_json, render_report_html
@@ -872,6 +940,10 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--fast", action="store_true",
                      help="Skip LLM lanes (novelty, confidence, benchmark)")
     prv.add_argument("--report", help="Write report.html + report.json to this directory")
+    prv.add_argument("--serve", action="store_true",
+                     help="Start a live dashboard while agents run")
+    prv.add_argument("--port", type=int, default=8501,
+                     help="Port for the dashboard (default: 8501)")
     prv.set_defaults(func=_cmd_review)
 
     prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")

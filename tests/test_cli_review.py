@@ -128,3 +128,20 @@ def test_review_report_flag_writes_html_and_json(monkeypatch: pytest.MonkeyPatch
     payload = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
     assert payload["lanes"]["citation"]["ok"] is True
     assert "report.html" in capsys.readouterr().out
+
+
+def test_review_serve_uses_injected_server_and_completes(monkeypatch, capsys):
+    paper_id = _seed()
+    launched = {}
+
+    def fake_runner(app, port):
+        launched["port"] = port
+
+    ov = _overrides()
+    ov["_server_runner"] = fake_runner
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", ov)
+    rc = cli.main(["review", paper_id, "--fast", "--serve", "--port", "9999"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert launched["port"] == 9999
+    assert "127.0.0.1:9999" in out
