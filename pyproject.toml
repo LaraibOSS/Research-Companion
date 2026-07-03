@@ -47,6 +47,7 @@ papergraph = ["templates/*.html", "templates/*.css", "templates/*.js"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 110
