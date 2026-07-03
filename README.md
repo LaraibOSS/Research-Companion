@@ -162,6 +162,43 @@ papergraph discover --expand --json
 
 **Citation expansion** (`--expand`) follows the references and citations of every paper in your store, surfaces the most-cited papers you're missing, and filters out anything you already have. This is the fastest way to go from 5 seed papers to a comprehensive literature graph.
 
+## Agentic review (new)
+
+A team of specialized agents analyzes a paper end-to-end, and every verdict carries evidence:
+
+```bash
+papergraph review <paper-id>                 # 6 agents: ingest, citation, priorart,
+                                             # novelty, confidence, benchmark
+papergraph review <paper-id> --fast          # skip the LLM lanes (no API key needed)
+papergraph review <paper-id> --report out/   # write out/report.html + out/report.json
+papergraph review <paper-id> --serve         # live browser dashboard (SSE) while agents run
+```
+
+What each lane does:
+
+- **citation** - validates every reference against CrossRef/OpenAlex; flags fabricated,
+  wrong-DOI, and author-mismatch citations.
+- **priorart** - maps related work via Semantic Scholar.
+- **novelty** - extracts the paper's claimed contributions, compares each against prior art,
+  and verifies every evidence quote against the paper's own text.
+- **confidence** - deterministic score with an uncertainty band per claim (no LLM).
+- **benchmark** - suggests evaluation benchmarks mined from the knowledge graph + related work.
+
+Every run writes a JSONL audit log to `~/.papergraph/runs/`.
+
+## Answer reviewers (rebuttal assistant)
+
+```bash
+papergraph rebuttal <paper-id> --reviews reviews.txt            # grounded point-by-point replies
+papergraph rebuttal <paper-id> --reviews reviews.txt \
+    --emit-segments seg.json                                    # split reviews, edit, then:
+papergraph rebuttal <paper-id> --segments seg.json --tone firm  # resume from edited segments
+```
+
+Replies quote only real passages from your paper; any span the model cannot ground is flagged
+`CHECK` instead of shipped. Duplicate concerns raised by multiple reviewers are grouped, and a
+planned-revisions changelog is assembled automatically.
+
 ## Example corpus
 
 `examples/graph-rag-corpus/papers.txt` is a curated list of 10 papers on graph-based RAG. Run it as a one-liner:
