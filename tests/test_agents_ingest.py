@@ -30,6 +30,7 @@ async def test_ingest_builds_graph_and_publishes_finding():
     result = await IngestAgent().run(ctx)
     assert result.ok
     assert result.data["graph_nodes"] > 0
+    assert result.data["graph_edges"] >= 0
     assert "_graph" in ctx.data and "_extraction" in ctx.data
     assert any(isinstance(e, events.Finding) and e.kind == "graph_built"
                for e in ctx.bus.history)
