@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from papergraph.agents import events
 
 
@@ -27,6 +29,11 @@ def test_event_to_dict_all_types_roundtrip_json():
     assert names == ["agent_started", "finding", "agent_message", "agent_done", "agent_error"]
     for e in all_events:
         json.dumps(events.event_to_dict(e))  # must not raise
+
+
+def test_event_to_dict_rejects_unknown_type():
+    with pytest.raises(ValueError, match="unknown event type"):
+        events.event_to_dict(object())
 
 
 def test_event_log_appends_jsonl(tmp_path):

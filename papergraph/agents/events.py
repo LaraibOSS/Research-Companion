@@ -28,7 +28,7 @@ class Finding:
     agent: str
     kind: str
     summary: str
-    data: dict = field(default_factory=dict)
+    data: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -50,9 +50,12 @@ class AgentError:
     error: str
 
 
-def event_to_dict(event) -> dict:
+def event_to_dict(event) -> dict[str, object]:
     """Serialize an event with an `event` discriminator key."""
-    return {"event": _KIND[type(event).__name__], **asdict(event)}
+    kind = _KIND.get(type(event).__name__)
+    if kind is None:
+        raise ValueError(f"unknown event type: {type(event).__name__}")
+    return {"event": kind, **asdict(event)}
 
 
 class EventLog:
