@@ -22,7 +22,7 @@ class BenchmarkAgent(Agent):
         for node, attrs in graph.nodes(data=True):
             if attrs.get("kind") != "dataset":
                 continue
-            label = attrs.get("label", node)
+            label = str(attrs.get("label") or node)
             mentions = sum(1 for t in prior_texts if label.lower() in t)
             suggestions.append({
                 "name": label,

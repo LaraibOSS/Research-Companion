@@ -87,3 +87,41 @@ async def test_novelty_bad_llm_json_fails_cleanly():
     result = await NoveltyAgent().run(ctx)
     assert not result.ok
     assert "novelty" in result.error.lower() or "json" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_novelty_nan_confidence_clamped():
+    """Fake comparison LLM returns NaN confidence; result must be 0.0 and JSON-safe."""
+    pid = "local:nov_nan"
+    store.PaperMetadata(paper_id=pid, title="NaN Test", authors=[]).save()
+    store.save_text(pid, "body text We propose X here.")
+
+    def _nan_llm(prompt: str) -> str:
+        if '"evidence_quote"' in prompt:
+            return json.dumps({"claims": [
+                {"text": "We propose X.", "kind": "method", "evidence_quote": "We propose X"},
+            ]})
+        # Raw string with NaN (not JSON-spec compliant, but Python json.loads accepts it)
+        return '{"verdict":"novel","confidence":NaN,"closest_prior":[],"rationale":"r"}'
+
+    ctx = AgentContext(paper_id=pid, bus=Bus(), data={})
+    ctx.data.update({"_extraction": {}, "_priorart_papers": [], "_llm": _nan_llm})
+    result = await NoveltyAgent().run(ctx)
+    assert result.ok
+    assert result.data["claims"][0]["confidence"] == 0.0
+    # Must be serialisable without allow_nan=False raising
+    json.dumps(result.data, allow_nan=False)
+
+
+@pytest.mark.asyncio
+async def test_novelty_non_object_contribution_fails_cleanly():
+    """Fake contribution LLM returns a JSON array; should fail with 'non-object' in error."""
+    pid = "local:nov_arr"
+    store.PaperMetadata(paper_id=pid, title="Array Test", authors=[]).save()
+    store.save_text(pid, "body")
+    ctx = AgentContext(paper_id=pid, bus=Bus(), data={})
+    ctx.data.update({"_extraction": {}, "_priorart_papers": [],
+                     "_llm": lambda p: "[1,2,3]"})
+    result = await NoveltyAgent().run(ctx)
+    assert result.ok is False
+    assert "non-object" in result.error

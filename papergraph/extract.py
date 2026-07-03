@@ -31,10 +31,22 @@ from papergraph.store import (
     save_text,
 )
 
-
 # Cap on text fed to the extractor. ~50k chars ≈ ~12k tokens, fits comfortably in
 # Claude/GPT context with room for the prompt and response. Most papers are 10-30 pages.
 MAX_PAPER_CHARS = 50_000
+
+# Default models per provider — single source of truth used by resolve_model().
+_DEFAULT_MODELS_BY_PROVIDER: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-7",
+    "openai": "gpt-4o-2024-11-20",
+}
+
+
+def resolve_model(provider: str, model: str | None = None) -> str:
+    """Return the model to use for *provider*, falling back to its default."""
+    if model:
+        return model
+    return _DEFAULT_MODELS_BY_PROVIDER.get(provider, _DEFAULT_MODELS_BY_PROVIDER["anthropic"])
 
 
 # ---------------------------------------------------------------------------
@@ -178,11 +190,9 @@ def extract_paper(
     )
 
     if provider == "anthropic":
-        model = model or "claude-sonnet-4-7"
-        raw, usage = _call_anthropic(prompt, model=model)
+        raw, usage = _call_anthropic(prompt, model=resolve_model(provider, model))
     elif provider == "openai":
-        model = model or "gpt-4o-2024-11-20"
-        raw, usage = _call_openai(prompt, model=model)
+        raw, usage = _call_openai(prompt, model=resolve_model(provider, model))
     else:
         raise ValueError(f"unknown provider {provider!r} (expected 'anthropic' or 'openai')")
 

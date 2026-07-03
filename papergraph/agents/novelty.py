@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 
@@ -27,11 +28,11 @@ def _verify_quote(quote: str, fulltext: str) -> bool:
 
 
 def _default_llm(prompt: str) -> str:
-    from papergraph.extract import _call_anthropic, _call_openai
+    from papergraph.extract import _call_anthropic, _call_openai, resolve_model
 
     provider = os.environ.get("PAPERGRAPH_PROVIDER", "anthropic")
     call = _call_openai if provider == "openai" else _call_anthropic
-    text, _usage = call(prompt, model=os.environ.get("PAPERGRAPH_MODEL") or None)
+    text, _usage = call(prompt, model=resolve_model(provider, os.environ.get("PAPERGRAPH_MODEL")))
     return text
 
 
@@ -39,9 +40,23 @@ def _parse_json(raw: str, what: str) -> dict:
     from papergraph.extract import _strip_code_fences
 
     try:
-        return json.loads(_strip_code_fences(raw))
+        parsed = json.loads(_strip_code_fences(raw))
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"novelty: LLM returned invalid JSON for {what}: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"novelty: LLM returned non-object JSON for {what}")
+    return parsed
+
+
+def _clamp_confidence(raw_value: object) -> float:
+    """Coerce *raw_value* to a finite float in [0.0, 1.0]."""
+    try:
+        v = float(raw_value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(v):
+        return 0.0
+    return max(0.0, min(1.0, v))
 
 
 class NoveltyAgent(Agent):
@@ -60,7 +75,10 @@ class NoveltyAgent(Agent):
             fulltext = load_text(ctx.paper_id) or ""
 
             raw = await asyncio.to_thread(llm, format_contribution_prompt(title, fulltext[:20000]))
-            claims = _parse_json(raw, "contribution extraction").get("claims", [])
+            parsed = _parse_json(raw, "contribution extraction")
+            claims = parsed.get("claims", [])
+            if not isinstance(claims, list):
+                raise RuntimeError("novelty: 'claims' is not a list")
 
             prior = ctx.data.get("_priorart_papers") or []
             prior_block = "\n".join(
@@ -69,6 +87,7 @@ class NoveltyAgent(Agent):
 
             out_claims = []
             counts: dict[str, int] = {}
+            buffered_findings: list[events.Finding] = []
             for c in claims:
                 raw_cmp = await asyncio.to_thread(
                     llm, format_comparison_prompt(c.get("text", ""), prior_block)
@@ -79,18 +98,22 @@ class NoveltyAgent(Agent):
                     "text": c.get("text", ""),
                     "kind": c.get("kind", ""),
                     "verdict": verdict,
-                    "confidence": float(cmp.get("confidence", 0.0)),
+                    "confidence": _clamp_confidence(cmp.get("confidence", 0.0)),
                     "closest_prior": cmp.get("closest_prior", []),
                     "rationale": cmp.get("rationale", ""),
                     "evidence_verified": _verify_quote(c.get("evidence_quote", ""), fulltext),
                 }
                 out_claims.append(entry)
                 counts[verdict] = counts.get(verdict, 0) + 1
-                await ctx.bus.publish(events.Finding(
+                buffered_findings.append(events.Finding(
                     agent=self.name, kind="novelty_verdict",
                     summary=f"[{verdict}] {entry['text'][:80]}",
                     data=entry,
                 ))
+
+            # Publish all per-claim findings AFTER the loop completes successfully.
+            for finding in buffered_findings:
+                await ctx.bus.publish(finding)
 
             await ctx.bus.publish(events.Finding(
                 agent=self.name, kind="novelty_report",

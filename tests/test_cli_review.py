@@ -104,4 +104,4 @@ def test_review_cli_fast_skips_llm_lanes(monkeypatch: pytest.MonkeyPatch, capsys
     rc = cli.main(["review", paper_id, "--fast"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "novelty" not in out and "confidence" not in out
+    assert "novelty" not in out and "confidence" not in out and "benchmark" not in out

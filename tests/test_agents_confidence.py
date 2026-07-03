@@ -35,6 +35,11 @@ def test_band_bounds():
     assert 0.05 <= band <= 0.5
 
 
+def test_band_upper_clamp():
+    _, band = score_claim(True, 0.0, 0.0)
+    assert band == 0.5
+
+
 @pytest.mark.asyncio
 async def test_confidence_agent_emits_card_per_claim():
     ctx = AgentContext(paper_id="local:x", bus=Bus(), data={})

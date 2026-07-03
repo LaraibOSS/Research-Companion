@@ -123,3 +123,10 @@ def test_extract_paper_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch,
     )
     with pytest.raises(extract.ExtractionError):
         extract.extract_paper(meta, provider="anthropic")
+
+
+def test_resolve_model_defaults_per_provider():
+    from papergraph.extract import resolve_model
+    assert resolve_model("anthropic")           # non-empty default
+    assert resolve_model("openai")
+    assert resolve_model("anthropic", "custom-x") == "custom-x"
