@@ -15,7 +15,7 @@ def retrieve_passages(concern_text: str, fulltext: str, k: int = 3) -> list[Pass
     concern_toks = _tokens(concern_text)
     if not concern_toks:
         return []
-    out: list[Passage] = []
+    scored: list[tuple[float, int, Passage]] = []
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", fulltext) if p.strip()]
     for i, para in enumerate(paragraphs, 1):
         para_toks = _tokens(para)
@@ -23,6 +23,6 @@ def retrieve_passages(concern_text: str, fulltext: str, k: int = 3) -> list[Pass
         if not shared:
             continue
         score = len(shared) / (1 + math.log(1 + len(para.split())))
-        out.append(Passage(location=f"para {i}", text=para, score=round(score, 4)))
-    out.sort(key=lambda p: (-p.score, p.location))
-    return out[:k]
+        scored.append((score, i, Passage(location=f"para {i}", text=para, score=round(score, 4))))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    return [p for _, _, p in scored[:k]]

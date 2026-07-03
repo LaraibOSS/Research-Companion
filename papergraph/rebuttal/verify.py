@@ -21,5 +21,6 @@ def verify_quote(quote: str, fulltext: str) -> tuple[bool, str]:
 
 
 def verify_reply_quotes(reply: str, fulltext: str) -> list[str]:
+    reply = reply.replace("“", '"').replace("”", '"')
     spans = re.findall(r'"([^"]+)"', reply)
     return [s for s in spans if len(s) >= _MIN_SPAN and not verify_quote(s, fulltext)[0]]

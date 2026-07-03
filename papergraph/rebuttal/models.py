@@ -28,6 +28,7 @@ class ResponseDraft:
     verified: bool = False
     unverified_spans: list[str] = field(default_factory=list)
     planned_revision: str = ""
+    evidence_status: str = ""
 
 
 @dataclass

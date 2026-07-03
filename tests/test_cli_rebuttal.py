@@ -63,3 +63,19 @@ def test_rebuttal_cli_missing_reviews_errors(capsys):
     rc = cli.main(["rebuttal", pid])
     assert rc == 1
     assert "reviews" in capsys.readouterr().err.lower()
+
+
+def test_rebuttal_cli_rejects_malformed_segments(tmp_path, capsys):
+    pid = _seed()
+    bad = tmp_path / "bad.json"
+    bad.write_text('[{"wrong_key": 1}]', encoding="utf-8")
+    rc = cli.main(["rebuttal", pid, "--segments", str(bad)])
+    assert rc == 1
+    assert "invalid segments" in capsys.readouterr().err.lower()
+
+
+def test_rebuttal_cli_missing_segments_file(capsys):
+    pid = _seed()
+    rc = cli.main(["rebuttal", pid, "--segments", "nope.json"])
+    assert rc == 1
+    assert "not found" in capsys.readouterr().err.lower()

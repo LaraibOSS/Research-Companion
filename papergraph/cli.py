@@ -658,8 +658,15 @@ def _cmd_rebuttal(args: argparse.Namespace) -> int:
     ctx_data["_reviews_text"] = reviews_text
     ctx_data["_tone"] = args.tone
     if args.segments:
-        ctx_data["_concerns"] = concerns_from_json(
-            Path(args.segments).read_text(encoding="utf-8"))
+        seg_path = Path(args.segments)
+        if not seg_path.is_file():
+            print(f"papergraph: segments file not found: {seg_path}", file=sys.stderr)
+            return 1
+        try:
+            ctx_data["_concerns"] = concerns_from_json(seg_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, TypeError) as exc:
+            print(f"papergraph: invalid segments file: {exc}", file=sys.stderr)
+            return 1
 
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(), data=ctx_data)
     results = asyncio.run(run_agents([IngestAgent(), RebuttalAgent()], ctx))
@@ -674,8 +681,12 @@ def _cmd_rebuttal(args: argparse.Namespace) -> int:
 
     kinds = {c["concern_id"]: c["kind"] for c in reb.data["concerns"]}
     for d in reb.data["drafts"]:
-        status = ("[OK all quotes verified]" if d["verified"]
-                  else f"[CHECK {len(d['unverified_spans'])} unverified span(s)]")
+        if d.get("evidence_status") == "no_quotes":
+            status = "[NOTE reply cites no paper quotes]"
+        elif d["verified"]:
+            status = "[OK all quotes verified]"
+        else:
+            status = f"[CHECK {len(d['unverified_spans'])} unverified span(s)]"
         print(f"\n{d['concern_id']} ({kinds.get(d['concern_id'], '?')})  {status}")
         print(f"  {d['reply']}")
         if d["planned_revision"]:

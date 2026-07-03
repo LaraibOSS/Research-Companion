@@ -37,6 +37,7 @@ def test_draft_grounds_verifies_and_builds_changelog():
     assert report.changelog == ["Make the baseline comparison more prominent."]
     assert report.groups == [["R1.1"]]
     assert concerns[0].kind == "misunderstanding"
+    assert d.evidence_status == "verified"
 
 
 def test_draft_flags_unverified_spans():
@@ -45,9 +46,24 @@ def test_draft_flags_unverified_spans():
     d = report.drafts[0]
     assert not d.verified
     assert d.unverified_spans == ["a totally fabricated sentence not in the paper"]
+    assert d.evidence_status == "unverified"
 
 
 def test_draft_bad_json_raises_runtimeerror():
     concerns = [Concern(concern_id="R1.1", reviewer="R1", text="Some concern text here")]
     with pytest.raises(RuntimeError, match="rebuttal"):
         draft_rebuttal(concerns, FULLTEXT, lambda p: "NOT JSON")
+
+
+def test_draft_no_quotes_reply_gets_no_quotes_status():
+    concerns = [Concern(concern_id="R1.1", reviewer="R1", text="Some concern text here")]
+
+    def llm(prompt):
+        if '"kind"' in prompt:
+            return json.dumps({"kind": "clarification"})
+        return json.dumps({"reply": "We will clarify this in the revision.",
+                           "planned_revision": "Clarify section 3."})
+
+    report = draft_rebuttal(concerns, FULLTEXT, llm)
+    d = report.drafts[0]
+    assert d.verified is True and d.evidence_status == "no_quotes"
