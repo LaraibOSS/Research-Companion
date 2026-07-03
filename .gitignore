@@ -12,6 +12,7 @@ venv/
 # Local user state — never commit
 .papergraph/
 papergraph-out/
+demo-out/
 
 # IDE / OS
 .vscode/

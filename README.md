@@ -31,6 +31,7 @@ papergraph builds a *concept-level* knowledge graph (concepts, methods, datasets
 
 ```bash
 pip install papergraph
+pip install -e ".[demo]"  # + live dashboard (fastapi, uvicorn)
 
 # you also need ONE of:
 export ANTHROPIC_API_KEY=sk-ant-...   # default
@@ -185,6 +186,14 @@ What each lane does:
 - **benchmark** - suggests evaluation benchmarks mined from the knowledge graph + related work.
 
 Every run writes a JSONL audit log to `~/.papergraph/runs/`.
+
+## Try it in 30 seconds (no API key)
+
+```bash
+python examples/demo_offline.py
+```
+
+Seeds a synthetic paper, runs all 6 review-agent lanes, and drafts a rebuttal entirely offline -- no API keys or network required.
 
 ## Answer reviewers (rebuttal assistant)
 
