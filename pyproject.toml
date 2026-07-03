@@ -28,10 +28,16 @@ Repository = "https://github.com/azizur100389/papergraph"
 Issues = "https://github.com/azizur100389/papergraph/issues"
 
 [project.optional-dependencies]
+demo = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.scripts]
