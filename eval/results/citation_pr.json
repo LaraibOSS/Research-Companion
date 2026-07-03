@@ -1,0 +1,39 @@
+{
+  "overall": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "tp": 19,
+    "fp": 0,
+    "fn": 0
+  },
+  "per_type": {
+    "fabricated": {
+      "recall": 1.0,
+      "tp": 7,
+      "fn": 0,
+      "total": 7
+    },
+    "wrong_doi": {
+      "recall": 1.0,
+      "tp": 6,
+      "fn": 0,
+      "total": 6
+    },
+    "author_swap": {
+      "recall": 1.0,
+      "tp": 6,
+      "fn": 0,
+      "total": 6
+    }
+  },
+  "counts": {
+    "total": 59,
+    "clean": 40,
+    "corrupted": 19,
+    "fabricated": 7,
+    "wrong_doi": 6,
+    "author_swap": 6
+  },
+  "seed": 42
+}
