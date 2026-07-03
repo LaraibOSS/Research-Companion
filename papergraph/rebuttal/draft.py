@@ -36,11 +36,14 @@ def draft_rebuttal(
     drafts: list[ResponseDraft] = []
     changelog: list[str] = []
     for c in concerns:
-        kind = _parse(llm(format_classify_prompt(c.text)), "classification").get(
-            "kind", "clarification")
-        if kind not in _VALID_KINDS:
-            kind = "clarification"
-        c.kind = kind
+        if c.kind and c.kind in _VALID_KINDS:
+            kind = c.kind
+        else:
+            kind = _parse(llm(format_classify_prompt(c.text)), "classification").get(
+                "kind", "clarification")
+            if kind not in _VALID_KINDS:
+                kind = "clarification"
+            c.kind = kind
         passages = retrieve_passages(c.text, fulltext)
         passage_block = "\n".join(f"{p.location}: {p.text}" for p in passages) or "(none found)"
         out = _parse(llm(format_rebuttal_prompt(c.text, c.kind, passage_block, tone)), "draft")

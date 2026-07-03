@@ -17,6 +17,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -964,6 +965,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    with contextlib.suppress(Exception):
+        sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(errors="replace")  # type: ignore[attr-defined]
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

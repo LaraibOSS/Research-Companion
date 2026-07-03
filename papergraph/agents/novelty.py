@@ -10,21 +10,15 @@ import asyncio
 import json
 import math
 import os
-import re
 
 from papergraph.agents import events
 from papergraph.agents.base import Agent, AgentContext, AgentResult
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"\s+", " ", s.lower()).strip()
+from papergraph.rebuttal.verify import verify_quote as _vq
 
 
 def _verify_quote(quote: str, fulltext: str) -> bool:
     """True iff the quote appears in the fulltext (exact or normalized)."""
-    if not quote or not fulltext:
-        return False
-    return quote in fulltext or _normalize(quote) in _normalize(fulltext)
+    return _vq(quote, fulltext)[0]
 
 
 def _default_llm(prompt: str) -> str:

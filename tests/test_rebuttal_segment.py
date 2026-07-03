@@ -41,3 +41,25 @@ def test_segment_short_fragment_merges_into_previous():
 
 def test_segment_empty_input():
     assert segment_reviews("   \n\n ") == []
+
+
+def test_segment_reviewer_hash_number_produces_correct_id():
+    """'Reviewer #2' header should yield reviewer id R2 (digit from label)."""
+    text = (
+        "Reviewer #2\n\n"
+        "1. The methodology section lacks detail and explanation.\n"
+    )
+    concerns = segment_reviews(text)
+    assert concerns[0].reviewer == "R2"
+    assert concerns[0].concern_id.startswith("R2.")
+
+
+def test_segment_r_prefix_header_produces_correct_id():
+    """Lines like 'R3:' or 'R3.' should start reviewer R3."""
+    text = (
+        "R3: Some reviewer preamble here\n\n"
+        "1. This paper's experiments lack statistical significance tests entirely.\n"
+    )
+    concerns = segment_reviews(text)
+    assert concerns[0].reviewer == "R3"
+    assert concerns[0].concern_id.startswith("R3.")

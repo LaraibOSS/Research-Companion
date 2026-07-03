@@ -67,3 +67,23 @@ def test_draft_no_quotes_reply_gets_no_quotes_status():
     report = draft_rebuttal(concerns, FULLTEXT, llm)
     d = report.drafts[0]
     assert d.verified is True and d.evidence_status == "no_quotes"
+
+
+def test_draft_skips_classify_when_kind_already_set():
+    """Pre-classified concern (kind non-empty) must not trigger a classify LLM call.
+
+    The fake LLM records every call; after drafting one pre-classified concern
+    we expect exactly 1 call (the draft call), not 2.
+    """
+    calls: list[str] = []
+
+    def counting_llm(prompt: str) -> str:
+        calls.append(prompt)
+        # Only the draft call should arrive here.
+        return json.dumps({"reply": "We acknowledge the concern.",
+                           "planned_revision": ""})
+
+    concern = Concern(concern_id="R1.1", reviewer="R1",
+                      text="The baseline comparison is missing.", kind="valid_weakness")
+    draft_rebuttal([concern], FULLTEXT, counting_llm)
+    assert len(calls) == 1, f"Expected 1 LLM call (draft only), got {len(calls)}"
