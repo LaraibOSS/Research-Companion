@@ -34,7 +34,13 @@ def _overrides():
         return [DiscoveredPaper(title="GraphRAG", authors=[], year=2024, citation_count=5,
                                 arxiv_id="2404.00001", doi=None, s2_id=None, url="")]
 
-    return {"_lookup": lookup, "_search": search}
+    def llm(prompt):
+        if '"evidence_quote"' in prompt:
+            return json.dumps({"claims": []})
+        return json.dumps({"verdict": "novel", "confidence": 0.9,
+                           "closest_prior": [], "rationale": "r"})
+
+    return {"_lookup": lookup, "_search": search, "_llm": llm}
 
 
 def test_review_cli_runs_all_agents(monkeypatch: pytest.MonkeyPatch, capsys):
@@ -65,3 +71,37 @@ def test_review_cli_fails_without_extraction(capsys):
     assert rc == 1
     out = capsys.readouterr().out
     assert "FAILED" in out
+
+
+def _full_overrides():
+    ov = _overrides()
+
+    def llm(prompt):
+        if '"evidence_quote"' in prompt:
+            return json.dumps({"claims": [{"text": "We propose X.", "kind": "method",
+                                           "evidence_quote": "We propose X"}]})
+        return json.dumps({"verdict": "novel", "confidence": 0.9,
+                           "closest_prior": [], "rationale": "r"})
+
+    ov["_llm"] = llm
+    return ov
+
+
+def test_review_cli_full_pipeline_six_lanes(monkeypatch: pytest.MonkeyPatch, capsys):
+    paper_id = _seed()
+    store.save_text(paper_id, "Body. We propose X here.")
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _full_overrides())
+    rc = cli.main(["review", paper_id])
+    out = capsys.readouterr().out
+    assert rc == 0
+    for lane in ("ingest", "citation", "priorart", "novelty", "confidence", "benchmark"):
+        assert lane in out
+
+
+def test_review_cli_fast_skips_llm_lanes(monkeypatch: pytest.MonkeyPatch, capsys):
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    rc = cli.main(["review", paper_id, "--fast"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "novelty" not in out and "confidence" not in out

@@ -574,13 +574,18 @@ def _cmd_review(args: argparse.Namespace) -> int:
     import asyncio
 
     from papergraph.agents.base import AgentContext
+    from papergraph.agents.benchmark import BenchmarkAgent
     from papergraph.agents.bus import Bus
     from papergraph.agents.citation import CitationAgent
+    from papergraph.agents.confidence import ConfidenceAgent
     from papergraph.agents.ingest import IngestAgent
+    from papergraph.agents.novelty import NoveltyAgent
     from papergraph.agents.orchestrator import run_agents
     from papergraph.agents.priorart import PriorArtAgent
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent()]
+    if not args.fast:
+        agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent()]
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
     results = asyncio.run(run_agents(agents, ctx))
@@ -600,6 +605,10 @@ def _cmd_review(args: argparse.Namespace) -> int:
                                f"{d['counts']['suspect']} suspect · "
                                f"{d['counts']['unverified']} unverified"),
         "priorart": lambda d: f"{d['count']} related papers",
+        "novelty": lambda d: ", ".join(f"{v}: {n}" for v, n in sorted(d["counts"].items()))
+                             or "no claims",
+        "confidence": lambda d: f"{len(d['claims'])} claim(s) scored",
+        "benchmark": lambda d: f"{len(d['suggestions'])} benchmark(s) suggested",
     }
     for agent in agents:
         r = results[agent.name]
@@ -760,6 +769,8 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Run the agent team over a paper (ingest, citations, prior art)")
     prv.add_argument("paper_id", help="ID of a paper already built (see `papergraph list`)")
     prv.add_argument("--json", action="store_true", help="JSON output")
+    prv.add_argument("--fast", action="store_true",
+                     help="Skip LLM lanes (novelty, confidence, benchmark)")
     prv.set_defaults(func=_cmd_review)
 
     return p

@@ -25,7 +25,7 @@ def _fake_llm_factory():
 
     def _llm(prompt: str) -> str:
         calls.append(prompt)
-        if '"claims"' in prompt:  # contribution extraction call
+        if '"evidence_quote"' in prompt:  # contribution extraction call
             return json.dumps({"claims": [
                 {"text": "We propose GraphNov.", "kind": "method",
                  "evidence_quote": "We propose GraphNov"},
