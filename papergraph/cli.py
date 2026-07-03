@@ -621,6 +621,72 @@ def _cmd_review(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+REBUTTAL_CONTEXT_OVERRIDES: dict = {}
+
+
+def _cmd_rebuttal(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from papergraph.agents.base import AgentContext
+    from papergraph.agents.bus import Bus
+    from papergraph.agents.ingest import IngestAgent
+    from papergraph.agents.orchestrator import run_agents
+    from papergraph.agents.rebuttal import RebuttalAgent
+    from papergraph.rebuttal.models import concerns_from_json, concerns_to_json
+    from papergraph.rebuttal.segment import segment_reviews
+
+    if not args.reviews and not args.segments:
+        print("papergraph: provide --reviews FILE or --segments FILE.", file=sys.stderr)
+        return 1
+
+    reviews_text = ""
+    if args.reviews:
+        rpath = Path(args.reviews)
+        if not rpath.is_file():
+            print(f"papergraph: reviews file not found: {rpath}", file=sys.stderr)
+            return 1
+        reviews_text = rpath.read_text(encoding="utf-8")
+
+    if args.emit_segments:
+        concerns = segment_reviews(reviews_text)
+        Path(args.emit_segments).write_text(concerns_to_json(concerns), encoding="utf-8")
+        print(f"papergraph: wrote {len(concerns)} segment(s) to {args.emit_segments}. "
+              "Edit, then rerun with --segments.")
+        return 0
+
+    ctx_data = dict(REBUTTAL_CONTEXT_OVERRIDES)
+    ctx_data["_reviews_text"] = reviews_text
+    ctx_data["_tone"] = args.tone
+    if args.segments:
+        ctx_data["_concerns"] = concerns_from_json(
+            Path(args.segments).read_text(encoding="utf-8"))
+
+    ctx = AgentContext(paper_id=args.paper_id, bus=Bus(), data=ctx_data)
+    results = asyncio.run(run_agents([IngestAgent(), RebuttalAgent()], ctx))
+    reb = results["rebuttal"]
+    if not reb.ok:
+        print(f"papergraph: rebuttal failed: {reb.error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(reb.data, indent=2, ensure_ascii=False))
+        return 0
+
+    kinds = {c["concern_id"]: c["kind"] for c in reb.data["concerns"]}
+    for d in reb.data["drafts"]:
+        status = ("[OK all quotes verified]" if d["verified"]
+                  else f"[CHECK {len(d['unverified_spans'])} unverified span(s)]")
+        print(f"\n{d['concern_id']} ({kinds.get(d['concern_id'], '?')})  {status}")
+        print(f"  {d['reply']}")
+        if d["planned_revision"]:
+            print(f"  Revision: {d['planned_revision']}")
+    if reb.data["changelog"]:
+        print("\nPlanned revisions:")
+        for item in reb.data["changelog"]:
+            print(f"  - {item}")
+    return 0
+
+
 def _cmd_refcheck(args: argparse.Namespace) -> int:
     from papergraph.prompts import extraction_prompt_sha256
     from papergraph.refcheck.parse import references_from_extraction
@@ -772,6 +838,15 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--fast", action="store_true",
                      help="Skip LLM lanes (novelty, confidence, benchmark)")
     prv.set_defaults(func=_cmd_review)
+
+    prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")
+    prb.add_argument("paper_id", help="ID of a paper already built")
+    prb.add_argument("--reviews", help="Path to a text file with the reviewer comments")
+    prb.add_argument("--emit-segments", help="Segment reviews, write JSON here, and stop")
+    prb.add_argument("--segments", help="Resume from an edited segments JSON file")
+    prb.add_argument("--tone", choices=["deferential", "balanced", "firm"], default="balanced")
+    prb.add_argument("--json", action="store_true", help="JSON output")
+    prb.set_defaults(func=_cmd_rebuttal)
 
     return p
 
