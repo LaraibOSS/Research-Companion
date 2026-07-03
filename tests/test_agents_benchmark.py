@@ -6,8 +6,8 @@ import pytest
 
 from papergraph.agents import events
 from papergraph.agents.base import AgentContext
-from papergraph.agents.bus import Bus
 from papergraph.agents.benchmark import BenchmarkAgent
+from papergraph.agents.bus import Bus
 from papergraph.discover import DiscoveredPaper
 
 

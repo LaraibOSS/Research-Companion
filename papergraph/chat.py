@@ -19,7 +19,6 @@ import networkx as nx
 from papergraph.graph import load_graph
 from papergraph.prompts import CHAT_SYSTEM_PROMPT, render_chat_user_prompt
 
-
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------

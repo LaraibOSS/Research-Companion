@@ -4,8 +4,12 @@ from __future__ import annotations
 import json
 
 from papergraph.rebuttal.models import (
-    Concern, Passage, RebuttalReport, ResponseDraft,
-    concerns_from_json, concerns_to_json,
+    Concern,
+    Passage,
+    RebuttalReport,
+    ResponseDraft,
+    concerns_from_json,
+    concerns_to_json,
 )
 
 

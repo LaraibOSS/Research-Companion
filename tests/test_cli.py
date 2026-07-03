@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from papergraph import cli, extract, fetch, prompts, store
+from papergraph import cli, extract, store
 
 
 def test_help_smoke(capsys: pytest.CaptureFixture):

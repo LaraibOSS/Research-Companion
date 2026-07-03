@@ -23,7 +23,6 @@ import networkx as nx
 from papergraph.graph import graph_stats, load_graph
 from papergraph.store import graph_html_path
 
-
 _KIND_COLORS = {
     "paper":   "#2b7cff",
     "concept": "#3ec46d",

@@ -35,7 +35,6 @@ from papergraph.store import (
     save_pdf,
 )
 
-
 ARXIV_ABS_RE = re.compile(
     r"arxiv\.org/(?:abs|pdf|html)/(?P<id>\d{4}\.\d{4,5})(?:v\d+)?",
     re.IGNORECASE,

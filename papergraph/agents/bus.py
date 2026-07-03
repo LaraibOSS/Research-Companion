@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from papergraph.agents.events import EventLog
 
@@ -18,10 +19,8 @@ class Bus:
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
-        try:
+        with contextlib.suppress(ValueError):
             self._queues.remove(q)
-        except ValueError:
-            pass
 
     async def publish(self, event) -> None:
         self.history.append(event)

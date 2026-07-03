@@ -22,7 +22,6 @@ from papergraph.store import (
     save_pdf,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -549,7 +548,6 @@ class TestDiscover:
 
     def test_discover_cli_json_output(self, capsys: pytest.CaptureFixture):
         """--json flag produces valid JSON output."""
-        from papergraph import discover
 
         fake_resp = MagicMock()
         fake_resp.json.return_value = _fake_s2_search_response()

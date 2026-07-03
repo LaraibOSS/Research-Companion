@@ -8,13 +8,12 @@ All APIs are free, no auth required. Rate limit: ~100 req/5min without a key.
 """
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-from papergraph.store import list_papers, make_arxiv_id
+from papergraph.store import list_papers
 
 S2_SEARCH = "https://api.semanticscholar.org/graph/v1/paper/search"
 S2_PAPER = "https://api.semanticscholar.org/graph/v1/paper"
@@ -118,9 +117,7 @@ def _is_known(paper: DiscoveredPaper, known: set[str]) -> bool:
         return True
     if paper.doi and paper.doi in known:
         return True
-    if paper.doi and f"doi:{paper.doi}" in known:
-        return True
-    return False
+    return bool(paper.doi and f"doi:{paper.doi}" in known)
 
 
 # ---------------------------------------------------------------------------
