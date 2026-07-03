@@ -116,3 +116,15 @@ def test_review_writes_run_event_log(monkeypatch: pytest.MonkeyPatch, capsys):
     assert runs, "expected a run event log"
     first = json.loads(runs[0].read_text(encoding="utf-8").splitlines()[0])
     assert first["event"] in ("agent_started", "finding")
+
+
+def test_review_report_flag_writes_html_and_json(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    out_dir = tmp_path / "rep"
+    rc = cli.main(["review", paper_id, "--fast", "--report", str(out_dir)])
+    assert rc == 0
+    assert (out_dir / "report.html").exists() and (out_dir / "report.json").exists()
+    payload = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
+    assert payload["lanes"]["citation"]["ok"] is True
+    assert "report.html" in capsys.readouterr().out

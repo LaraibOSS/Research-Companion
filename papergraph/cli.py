@@ -596,12 +596,29 @@ def _cmd_review(args: argparse.Namespace) -> int:
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
     results = asyncio.run(run_agents(agents, ctx))
 
+    if args.report:
+        from papergraph.report import build_report_json, render_report_html
+        from papergraph.store import PaperMetadata
+
+        meta = PaperMetadata.load(args.paper_id)
+        rep = build_report_json(args.paper_id, meta.title if meta else "", results)
+        out_dir = Path(args.report)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "report.json").write_text(
+            json.dumps(rep, indent=2, ensure_ascii=False), encoding="utf-8")
+        (out_dir / "report.html").write_text(render_report_html(rep), encoding="utf-8")
+        if not args.json:
+            print(f"\nReport: {out_dir / 'report.html'}")
+            print(f"        {out_dir / 'report.json'}")
+
     if args.json:
         payload = {
             "paper_id": args.paper_id,
             "agents": {name: {"ok": r.ok, "data": r.data, "error": r.error}
                        for name, r in results.items()},
         }
+        if args.report:
+            payload["report_dir"] = str(out_dir)
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0 if all(r.ok for r in results.values()) else 1
 
@@ -854,6 +871,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--json", action="store_true", help="JSON output")
     prv.add_argument("--fast", action="store_true",
                      help="Skip LLM lanes (novelty, confidence, benchmark)")
+    prv.add_argument("--report", help="Write report.html + report.json to this directory")
     prv.set_defaults(func=_cmd_review)
 
     prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")
