@@ -152,7 +152,7 @@ def _score_paper(claims: list[dict]) -> float:
         return _NEUTRAL_SCORE
 
     total_confidence = sum(float(c.get("confidence", 0.0)) for c in claims)
-    claim_scores = [VERDICT_SCORES.get(c.get("verdict", "novel"), _NEUTRAL_SCORE) for c in claims]
+    claim_scores = [VERDICT_SCORES.get(c.get("verdict"), _NEUTRAL_SCORE) for c in claims]
 
     if total_confidence == 0.0:
         return sum(claim_scores) / len(claim_scores)
@@ -221,7 +221,8 @@ def run_cases(
         results = asyncio.run(run_agents(agents, ctx))
 
         novelty_result = results.get("novelty")
-        if novelty_result and novelty_result.ok:
+        agent_ok = bool(novelty_result and novelty_result.ok)
+        if agent_ok:
             claims = novelty_result.data.get("claims", [])
             model_score = _score_paper(claims)
         else:
@@ -232,6 +233,7 @@ def run_cases(
             "paper_id": paper_id,
             "human_novelty": human_novelty,
             "model_score": model_score,
+            "agent_ok": agent_ok,
         })
 
     human_scores = [r["human_novelty"] for r in paper_rows]

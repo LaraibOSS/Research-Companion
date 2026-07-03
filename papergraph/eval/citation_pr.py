@@ -394,15 +394,34 @@ def corrupt(
                 )
 
             else:  # author_swap
-                # Replace authors with those from a different random record
-                other = rng.choice([r for r in records if r is not rec])
-                corrupt_ref = Reference(
-                    title=rec["title"],
-                    authors=list(other["authors"]),
-                    year=rec["year"],
-                    doi=rec.get("doi"),
-                    arxiv_id=rec.get("arxiv_id"),
-                )
+                # Replace authors with those from a different random record,
+                # excluding donors that share any surname with the target.
+                def _surnames(authors: list[str]) -> set[str]:
+                    return {a.split()[-1].lower() for a in authors if a.split()}
+
+                target_surnames = _surnames(rec["authors"])
+                valid_donors = [
+                    r for r in records
+                    if r is not rec and not (_surnames(r["authors"]) & target_surnames)
+                ]
+                if not valid_donors:
+                    # No valid surname-disjoint donor — fall back to fabricated title
+                    corrupt_ref = Reference(
+                        title=_make_fabricated_title(rng),
+                        authors=list(rec["authors"]),
+                        year=rec["year"],
+                        doi=rec.get("doi"),
+                        arxiv_id=rec.get("arxiv_id"),
+                    )
+                else:
+                    other = rng.choice(valid_donors)
+                    corrupt_ref = Reference(
+                        title=rec["title"],
+                        authors=list(other["authors"]),
+                        year=rec["year"],
+                        doi=rec.get("doi"),
+                        arxiv_id=rec.get("arxiv_id"),
+                    )
 
             result.append((corrupt_ref, ctype))
 
@@ -480,8 +499,6 @@ def _compute_metrics(
         )
         # FP is shared across all corruptions (from clean examples) — report per-type recall only
         type_recall = type_tp / (type_tp + type_fn) if (type_tp + type_fn) > 0 else 0.0
-        # For per-type precision we use all predictions flagged when true label is that type
-        # (approximation: FP proportional to overall)
         per_type[ctype] = {
             "recall": round(type_recall, 4),
             "tp": type_tp,
@@ -530,7 +547,7 @@ def _write_artifacts(result: dict, out_dir: str) -> None:
 
     # JSON
     (out / "citation_pr.json").write_text(
-        json.dumps(result, indent=2), encoding="utf-8"
+        json.dumps(result, indent=2) + "\n", encoding="utf-8"
     )
 
     # Markdown table

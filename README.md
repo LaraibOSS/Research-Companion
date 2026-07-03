@@ -3,7 +3,7 @@
 > Drop arXiv URLs, DOIs, or PDFs in. Get a knowledge graph and a chat interface that answers questions with paper citations. Local-first. Open source.
 
 ```bash
-pip install papergraph
+git clone https://github.com/azizur100389/papergraph && cd papergraph && pip install -e .
 papergraph add https://arxiv.org/abs/2410.05779
 papergraph add https://arxiv.org/abs/2404.16130
 papergraph build
@@ -30,8 +30,9 @@ papergraph builds a *concept-level* knowledge graph (concepts, methods, datasets
 ## Install
 
 ```bash
-pip install papergraph
-pip install -e ".[demo]"  # + live dashboard (fastapi, uvicorn)
+git clone https://github.com/azizur100389/papergraph
+cd papergraph
+pip install -e ".[demo]"   # core + live dashboard (fastapi, uvicorn)
 
 # you also need ONE of:
 export ANTHROPIC_API_KEY=sk-ant-...   # default
@@ -186,6 +187,8 @@ What each lane does:
 - **benchmark** - suggests evaluation benchmarks mined from the knowledge graph + related work.
 
 Every run writes a JSONL audit log to `~/.papergraph/runs/`.
+
+Two additional library-level agents (not yet CLI-wired): problem (refines a research problem against the graph) and tracker (one-shot new-related-work sweep).
 
 ## Try it in 30 seconds (no API key)
 

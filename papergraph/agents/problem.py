@@ -41,8 +41,8 @@ class ProblemStatementAgent(Agent):
                     agent=self.name,
                     ok=False,
                     error=(
-                        "problem: no problem statement provided — "
-                        "supply one with --problem"
+                        "problem: no problem statement provided "
+                        "(set ctx.data['_problem_statement'])"
                     ),
                 )
 

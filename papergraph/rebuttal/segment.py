@@ -48,6 +48,9 @@ def segment_reviews(text: str) -> list[Concern]:
         r = _R_PREFIX_RE.match(line)
         if r:
             _switch_reviewer(r.group(1))
+            remainder = line[r.end():]
+            if remainder.strip():
+                buf.append(remainder)
             continue
         if _ITEM_RE.match(line):
             flush()

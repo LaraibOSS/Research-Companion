@@ -103,7 +103,7 @@ async def test_problem_agent_missing_statement():
     result = await ProblemStatementAgent().run(ctx)
 
     assert not result.ok
-    assert "--problem" in result.error
+    assert "_problem_statement" in result.error
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_problem_agent_empty_statement():
     result = await ProblemStatementAgent().run(ctx)
 
     assert not result.ok
-    assert "--problem" in result.error
+    assert "_problem_statement" in result.error
 
 
 # ---------------------------------------------------------------------------

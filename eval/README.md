@@ -36,7 +36,7 @@ Results are stored in `eval/results/`:
 
 **Note:** Because this is a controlled synthetic corruption benchmark, ceiling
 scores are expected and intended — the benchmark is designed as a sanity check,
-not a hard generalization test.
+not a hard generalization test.  Precision is 1.0 by construction under the oracle lookup (clean refs self-match the same GOLD list); only recall is diagnostic.
 
 ---
 

@@ -63,3 +63,11 @@ def test_segment_r_prefix_header_produces_correct_id():
     concerns = segment_reviews(text)
     assert concerns[0].reviewer == "R3"
     assert concerns[0].concern_id.startswith("R3.")
+
+
+def test_segment_r_prefix_inline_content_not_dropped():
+    """R1: <content on same line> — the content must appear in a concern."""
+    text = "R1: The paper lacks baseline comparisons entirely."
+    concerns = segment_reviews(text)
+    assert len(concerns) == 1
+    assert "lacks baseline comparisons" in concerns[0].text
