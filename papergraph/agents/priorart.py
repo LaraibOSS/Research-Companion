@@ -1,6 +1,8 @@
 """PriorArtAgent: find and map related work for the paper."""
 from __future__ import annotations
 
+import asyncio
+
 from papergraph.agents import events
 from papergraph.agents.base import Agent, AgentContext, AgentResult
 
@@ -20,7 +22,7 @@ class PriorArtAgent(Agent):
         query = " ".join([title] + [c for c in concepts[:3] if c]).strip()
 
         search = ctx.data.get("_search") or (lambda q: search_topic(q, limit=15))
-        found = search(query)
+        found = await asyncio.to_thread(search, query)
         papers = [
             {"title": p.title, "year": p.year,
              "id": p.arxiv_id or p.doi or p.s2_id or ""}

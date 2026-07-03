@@ -76,3 +76,15 @@ async def test_unknown_dependency_raises():
 async def test_cycle_raises():
     with pytest.raises(ValueError, match="cycle"):
         await run_agents([make_agent("a", deps=("b",)), make_agent("b", deps=("a",))], _ctx())
+
+
+@pytest.mark.asyncio
+async def test_duplicate_agent_names_raise():
+    with pytest.raises(ValueError, match="duplicate agent name"):
+        await run_agents([make_agent("a"), make_agent("a")], _ctx())
+
+
+@pytest.mark.asyncio
+async def test_empty_agent_name_raises():
+    with pytest.raises(ValueError, match="empty agent name"):
+        await run_agents([make_agent("")], _ctx())

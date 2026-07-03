@@ -11,6 +11,13 @@ from papergraph.agents.base import Agent, AgentContext, AgentResult
 
 
 def _validate(agents: list[Agent]) -> None:
+    names_list = [a.name for a in agents]
+    for n in names_list:
+        if not n:
+            raise ValueError("empty agent name")
+    if len(set(names_list)) != len(names_list):
+        dupes = sorted({n for n in names_list if names_list.count(n) > 1})
+        raise ValueError(f"duplicate agent name(s): {dupes}")
     names = {a.name for a in agents}
     for a in agents:
         for dep in a.depends_on:
@@ -43,6 +50,14 @@ async def _run_one(agent: Agent, ctx: AgentContext) -> AgentResult:
 
 
 async def run_agents(agents: list[Agent], ctx: AgentContext) -> dict[str, AgentResult]:
+    """Run agents as a dependency DAG; every ready agent runs concurrently.
+
+    Event semantics: a running agent gets AgentStarted before run() and AgentDone
+    (ok) or AgentError (failed) after. Agents skipped because a dependency failed
+    get ONLY AgentError (no AgentStarted) with error "dependency failed: <dep>".
+    An agent that returns ok=False without raising is treated as failed
+    (AgentError, no AgentDone).
+    """
     _validate(agents)
     pending = {a.name: a for a in agents}
     results: dict[str, AgentResult] = {}

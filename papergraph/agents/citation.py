@@ -1,6 +1,8 @@
 """CitationAgent: validate the paper's bibliography against live scholarly databases."""
 from __future__ import annotations
 
+import asyncio
+
 from papergraph.agents import events
 from papergraph.agents.base import Agent, AgentContext, AgentResult
 
@@ -18,7 +20,7 @@ class CitationAgent(Agent):
         ext = ctx.data["_extraction"]
         refs = references_from_extraction(ext)
         lookup = ctx.data.get("_lookup") or default_lookup()
-        report = validate_bibliography(refs, lookup)
+        report = await asyncio.to_thread(validate_bibliography, refs, lookup)
 
         for ref, verdict in report.entries:
             if verdict.status != "verified":

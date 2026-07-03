@@ -38,6 +38,9 @@ async def test_citation_agent_reports_counts_and_flags_bad_refs():
            if isinstance(e, events.Finding) and e.kind == "bad_reference"]
     assert len(bad) == 1
     assert "Fabricated" in bad[0].summary
+    reports = [e for e in ctx.bus.history
+               if isinstance(e, events.Finding) and e.kind == "citation_report"]
+    assert len(reports) == 1
 
 
 @pytest.mark.asyncio

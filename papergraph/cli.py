@@ -527,9 +527,9 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         print(f"  {i:>2}. {p.title}")
         print(f"      {cite}, {year_str} · {cites} · {src}")
         if p.source == "reference":
-            print(f"      [referenced by your papers]")
+            print("      [referenced by your papers]")
         elif p.source == "citation":
-            print(f"      [cites your papers]")
+            print("      [cites your papers]")
 
     # --- auto-add if --add flag set -----------------------------------------
     if args.add:
@@ -539,7 +539,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
               f"{failed} failed. Run `papergraph build` to extract.")
     else:
         print(f"\nTo add all: papergraph discover {'--expand' if args.expand else chr(34) + ' '.join(args.topic) + chr(34)} --add")
-        print(f"Or add individually:")
+        print("Or add individually:")
         for p in results[:5]:
             print(f"  {p.add_cmd}")
         if len(results) > 5:
@@ -604,7 +604,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     for agent in agents:
         r = results[agent.name]
         if r.ok:
-            print(f"  {agent.name:<10} done    {summaries[agent.name](r.data)}")
+            print(f"  {agent.name:<10} done    {summaries.get(agent.name, lambda d: str(d)[:80])(r.data)}")
         else:
             print(f"  {agent.name:<10} FAILED  {r.error}")
     ok = all(r.ok for r in results.values())
