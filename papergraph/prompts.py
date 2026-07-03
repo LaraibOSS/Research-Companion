@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 
-
 # ---------------------------------------------------------------------------
 # Paper extraction prompt
 # ---------------------------------------------------------------------------
@@ -192,4 +191,55 @@ def format_comparison_prompt(claim: str, prior_art: str) -> str:
 
 def novelty_prompt_sha256() -> str:
     both = CONTRIBUTION_PROMPT + COMPARISON_PROMPT
+    return hashlib.sha256(both.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Rebuttal prompts (rebuttal/draft.py). SHA-cached.
+# ---------------------------------------------------------------------------
+
+CLASSIFY_CONCERN_PROMPT = """Classify this peer-review concern into exactly one kind.
+
+Concern:
+{concern}
+
+Kinds:
+- factual_error: the reviewer states something factually wrong about the paper
+- misunderstanding: the paper already addresses this but the reviewer missed it
+- valid_weakness: a genuine limitation the authors should concede
+- clarification: a question or request for more detail
+
+Return ONLY valid JSON: {{"kind": "factual_error|misunderstanding|valid_weakness|clarification"}}
+"""
+
+REBUTTAL_DRAFT_PROMPT = """Draft a point-by-point rebuttal reply to one reviewer concern.
+
+Concern ({kind}):
+{concern}
+
+Relevant passages from OUR paper (the only paper text you may quote):
+{passages}
+
+Tone: {tone}. Be professional and specific.
+
+Rules:
+- If you reference our paper's text verbatim, wrap it in double quotes and copy it
+  EXACTLY from the passages above. Never invent paper text.
+- If the concern is a valid_weakness, concede honestly and state a concrete revision.
+- End with what we will change in the revision (or "No change needed" plus why).
+
+Return ONLY valid JSON: {{"reply": "...", "planned_revision": "..."}}
+"""
+
+
+def format_classify_prompt(concern: str) -> str:
+    return CLASSIFY_CONCERN_PROMPT.format(concern=concern)
+
+
+def format_rebuttal_prompt(concern: str, kind: str, passages: str, tone: str) -> str:
+    return REBUTTAL_DRAFT_PROMPT.format(concern=concern, kind=kind, passages=passages, tone=tone)
+
+
+def rebuttal_prompt_sha256() -> str:
+    both = CLASSIFY_CONCERN_PROMPT + REBUTTAL_DRAFT_PROMPT
     return hashlib.sha256(both.encode("utf-8")).hexdigest()
