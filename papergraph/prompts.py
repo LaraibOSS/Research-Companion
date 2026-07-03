@@ -243,3 +243,45 @@ def format_rebuttal_prompt(concern: str, kind: str, passages: str, tone: str) ->
 def rebuttal_prompt_sha256() -> str:
     both = CLASSIFY_CONCERN_PROMPT + REBUTTAL_DRAFT_PROMPT
     return hashlib.sha256(both.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Problem-statement refinement prompt (agents/problem.py). SHA-cached.
+# ---------------------------------------------------------------------------
+
+PROBLEM_PROMPT = """You are a research advisor helping refine a researcher's problem statement
+against a knowledge graph and prior-art context.
+
+Problem statement:
+{statement}
+
+Knowledge-graph context (top concepts by centrality + relevant prior-art titles):
+{graph_context}
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{{
+  "refined_statement": "one precise sentence capturing the sharpened research question",
+  "gaps": [
+    "gap 1 grounded in the graph context above",
+    "gap 2 grounded in the graph context above"
+  ],
+  "next_steps": [
+    "concrete next step 1",
+    "concrete next step 2"
+  ]
+}}
+
+Rules:
+- refined_statement must sharpen the original statement — do not copy it verbatim.
+- gaps must be grounded ONLY in the provided graph context; do not invent prior work.
+- next_steps are concrete, actionable research tasks.
+- Return ONLY valid JSON. Output starts with {{ and ends with }}.
+"""
+
+
+def format_problem_prompt(statement: str, graph_context: str) -> str:
+    return PROBLEM_PROMPT.format(statement=statement, graph_context=graph_context)
+
+
+def problem_prompt_sha256() -> str:
+    return hashlib.sha256(PROBLEM_PROMPT.encode("utf-8")).hexdigest()
