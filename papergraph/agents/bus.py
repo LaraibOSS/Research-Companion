@@ -17,6 +17,12 @@ class Bus:
         self._queues.append(q)
         return q
 
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        try:
+            self._queues.remove(q)
+        except ValueError:
+            pass
+
     async def publish(self, event) -> None:
         self.history.append(event)
         if self._log is not None:

@@ -105,3 +105,14 @@ def test_review_cli_fast_skips_llm_lanes(monkeypatch: pytest.MonkeyPatch, capsys
     out = capsys.readouterr().out
     assert rc == 0
     assert "novelty" not in out and "confidence" not in out and "benchmark" not in out
+
+
+def test_review_writes_run_event_log(monkeypatch: pytest.MonkeyPatch, capsys):
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    rc = cli.main(["review", paper_id, "--fast"])
+    assert rc == 0
+    runs = list((store.papergraph_dir() / "runs").glob("*.jsonl"))
+    assert runs, "expected a run event log"
+    first = json.loads(runs[0].read_text(encoding="utf-8").splitlines()[0])
+    assert first["event"] in ("agent_started", "finding")

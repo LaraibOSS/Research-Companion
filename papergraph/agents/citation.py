@@ -31,16 +31,17 @@ class CitationAgent(Agent):
                           "reasons": verdict.reasons},
                 ))
         counts = report.counts()
+        ref_list = [
+            {"title": ref.title, "status": v.status, "reasons": v.reasons}
+            for ref, v in report.entries
+        ]
         await ctx.bus.publish(events.Finding(
             agent=self.name, kind="citation_report",
             summary=(f"{counts['verified']} verified · {counts['suspect']} suspect · "
                      f"{counts['unverified']} unverified"),
-            data={"counts": counts},
+            data={"counts": counts, "references": ref_list[:50]},
         ))
         return AgentResult(agent=self.name, ok=True, data={
             "counts": counts,
-            "references": [
-                {"title": ref.title, "status": v.status, "reasons": v.reasons}
-                for ref, v in report.entries
-            ],
+            "references": ref_list,
         })

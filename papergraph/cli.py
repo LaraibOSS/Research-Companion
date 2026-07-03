@@ -578,15 +578,21 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from papergraph.agents.bus import Bus
     from papergraph.agents.citation import CitationAgent
     from papergraph.agents.confidence import ConfidenceAgent
+    from papergraph.agents.events import EventLog
     from papergraph.agents.ingest import IngestAgent
     from papergraph.agents.novelty import NoveltyAgent
     from papergraph.agents.orchestrator import run_agents
     from papergraph.agents.priorart import PriorArtAgent
+    from papergraph.store import papergraph_dir
+
+    runs_dir = papergraph_dir() / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = runs_dir / f"{args.paper_id.replace(':', '_')}-{int(time.time())}.jsonl"
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent()]
     if not args.fast:
         agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent()]
-    ctx = AgentContext(paper_id=args.paper_id, bus=Bus(),
+    ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
     results = asyncio.run(run_agents(agents, ctx))
 

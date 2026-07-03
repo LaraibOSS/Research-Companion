@@ -49,3 +49,13 @@ async def test_citation_agent_empty_bibliography_is_ok():
     result = await CitationAgent().run(ctx)
     assert result.ok
     assert result.data["counts"] == {"verified": 0, "suspect": 0, "unverified": 0}
+
+
+@pytest.mark.asyncio
+async def test_citation_report_finding_carries_references():
+    ctx = _ctx_with_extraction(["Attention Is All You Need"],
+                               _known_title_lookup("Attention Is All You Need"))
+    await CitationAgent().run(ctx)
+    report = next(e for e in ctx.bus.history
+                  if isinstance(e, events.Finding) and e.kind == "citation_report")
+    assert report.data["references"][0]["status"] == "verified"

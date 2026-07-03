@@ -31,3 +31,13 @@ async def test_history_without_subscribers():
     bus = Bus()
     await bus.publish(events.AgentError(agent="a", error="x"))
     assert len(bus.history) == 1
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_stops_delivery_and_is_idempotent():
+    bus = Bus()
+    q = bus.subscribe()
+    bus.unsubscribe(q)
+    bus.unsubscribe(q)  # no-op, must not raise
+    await bus.publish(events.AgentStarted(agent="a"))
+    assert q.empty() and len(bus.history) == 1
