@@ -130,3 +130,66 @@ def extraction_prompt_sha256() -> str:
 def chat_prompt_sha256() -> str:
     combined = (CHAT_SYSTEM_PROMPT + "\n---\n" + CHAT_USER_PROMPT).encode("utf-8")
     return hashlib.sha256(combined).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Novelty assessment prompts (agents/novelty.py). SHA-cached like extraction.
+# ---------------------------------------------------------------------------
+
+CONTRIBUTION_PROMPT = """You are extracting the claimed contributions of a research paper.
+
+Paper title: {title}
+
+Paper text:
+{paper_text}
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{{
+  "claims": [
+    {{
+      "text": "one-sentence statement of the claimed contribution",
+      "kind": "method|dataset|finding|theory|application|resource",
+      "evidence_quote": "short verbatim span from the paper supporting this claim"
+    }}
+  ]
+}}
+
+Rules:
+- 2 to 6 claims. Only contributions the AUTHORS claim as new.
+- evidence_quote must be copied verbatim from the paper text above.
+"""
+
+
+COMPARISON_PROMPT = """You are assessing the novelty of one claimed contribution against prior work.
+
+Claimed contribution:
+{claim}
+
+Prior work (title, year - abstract):
+{prior_art}
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{{
+  "verdict": "novel|incremental|overlaps|anticipated",
+  "confidence": 0.0,
+  "closest_prior": ["title of the most similar prior work, if any"],
+  "rationale": "one or two sentences grounded in the prior work above"
+}}
+
+Rules:
+- Base the verdict ONLY on the prior work listed above. If none is similar, verdict is "novel".
+- confidence is your certainty in the verdict, 0.0-1.0.
+"""
+
+
+def format_contribution_prompt(title: str, paper_text: str) -> str:
+    return CONTRIBUTION_PROMPT.format(title=title, paper_text=paper_text)
+
+
+def format_comparison_prompt(claim: str, prior_art: str) -> str:
+    return COMPARISON_PROMPT.format(claim=claim, prior_art=prior_art)
+
+
+def novelty_prompt_sha256() -> str:
+    both = CONTRIBUTION_PROMPT + COMPARISON_PROMPT
+    return hashlib.sha256(both.encode("utf-8")).hexdigest()
