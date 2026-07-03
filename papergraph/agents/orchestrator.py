@@ -51,6 +51,7 @@ async def run_agents(agents: list[Agent], ctx: AgentContext) -> dict[str, AgentR
             a for a in pending.values()
             if all(d in results for d in a.depends_on)
         ]
+        assert ready, f"internal error: DAG invariant violated among {sorted(pending)}"
         skipped = []
         runnable = []
         for a in ready:
