@@ -16,7 +16,7 @@ def test_score_claim_formula_exact():
     score, band = score_claim(True, 0.8, 0.5)
     vals = [1.0, 0.8, 0.5]
     weights = [1.0, 0.8, 0.6]
-    expected = sum(v * w for v, w in zip(vals, weights)) / sum(weights)
+    expected = sum(v * w for v, w in zip(vals, weights, strict=True)) / sum(weights)
     assert math.isclose(score, expected)
     mean = sum(vals) / 3
     stdev = math.sqrt(sum((v - mean) ** 2 for v in vals) / 3)

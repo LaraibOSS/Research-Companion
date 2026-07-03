@@ -19,7 +19,7 @@ def score_claim(
     evidence_verified: bool, novelty_confidence: float, citation_health: float,
 ) -> tuple[float, float]:
     values = (1.0 if evidence_verified else 0.3, novelty_confidence, citation_health)
-    score = sum(v * w for v, w in zip(values, _WEIGHTS)) / sum(_WEIGHTS)
+    score = sum(v * w for v, w in zip(values, _WEIGHTS, strict=True)) / sum(_WEIGHTS)
     mean = sum(values) / len(values)
     stdev = math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
     band = min(0.5, max(0.05, 0.5 / math.sqrt(len(values)) + 0.5 * stdev))
