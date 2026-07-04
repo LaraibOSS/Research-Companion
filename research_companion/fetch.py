@@ -81,10 +81,13 @@ def parse_arxiv_id(url_or_id: str) -> str | None:
 def _arxiv_metadata(arxiv_id: str, *, timeout: float = 30.0) -> dict:
     """Query the arXiv API for one paper's metadata. Returns a dict (may be empty on miss)."""
     params = {"id_list": arxiv_id, "max_results": "1"}
-    with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
-        resp = client.get(ARXIV_API, params=params)
-        resp.raise_for_status()
-        feed = feedparser.parse(resp.text)
+    try:
+        with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
+            resp = client.get(ARXIV_API, params=params)
+            resp.raise_for_status()
+            feed = feedparser.parse(resp.text)
+    except httpx.HTTPError as exc:
+        raise FetchError(f"arXiv API request failed for {arxiv_id}: {exc}") from exc
     if not feed.entries:
         return {}
     e = feed.entries[0]

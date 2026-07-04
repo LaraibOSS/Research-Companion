@@ -108,3 +108,23 @@ def test_add_paper_routes_arxiv_vs_local(monkeypatch: pytest.MonkeyPatch,
 
     assert arxiv_meta.paper_id.startswith("arxiv:")
     assert local_meta.paper_id.startswith("local:")
+
+
+def test_arxiv_metadata_wraps_http_errors_in_fetcherror(monkeypatch: pytest.MonkeyPatch):
+    """A throttled arXiv API (429) must surface as FetchError, not a raw traceback."""
+    import httpx
+
+    class _FakeResp:
+        text = ""
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("429", request=None, response=None)
+
+    class _FakeClient:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, *a, **kw): return _FakeResp()
+
+    monkeypatch.setattr(fetch.httpx, "Client", _FakeClient)
+    with pytest.raises(fetch.FetchError):
+        fetch._arxiv_metadata("2410.04209")
