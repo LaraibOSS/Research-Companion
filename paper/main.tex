@@ -1,0 +1,177 @@
+% Research Companion — EMNLP 2026 System Demonstrations
+\documentclass[11pt]{article}
+\usepackage[final]{acl}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{inconsolata}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+
+\title{Research Companion: A Team of Verifiable Agents \\ for Pre-Submission Paper Review}
+
+\author{Laraib Hasan \\
+  Independent Researcher \\
+  \texttt{Lxh417bham@gmail.com}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Lack of novelty is the most common cause of desk rejection, and fabricated or incorrect citations are a growing failure mode of LLM-assisted writing---yet the tools researchers use before submission either check formatting without scientific judgment, or offer LLM critique without verifiable grounding. We present \textbf{Research Companion}, an open-source system in which a team of specialized agents analyzes a paper end-to-end and \emph{every verdict carries checkable evidence}. A citation agent validates each reference against live CrossRef/OpenAlex lookups and flags fabricated entries; a novelty agent extracts the paper's claimed contributions, compares them against retrieved prior art, and verifies every supporting quote against the paper's own text; a rebuttal agent drafts point-by-point reviewer responses in which any span attributed to the paper is checked verbatim; a deterministic confidence agent scores each claim with an explicit uncertainty band. Agents run concurrently on an asyncio DAG with failure isolation, stream to a live browser dashboard, and write JSONL audit logs. On a controlled corruption benchmark the citation validator attains 1.0 precision and 1.0 recall; we release the benchmark, a novelty-vs-OpenReview evaluation harness, and a 30-second offline demo requiring no API keys.\footnote{Code (MIT): \url{https://github.com/Laraib-Hasan/Research-Companion}. Demo video: [LINK].}
+\end{abstract}
+
+\section{Introduction}
+Manuscripts fail before reviewers ever weigh in. Content analyses of desk rejections attribute 46--52\% to lack of novelty or originality \citep{menon2022desk,dantastorres2022desk}, and large venues desk-reject 39--78\% of submissions \citep{dantastorres2022desk,bauchner2017jama}. Meanwhile, a new failure mode has emerged on the author side: LLM-assisted writing introduces plausible but nonexistent references, and hallucinated citations are the top trust concern among students using AI tools \citep{hepi2025survey}.
+
+The tooling landscape is split into two camps that do not meet. Commercial pre-submission checkers \citep{paperpal,penelope} run dozens of deterministic compliance checks but state explicitly that they do not assess novelty or scientific merit. Research prototypes assess novelty with LLMs \citep{opennovelty2026,dasilva2025graphmind} or simulate peer review \citep{jin2024agentreview}, but are single-purpose and not integrated with the deterministic checks authors also need. Worse, LLM reviewers are documented to be lenient and to accept author claims without verification \citep{du2025llmreviewbias}, which makes \emph{unverifiable} LLM critique actively dangerous in a pre-submission tool.
+
+Research Companion's design premise is that a pre-submission assistant is only useful if its outputs can be \textbf{checked}:
+\begin{itemize}\itemsep0pt
+\item \textbf{C1 --- An agentic review runtime.} A small asyncio orchestrator runs specialized agents as a dependency DAG with per-lane failure isolation: a failing lane degrades the report, never the run. Every event is typed, streamed to a live dashboard, and appended to a JSONL audit log.
+\item \textbf{C2 --- Verifiability by construction.} Citation verdicts come from live CrossRef/OpenAlex lookups; novelty verdicts attach evidence quotes verified against the paper's own fulltext; rebuttal drafts flag any quoted span not found verbatim; confidence scores are deterministic with explicit uncertainty bands.
+\item \textbf{C3 --- An open, tested, reproducible system.} MIT-licensed; 213 tests with all network/LLM calls behind injectable seams; a zero-key offline demo; committed, seed-deterministic evaluation artifacts.
+\end{itemize}
+Target audience: researchers and students preparing submissions, and educators demonstrating verification-first LLM system design.
+
+\section{System Overview}
+Research Companion builds on a local-first knowledge-graph substrate: papers ingested from arXiv/DOI/Semantic Scholar/PDF are LLM-extracted into concepts, methods, datasets, claims, results, and related work, merged into a cross-paper graph \citep[cf.][]{edge2024graphrag}.
+
+\paragraph{Runtime.} \texttt{research-companion review <paper>} instantiates an agent team over an in-process async bus. The orchestrator resolves the dependency DAG, runs all ready agents concurrently, and isolates failures: an exception becomes a failed lane; dependents are skipped with an explanatory error; independent lanes proceed. Typed events stream over Server-Sent Events to a browser dashboard (\texttt{--serve}) and append to a per-run JSONL audit log.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Agent} & \textbf{Function} \\
+\midrule
+ingest & load paper, build knowledge graph \\
+citation & live CrossRef$\rightarrow$OpenAlex validation \\
+priorart & related work via Semantic Scholar \\
+novelty & claims $\rightarrow$ comparison $\rightarrow$ quote verify \\
+confidence & deterministic score + band \\
+benchmark & benchmarks mined from graph \\
+rebuttal & grounded reviewer responses \\
+problem, tracker & library-level (gap refine, sweep) \\
+report & HTML/JSON, renders failed lanes \\
+\bottomrule
+\end{tabular}
+\caption{Agent roster (dependencies elided).}
+\label{tab:agents}
+\end{table}
+
+\texttt{--fast} runs only LLM-free lanes; \texttt{--report DIR} writes the report; all LLM/network calls sit behind injectable seams, so the full pipeline runs offline in tests and in the bundled demo.
+
+\section{Verifiability by Construction}
+\paragraph{Citations: live lookups, not format checks.} Each bibliography entry is parsed and resolved against CrossRef, falling back to OpenAlex. Verdicts are \emph{verified}, \emph{suspect} (title match but $<$60\% author overlap, or DOI/arXiv conflict), or \emph{unverified} (no plausible record---the fabricated-citation case). Compliance tools validate formatting and internal consistency, not existence.
+
+\paragraph{Novelty: verdicts cite evidence that is then checked.} The novelty agent (i) extracts 2--6 claimed contributions, each with a \emph{verbatim} evidence quote; (ii) retrieves prior art and obtains a per-claim verdict (novel / incremental / overlaps / anticipated) grounded only in the retrieved works; (iii) independently verifies each evidence quote against the paper's fulltext. A claim whose quote cannot be found is marked unverified---surfacing prompt non-compliance instead of hiding it.
+
+\paragraph{Rebuttal: no quote ships unchecked.} Reviews are segmented into concerns (deterministic heuristics with an emit--edit--resume flow), classified, grounded in retrieved paper passages, and drafted under the instruction to quote the paper only from those passages. Every quoted span is verified against the fulltext; drafts carry a tri-state evidence status so a reply with zero checkable quotes is not presented as verified. Duplicate concerns across reviewers are grouped; planned revisions aggregate into a changelog.
+
+\paragraph{Confidence: deterministic and inspectable.} Each claim's score is a weighted mean of three signals---evidence verification (1.0), novelty-comparison confidence (0.8), citation health (0.6)---with band width $0.5/\sqrt{n} + 0.5\sigma$ clamped to $[0.05, 0.5]$. No LLM is involved; the signals are shown on each card.
+
+\paragraph{Auditability.} Every run writes an append-only JSONL event log; report and dashboard render from the same stream.
+
+\section{Interface}
+The CLI covers the full lifecycle. \texttt{review --serve} opens a live dashboard: one lane per agent with status and latest finding, plus a findings feed (content-escaped; the paper under review is untrusted input). The final report is a single self-contained HTML file plus a JSON twin. A bundled \texttt{examples/demo\_offline.py} reproduces the entire pipeline in $\sim$30 seconds with zero API keys.
+
+\section{Evaluation}
+\paragraph{Citation validator.} From 40 gold reference records we generate seeded, labeled corruptions (committed to the repository): fabricated titles, shuffled DOIs, swapped author lists. Against an oracle lookup over the gold records, the validator flags corrupted references with precision 1.0, recall 1.0, F1 1.0 (59 labeled pairs; per-type recall: fabricated 1.0, wrong-DOI 1.0, author-swap 1.0). We state the framing plainly: precision is 1.0 \emph{by construction} under the oracle lookup, so recall is the diagnostic number, and the benchmark is a regression floor rather than a field-realism claim.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Corruption} & \textbf{Recall} & \textbf{TP} & \textbf{FN} \\
+\midrule
+fabricated title & 1.00 & 7 & 0 \\
+wrong DOI & 1.00 & 6 & 0 \\
+author swap & 1.00 & 6 & 0 \\
+\midrule
+overall (P/R/F1) & \multicolumn{3}{c}{1.00 / 1.00 / 1.00} \\
+\bottomrule
+\end{tabular}
+\caption{Citation-validator corruption benchmark (seed 42; artifacts committed).}
+\label{tab:eval}
+\end{table}
+
+\paragraph{Novelty-agreement harness.} [PLACEHOLDER: live-run result --- Spearman $\rho$ on N ICLR papers vs.\ OpenReview reviewer novelty opinions --- or the released-harness framing if not run.]
+
+\paragraph{System verification.} 213 tests (test-driven throughout) with all LLM/network behind injectable seams; the six-lane pipeline, dashboard endpoints, and both CLIs run in the suite with no network. Bad LLM JSON fails one lane cleanly; HTML/JS in reference titles is escaped in both report and dashboard.
+
+\paragraph{Case study.} Running \texttt{review} on a seeded paper whose bibliography contains one fabricated entry: the citation lane reports \texttt{1 verified / 1 unverified}, naming the fabricated title with reason ``no matching record found in authoritative sources''; the novelty lane marks the claim \emph{overlaps} with retrieved prior work, evidence verified; the confidence card shows $0.72 \pm 0.15$ with its three signals.
+
+\section{Comparison With Existing Systems}
+\begin{table}[t]
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & \textbf{Cite$\exists$} & \textbf{Nov.} & \textbf{Evid.} & \textbf{Rebut.} & \textbf{Dash.} & \textbf{OSS} \\
+\midrule
+Paperpal & -- & -- & -- & -- & -- & -- \\
+Penelope.ai & -- & -- & -- & -- & -- & -- \\
+RefChecker & \checkmark & -- & -- & -- & -- & \checkmark \\
+OpenNovelty & -- & \checkmark & partial & -- & -- & \checkmark \\
+GraphMind & -- & \checkmark & partial & -- & -- & \checkmark \\
+AgentReview & -- & sim. & -- & -- & -- & \checkmark \\
+\textbf{Ours} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\caption{Cite$\exists$: live reference-existence check. Evid.: evidence verified against the paper's own text. Compliance products state they do not evaluate scientific merit \citep{paperpal,penelope}.}
+\label{tab:compare}
+\end{table}
+
+To our knowledge no prior open system combines live reference validation, evidence-verified novelty assessment, and grounded rebuttal drafting behind one auditable runtime (Table~\ref{tab:compare}).
+
+\section{Conclusion}
+Research Companion demonstrates that an agentic pre-submission assistant can be useful \emph{because} it is checkable: every verdict, quote, and score traces to evidence a human can inspect. The system is open, tested, and installable; the demo runs in 30 seconds without keys.
+
+\section*{Limitations}
+The novelty and rebuttal agents inherit LLM limitations; our mitigation is verification and flagging, not elimination. The citation benchmark is synthetic and oracle-based (ceiling scores expected); field precision against live CrossRef/OpenAlex is unmeasured. Retrieval relies on Semantic Scholar/CrossRef/OpenAlex coverage, weaker for non-English and non-indexed venues; extraction prompts and evaluation are CS/ML-centric. The problem and tracker agents are library-level, not yet CLI-wired.
+
+\section*{Ethics Statement}
+The tool assists authors; it does not generate paper content, and its rebuttal drafts flag unverifiable claims rather than asserting them. Users must respect venue policies on AI assistance and disclose use where required. Reference validation queries public scholarly APIs with standard rate limits and a descriptive user agent. No personal data is collected; all state is local. The work aligns with the ACM Code of Ethics.
+
+\section*{Availability \& License}
+MIT-licensed at \url{https://github.com/Laraib-Hasan/Research-Companion}. Install: \texttt{git clone} then \texttt{pip install -e ".[demo]"}. Zero-key demo: \texttt{python examples/demo\_offline.py}.
+
+\bibliography{references}
+
+\appendix
+\section{Audit-Log Excerpt}
+\begin{small}
+\begin{verbatim}
+{"event":"agent_started","agent":"citation"}
+{"event":"finding","agent":"citation",
+ "kind":"bad_reference",
+ "summary":"[unverified] A Fabricated Paper
+  Title","data":{"status":"unverified",
+ "reasons":["No matching record found in
+  authoritative sources"]}}
+{"event":"finding","agent":"novelty",
+ "kind":"novelty_verdict",
+ "summary":"[overlaps] We propose X.",
+ "data":{"verdict":"overlaps",
+ "confidence":0.8,"evidence_verified":true}}
+{"event":"agent_done","agent":"confidence"}
+\end{verbatim}
+\end{small}
+
+\section{Reproduction}
+\begin{small}
+\begin{verbatim}
+git clone https://github.com/Laraib-Hasan/\
+  Research-Companion && cd Research-Companion
+pip install -e ".[demo]"
+python -m pytest -q          # 213 tests
+python examples/demo_offline.py
+python -m research_companion.eval.citation_pr
+\end{verbatim}
+\end{small}
+
+\end{document}
