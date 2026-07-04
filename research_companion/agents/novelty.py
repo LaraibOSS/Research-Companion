@@ -24,9 +24,9 @@ def _verify_quote(quote: str, fulltext: str) -> bool:
 def _default_llm(prompt: str) -> str:
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
-    provider = os.environ.get("PAPERGRAPH_PROVIDER", "anthropic")
+    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
     call = _call_openai if provider == "openai" else _call_anthropic
-    text, _usage = call(prompt, model=resolve_model(provider, os.environ.get("PAPERGRAPH_MODEL")))
+    text, _usage = call(prompt, model=resolve_model(provider, os.environ.get("RESEARCH_COMPANION_MODEL")))
     return text
 
 
