@@ -145,3 +145,38 @@ def test_chained_lookup_returns_none_when_all_miss():
     ref = Reference(title="Attention Is All You Need")
     lookup = retrieval.chained_lookup(lambda r: None, lambda r: None)
     assert lookup(ref) is None
+
+
+# --- arxiv_lookup (identifier-based, highest-priority) -----------------------
+
+def test_arxiv_lookup_resolves_by_id():
+    ref = Reference(title="Attention Is All You Need", arxiv_id="1706.03762")
+
+    def fake_fetch(arxiv_id):
+        assert arxiv_id == "1706.03762"
+        return {"title": "Attention Is All You Need",
+                "authors": ["Ashish Vaswani"], "year": 2017}
+
+    record = retrieval.arxiv_lookup(ref, fetch=fake_fetch)
+    assert record["arxiv_id"] == "1706.03762"
+    assert record["title"] == "Attention Is All You Need"
+    assert record["year"] == 2017
+
+
+def test_arxiv_lookup_none_without_id():
+    assert retrieval.arxiv_lookup(Reference(title="No id here"), fetch=lambda a: {}) is None
+
+
+def test_arxiv_lookup_none_on_fetch_miss():
+    ref = Reference(title="T", arxiv_id="9999.99999")
+    assert retrieval.arxiv_lookup(ref, fetch=lambda a: None) is None
+
+
+def test_default_lookup_prefers_arxiv_id(monkeypatch):
+    ref = Reference(title="Attention Is All You Need", arxiv_id="1706.03762")
+    monkeypatch.setattr(retrieval, "_arxiv_fetch",
+                        lambda a: {"title": "Attention Is All You Need", "authors": [], "year": 2017})
+    monkeypatch.setattr(retrieval, "crossref_lookup",
+                        lambda r, **kw: (_ for _ in ()).throw(AssertionError("crossref should not be called")))
+    record = retrieval.default_lookup()(ref)
+    assert record["arxiv_id"] == "1706.03762"

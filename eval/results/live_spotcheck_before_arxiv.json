@@ -1,0 +1,139 @@
+{
+  "n_references": 55,
+  "counts": {
+    "verified": 37,
+    "suspect": 14,
+    "unverified": 4
+  },
+  "field_false_positive_rate": 0.3273,
+  "elapsed_seconds": 186.1,
+  "false_positives": [
+    {
+      "title": "Attention Is All You Need",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "status": "unverified",
+      "reasons": [
+        "No matching record found in authoritative sources"
+      ]
+    },
+    {
+      "title": "RoBERTa: A Robustly Optimized BERT Pretraining Approach",
+      "status": "unverified",
+      "reasons": [
+        "No matching record found in authoritative sources"
+      ]
+    },
+    {
+      "title": "ALBERT: A Lite BERT for Self-supervised Learning of Language Representations",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "REALM: Retrieval-Augmented Language Model Pre-Training",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Self-Consistency Improves Chain of Thought Reasoning in Language Models",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Scaling Instruction-Finetuned Language Models",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Adam: A Method for Stochastic Optimization",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Deep contextualized word representations",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Sequence to Sequence Learning with Neural Networks",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Neural Machine Translation by Jointly Learning to Align and Translate",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "BLEU: a Method for Automatic Evaluation of Machine Translation",
+      "status": "unverified",
+      "reasons": [
+        "No matching record found in authoritative sources"
+      ]
+    },
+    {
+      "title": "Learning Transferable Visual Models From Natural Language Supervision",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Denoising Diffusion Probabilistic Models",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "Dropout: A Simple Way to Prevent Neural Networks from Overfitting",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    },
+    {
+      "title": "From Local to Global: A Graph RAG Approach to Query-Focused Summarization",
+      "status": "unverified",
+      "reasons": [
+        "No matching record found in authoritative sources"
+      ]
+    },
+    {
+      "title": "Emergent Abilities of Large Language Models",
+      "status": "suspect",
+      "reasons": [
+        "Title does not match the authoritative record"
+      ]
+    }
+  ],
+  "note": "All inputs are real published papers; any non-verified verdict is a field false positive. Live CrossRef->OpenAlex; results depend on API state at run time."
+}

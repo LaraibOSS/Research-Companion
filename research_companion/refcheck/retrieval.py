@@ -16,7 +16,7 @@ import httpx
 from research_companion.refcheck import matching
 from research_companion.refcheck.validate import Reference
 
-USER_AGENT = "research-companion/0.1 (https://github.com/azizur100389/research-companion)"
+USER_AGENT = "research-companion/0.1 (https://github.com/Laraib-Hasan/Research-Companion)"
 CROSSREF_SEARCH_API = "https://api.crossref.org/works"
 OPENALEX_SEARCH_API = "https://api.openalex.org/works"
 
@@ -154,6 +154,53 @@ def openalex_lookup(
     return _best_match(ref, items, parse_openalex_item)
 
 
+ARXIV_API = "https://export.arxiv.org/api/query"
+
+
+def _arxiv_fetch(arxiv_id: str, *, timeout: float = 30.0) -> dict | None:
+    """Fetch title/authors/year for an arXiv id. Returns None on any failure."""
+    import feedparser
+
+    try:
+        with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
+            resp = client.get(ARXIV_API, params={"id_list": arxiv_id, "max_results": 1})
+            resp.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    feed = feedparser.parse(resp.text)
+    if not feed.entries:
+        return None
+    e = feed.entries[0]
+    title = (e.get("title", "") or "").strip().replace("\n", " ")
+    if not title:
+        return None
+    year = None
+    published = e.get("published", "")
+    if len(published) >= 4 and published[:4].isdigit():
+        year = int(published[:4])
+    return {"title": title,
+            "authors": [a.get("name", "") for a in getattr(e, "authors", [])],
+            "year": year}
+
+
+def arxiv_lookup(
+    ref: Reference,
+    *,
+    fetch: Callable[[str], dict | None] | None = None,
+) -> dict | None:
+    """Resolve a Reference by its arXiv id (identifier-based, no title search)."""
+    if not ref.arxiv_id:
+        return None
+    record = (fetch or _arxiv_fetch)(ref.arxiv_id)
+    if not record:
+        return None
+    return {"title": record.get("title", ""),
+            "authors": record.get("authors", []),
+            "year": record.get("year"),
+            "doi": record.get("doi"),
+            "arxiv_id": ref.arxiv_id}
+
+
 def chained_lookup(*retrievers: Callable[[Reference], dict | None]) -> Callable[[Reference], dict | None]:
     """Combine retrievers into one lookup that returns the first non-None hit."""
     def _lookup(ref: Reference) -> dict | None:
@@ -167,4 +214,4 @@ def chained_lookup(*retrievers: Callable[[Reference], dict | None]) -> Callable[
 
 def default_lookup() -> Callable[[Reference], dict | None]:
     """The standard lookup: CrossRef first, then OpenAlex as fallback."""
-    return chained_lookup(crossref_lookup, openalex_lookup)
+    return chained_lookup(arxiv_lookup, crossref_lookup, openalex_lookup)
