@@ -284,3 +284,94 @@ def expand_from_existing(
     # Rank by citation count.
     all_discovered.sort(key=lambda p: p.citation_count, reverse=True)
     return all_discovered[:limit]
+
+
+# ---------------------------------------------------------------------------
+# OpenAlex fallback (S2 rate-limits aggressively for unauthenticated clients)
+# ---------------------------------------------------------------------------
+
+OPENALEX_SEARCH = "https://api.openalex.org/works"
+
+
+def _reconstruct_abstract(inverted: dict | None) -> str:
+    """Rebuild plain text from OpenAlex's abstract_inverted_index."""
+    if not inverted:
+        return ""
+    positions: list[tuple[int, str]] = []
+    for word, idxs in inverted.items():
+        for i in idxs:
+            positions.append((i, word))
+    return " ".join(w for _, w in sorted(positions))
+
+
+def _parse_openalex_work(w: dict) -> DiscoveredPaper | None:
+    """Map one OpenAlex work to a DiscoveredPaper. Returns None without a title."""
+    title = (w.get("display_name") or "").strip()
+    if not title:
+        return None
+    doi = (w.get("ids") or {}).get("doi") or ""
+    doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "") or None
+    arxiv_id = None
+    if doi and doi.startswith("10.48550/arxiv."):
+        arxiv_id = doi.split("arxiv.", 1)[1]
+    return DiscoveredPaper(
+        title=title,
+        authors=[(a.get("author") or {}).get("display_name", "")
+                 for a in w.get("authorships", [])],
+        year=w.get("publication_year"),
+        citation_count=w.get("cited_by_count", 0),
+        arxiv_id=arxiv_id,
+        doi=doi,
+        s2_id=None,
+        url=(w.get("ids") or {}).get("openalex", ""),
+        abstract=_reconstruct_abstract(w.get("abstract_inverted_index")),
+        source="openalex",
+    )
+
+
+def search_topic_openalex(
+    query: str,
+    *,
+    limit: int = 20,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    timeout: float = 30.0,
+) -> list[DiscoveredPaper]:
+    """Search OpenAlex works (generous rate limits, no key required)."""
+    params: dict[str, Any] = {"search": query, "per-page": min(limit, 50)}
+    filters = []
+    if year_min:
+        filters.append(f"from_publication_date:{year_min}-01-01")
+    if year_max:
+        filters.append(f"to_publication_date:{year_max}-12-31")
+    if filters:
+        params["filter"] = ",".join(filters)
+    with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
+        resp = client.get(OPENALEX_SEARCH, params=params)
+        resp.raise_for_status()
+    known = _existing_ids()
+    out = []
+    for w in resp.json().get("results", []):
+        paper = _parse_openalex_work(w)
+        if paper is not None and not _is_known(paper, known):
+            out.append(paper)
+    out.sort(key=lambda p: -p.citation_count)
+    return out[:limit]
+
+
+def search_topic_with_fallback(
+    query: str,
+    *,
+    limit: int = 20,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    s2_search=None,
+    openalex_search=None,
+) -> list[DiscoveredPaper]:
+    """Prior-art search: Semantic Scholar first, OpenAlex when S2 fails/throttles."""
+    s2 = s2_search or search_topic
+    oa = openalex_search or search_topic_openalex
+    try:
+        return s2(query, limit=limit, year_min=year_min, year_max=year_max)
+    except Exception:
+        return oa(query, limit=limit, year_min=year_min, year_max=year_max)

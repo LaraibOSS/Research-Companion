@@ -13,7 +13,7 @@ class PriorArtAgent(Agent):
     depends_on = ("ingest",)
 
     async def run(self, ctx: AgentContext) -> AgentResult:
-        from research_companion.discover import search_topic
+        from research_companion.discover import search_topic_with_fallback
         from research_companion.store import PaperMetadata
 
         meta = PaperMetadata.load(ctx.paper_id)
@@ -21,7 +21,7 @@ class PriorArtAgent(Agent):
         concepts = [c.get("name", "") for c in ctx.data["_extraction"].get("concepts", [])]
         query = " ".join([title] + [c for c in concepts[:3] if c]).strip()
 
-        search = ctx.data.get("_search") or (lambda q: search_topic(q, limit=15))
+        search = ctx.data.get("_search") or (lambda q: search_topic_with_fallback(q, limit=15))
         found = await asyncio.to_thread(search, query)
         ctx.data["_priorart_papers"] = found
         papers = [

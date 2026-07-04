@@ -18,7 +18,7 @@ class TrackerAgent(Agent):
     async def run(self, ctx: AgentContext) -> AgentResult:
         from datetime import datetime
 
-        from research_companion.discover import search_topic
+        from research_companion.discover import search_topic_with_fallback
         from research_companion.store import PaperMetadata
 
         meta = PaperMetadata.load(ctx.paper_id)
@@ -27,7 +27,7 @@ class TrackerAgent(Agent):
         query = " ".join([title] + [c for c in concepts[:3] if c]).strip()
 
         search = ctx.data.get("_search_recent") or (
-            lambda q: search_topic(q, limit=10, year_min=datetime.now().year - 1)
+            lambda q: search_topic_with_fallback(q, limit=10, year_min=datetime.now().year - 1)
         )
         found = await asyncio.to_thread(search, query)
 
