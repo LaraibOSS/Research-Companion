@@ -1,8 +1,8 @@
-"""Tests for papergraph.refcheck.parse — turning bibliography text into References."""
+"""Tests for research_companion.refcheck.parse — turning bibliography text into References."""
 from __future__ import annotations
 
-from papergraph.refcheck import parse
-from papergraph.refcheck.validate import Reference
+from research_companion.refcheck import parse
+from research_companion.refcheck.validate import Reference
 
 # --- field extractors (pure) ------------------------------------------------
 
@@ -64,7 +64,7 @@ def test_parse_reference_string_empty_is_empty_reference():
     assert ref.doi is None
 
 
-# --- references_from_extraction (papergraph wiring) -------------------------
+# --- references_from_extraction (research-companion wiring) -------------------------
 
 def test_references_from_extraction_parses_related_work():
     extraction = {

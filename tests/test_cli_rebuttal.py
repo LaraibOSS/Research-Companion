@@ -1,12 +1,12 @@
-"""End-to-end tests for `papergraph rebuttal` — LLM injected, no network."""
+"""End-to-end tests for `research-companion rebuttal` — LLM injected, no network."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from papergraph import cli, store
-from papergraph.prompts import extraction_prompt_sha256
+from research_companion import cli, store
+from research_companion.prompts import extraction_prompt_sha256
 
 REVIEWS = """Reviewer 1
 

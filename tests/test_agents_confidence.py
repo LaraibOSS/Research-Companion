@@ -5,10 +5,10 @@ import math
 
 import pytest
 
-from papergraph.agents import events
-from papergraph.agents.base import AgentContext
-from papergraph.agents.bus import Bus
-from papergraph.agents.confidence import ConfidenceAgent, score_claim
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
+from research_companion.agents.confidence import ConfidenceAgent, score_claim
 
 
 def test_score_claim_formula_exact():

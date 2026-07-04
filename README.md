@@ -1,14 +1,14 @@
-# papergraph
+# Research Companion
 
 > Drop arXiv URLs, DOIs, or PDFs in. Get a knowledge graph and a chat interface that answers questions with paper citations. Local-first. Open source.
 
 ```bash
-git clone https://github.com/azizur100389/papergraph && cd papergraph && pip install -e .
-papergraph add https://arxiv.org/abs/2410.05779
-papergraph add https://arxiv.org/abs/2404.16130
-papergraph build
-papergraph view                                  # opens an interactive HTML graph
-papergraph chat "what are the main approaches?"  # KG-aware Q&A with citations
+git clone https://github.com/Laraib-Hasan/Research-Companion.git && cd research-companion && pip install -e .
+research-companion add https://arxiv.org/abs/2410.05779
+research-companion add https://arxiv.org/abs/2404.16130
+research-companion build
+research-companion view                                  # opens an interactive HTML graph
+research-companion chat "what are the main approaches?"  # KG-aware Q&A with citations
 ```
 
 ---
@@ -23,15 +23,15 @@ Reading 50 papers to get up to speed on a research field takes weeks. Existing t
 | ResearchRabbit | ✗ | ✗ | ✗ | ✗ | partial |
 | Elicit / Consensus | ✗ | ✗ | ✓ | ✗ | partial |
 | Semantic Scholar | partial API | ✗ | ✗ | ✗ | ✗ |
-| **papergraph** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| **Research Companion** | **✓** | **✓** | **✓** | **✓** | **✓** |
 
-papergraph builds a *concept-level* knowledge graph (concepts, methods, datasets, claims, results, citations) from your own PDFs and arXiv links, then lets you both **navigate** it visually and **chat** with it. Every chat answer cites the exact papers it draws from, so you can verify before you cite.
+research-companion builds a *concept-level* knowledge graph (concepts, methods, datasets, claims, results, citations) from your own PDFs and arXiv links, then lets you both **navigate** it visually and **chat** with it. Every chat answer cites the exact papers it draws from, so you can verify before you cite.
 
 ## Install
 
 ```bash
-git clone https://github.com/azizur100389/papergraph
-cd papergraph
+git clone https://github.com/Laraib-Hasan/Research-Companion.git
+cd research-companion
 pip install -e ".[demo]"   # core + live dashboard (fastapi, uvicorn)
 
 # you also need ONE of:
@@ -44,43 +44,43 @@ export OPENAI_API_KEY=sk-...          # use --provider openai
 
 ```bash
 # Add papers — arXiv, DOI, Semantic Scholar, or local PDF
-papergraph add https://arxiv.org/abs/2404.16130   # GraphRAG (Edge et al., 2024)
-papergraph add https://arxiv.org/abs/2410.05779   # LightRAG (Guo et al., 2024)
-papergraph add https://doi.org/10.1145/1234567    # any DOI
-papergraph add ./my-paper.pdf --title "My Paper" --authors "Alice,Bob" --year 2024
+research-companion add https://arxiv.org/abs/2404.16130   # GraphRAG (Edge et al., 2024)
+research-companion add https://arxiv.org/abs/2410.05779   # LightRAG (Guo et al., 2024)
+research-companion add https://doi.org/10.1145/1234567    # any DOI
+research-companion add ./my-paper.pdf --title "My Paper" --authors "Alice,Bob" --year 2024
 
 # Batch add from a file (one URL/path per line)
-papergraph add -f examples/graph-rag-corpus/papers.txt
+research-companion add -f examples/graph-rag-corpus/papers.txt
 
 # Check the cost before building (~$0.05–$0.20 per paper)
-papergraph cost-estimate
+research-companion cost-estimate
 
 # Extract entities + build the cross-paper graph
-papergraph build
+research-companion build
 
 # View the interactive graph in your browser
-papergraph view
+research-companion view
 
 # Ask questions — every answer cites the papers it uses
-papergraph chat "what are the differences between GraphRAG and LightRAG?"
-papergraph chat                                    # interactive REPL
+research-companion chat "what are the differences between GraphRAG and LightRAG?"
+research-companion chat                                    # interactive REPL
 
 # Search the graph without opening the browser
-papergraph search "attention" --kind concept
+research-companion search "attention" --kind concept
 
 # Discover papers you're missing (via Semantic Scholar)
-papergraph discover "graph-based RAG"          # topic search
-papergraph discover --expand                   # follow citations of your papers
-papergraph discover "knowledge graphs" --add   # auto-add discovered papers
+research-companion discover "graph-based RAG"          # topic search
+research-companion discover --expand                   # follow citations of your papers
+research-companion discover "knowledge graphs" --add   # auto-add discovered papers
 
 # Export to Obsidian, markdown, CSV, or JSON
-papergraph export --format obsidian --output ./my-vault/papergraph/
+research-companion export --format obsidian --output ./my-vault/research-companion/
 ```
 
-Output ends up in `~/.papergraph/`:
+Output ends up in `~/.research-companion/`:
 
 ```
-~/.papergraph/
+~/.research-companion/
 ├── papers/
 │   ├── arxiv__2404_16130/{paper.pdf, metadata.json, text.txt, extraction.json}
 │   ├── arxiv__2410_05779/...
@@ -89,7 +89,7 @@ Output ends up in `~/.papergraph/`:
 └── graph.html     # interactive viz, double-click to open
 ```
 
-## What papergraph extracts from each paper
+## What research-companion extracts from each paper
 
 ```json
 {
@@ -131,33 +131,33 @@ This is **graph-traversal RAG**, not vector RAG. No embeddings step. The graph t
 Export your knowledge graph to use in other tools:
 
 ```bash
-papergraph export --format markdown   # per-paper markdown notes + index
-papergraph export --format obsidian   # markdown with [[wikilinks]] — one note per entity
-papergraph export --format csv        # nodes.csv + edges.csv for spreadsheets/neo4j
-papergraph export --format json       # raw graph.json + papers.json
+research-companion export --format markdown   # per-paper markdown notes + index
+research-companion export --format obsidian   # markdown with [[wikilinks]] — one note per entity
+research-companion export --format csv        # nodes.csv + edges.csv for spreadsheets/neo4j
+research-companion export --format json       # raw graph.json + papers.json
 ```
 
 The **Obsidian export** creates a fully-linked vault: each paper, concept, method, and dataset gets its own note with `[[wikilinks]]` back to the papers that mention it. Open the output directory as an Obsidian vault and you get a navigable graph view for free.
 
 ## Discover missing papers
 
-Don't have a complete reading list? papergraph can discover papers you're missing using Semantic Scholar (free, no API key needed):
+Don't have a complete reading list? research-companion can discover papers you're missing using Semantic Scholar (free, no API key needed):
 
 ```bash
 # Search by topic — returns papers ranked by citation count
-papergraph discover "graph-based RAG" --limit 15
+research-companion discover "graph-based RAG" --limit 15
 
 # Filter by year range
-papergraph discover "knowledge graphs" --year-min 2022 --year-max 2025
+research-companion discover "knowledge graphs" --year-min 2022 --year-max 2025
 
 # Follow citations: scan references + citing papers of your existing papers
-papergraph discover --expand
+research-companion discover --expand
 
-# Auto-add everything discovered (then run `papergraph build`)
-papergraph discover "retrieval augmented generation" --add
+# Auto-add everything discovered (then run `research-companion build`)
+research-companion discover "retrieval augmented generation" --add
 
 # JSON output for scripting
-papergraph discover --expand --json
+research-companion discover --expand --json
 ```
 
 **Topic search** queries Semantic Scholar's corpus of 200M+ papers, deduplicates against your local store, and ranks results by citation count.
@@ -169,11 +169,11 @@ papergraph discover --expand --json
 A team of specialized agents analyzes a paper end-to-end, and every verdict carries evidence:
 
 ```bash
-papergraph review <paper-id>                 # 6 agents: ingest, citation, priorart,
+research-companion review <paper-id>                 # 6 agents: ingest, citation, priorart,
                                              # novelty, confidence, benchmark
-papergraph review <paper-id> --fast          # skip the LLM lanes (no API key needed)
-papergraph review <paper-id> --report out/   # write out/report.html + out/report.json
-papergraph review <paper-id> --serve         # live browser dashboard (SSE) while agents run
+research-companion review <paper-id> --fast          # skip the LLM lanes (no API key needed)
+research-companion review <paper-id> --report out/   # write out/report.html + out/report.json
+research-companion review <paper-id> --serve         # live browser dashboard (SSE) while agents run
 ```
 
 What each lane does:
@@ -186,7 +186,7 @@ What each lane does:
 - **confidence** - deterministic score with an uncertainty band per claim (no LLM).
 - **benchmark** - suggests evaluation benchmarks mined from the knowledge graph + related work.
 
-Every run writes a JSONL audit log to `~/.papergraph/runs/`.
+Every run writes a JSONL audit log to `~/.research-companion/runs/`.
 
 Two additional library-level agents (not yet CLI-wired): problem (refines a research problem against the graph) and tracker (one-shot new-related-work sweep).
 
@@ -201,10 +201,10 @@ Seeds a synthetic paper, runs all 6 review-agent lanes, and drafts a rebuttal en
 ## Answer reviewers (rebuttal assistant)
 
 ```bash
-papergraph rebuttal <paper-id> --reviews reviews.txt            # grounded point-by-point replies
-papergraph rebuttal <paper-id> --reviews reviews.txt \
+research-companion rebuttal <paper-id> --reviews reviews.txt            # grounded point-by-point replies
+research-companion rebuttal <paper-id> --reviews reviews.txt \
     --emit-segments seg.json                                    # split reviews, edit, then:
-papergraph rebuttal <paper-id> --segments seg.json --tone firm  # resume from edited segments
+research-companion rebuttal <paper-id> --segments seg.json --tone firm  # resume from edited segments
 ```
 
 Replies quote only real passages from your paper; any span the model cannot ground is flagged
@@ -216,38 +216,38 @@ planned-revisions changelog is assembled automatically.
 `examples/graph-rag-corpus/papers.txt` is a curated list of 10 papers on graph-based RAG. Run it as a one-liner:
 
 ```bash
-papergraph add -f examples/graph-rag-corpus/papers.txt
-papergraph build
-papergraph chat "how do GraphRAG and LightRAG differ in indexing cost?"
+research-companion add -f examples/graph-rag-corpus/papers.txt
+research-companion build
+research-companion chat "how do GraphRAG and LightRAG differ in indexing cost?"
 ```
 
 ## CLI reference
 
 ```
-papergraph add <url-or-pdf>... [-f FILE] [--title T] [--authors A,B] [--year Y]
-papergraph build [--provider anthropic|openai] [--model M] [--force]
-papergraph cost-estimate [--provider anthropic|openai] [--model M]
-papergraph discover <topic> [-n LIMIT] [--year-min Y] [--year-max Y] [--add] [--json]
-papergraph discover --expand [-n LIMIT] [--min-citations N] [--add] [--json]
-papergraph view [--no-open]
-papergraph chat [<question>] [--provider P] [--depth N]
-papergraph search <query> [-k concept|method|...] [-n LIMIT] [--json]
-papergraph list [--json]
-papergraph remove <paper-id>
-papergraph stats
-papergraph export [--format markdown|csv|json|obsidian] [--output DIR]
+research-companion add <url-or-pdf>... [-f FILE] [--title T] [--authors A,B] [--year Y]
+research-companion build [--provider anthropic|openai] [--model M] [--force]
+research-companion cost-estimate [--provider anthropic|openai] [--model M]
+research-companion discover <topic> [-n LIMIT] [--year-min Y] [--year-max Y] [--add] [--json]
+research-companion discover --expand [-n LIMIT] [--min-citations N] [--add] [--json]
+research-companion view [--no-open]
+research-companion chat [<question>] [--provider P] [--depth N]
+research-companion search <query> [-k concept|method|...] [-n LIMIT] [--json]
+research-companion list [--json]
+research-companion remove <paper-id>
+research-companion stats
+research-companion export [--format markdown|csv|json|obsidian] [--output DIR]
 ```
 
 ## Programmatic API
 
 ```python
-import papergraph
+import research-companion
 
-papergraph.add_paper("https://arxiv.org/abs/2410.05779")
-papergraph.add_paper("10.1145/1234567.1234568")  # DOI
-G = papergraph.build_graph()              # NetworkX Graph
-papergraph.view()                          # opens HTML
-ans = papergraph.chat("what is GraphRAG?")
+research-companion.add_paper("https://arxiv.org/abs/2410.05779")
+research-companion.add_paper("10.1145/1234567.1234568")  # DOI
+G = research-companion.build_graph()              # NetworkX Graph
+research-companion.view()                          # opens HTML
+ans = research-companion.chat("what is GraphRAG?")
 print(ans.answer)                          # cited answer
 print(ans.papers)                          # papers used in retrieval
 ```
@@ -256,17 +256,17 @@ print(ans.papers)                          # papers used in retrieval
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `PAPERGRAPH_DIR` | Where papergraph stores papers + graph | `~/.papergraph/` |
+| `PAPERGRAPH_DIR` | Where research-companion stores papers + graph | `~/.research-companion/` |
 | `ANTHROPIC_API_KEY` | Required for `--provider anthropic` (default) | – |
 | `OPENAI_API_KEY` | Required for `--provider openai` | – |
 
-Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `papergraph cost-estimate` to see projected costs before building. Re-running `build` is **free** — extractions are cached on disk and only re-run when the prompt changes.
+Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `research-companion cost-estimate` to see projected costs before building. Re-running `build` is **free** — extractions are cached on disk and only re-run when the prompt changes.
 
 ## Roadmap
 
 - **v0.1 (current)** — CLI, arXiv + DOI + Semantic Scholar + local PDFs, graph viz, chat with citations, search, export (markdown/obsidian/csv/json), cost estimation.
-- **v0.2** — Semantic Scholar integration for proper citation graph; concept-level cross-paper deduplication via embedding similarity (optional); MCP server so Claude desktop can query papergraph directly; graph export to Obsidian Canvas.
-- **v0.3** — Web UI (Streamlit), multi-corpus support (one user, many topic graphs), live arXiv watch (`papergraph watch cs.CL --since today`).
+- **v0.2** — Semantic Scholar integration for proper citation graph; concept-level cross-paper deduplication via embedding similarity (optional); MCP server so Claude desktop can query research-companion directly; graph export to Obsidian Canvas.
+- **v0.3** — Web UI (Streamlit), multi-corpus support (one user, many topic graphs), live arXiv watch (`research-companion watch cs.CL --since today`).
 - **v0.4** — Hosted cloud version for non-technical users.
 
 ## Contributing
@@ -280,7 +280,7 @@ pytest
 
 ## Acknowledgements
 
-papergraph's design is inspired by [graphify](https://github.com/safishamsi/graphify) (Safi Shamsi) for the topology-based clustering approach and the EXTRACTED/INFERRED tagging idea, and by [GraphRAG](https://github.com/microsoft/graphrag) (Microsoft Research) for the cross-document community-summary concept.
+research-companion's design is inspired by [graphify](https://github.com/safishamsi/graphify) (Safi Shamsi) for the topology-based clustering approach and the EXTRACTED/INFERRED tagging idea, and by [GraphRAG](https://github.com/microsoft/graphrag) (Microsoft Research) for the cross-document community-summary concept.
 
 ## License
 

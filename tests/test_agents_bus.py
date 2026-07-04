@@ -1,10 +1,10 @@
-"""Tests for papergraph.agents.bus — in-process async pub/sub with history."""
+"""Tests for research_companion.agents.bus — in-process async pub/sub with history."""
 from __future__ import annotations
 
 import pytest
 
-from papergraph.agents import events
-from papergraph.agents.bus import Bus
+from research_companion.agents import events
+from research_companion.agents.bus import Bus
 
 
 @pytest.mark.asyncio

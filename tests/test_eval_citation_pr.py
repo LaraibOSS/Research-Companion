@@ -17,7 +17,7 @@ def test_corrupt_is_deterministic_and_labeled():
     """
     import random
 
-    from papergraph.eval.citation_pr import GOLD, corrupt
+    from research_companion.eval.citation_pr import GOLD, corrupt
 
     rng_a = random.Random(42)
     rng_b = random.Random(42)
@@ -49,7 +49,7 @@ def test_run_eval_metrics_in_range_and_fabricated_recall_high():
     """run_eval() must return a dict with overall precision/recall/F1 in [0,1],
     and recall for the 'fabricated' corruption type must exceed 0.9.
     """
-    from papergraph.eval.citation_pr import run_eval
+    from research_companion.eval.citation_pr import run_eval
 
     result = run_eval(seed=42)
 
@@ -74,7 +74,7 @@ def test_main_writes_both_artifact_files(tmp_path):
     """main(out_dir=...) must create citation_pr.json and citation_pr.md
     in the given directory, and the JSON must be a non-empty dict.
     """
-    from papergraph.eval.citation_pr import main
+    from research_companion.eval.citation_pr import main
 
     main(out_dir=str(tmp_path))
 

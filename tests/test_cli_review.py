@@ -1,13 +1,13 @@
-"""End-to-end test for `papergraph review` — all network injected, no LLM."""
+"""End-to-end test for `research-companion review` — all network injected, no LLM."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from papergraph import cli, store
-from papergraph.discover import DiscoveredPaper
-from papergraph.prompts import extraction_prompt_sha256
+from research_companion import cli, store
+from research_companion.discover import DiscoveredPaper
+from research_companion.prompts import extraction_prompt_sha256
 
 
 def _seed():

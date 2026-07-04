@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from papergraph import store
-from papergraph.agents import events
-from papergraph.agents.base import AgentContext
-from papergraph.agents.bus import Bus
-from papergraph.agents.priorart import PriorArtAgent
-from papergraph.discover import DiscoveredPaper
+from research_companion import store
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
+from research_companion.agents.priorart import PriorArtAgent
+from research_companion.discover import DiscoveredPaper
 
 
 def _paper(title, year=2024, arxiv_id="2401.00001"):

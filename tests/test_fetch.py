@@ -1,4 +1,4 @@
-"""Tests for papergraph.fetch.
+"""Tests for research_companion.fetch.
 
 Mocks all HTTP — no real network calls.
 """
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from papergraph import fetch, store
+from research_companion import fetch, store
 
 
 def test_parse_arxiv_id_from_abs_url():

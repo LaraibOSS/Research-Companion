@@ -10,8 +10,8 @@ venv/
 .env.local
 
 # Local user state — never commit
-.papergraph/
-papergraph-out/
+.research-companion/
+research-companion-out/
 demo-out/
 
 # IDE / OS

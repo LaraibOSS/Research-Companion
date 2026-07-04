@@ -1,4 +1,4 @@
-"""Zero-key offline demo for papergraph.
+"""Zero-key offline demo for research_companion.
 
 Reviewer-facing 30-second tryout: seeds a synthetic paper, runs the full
 review pipeline (all 6 agent lanes), then drafts a rebuttal -- all offline,
@@ -19,14 +19,14 @@ from pathlib import Path
 
 
 def main() -> int:
-    # --- 1. Point PAPERGRAPH_DIR at a fresh temp dir BEFORE importing store ---
-    tmp = tempfile.mkdtemp(prefix="papergraph-demo-")
-    os.environ["PAPERGRAPH_DIR"] = tmp
+    # --- 1. Point RESEARCH_COMPANION_DIR at a fresh temp dir BEFORE importing store ---
+    tmp = tempfile.mkdtemp(prefix="research-companion-demo-")
+    os.environ["RESEARCH_COMPANION_DIR"] = tmp
 
-    # Now safe to import papergraph modules (store reads env at call time).
-    from papergraph import cli, store
-    from papergraph.discover import DiscoveredPaper
-    from papergraph.prompts import extraction_prompt_sha256
+    # Now safe to import research_companion modules (store reads env at call time).
+    from research_companion import cli, store
+    from research_companion.discover import DiscoveredPaper
+    from research_companion.prompts import extraction_prompt_sha256
 
     # --- 2. Seed the demo paper -------------------------------------------------
     paper_id = "local:demo"
@@ -105,10 +105,10 @@ def main() -> int:
 
     # --- 4. Run the review pipeline ---------------------------------------------
     report_dir = "demo-out"
-    print("papergraph demo: running review pipeline (6 agent lanes, offline)...")
+    print("research-companion demo: running review pipeline (6 agent lanes, offline)...")
     rc_review = cli.main(["review", paper_id, "--report", report_dir])
     if rc_review != 0:
-        print(f"papergraph demo: review FAILED (exit {rc_review})", file=sys.stderr)
+        print(f"research-companion demo: review FAILED (exit {rc_review})", file=sys.stderr)
         return 1
 
     # --- 5. Build offline rebuttal seam ----------------------------------------
@@ -135,10 +135,10 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    print("papergraph demo: running rebuttal pipeline (offline)...")
+    print("research-companion demo: running rebuttal pipeline (offline)...")
     rc_rebuttal = cli.main(["rebuttal", paper_id, "--reviews", str(reviews_path)])
     if rc_rebuttal != 0:
-        print(f"papergraph demo: rebuttal FAILED (exit {rc_rebuttal})", file=sys.stderr)
+        print(f"research-companion demo: rebuttal FAILED (exit {rc_rebuttal})", file=sys.stderr)
         return 1
 
     # --- 7. Final summary -------------------------------------------------------

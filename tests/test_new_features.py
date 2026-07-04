@@ -12,10 +12,10 @@ import networkx as nx
 import pytest
 from networkx.readwrite import json_graph
 
-from papergraph import cli
-from papergraph.graph import build_graph
-from papergraph.prompts import extraction_prompt_sha256
-from papergraph.store import (
+from research_companion import cli
+from research_companion.graph import build_graph
+from research_companion.prompts import extraction_prompt_sha256
+from research_companion.store import (
     PaperMetadata,
     graph_json_path,
     save_extraction,
@@ -71,15 +71,15 @@ def _build_sample_graph(
 
 
 def _install_fake_fetch_module(monkeypatch, mock_add_paper):
-    """Install a fake papergraph.fetch module so _cmd_add's lazy import works.
+    """Install a fake research_companion.fetch module so _cmd_add's lazy import works.
 
-    The real papergraph.fetch requires feedparser/httpx at import time.
+    The real research_companion.fetch requires feedparser/httpx at import time.
     We inject a minimal module with add_paper and FetchError into sys.modules.
     """
-    fake_fetch = types.ModuleType("papergraph.fetch")
+    fake_fetch = types.ModuleType("research_companion.fetch")
     fake_fetch.add_paper = mock_add_paper
     fake_fetch.FetchError = RuntimeError
-    monkeypatch.setitem(sys.modules, "papergraph.fetch", fake_fetch)
+    monkeypatch.setitem(sys.modules, "research_companion.fetch", fake_fetch)
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ def _install_fake_fetch_module(monkeypatch, mock_add_paper):
 
 
 class TestBatchAdd:
-    """Tests for `papergraph add` batch capabilities."""
+    """Tests for `research-companion add` batch capabilities."""
 
     def test_add_from_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -205,7 +205,7 @@ class TestBatchAdd:
 
 
 class TestSearch:
-    """Tests for `papergraph search`."""
+    """Tests for `research-companion search`."""
 
     def test_search_finds_nodes(
         self, fake_pdf_bytes: bytes,
@@ -273,7 +273,7 @@ class TestSearch:
 
 
 class TestExport:
-    """Tests for `papergraph export`."""
+    """Tests for `research-companion export`."""
 
     def test_export_markdown(
         self, fake_pdf_bytes: bytes,
@@ -449,11 +449,11 @@ def _fake_s2_citations_response() -> dict:
 
 
 class TestDiscover:
-    """Tests for `papergraph discover`."""
+    """Tests for `research-companion discover`."""
 
     def test_discover_topic_search(self, capsys: pytest.CaptureFixture):
         """Topic search returns discovered papers."""
-        from papergraph import discover
+        from research_companion import discover
 
         # Mock the httpx call inside search_topic.
         fake_resp = MagicMock()
@@ -465,7 +465,7 @@ class TestDiscover:
         fake_client.__enter__ = MagicMock(return_value=fake_client)
         fake_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("papergraph.discover.httpx.Client", return_value=fake_client):
+        with patch("research_companion.discover.httpx.Client", return_value=fake_client):
             results = discover.search_topic("graph neural networks", limit=10)
 
         assert len(results) >= 1
@@ -478,7 +478,7 @@ class TestDiscover:
         capsys: pytest.CaptureFixture,
     ):
         """Papers already in the store are excluded from discover results."""
-        from papergraph import discover
+        from research_companion import discover
 
         # Add a paper with a matching title to the store.
         _add_paper_with_extraction(
@@ -496,7 +496,7 @@ class TestDiscover:
         fake_client.__enter__ = MagicMock(return_value=fake_client)
         fake_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("papergraph.discover.httpx.Client", return_value=fake_client):
+        with patch("research_companion.discover.httpx.Client", return_value=fake_client):
             results = discover.search_topic("graph neural networks", limit=10)
 
         # The first result should be excluded because its arXiv ID matches.
@@ -508,7 +508,7 @@ class TestDiscover:
         capsys: pytest.CaptureFixture,
     ):
         """--expand follows citations/references of existing papers."""
-        from papergraph import discover
+        from research_companion import discover
 
         # Add an arXiv paper to the store.
         _add_paper_with_extraction(fake_pdf_bytes, sample_extraction)
@@ -530,7 +530,7 @@ class TestDiscover:
         fake_client.__enter__ = MagicMock(return_value=fake_client)
         fake_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("papergraph.discover.httpx.Client", return_value=fake_client):
+        with patch("research_companion.discover.httpx.Client", return_value=fake_client):
             results = discover.expand_from_existing(limit=10, min_citations=5)
 
         titles = [p.title for p in results]
@@ -558,7 +558,7 @@ class TestDiscover:
         fake_client.__enter__ = MagicMock(return_value=fake_client)
         fake_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("papergraph.discover.httpx.Client", return_value=fake_client):
+        with patch("research_companion.discover.httpx.Client", return_value=fake_client):
             rc = cli.main(["discover", "graph RAG", "--json"])
 
         assert rc == 0

@@ -6,17 +6,17 @@ import json
 import networkx as nx
 import pytest
 
-from papergraph.agents import events
-from papergraph.agents.base import AgentContext
-from papergraph.agents.bus import Bus
-from papergraph.discover import DiscoveredPaper
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
+from research_companion.discover import DiscoveredPaper
 
 # ---------------------------------------------------------------------------
 # Test 1: prompt formats + placeholders gone
 # ---------------------------------------------------------------------------
 
 def test_problem_prompt_formats_and_no_raw_placeholders():
-    from papergraph.prompts import format_problem_prompt
+    from research_companion.prompts import format_problem_prompt
 
     result = format_problem_prompt(
         statement="How can GNNs improve link prediction?",
@@ -54,7 +54,7 @@ def _fake_llm(prompt: str) -> str:
 
 @pytest.mark.asyncio
 async def test_problem_agent_happy_path():
-    from papergraph.agents.problem import ProblemStatementAgent
+    from research_companion.agents.problem import ProblemStatementAgent
 
     g = _make_graph()
     prior = [
@@ -91,7 +91,7 @@ async def test_problem_agent_happy_path():
 
 @pytest.mark.asyncio
 async def test_problem_agent_missing_statement():
-    from papergraph.agents.problem import ProblemStatementAgent
+    from research_companion.agents.problem import ProblemStatementAgent
 
     g = nx.Graph()
     ctx = AgentContext(paper_id="local:prob2", bus=Bus(), data={})
@@ -108,7 +108,7 @@ async def test_problem_agent_missing_statement():
 
 @pytest.mark.asyncio
 async def test_problem_agent_empty_statement():
-    from papergraph.agents.problem import ProblemStatementAgent
+    from research_companion.agents.problem import ProblemStatementAgent
 
     g = nx.Graph()
     ctx = AgentContext(paper_id="local:prob3", bus=Bus(), data={})
@@ -129,7 +129,7 @@ async def test_problem_agent_empty_statement():
 
 @pytest.mark.asyncio
 async def test_problem_agent_bad_json():
-    from papergraph.agents.problem import ProblemStatementAgent
+    from research_companion.agents.problem import ProblemStatementAgent
 
     g = nx.Graph()
     ctx = AgentContext(paper_id="local:prob4", bus=Bus(), data={})

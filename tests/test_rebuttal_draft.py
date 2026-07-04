@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from papergraph.rebuttal.draft import draft_rebuttal
-from papergraph.rebuttal.models import Concern
+from research_companion.rebuttal.draft import draft_rebuttal
+from research_companion.rebuttal.models import Concern
 
 FULLTEXT = "Intro.\n\nIn Section 4.2 we compare against BaselineX on three datasets.\n"
 

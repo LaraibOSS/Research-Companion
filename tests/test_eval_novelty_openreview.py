@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import json
 
-from papergraph import store
-from papergraph.prompts import extraction_prompt_sha256
+from research_companion import store
+from research_companion.prompts import extraction_prompt_sha256
 
 # ---------------------------------------------------------------------------
 # Helpers: seed two fake papers into the isolated store
@@ -66,7 +66,7 @@ def _fake_llm(prompt: str) -> str:
 
 def _fake_search(query: str):
     """Fake search that returns an empty list (no prior art found)."""
-    from papergraph.discover import DiscoveredPaper
+    from research_companion.discover import DiscoveredPaper
     return [
         DiscoveredPaper(
             title="Related Work", authors=[], year=2023,
@@ -81,7 +81,7 @@ def _fake_search(query: str):
 
 def test_run_cases_returns_scores_and_rank_agreement():
     """Two fake cases → result has per-paper scores and a rank_agreement in [-1, 1]."""
-    from papergraph.eval.novelty_openreview import run_cases
+    from research_companion.eval.novelty_openreview import run_cases
 
     cases = _seed_cases()
     result = run_cases(cases, llm=_fake_llm, search=_fake_search)
@@ -117,7 +117,7 @@ def test_run_cases_returns_scores_and_rank_agreement():
 
 def test_verdict_to_score_mapping():
     """novel=5, incremental=3.5, overlaps=2, anticipated=1."""
-    from papergraph.eval.novelty_openreview import VERDICT_SCORES
+    from research_companion.eval.novelty_openreview import VERDICT_SCORES
 
     assert VERDICT_SCORES["novel"] == 5.0
     assert VERDICT_SCORES["incremental"] == 3.5

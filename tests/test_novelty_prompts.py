@@ -1,7 +1,7 @@
 """Tests for the novelty-assessment prompts."""
 from __future__ import annotations
 
-from papergraph import prompts
+from research_companion import prompts
 
 
 def test_format_contribution_prompt_substitutes():

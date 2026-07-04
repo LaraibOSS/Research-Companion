@@ -1,4 +1,4 @@
-"""Shared fixtures: isolated PAPERGRAPH_DIR per test, sample fixtures."""
+"""Shared fixtures: isolated RESEARCH_COMPANION_DIR per test, sample fixtures."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,13 +8,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolated_papergraph_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Force every test to use a fresh papergraph dir under tmp_path.
+    """Force every test to use a fresh research-companion dir under tmp_path.
 
-    Autouse so no test can accidentally write to the user's real ~/.papergraph/.
+    Autouse so no test can accidentally write to the user's real ~/.research-companion/.
     """
-    p = tmp_path / "papergraph"
+    p = tmp_path / "research-companion"
     p.mkdir()
-    monkeypatch.setenv("PAPERGRAPH_DIR", str(p))
+    monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(p))
     return p
 
 

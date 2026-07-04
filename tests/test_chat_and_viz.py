@@ -1,9 +1,9 @@
-"""Tests for papergraph.chat and papergraph.viz."""
+"""Tests for research_companion.chat and research_companion.viz."""
 from __future__ import annotations
 
 import pytest
 
-from papergraph import chat, graph, prompts, store, viz
+from research_companion import chat, graph, prompts, store, viz
 
 
 def _seed_two_papers(sample_extraction: dict) -> None:

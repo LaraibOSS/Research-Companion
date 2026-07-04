@@ -1,11 +1,11 @@
-"""Tests for papergraph.agents.events — typed events and the JSONL audit log."""
+"""Tests for research_companion.agents.events — typed events and the JSONL audit log."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from papergraph.agents import events
+from research_companion.agents import events
 
 
 def test_event_to_dict_has_discriminator_and_fields():

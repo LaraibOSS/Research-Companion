@@ -7,9 +7,9 @@ fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from papergraph.agents import events  # noqa: E402
-from papergraph.agents.bus import Bus  # noqa: E402
-from papergraph.dashboard.server import create_app  # noqa: E402
+from research_companion.agents import events  # noqa: E402
+from research_companion.agents.bus import Bus  # noqa: E402
+from research_companion.dashboard.server import create_app  # noqa: E402
 
 
 def _client(bus, state):
@@ -19,7 +19,7 @@ def _client(bus, state):
 def test_index_serves_page():
     resp = _client(Bus(), {}).get("/")
     assert resp.status_code == 200
-    assert "papergraph" in resp.text.lower()
+    assert "research-companion" in resp.text.lower()
     assert "EventSource" in resp.text
 
 

@@ -5,12 +5,12 @@ import json
 
 import pytest
 
-from papergraph import store
-from papergraph.agents import events
-from papergraph.agents.base import AgentContext
-from papergraph.agents.bus import Bus
-from papergraph.agents.novelty import NoveltyAgent, _verify_quote
-from papergraph.discover import DiscoveredPaper
+from research_companion import store
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
+from research_companion.agents.novelty import NoveltyAgent, _verify_quote
+from research_companion.discover import DiscoveredPaper
 
 
 def test_verify_quote_exact_and_normalized():

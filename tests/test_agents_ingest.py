@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from papergraph import store
-from papergraph.agents import events
-from papergraph.agents.base import AgentContext
-from papergraph.agents.bus import Bus
-from papergraph.agents.ingest import IngestAgent
-from papergraph.prompts import extraction_prompt_sha256
+from research_companion import store
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
+from research_companion.agents.ingest import IngestAgent
+from research_companion.prompts import extraction_prompt_sha256
 
 
 def _seed(paper_id="local:ingest0001", extraction=None):
@@ -41,4 +41,4 @@ async def test_ingest_fails_cleanly_without_extraction():
     ctx = AgentContext(paper_id="local:doesnotexist", bus=Bus(), data={})
     result = await IngestAgent().run(ctx)
     assert not result.ok
-    assert "papergraph build" in result.error
+    assert "research-companion build" in result.error

@@ -1,28 +1,28 @@
 # Example corpus: graph-based RAG papers
 
-A curated list of 10 papers on graph-based RAG. Run papergraph against this corpus to see what a fully-built graph looks like.
+A curated list of 10 papers on graph-based RAG. Run research-companion against this corpus to see what a fully-built graph looks like.
 
 ## Use it
 
 ```bash
 # Bash / zsh
-grep -v '^#' papers.txt | xargs -n1 papergraph add
+grep -v '^#' papers.txt | xargs -n1 research-companion add
 
 # PowerShell
-Get-Content papers.txt | Where-Object { $_ -notmatch '^#' -and $_ } | ForEach-Object { papergraph add $_ }
+Get-Content papers.txt | Where-Object { $_ -notmatch '^#' -and $_ } | ForEach-Object { research-companion add $_ }
 
 # Then
-papergraph build
-papergraph view
+research-companion build
+research-companion view
 ```
 
 ## Try these questions
 
 ```bash
-papergraph chat "how do GraphRAG and LightRAG differ in indexing cost?"
-papergraph chat "what datasets are used to evaluate multi-hop RAG?"
-papergraph chat "which methods rely on community detection?"
-papergraph chat "what claims does HippoRAG make that other papers don't?"
+research-companion chat "how do GraphRAG and LightRAG differ in indexing cost?"
+research-companion chat "what datasets are used to evaluate multi-hop RAG?"
+research-companion chat "which methods rely on community detection?"
+research-companion chat "what claims does HippoRAG make that other papers don't?"
 ```
 
 ## Expected stats (rough, from a single build run)

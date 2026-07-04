@@ -1,12 +1,12 @@
-"""Tests for papergraph.refcheck.retrieval — CrossRef/OpenAlex lookups.
+"""Tests for research_companion.refcheck.retrieval — CrossRef/OpenAlex lookups.
 
 HTTP is never hit: the thin search functions are monkeypatched, and the
 response parsers are pure and tested directly.
 """
 from __future__ import annotations
 
-from papergraph.refcheck import retrieval
-from papergraph.refcheck.validate import Reference
+from research_companion.refcheck import retrieval
+from research_companion.refcheck.validate import Reference
 
 # --- CrossRef item parser (pure) --------------------------------------------
 

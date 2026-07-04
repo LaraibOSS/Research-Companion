@@ -1,7 +1,7 @@
 """Tests for rebuttal classify/draft prompts."""
 from __future__ import annotations
 
-from papergraph import prompts
+from research_companion import prompts
 
 
 def test_classify_prompt_formats_and_lists_kinds():

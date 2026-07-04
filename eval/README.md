@@ -1,6 +1,6 @@
 # Evaluation Harnesses
 
-This directory contains offline and live evaluation harnesses for papergraph.
+This directory contains offline and live evaluation harnesses for research-companion.
 
 ---
 
@@ -20,7 +20,7 @@ the reference-checking pipeline detects corrupted bibliography entries.
 ### Running it
 
 ```bash
-python -m papergraph.eval.citation_pr
+python -m research_companion.eval.citation_pr
 ```
 
 No API key or network access required.  The run is deterministic (seed=42) and
@@ -42,7 +42,7 @@ not a hard generalization test.  Precision is 1.0 by construction under the orac
 
 ## 2. Novelty-vs-OpenReview Harness (`novelty_openreview`)
 
-Compares papergraph's NoveltyAgent verdicts against human reviewer scores from
+Compares research-companion's NoveltyAgent verdicts against human reviewer scores from
 OpenReview, reporting Spearman rank correlation.
 
 ### Important: this eval requires network access and LLM API keys
@@ -59,8 +59,8 @@ OpenReview, reporting Spearman rank correlation.
    published reviews that include a **Novelty** or **Contribution** rating (1-5).
 2. For each paper:
    a. Download the PDF.
-   b. Add it to the store: `papergraph add path/to/paper.pdf --title "..." --authors "..."`.
-   c. Build the graph: `papergraph build`.
+   b. Add it to the store: `research-companion add path/to/paper.pdf --title "..." --authors "..."`.
+   c. Build the graph: `research-companion build`.
 3. Compute `human_novelty` for each paper as the **average** of the reviewer
    novelty/contribution scores (e.g. if three reviewers rate 3, 4, 3 the average
    is 3.33).
@@ -74,7 +74,7 @@ OpenReview, reporting Spearman rank correlation.
 ### Running it
 
 ```bash
-python -m papergraph.eval.novelty_openreview cases.jsonl --out eval/results/
+python -m research_companion.eval.novelty_openreview cases.jsonl --out eval/results/
 ```
 
 Set your API key first:

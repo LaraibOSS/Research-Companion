@@ -1,7 +1,7 @@
 """Tests for grounding-passage retrieval (term overlap, deterministic)."""
 from __future__ import annotations
 
-from papergraph.rebuttal.retrieve import retrieve_passages
+from research_companion.rebuttal.retrieve import retrieve_passages
 
 FULLTEXT = """Introduction paragraph about graphs and knowledge.
 

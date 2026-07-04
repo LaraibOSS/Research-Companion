@@ -1,4 +1,4 @@
-"""End-to-end tests for the `papergraph refcheck` CLI command.
+"""End-to-end tests for the `research-companion refcheck` CLI command.
 
 The authoritative lookup is monkeypatched, so no network is hit.
 """
@@ -8,9 +8,9 @@ import json
 
 import pytest
 
-from papergraph import cli, store
-from papergraph.prompts import extraction_prompt_sha256
-from papergraph.refcheck import retrieval
+from research_companion import cli, store
+from research_companion.prompts import extraction_prompt_sha256
+from research_companion.refcheck import retrieval
 
 
 def _seed_paper_with_refs(related_work: list[str]) -> str:

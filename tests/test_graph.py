@@ -1,7 +1,7 @@
-"""Tests for papergraph.graph — pure construction, no LLM."""
+"""Tests for research_companion.graph — pure construction, no LLM."""
 from __future__ import annotations
 
-from papergraph import graph, prompts, store
+from research_companion import graph, prompts, store
 
 
 def _seed_paper(paper_id: str, title: str, extraction: dict) -> store.PaperMetadata:

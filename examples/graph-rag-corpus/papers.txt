@@ -1,7 +1,7 @@
 # 10 papers on graph-based RAG. Use as:
-#   xargs -n1 papergraph add < examples/graph-rag-corpus/papers.txt
-#   papergraph build
-#   papergraph chat "what are the main differences between these approaches?"
+#   xargs -n1 research-companion add < examples/graph-rag-corpus/papers.txt
+#   research-companion build
+#   research-companion chat "what are the main differences between these approaches?"
 
 # ----- foundational -----
 https://arxiv.org/abs/2005.11401   # RAG (Lewis et al., 2020) — the original RAG paper

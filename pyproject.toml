@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "papergraph"
+name = "research-companion"
 version = "0.1.0"
-description = "Drop arXiv URLs or PDFs in, get an interactive knowledge graph and a chat interface that answers questions with paper citations. Local-first, open source, KG-aware retrieval."
+description = "An agentic research companion that verifies what it claims"
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["knowledge-graph", "rag", "arxiv", "papers", "literature-review", "research", "llm", "claude", "openai"]
@@ -24,8 +24,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/azizur100389/papergraph"
-Issues = "https://github.com/azizur100389/papergraph/issues"
+Repository = "https://github.com/azizur100389/research-companion"
+Issues = "https://github.com/azizur100389/research-companion/issues"
 
 [project.optional-dependencies]
 demo = [
@@ -41,14 +41,14 @@ dev = [
 ]
 
 [project.scripts]
-papergraph = "papergraph.cli:main"
+research-companion = "research_companion.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["papergraph*"]
+include = ["research_companion*"]
 
 [tool.setuptools.package-data]
-papergraph = ["templates/*.html", "templates/*.css", "templates/*.js"]
+research_companion = ["templates/*.html", "templates/*.css", "templates/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

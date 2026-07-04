@@ -1,7 +1,7 @@
-"""Tests for papergraph.store."""
+"""Tests for research_companion.store."""
 from __future__ import annotations
 
-from papergraph import store
+from research_companion import store
 
 
 def test_arxiv_id_normalisation():

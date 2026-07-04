@@ -1,7 +1,7 @@
 """Tests for reviewer-comment segmentation heuristics."""
 from __future__ import annotations
 
-from papergraph.rebuttal.segment import segment_reviews
+from research_companion.rebuttal.segment import segment_reviews
 
 REVIEW = """Reviewer 1
 

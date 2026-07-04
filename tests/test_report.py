@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import json
 
-from papergraph.agents.base import AgentResult
-from papergraph.report import build_report_json, render_report_html
+from research_companion.agents.base import AgentResult
+from research_companion.report import build_report_json, render_report_html
 
 
 def _results():

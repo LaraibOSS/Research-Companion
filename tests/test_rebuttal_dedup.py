@@ -1,8 +1,8 @@
 """Tests for cross-reviewer concern grouping."""
 from __future__ import annotations
 
-from papergraph.rebuttal.dedup import group_concerns
-from papergraph.rebuttal.models import Concern
+from research_companion.rebuttal.dedup import group_concerns
+from research_companion.rebuttal.models import Concern
 
 
 def _c(cid, text):

@@ -1,7 +1,7 @@
 """Tests for rebuttal quote verification against paper fulltext."""
 from __future__ import annotations
 
-from papergraph.rebuttal.verify import verify_quote, verify_reply_quotes
+from research_companion.rebuttal.verify import verify_quote, verify_reply_quotes
 
 TEXT = "In Section 4.2 we compare against BaselineX on three datasets."
 

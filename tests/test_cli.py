@@ -1,18 +1,18 @@
-"""Tests for papergraph.cli — end-to-end smoke with all I/O mocked."""
+"""Tests for research_companion.cli — end-to-end smoke with all I/O mocked."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from papergraph import cli, extract, store
+from research_companion import cli, extract, store
 
 
 def test_help_smoke(capsys: pytest.CaptureFixture):
     with pytest.raises(SystemExit):
         cli.main(["--help"])
     out = capsys.readouterr().out
-    assert "papergraph" in out
+    assert "research-companion" in out
     for sub in ("add", "build", "view", "chat", "list", "remove", "stats"):
         assert sub in out
 
@@ -21,7 +21,7 @@ def test_version_smoke(capsys: pytest.CaptureFixture):
     with pytest.raises(SystemExit):
         cli.main(["--version"])
     out = capsys.readouterr().out + capsys.readouterr().err
-    assert "papergraph" in out.lower()
+    assert "research-companion" in out.lower()
 
 
 def test_list_empty_store(capsys: pytest.CaptureFixture):
@@ -104,7 +104,7 @@ def test_chat_one_shot_with_mocked_llm(monkeypatch, tmp_path, fake_pdf_bytes,
     capsys.readouterr()
 
     # Mock chat LLM.
-    from papergraph import chat as chat_mod
+    from research_companion import chat as chat_mod
     monkeypatch.setattr(
         chat_mod, "_call_anthropic",
         lambda system, user, model: ("GraphRAG is a method for graph-based retrieval "

@@ -1,12 +1,12 @@
-"""Tests for papergraph.agents.base — Agent protocol, context, result."""
+"""Tests for research_companion.agents.base — Agent protocol, context, result."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from papergraph.agents.base import Agent, AgentContext, AgentResult
-from papergraph.agents.bus import Bus
+from research_companion.agents.base import Agent, AgentContext, AgentResult
+from research_companion.agents.bus import Bus
 
 
 class EchoAgent(Agent):

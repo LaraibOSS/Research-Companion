@@ -4,11 +4,11 @@ from __future__ import annotations
 import networkx as nx
 import pytest
 
-from papergraph.agents import events
-from papergraph.agents.base import AgentContext
-from papergraph.agents.benchmark import BenchmarkAgent
-from papergraph.agents.bus import Bus
-from papergraph.discover import DiscoveredPaper
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.benchmark import BenchmarkAgent
+from research_companion.agents.bus import Bus
+from research_companion.discover import DiscoveredPaper
 
 
 def _paper(title, abstract):

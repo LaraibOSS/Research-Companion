@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from papergraph.rebuttal.models import (
+from research_companion.rebuttal.models import (
     Concern,
     Passage,
     RebuttalReport,

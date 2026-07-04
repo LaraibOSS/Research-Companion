@@ -7,9 +7,9 @@ This exercises the full pipeline the `refcheck` command runs:
 """
 from __future__ import annotations
 
-from papergraph.refcheck import matching
-from papergraph.refcheck.parse import references_from_extraction
-from papergraph.refcheck.validate import validate_bibliography
+from research_companion.refcheck import matching
+from research_companion.refcheck.parse import references_from_extraction
+from research_companion.refcheck.validate import validate_bibliography
 
 # A tiny authoritative "database" of real records.
 _DB = [
@@ -41,7 +41,7 @@ def _db_lookup(ref):
 
 
 def test_full_pipeline_classifies_a_realistic_bibliography():
-    # As papergraph extraction produces: mostly clean titles, sometimes with an
+    # As research-companion extraction produces: mostly clean titles, sometimes with an
     # identifier appended. One entry carries a wrong DOI; one is fabricated.
     extraction = {
         "related_work": [

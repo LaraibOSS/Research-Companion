@@ -1,11 +1,11 @@
-"""Tests for papergraph.extract — mocked LLM, no API calls."""
+"""Tests for research_companion.extract — mocked LLM, no API calls."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from papergraph import extract, fetch, prompts, store
+from research_companion import extract, fetch, prompts, store
 
 
 def test_strip_code_fences():
@@ -126,7 +126,7 @@ def test_extract_paper_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch,
 
 
 def test_resolve_model_defaults_per_provider():
-    from papergraph.extract import resolve_model
+    from research_companion.extract import resolve_model
     assert resolve_model("anthropic")           # non-empty default
     assert resolve_model("openai")
     assert resolve_model("anthropic", "custom-x") == "custom-x"

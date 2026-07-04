@@ -1,11 +1,11 @@
-"""Tests for papergraph.refcheck — deterministic reference validation.
+"""Tests for research_companion.refcheck — deterministic reference validation.
 
 No network calls; the authoritative-lookup function is injected.
 """
 from __future__ import annotations
 
-from papergraph.refcheck import matching
-from papergraph.refcheck.validate import (
+from research_companion.refcheck import matching
+from research_companion.refcheck.validate import (
     Reference,
     validate_bibliography,
     validate_reference,

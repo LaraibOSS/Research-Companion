@@ -1,14 +1,14 @@
-"""Tests for papergraph.agents.orchestrator — DAG execution with failure isolation."""
+"""Tests for research_companion.agents.orchestrator — DAG execution with failure isolation."""
 from __future__ import annotations
 
 import asyncio
 
 import pytest
 
-from papergraph.agents import events
-from papergraph.agents.base import Agent, AgentContext, AgentResult
-from papergraph.agents.bus import Bus
-from papergraph.agents.orchestrator import run_agents
+from research_companion.agents import events
+from research_companion.agents.base import Agent, AgentContext, AgentResult
+from research_companion.agents.bus import Bus
+from research_companion.agents.orchestrator import run_agents
 
 
 def make_agent(agent_name, deps=(), fail=False, delay=0.0, record=None):
