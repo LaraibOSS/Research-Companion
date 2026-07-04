@@ -21,13 +21,13 @@
 \maketitle
 
 \begin{abstract}
-Lack of novelty is the most common cause of desk rejection, and fabricated or incorrect citations are a growing failure mode of LLM-assisted writing---yet the tools researchers use before submission either check formatting without scientific judgment, or offer LLM critique without verifiable grounding. We present \textbf{Research Companion}, an open-source system in which a team of specialized agents analyzes a paper end-to-end and \emph{every verdict carries checkable evidence}. A citation agent validates each reference against live CrossRef/OpenAlex lookups and flags fabricated entries; a novelty agent extracts the paper's claimed contributions, compares them against retrieved prior art, and verifies every supporting quote against the paper's own text; a rebuttal agent drafts point-by-point reviewer responses in which any span attributed to the paper is checked verbatim; a deterministic confidence agent scores each claim with an explicit uncertainty band. Agents run concurrently on an asyncio DAG with failure isolation, stream to a live browser dashboard, and write JSONL audit logs. On a controlled corruption benchmark the citation validator attains 1.0 precision and 1.0 recall; we release the benchmark, a novelty-vs-OpenReview evaluation harness, and a 30-second offline demo requiring no API keys.\footnote{Code (MIT): \url{https://github.com/Laraib-Hasan/Research-Companion}. Demo video: [LINK].}
+Lack of novelty is the most common cause of desk rejection, and fabricated or incorrect citations are a growing failure mode of LLM-assisted writing---yet the tools researchers use before submission either check formatting without scientific judgment, or offer LLM critique without verifiable grounding. We present \textbf{Research Companion}, an open-source system in which a team of specialized agents analyzes a paper end-to-end and \emph{every verdict carries checkable evidence}. A citation agent validates each reference against live CrossRef/OpenAlex lookups and flags fabricated entries; a novelty agent extracts the paper's claimed contributions, compares them against retrieved prior art, and verifies every supporting quote against the paper's own text; a rebuttal agent drafts point-by-point reviewer responses in which any span attributed to the paper is checked verbatim; a deterministic confidence agent scores each claim with an explicit uncertainty band. Agents run concurrently on an asyncio DAG with failure isolation, stream to a live browser dashboard, and write JSONL audit logs. On a controlled corruption benchmark the citation validator attains fabricated-reference recall of 1.0 (precision is at ceiling by construction under the oracle lookup; we frame the benchmark as a regression floor); we release the benchmark, a novelty-vs-OpenReview evaluation harness, and a 30-second offline demo requiring no API keys.\footnote{Code (MIT): \url{https://github.com/Laraib-Hasan/Research-Companion}. Demo video: [LINK].}
 \end{abstract}
 
 \section{Introduction}
 Manuscripts fail before reviewers ever weigh in. Content analyses of desk rejections attribute 46--52\% to lack of novelty or originality \citep{menon2022desk,dantastorres2022desk}, and large venues desk-reject 39--78\% of submissions \citep{dantastorres2022desk,bauchner2017jama}. Meanwhile, a new failure mode has emerged on the author side: LLM-assisted writing introduces plausible but nonexistent references, and hallucinated citations are the top trust concern among students using AI tools \citep{hepi2025survey}.
 
-The tooling landscape is split into two camps that do not meet. Commercial pre-submission checkers \citep{paperpal,penelope} run dozens of deterministic compliance checks but state explicitly that they do not assess novelty or scientific merit. Research prototypes assess novelty with LLMs \citep{opennovelty2026,dasilva2025graphmind} or simulate peer review \citep{jin2024agentreview}, but are single-purpose and not integrated with the deterministic checks authors also need. Worse, LLM reviewers are documented to be lenient and to accept author claims without verification \citep{du2025llmreviewbias}, which makes \emph{unverifiable} LLM critique actively dangerous in a pre-submission tool.
+The tooling landscape is split into two camps that do not meet. Commercial pre-submission checkers \citep{paperpal,penelope} run dozens of deterministic compliance checks but state explicitly that they do not assess novelty or scientific merit. Research prototypes assess novelty with LLMs \citep{opennovelty2026,dasilva2025graphmind} or simulate peer review \citep{jin2024agentreview}, but are single-purpose and not integrated with the deterministic checks authors also need. Worse, LLM reviewers are documented to be lenient and to accept author claims without verification \citep{du2025llmreviewbias}, which makes \emph{unverifiable} LLM critique counterproductive in a pre-submission tool.
 
 Research Companion's design premise is that a pre-submission assistant is only useful if its outputs can be \textbf{checked}:
 \begin{itemize}\itemsep0pt
@@ -40,7 +40,7 @@ Target audience: researchers and students preparing submissions, and educators d
 \section{System Overview}
 Research Companion builds on a local-first knowledge-graph substrate: papers ingested from arXiv/DOI/Semantic Scholar/PDF are LLM-extracted into concepts, methods, datasets, claims, results, and related work, merged into a cross-paper graph \citep[cf.][]{edge2024graphrag}.
 
-\paragraph{Runtime.} \texttt{research-companion review <paper>} instantiates an agent team over an in-process async bus. The orchestrator resolves the dependency DAG, runs all ready agents concurrently, and isolates failures: an exception becomes a failed lane; dependents are skipped with an explanatory error; independent lanes proceed. Typed events stream over Server-Sent Events to a browser dashboard (\texttt{--serve}) and append to a per-run JSONL audit log.
+\paragraph{Runtime.} \texttt{research-companion review <paper>} instantiates an agent team over an in-process async bus. The orchestrator resolves the dependency DAG, runs all ready agents concurrently (Figure~\ref{fig:dag}), and isolates failures: an exception becomes a failed lane; dependents are skipped with an explanatory error; independent lanes proceed. Typed events stream over Server-Sent Events to a browser dashboard (\texttt{--serve}) and append to a per-run JSONL audit log.
 
 \begin{table}[t]
 \centering\small
@@ -62,6 +62,33 @@ report & HTML/JSON, renders failed lanes \\
 \caption{Agent roster (dependencies elided).}
 \label{tab:agents}
 \end{table}
+
+
+\begin{figure}[t]
+\centering
+\small
+\setlength{\unitlength}{1mm}
+\begin{picture}(75,46)
+\put(28,41){\framebox(18,5){ingest}}
+\put(2,29){\framebox(21,5){citation}}
+\put(27,29){\framebox(21,5){priorart}}
+\put(52,29){\framebox(21,5){benchmark}}
+\put(27,17){\framebox(21,5){novelty}}
+\put(14,5){\framebox(22,5){confidence}}
+\put(44,5){\framebox(18,5){report}}
+\put(35,41){\vector(-2,-1){14}}
+\put(37,41){\vector(0,-1){7}}
+\put(39,41){\vector(2,-1){14}}
+\put(37,29){\vector(0,-1){7}}
+\put(15,29){\vector(1,-2){11}}
+\put(38,17){\vector(-1,-1){7}}
+\put(40,17){\vector(2,-2){7}}
+\end{picture}
+\caption{Agent dependency DAG for \texttt{review}. Ready agents run concurrently; a failed
+lane skips its dependents with an explanatory error while independent lanes proceed. The
+rebuttal agent (own command) depends only on ingest.}
+\label{fig:dag}
+\end{figure}
 
 \texttt{--fast} runs only LLM-free lanes; \texttt{--report DIR} writes the report; all LLM/network calls sit behind injectable seams, so the full pipeline runs offline in tests and in the bundled demo.
 
@@ -103,7 +130,7 @@ overall (P/R/F1) & \multicolumn{3}{c}{1.00 / 1.00 / 1.00} \\
 
 \paragraph{System verification.} 213 tests (test-driven throughout) with all LLM/network behind injectable seams; the six-lane pipeline, dashboard endpoints, and both CLIs run in the suite with no network. Bad LLM JSON fails one lane cleanly; HTML/JS in reference titles is escaped in both report and dashboard.
 
-\paragraph{Case study.} Running \texttt{review} on a seeded paper whose bibliography contains one fabricated entry: the citation lane reports \texttt{1 verified / 1 unverified}, naming the fabricated title with reason ``no matching record found in authoritative sources''; the novelty lane marks the claim \emph{overlaps} with retrieved prior work, evidence verified; the confidence card shows $0.72 \pm 0.15$ with its three signals.
+\paragraph{Case study.} Running \texttt{review} on a seeded paper whose bibliography contains one fabricated entry: the citation lane reports \texttt{1 verified / 1 unverified}, naming the fabricated title with reason ``no matching record found in authoritative sources''; the novelty lane marks the claim \emph{overlaps} with retrieved prior work, evidence verified; the confidence card shows $0.72 \pm 0.15$ with its three signals. The complete offline pipeline (six lanes plus rebuttal, LLM injected) runs in 0.9\,s wall time; in live mode, end-to-end time is dominated by the per-claim LLM calls while the deterministic lanes remain sub-second.
 
 \section{Comparison With Existing Systems}
 \begin{table}[t]
@@ -126,16 +153,16 @@ AgentReview & -- & sim. & -- & -- & -- & \checkmark \\
 \label{tab:compare}
 \end{table}
 
-To our knowledge no prior open system combines live reference validation, evidence-verified novelty assessment, and grounded rebuttal drafting behind one auditable runtime (Table~\ref{tab:compare}).
+Multi-agent review generators \citep[e.g., MARG;][]{darcy2024marg} and open reviewer models such as OpenReviewer produce full reviews rather than evidence-verified verdicts, and do not check their claims against the paper's own text. To our knowledge no prior open system combines live reference validation, evidence-verified novelty assessment, and grounded rebuttal drafting behind one auditable runtime (Table~\ref{tab:compare}).
 
 \section{Conclusion}
 Research Companion demonstrates that an agentic pre-submission assistant can be useful \emph{because} it is checkable: every verdict, quote, and score traces to evidence a human can inspect. The system is open, tested, and installable; the demo runs in 30 seconds without keys.
 
 \section*{Limitations}
-The novelty and rebuttal agents inherit LLM limitations; our mitigation is verification and flagging, not elimination. The citation benchmark is synthetic and oracle-based (ceiling scores expected); field precision against live CrossRef/OpenAlex is unmeasured. Retrieval relies on Semantic Scholar/CrossRef/OpenAlex coverage, weaker for non-English and non-indexed venues; extraction prompts and evaluation are CS/ML-centric. The problem and tracker agents are library-level, not yet CLI-wired.
+The novelty and rebuttal agents inherit LLM limitations; our mitigation is verification and flagging, not elimination. Quote verification is exact/normalized string matching and therefore paraphrase-blind: a fabricated \emph{paraphrase} of the paper passes unflagged as long as it is not quoted. The author-overlap threshold (60\%) and confidence weights (1.0/0.8/0.6) were chosen heuristically, not tuned on held-out data. The citation benchmark is synthetic and oracle-based (ceiling scores expected); field precision against live CrossRef/OpenAlex is unmeasured. Retrieval relies on Semantic Scholar/CrossRef/OpenAlex coverage, weaker for non-English and non-indexed venues; extraction prompts and evaluation are CS/ML-centric. The problem and tracker agents are library-level, not yet CLI-wired.
 
 \section*{Ethics Statement}
-The tool assists authors; it does not generate paper content, and its rebuttal drafts flag unverifiable claims rather than asserting them. Users must respect venue policies on AI assistance and disclose use where required. Reference validation queries public scholarly APIs with standard rate limits and a descriptive user agent. No personal data is collected; all state is local. The work aligns with the ACM Code of Ethics.
+The tool assists authors; it does not generate paper content, and its rebuttal drafts flag unverifiable claims rather than asserting them. Users must respect venue policies on AI assistance and disclose use where required. Reference validation queries public scholarly APIs with standard rate limits and a descriptive user agent. No personal data is collected; all state is local. In live use, manuscript text is sent to the user-configured commercial LLM API; the offline mode avoids this entirely, and no content is retained server-side by the tool. A ``verified'' badge concerns quote fidelity only and should not be read as endorsement of a claim's truth; we note the automation-bias risk explicitly. The work aligns with the ACM Code of Ethics.
 
 \section*{Availability \& License}
 MIT-licensed at \url{https://github.com/Laraib-Hasan/Research-Companion}. Install: \texttt{git clone} then \texttt{pip install -e ".[demo]"}. Zero-key demo: \texttt{python examples/demo\_offline.py}.
