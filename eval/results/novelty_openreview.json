@@ -1,0 +1,67 @@
+{
+  "papers": [
+    {
+      "paper_id": "arxiv:2410.04209",
+      "human_novelty": 3.667,
+      "model_score": 5.0,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2406.05946",
+      "human_novelty": 5.0,
+      "model_score": 5.0,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2406.05565",
+      "human_novelty": 4.333,
+      "model_score": 4.454545454545454,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2502.12456",
+      "human_novelty": 5.0,
+      "model_score": 5.0,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2406.16232",
+      "human_novelty": 2.333,
+      "model_score": 5.0,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2410.14581",
+      "human_novelty": 3.667,
+      "model_score": 4.727272727272727,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2410.22069",
+      "human_novelty": 2.333,
+      "model_score": 4.44186046511628,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2504.11457",
+      "human_novelty": 3.667,
+      "model_score": 4.727272727272727,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2404.00578",
+      "human_novelty": 3.667,
+      "model_score": 4.44186046511628,
+      "agent_ok": true
+    },
+    {
+      "paper_id": "arxiv:2411.09361",
+      "human_novelty": 3.667,
+      "model_score": 5.0,
+      "agent_ok": true
+    }
+  ],
+  "rank_agreement": 0.28321678321678323,
+  "permutation_p": 0.4156584341565843,
+  "n_effective": 10
+}
