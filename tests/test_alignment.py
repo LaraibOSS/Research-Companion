@@ -272,8 +272,17 @@ class TestAlignPapersHappyPath:
 
     def test_different_perspective_mapped_to_alternative(self):
         from research_companion.alignment import align_papers
-        draft_id = _make_paper("local:draft00002", "Draft Paper",
-                               "Introduction text here.\n\nMethods text here.\n")
+        # Draft text must have real numbered headings with bodies >= 40 chars so that
+        # build_and_save_sections yields both s1 and s2 (not a single fallback section).
+        # That way the fake LLM's s2 entry is NOT dropped by the unknown-section-id
+        # check and the mapping/filter logic is genuinely exercised.
+        draft_text = (
+            "1 Introduction\n"
+            "This is the introduction section body with sufficient length here.\n\n"
+            "2 Methods\n"
+            "This is the methods section body with sufficient length text here.\n"
+        )
+        draft_id = _make_paper("local:draft00002", "Draft Paper", draft_text)
         cand_id = _make_paper("local:cand000002", "Candidate Paper", CANDIDATE_TEXT)
         _make_extraction(draft_id)
         _make_extraction(cand_id)
@@ -283,19 +292,35 @@ class TestAlignPapersHappyPath:
             llm=_make_fake_llm(relation="different_perspective"),
             persist=False,
         )
-        # irrelevant excluded, only s1 should be in sections
+        # s1: different_perspective -> mapped to "alternative" (kept)
+        # s2: irrelevant -> excluded
+        # So only s1 should be in sections with relation "alternative"
+        section_ids = [s["section_id"] for s in result["sections"]]
+        assert "s2" not in section_ids
         assert len(result["sections"]) == 1
         assert result["sections"][0]["relation"] == "alternative"
 
     def test_irrelevant_sections_excluded(self):
         from research_companion.alignment import align_papers
-        draft_id = _make_paper("local:draft00003", "Draft Paper",
-                               "Introduction text here.\n\nMethods text here.\n")
+        # Draft text must have real numbered headings with bodies >= 40 chars so that
+        # build_and_save_sections yields both s1 and s2 (not a single fallback section).
+        # That way the fake LLM's s2 "irrelevant" entry is NOT dropped by the
+        # unknown-section-id check — the irrelevant-filter logic is genuinely exercised.
+        draft_text = (
+            "1 Introduction\n"
+            "This is the introduction section body with sufficient length here.\n\n"
+            "2 Methods\n"
+            "This is the methods section body with sufficient length text here.\n"
+        )
+        draft_id = _make_paper("local:draft00003", "Draft Paper", draft_text)
         cand_id = _make_paper("local:cand000003", "Candidate Paper", CANDIDATE_TEXT)
         _make_extraction(draft_id)
         _make_extraction(cand_id)
 
         result = align_papers(draft_id, cand_id, llm=_make_fake_llm(), persist=False)
+        # s2 is returned as "irrelevant" by the fake LLM; it must be excluded from payload
+        section_ids = [s["section_id"] for s in result["sections"]]
+        assert "s2" not in section_ids
         for sec in result["sections"]:
             assert sec["relation"] != "irrelevant"
 
@@ -364,9 +389,15 @@ class TestAlignPapersHappyPath:
 
     def test_score_band_verdict_hand_computed(self):
         """Verify score and verdict match hand-computed values."""
-        from research_companion.alignment import align_papers, score_alignment, usefulness_verdict
-        draft_id = _make_paper("local:draft00007", "Draft Paper",
-                               "Introduction text here.\n\nMethods text here.\n")
+        from research_companion.alignment import (
+            align_papers,
+            lexical_overlap,
+            score_alignment,
+            usefulness_verdict,
+            _tokenize,
+        )
+        draft_text = "Introduction text here.\n\nMethods text here.\n"
+        draft_id = _make_paper("local:draft00007", "Draft Paper", draft_text)
         cand_id = _make_paper("local:cand000007", "Candidate Paper", CANDIDATE_TEXT)
         _make_extraction(draft_id)
         _make_extraction(cand_id)
@@ -380,8 +411,14 @@ class TestAlignPapersHappyPath:
         # verified_frac = 1 (1 verified / 1 total), mean_relevance = 0.85
         expected_vf = 1.0
         expected_mr = 0.85
-        expected_lx = result["signals"]["lexical_overlap"]
-        expected_score, expected_band = score_alignment(expected_vf, expected_mr, expected_lx)
+        # Compute lexical signal INDEPENDENTLY — same token sets align_papers uses:
+        #   draft tokens = _tokenize(draft_text_full)
+        #   cand tokens  = _tokenize(cand_text)  where cand_text = CANDIDATE_TEXT
+        draft_tokens = _tokenize(draft_text)
+        cand_tokens = _tokenize(CANDIDATE_TEXT)
+        independently_computed_lx = lexical_overlap(draft_tokens, cand_tokens)
+        expected_score, expected_band = score_alignment(expected_vf, expected_mr, independently_computed_lx)
+        assert result["signals"]["lexical_overlap"] == independently_computed_lx
         assert abs(result["score"] - expected_score) < 1e-9
         assert abs(result["band"] - expected_band) < 1e-9
         assert result["verdict"] == usefulness_verdict(expected_score)
