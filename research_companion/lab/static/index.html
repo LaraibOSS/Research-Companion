@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Lab</title>
+  <link rel="stylesheet" href="/static/css/lab.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Navigation Rail (56px icon buttons) -->
+    <nav class="nav-rail" aria-label="Main navigation">
+      <button class="nav-btn active" data-route="/library" title="Library">📚</button>
+      <button class="nav-btn" data-route="/graph" title="Graph">🕸</button>
+      <button class="nav-btn" data-route="/draft" title="Draft">📝</button>
+      <button class="nav-btn" data-route="/compare" title="Compare">⚖</button>
+      <button class="nav-btn" data-route="/ask" title="Ask">💬</button>
+    </nav>
+
+    <!-- Top Bar -->
+    <header class="topbar">
+      <span class="topbar-title">Research Lab</span>
+      <span id="draft-chip" class="draft-chip" style="display:none"></span>
+      <span class="topbar-spacer"></span>
+      <span id="connection-pill" class="conn-pill conn-disconnected">Offline</span>
+      <button id="topbar-add" class="btn btn-accent">+ Add papers</button>
+    </header>
+
+    <!-- Main view mount point -->
+    <main id="view"></main>
+  </div>
+
+  <!-- Progress dock mount point -->
+  <div id="dock"></div>
+
+  <!-- Graph canvas: PERSISTENT hidden container for F2 (never unmounted) -->
+  <div id="graph-canvas" style="display:none;position:absolute;inset:0;pointer-events:none;"></div>
+
+  <!-- vis-network 9.1.9 standalone UMD (MIT license, vendored for offline use) -->
+  <script src="/static/vendor/vis-network.min.js"></script>
+
+  <!-- Research Lab SPA entry point -->
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
