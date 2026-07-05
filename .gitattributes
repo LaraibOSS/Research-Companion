@@ -1,0 +1,7 @@
+# Never newline-normalize binary formats (git misclassifies PDFs as text,
+# which corrupts them on checkout with core.autocrlf).
+*.pdf binary
+*.png binary
+*.jpg binary
+*.whl binary
+*.gz binary
