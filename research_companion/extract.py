@@ -183,10 +183,29 @@ def extract_paper(
 
     text = get_paper_text(meta)
     truncated = _truncate(text)
+
+    # Build section outline (heuristics only; LLM fallback skipped here).
+    # Any exception is swallowed so section failure never blocks extraction.
+    # Import here to avoid a circular import (sections.py imports get_paper_text from extract.py).
+    from research_companion import sections  # noqa: PLC0415
+
+    section_outline = ""
+    section_ids: set[str] = set()
+    try:
+        paper_sections = sections.build_and_save_sections(meta.paper_id)
+        section_ids = {s.section_id for s in paper_sections}
+        section_outline = "\n".join(
+            f"{s.section_id} {s.title}" for s in paper_sections
+        )
+    except Exception:
+        section_outline = ""
+        section_ids = set()
+
     prompt = render_extraction_prompt(
         title=meta.title,
         authors=", ".join(meta.authors) or "(unknown)",
         paper_text=truncated,
+        section_outline=section_outline,
     )
 
     if provider == "anthropic":
@@ -205,6 +224,17 @@ def extract_paper(
         ) from e
 
     extraction = _validate_extraction(parsed)
+
+    # Sanitize "section" fields: any value not in the known section ids is set to None.
+    # related_work is a list of strings and never has a "section" field — skip it.
+    _ENTITY_LIST_KEYS = ("concepts", "methods", "datasets", "claims", "results")
+    if section_ids:
+        for key in _ENTITY_LIST_KEYS:
+            for entity in extraction.get(key, []):
+                if isinstance(entity, dict) and "section" in entity:
+                    if entity["section"] not in section_ids:
+                        entity["section"] = None
+
     save_extraction(meta.paper_id, extraction, prompt_sha=prompt_sha)
     usage["cached"] = False
     return extraction, usage
