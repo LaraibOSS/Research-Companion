@@ -34,3 +34,9 @@ secrets.yaml
 # Build artifacts and agent scratch
 graphify-out/
 .superpowers/
+
+# Edge browser CDP profiles and review artifacts
+.edge-cdp-profile*/
+paper/.edge-cdp-profile*/
+paper-review/
+paper/draft_for_review.pdf
