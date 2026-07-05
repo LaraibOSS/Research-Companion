@@ -18,22 +18,16 @@ import networkx as nx
 
 from research_companion.graph import load_graph
 from research_companion.prompts import CHAT_SYSTEM_PROMPT, render_chat_user_prompt
+from research_companion.rank import STOPWORDS
 
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------
 
-_STOP = {
-    "the", "a", "an", "of", "in", "on", "to", "for", "and", "or", "is", "are",
-    "what", "which", "how", "why", "do", "does", "did", "this", "that", "these",
-    "those", "with", "from", "by", "as", "be", "been", "being", "was", "were",
-    "it", "its", "they", "them", "their", "there", "here", "we", "you",
-}
-
 
 def _question_terms(question: str) -> list[str]:
     words = re.findall(r"[A-Za-z][A-Za-z0-9-]+", question.lower())
-    return [w for w in words if w not in _STOP and len(w) >= 3]
+    return [w for w in words if w not in STOPWORDS and len(w) >= 3]
 
 
 def _score_nodes(G: nx.Graph, terms: list[str]) -> list[tuple[float, str]]:
