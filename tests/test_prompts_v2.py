@@ -39,8 +39,8 @@ def test_render_with_outline_contains_section_field_instruction():
         paper_text="body",
         section_outline=outline,
     )
-    # The prompt must mention 'section' field instruction
-    assert '"section"' in rendered or "'section'" in rendered or "section" in rendered.lower()
+    # The prompt must contain the specific instruction phrase to add "section" field to entities
+    assert 'include a "section" field' in rendered
 
 
 def test_render_without_outline_no_section_field_instruction():

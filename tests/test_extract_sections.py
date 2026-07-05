@@ -189,8 +189,59 @@ def test_extract_paper_survives_sections_error(
     assert result is not None
     assert usage["cached"] is False
 
-    # Prompt must not contain section outline lines
+    # Prompt must not contain section outline lines (precise assertion)
     rendered = captured_prompts[0]
-    assert "s1 " not in rendered or "Introduction" not in rendered  # no outline injected
+    assert "s1 Introduction" not in rendered  # no outline injected
     # More precise: the section instruction must not appear
     assert "set to the id of the section" not in rendered
+
+
+def test_extract_paper_sanitizes_sections_when_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_pdf_bytes: bytes,
+    tmp_path,
+):
+    """When build_and_save_sections raises, entity 'section' fields emitted by LLM
+    are still sanitized (set to None). This ensures unsanitized cache pollution is prevented."""
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    meta = fetch.add_local_pdf(pdf, title="Sanitize Error Test Paper")
+
+    def raise_error(paper_id, **kwargs):
+        raise RuntimeError("sections module exploded")
+
+    import research_companion.sections as sections_mod
+    monkeypatch.setattr(sections_mod, "build_and_save_sections", raise_error)
+
+    # LLM response includes entities with "section" fields (which should be sanitized away)
+    llm_response = {
+        "concepts": [
+            {"name": "Concept A", "definition": "def A", "section": "s1"},
+        ],
+        "methods": [
+            {"name": "Method X", "description": "desc X", "section": "s2"},
+        ],
+        "datasets": [],
+        "claims": [],
+        "results": [],
+        "related_work": [],
+    }
+
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model, max_output_tokens=2048: (
+            json.dumps(llm_response),
+            {"input_tokens": 5, "output_tokens": 5},
+        ),
+    )
+
+    # Must not raise
+    result, _ = extract.extract_paper(meta, provider="anthropic", force=True)
+
+    # Because build_and_save_sections raised, section_ids is empty.
+    # All LLM-emitted "section" values must be sanitized to None.
+    concept_a = result["concepts"][0]
+    assert concept_a["section"] is None, "section should be sanitized to None when sections unavailable"
+
+    method_x = result["methods"][0]
+    assert method_x["section"] is None, "section should be sanitized to None when sections unavailable"

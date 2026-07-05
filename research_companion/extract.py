@@ -227,13 +227,13 @@ def extract_paper(
 
     # Sanitize "section" fields: any value not in the known section ids is set to None.
     # related_work is a list of strings and never has a "section" field — skip it.
+    # When section_ids is empty (sections unavailable), all "section" values become None.
     _ENTITY_LIST_KEYS = ("concepts", "methods", "datasets", "claims", "results")
-    if section_ids:
-        for key in _ENTITY_LIST_KEYS:
-            for entity in extraction.get(key, []):
-                if isinstance(entity, dict) and "section" in entity:
-                    if entity["section"] not in section_ids:
-                        entity["section"] = None
+    for key in _ENTITY_LIST_KEYS:
+        for entity in extraction.get(key, []):
+            if isinstance(entity, dict) and "section" in entity:
+                if entity["section"] not in section_ids:
+                    entity["section"] = None
 
     save_extraction(meta.paper_id, extraction, prompt_sha=prompt_sha)
     usage["cached"] = False
