@@ -2,8 +2,9 @@
 
 Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
-Node JS tests (run separately from repo root):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/draftdock.test.mjs tests/js/askcompare.test.mjs
+Node JS tests (run separately from repo root; the list below is asserted complete
+by test_documented_node_command_lists_every_js_test):
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -328,3 +329,11 @@ def test_askcompare_node_test_file_exists():
     """tests/js/askcompare.test.mjs must exist (F4 pure-function tests)."""
     assert (REPO_ROOT / "tests" / "js" / "askcompare.test.mjs").exists(), \
         "Missing tests/js/askcompare.test.mjs"
+
+
+def test_documented_node_command_lists_every_js_test():
+    """The node --test command in this module's docstring must name every tests/js/*.test.mjs."""
+    doc = Path(__file__).read_text(encoding="utf-8")
+    existing = sorted(p.name for p in (REPO_ROOT / "tests" / "js").glob("*.test.mjs"))
+    missing = [name for name in existing if f"tests/js/{name}" not in doc]
+    assert not missing, f"docstring node command is missing: {missing}"
