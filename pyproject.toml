@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-companion"
-version = "0.1.0"
+version = "0.2.0"
 description = "An agentic research companion that verifies what it claims"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -12,6 +12,16 @@ keywords = ["knowledge-graph", "rag", "arxiv", "papers", "literature-review", "r
 requires-python = ">=3.10,<3.14"
 authors = [
     { name = "Azizur", email = "azizur100389@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
 ]
 dependencies = [
     "anthropic>=0.40",
@@ -28,6 +38,10 @@ Repository = "https://github.com/azizur100389/research-companion"
 Issues = "https://github.com/azizur100389/research-companion/issues"
 
 [project.optional-dependencies]
+server = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 demo = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
@@ -48,7 +62,16 @@ where = ["."]
 include = ["research_companion*"]
 
 [tool.setuptools.package-data]
-research_companion = ["templates/*.html", "templates/*.css", "templates/*.js"]
+research_companion = [
+    "templates/*.html",
+    "templates/*.css",
+    "templates/*.js",
+    "lab/static/index.html",
+    "lab/static/css/*",
+    "lab/static/js/*.js",
+    "lab/static/js/**/*.js",
+    "lab/static/vendor/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
