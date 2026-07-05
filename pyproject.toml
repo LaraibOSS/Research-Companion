@@ -11,7 +11,7 @@ license = { file = "LICENSE" }
 keywords = ["knowledge-graph", "rag", "arxiv", "papers", "literature-review", "research", "llm", "claude", "openai"]
 requires-python = ">=3.10,<3.14"
 authors = [
-    { name = "Azizur", email = "azizur100389@gmail.com" },
+    { name = "Laraib Hasan", email = "Lxh417bham@gmail.com" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -34,8 +34,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/azizur100389/research-companion"
-Issues = "https://github.com/azizur100389/research-companion/issues"
+Repository = "https://github.com/Laraib-Hasan/Research-Companion"
+Issues = "https://github.com/Laraib-Hasan/Research-Companion/issues"
 
 [project.optional-dependencies]
 server = [
