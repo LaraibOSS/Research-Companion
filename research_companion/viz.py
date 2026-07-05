@@ -23,21 +23,24 @@ import networkx as nx
 from research_companion.graph import graph_stats, load_graph
 from research_companion.store import graph_html_path
 
+# Desaturated jewel tones tuned for the dark canvas; papers are label cards,
+# every entity kind is a dot (differentiated by color) — kept in sync with
+# research_companion/lab/static/js/graph/mapping.js.
 _KIND_COLORS = {
-    "paper":   "#2b7cff",
-    "concept": "#3ec46d",
-    "method":  "#ff8a3d",
-    "dataset": "#9b59ff",
-    "claim":   "#9aa0a6",
-    "result":  "#e74c3c",
+    "paper":   "#6c8cff",
+    "concept": "#3fb6a8",
+    "method":  "#d9a13d",
+    "dataset": "#a78bfa",
+    "claim":   "#7d8590",
+    "result":  "#e5697f",
 }
 _KIND_SHAPES = {
     "paper":   "box",
     "concept": "dot",
-    "method":  "triangle",
-    "dataset": "diamond",
-    "claim":   "ellipse",
-    "result":  "star",
+    "method":  "dot",
+    "dataset": "dot",
+    "claim":   "dot",
+    "result":  "dot",
 }
 
 
@@ -96,7 +99,7 @@ HTML_TEMPLATE = """<!doctype html>
     const data = { nodes: new vis.DataSet(NODES), edges: new vis.DataSet(EDGES) };
     const opts = {
       nodes: { font: { color: '#e6e6e6', size: 12 }, borderWidth: 1 },
-      edges: { color: { color: '#3a3d44', highlight: '#7aa9ff' }, smooth: { type: 'continuous' }, arrows: 'to' },
+      edges: { color: { color: 'rgba(110,118,129,0.35)', highlight: 'rgba(139,148,158,0.8)' }, smooth: { type: 'continuous' }, arrows: { to: { enabled: true, scaleFactor: 0.5 } } },
       physics: { stabilization: { iterations: 200 }, barnesHut: { gravitationalConstant: -3000, springLength: 120 } },
       interaction: { hover: true, tooltipDelay: 150 },
     };
@@ -158,12 +161,14 @@ def _vis_nodes(G: nx.Graph) -> list[dict]:
 def _vis_edges(G: nx.Graph) -> list[dict]:
     out: list[dict] = []
     for u, v, data in G.edges(data=True):
+        relation = data.get("relation", "")
+        # No always-on text label (clutter); the relation stays on hover.
         out.append({
             "from": u,
             "to": v,
-            "label": data.get("relation", ""),
-            "title": data.get("relation", ""),
+            "title": relation,
             "width": 1 + 0.3 * (data.get("weight", 1) - 1),
+            "dashes": [4, 4] if relation == "co_mentioned" else False,
         })
     return out
 

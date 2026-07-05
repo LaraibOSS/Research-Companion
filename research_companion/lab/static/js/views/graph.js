@@ -340,12 +340,12 @@ function _readUrlSection() {
 // ---------------------------------------------------------------------------
 
 const KIND_SHAPE_LABELS = {
-  paper:   'box',
-  concept: 'circle',
-  method:  'triangle',
-  dataset: 'diamond',
-  claim:   'ellipse',
-  result:  'star',
+  paper:   'card',
+  concept: 'dot',
+  method:  'dot',
+  dataset: 'dot',
+  claim:   'dot',
+  result:  'dot',
 };
 
 function _renderLegend(container) {

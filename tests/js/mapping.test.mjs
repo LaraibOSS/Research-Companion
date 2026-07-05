@@ -9,18 +9,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
-const { KIND_COLORS, KIND_SHAPES, nodeToVis, edgeToVis } = await import(
+const { KIND_COLORS, KIND_SHAPES, KIND_SIZES, nodeToVis, edgeToVis } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'graph', 'mapping.js')).href
 );
 
-// --- KIND_COLORS ---
+// --- KIND_COLORS (premium desaturated palette) ---
 const expectedColors = {
-  paper:   '#2b7cff',
-  concept: '#3ec46d',
-  method:  '#ff8a3d',
-  dataset: '#9b59ff',
-  claim:   '#9aa0a6',
-  result:  '#e74c3c',
+  paper:   '#6c8cff',
+  concept: '#3fb6a8',
+  method:  '#d9a13d',
+  dataset: '#a78bfa',
+  claim:   '#7d8590',
+  result:  '#e5697f',
 };
 
 for (const [kind, color] of Object.entries(expectedColors)) {
@@ -29,21 +29,23 @@ for (const [kind, color] of Object.entries(expectedColors)) {
   });
 }
 
-// --- KIND_SHAPES ---
-const expectedShapes = {
-  paper:   'box',
-  concept: 'dot',
-  method:  'triangle',
-  dataset: 'diamond',
-  claim:   'ellipse',
-  result:  'star',
-};
+// --- KIND_SHAPES: papers are cards, all entities are dots ---
+test('KIND_SHAPES.paper === box', () => {
+  assert.equal(KIND_SHAPES.paper, 'box');
+});
 
-for (const [kind, shape] of Object.entries(expectedShapes)) {
-  test(`KIND_SHAPES.${kind} === ${shape}`, () => {
-    assert.equal(KIND_SHAPES[kind], shape);
+for (const kind of ['concept', 'method', 'dataset', 'claim', 'result']) {
+  test(`KIND_SHAPES.${kind} === dot`, () => {
+    assert.equal(KIND_SHAPES[kind], 'dot');
   });
 }
+
+// --- KIND_SIZES: entities differentiated by size ---
+test('KIND_SIZES orders concept >= method/dataset > result > claim', () => {
+  assert.ok(KIND_SIZES.concept >= KIND_SIZES.method);
+  assert.ok(KIND_SIZES.method > KIND_SIZES.claim);
+  assert.ok(KIND_SIZES.result > KIND_SIZES.claim);
+});
 
 // --- nodeToVis ---
 test('nodeToVis maps paper node correctly', () => {
@@ -51,15 +53,35 @@ test('nodeToVis maps paper node correctly', () => {
   const vis = nodeToVis(node);
   assert.equal(vis.id, 'p1');
   assert.equal(vis.label, 'My Paper');
-  assert.equal(vis.color, '#2b7cff');
+  assert.equal(vis.color, '#6c8cff');
   assert.equal(vis.shape, 'box');
+  assert.equal(vis.font.color, '#e6edf3');
+});
+
+test('nodeToVis paper with strength gets a band-colored border', () => {
+  const node = { id: 'p2', kind: 'paper', label: 'Strong Paper', attrs: {},
+                 strength: { band: 'strong', color: '#3fb950' } };
+  const vis = nodeToVis(node);
+  assert.equal(vis.color.background, '#6c8cff');
+  assert.equal(vis.color.border, '#3fb950');
+  assert.equal(vis.borderWidth, 2);
 });
 
 test('nodeToVis maps concept node correctly', () => {
   const node = { id: 'c1', kind: 'concept', label: 'Neural Network', attrs: {} };
   const vis = nodeToVis(node);
-  assert.equal(vis.color, '#3ec46d');
+  assert.equal(vis.color, '#3fb6a8');
   assert.equal(vis.shape, 'dot');
+  assert.equal(vis.size, KIND_SIZES.concept);
+  assert.equal(vis.font.color, '#9aa4b2');
+});
+
+test('nodeToVis truncates long entity labels but keeps full text in title', () => {
+  const long = 'A very long claim label that keeps going well past the truncation threshold for dots';
+  const vis = nodeToVis({ id: 'cl1', kind: 'claim', label: long, attrs: {} });
+  assert.ok(vis.label.length <= 42);
+  assert.ok(vis.label.endsWith('…'));
+  assert.equal(vis.title, long);
 });
 
 test('nodeToVis uses fallback for unknown kind', () => {
@@ -76,13 +98,20 @@ test('nodeToVis preserves id and label', () => {
   assert.equal(vis.label, 'My Result');
 });
 
-// --- edgeToVis ---
-test('edgeToVis maps edge correctly', () => {
+// --- edgeToVis: quiet edges, no always-on labels ---
+test('edgeToVis maps edge with relation on title, never a text label', () => {
   const edge = { from: 'p1', to: 'c1', relation: 'contains', weight: 2 };
   const vis = edgeToVis(edge);
   assert.equal(vis.from, 'p1');
   assert.equal(vis.to, 'c1');
-  assert.equal(vis.label, 'contains');
+  assert.equal(vis.title, 'contains');
+  assert.equal(vis.relation, 'contains');
+  assert.equal(vis.label, undefined);
+});
+
+test('edgeToVis dashes co_mentioned edges only', () => {
+  assert.deepEqual(edgeToVis({ from: 'a', to: 'b', relation: 'co_mentioned' }).dashes, [4, 4]);
+  assert.equal(edgeToVis({ from: 'a', to: 'b', relation: 'contains' }).dashes, false);
 });
 
 test('edgeToVis handles missing relation gracefully', () => {
@@ -90,5 +119,5 @@ test('edgeToVis handles missing relation gracefully', () => {
   const vis = edgeToVis(edge);
   assert.equal(vis.from, 'a');
   assert.equal(vis.to, 'b');
-  assert.ok(typeof vis.label === 'string');
+  assert.equal(vis.title, '');
 });

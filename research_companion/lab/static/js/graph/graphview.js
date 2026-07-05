@@ -412,13 +412,14 @@ export function applyDelta(delta, draftPaperId = null) {
   const visNodes = newNodes.map(n => {
     const v = nodeToVis(n);
     v.sections = n.sections || [];
-    // Flash styling
+    // Flash styling (v.color may be a string or a {background,...} object)
+    const bg = typeof v.color === 'string' ? v.color : (v.color && v.color.background);
     v.borderWidth = 3;
     v.color = {
       border: '#58a6ff',
-      background: v.color,
-      highlight: { border: '#58a6ff', background: v.color },
-      hover: { border: '#58a6ff', background: v.color },
+      background: bg,
+      highlight: { border: '#58a6ff', background: bg },
+      hover: { border: '#58a6ff', background: bg },
     };
     v.size = (v.size || 15) * 1.4;
 
