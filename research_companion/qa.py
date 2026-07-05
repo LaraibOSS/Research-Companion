@@ -102,6 +102,7 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
 
                 # Build tokens: section title + entity labels for this section + first 300 chars
                 token_source = sec.title + " "
+                entity_labels: list[str] = []
                 if grouped:
                     sec_data = grouped.get(sec.section_id, {})
                     for key in ("concepts", "methods", "datasets"):
@@ -109,6 +110,7 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
                             name = item.get("name", "")
                             if name:
                                 token_source += name + " "
+                                entity_labels.append(name)
                 token_source += text_slice[:300]
                 tokens = tokenize(token_source)
 
@@ -119,16 +121,19 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
                     "section_title": sec.title,
                     "tokens": tokens,
                     "text": text_slice,
+                    "entity_labels": entity_labels,
                 })
         else:
             # No sections — whole-paper unit
             token_source = title + " " + text[:300]
+            entity_labels: list[str] = []
             if extraction:
                 for key in ("concepts", "methods", "datasets"):
                     for item in extraction.get(key, []):
                         name = item.get("name", "")
                         if name:
                             token_source += " " + name
+                            entity_labels.append(name)
             tokens = tokenize(token_source)
             units.append({
                 "paper_id": pid,
@@ -137,6 +142,7 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
                 "section_title": "Full Text",
                 "tokens": tokens,
                 "text": text,
+                "entity_labels": entity_labels,
             })
 
     return units
@@ -233,24 +239,41 @@ def answer(
     top_units = [retrieval_units[i] for _, i in top_k]
     top_scores = [s for s, _ in top_k]
 
-    # --- 3. Build sources_block with proportional budget trimming ---------------
+    # --- 3. Build sources_block with header-safe proportional budget trimming ----
+    # Strategy: reserve all header lines (+ entities line) first; distribute
+    # the REMAINING budget across text slices proportionally (floor 0 if needed).
+    # Never hard-trim the joined block — all [S#] headers must always be present.
     total_score = sum(top_scores)
-    sources_block_parts: list[str] = []
-    # Allocate char budget proportionally to scores
-    remaining_budget = char_budget
-    for idx, (unit, score) in enumerate(zip(top_units, top_scores, strict=False), 1):
-        fraction = (score / total_score) if total_score > 0 else (1.0 / len(top_units))
-        allocated = max(100, int(char_budget * fraction))
-        text_slice = unit["text"][:allocated]
-        # Header line
+
+    # Build header strings (with optional entities line) per unit
+    header_strings: list[str] = []
+    for idx, unit in enumerate(top_units, 1):
         header = f"[S{idx}] {unit['paper_title']} — §{unit['section_title']}"
+        entity_labels = unit.get("entity_labels", [])
+        if entity_labels:
+            header = header + "\n" + ", ".join(entity_labels)
+        header_strings.append(header)
+
+    # Compute chars consumed by headers + separators between parts ("\n\n")
+    # Each part is: header_string + "\n" + text_slice
+    # Joined by "\n\n", so separators add 2*(k-1) chars
+    k = len(top_units)
+    header_chars = sum(len(h) + 1 for h in header_strings)  # +1 for "\n" after each header
+    separator_chars = 2 * (k - 1)  # "\n\n" between parts
+    reserved = header_chars + separator_chars
+    text_budget = max(0, char_budget - reserved)
+
+    # Distribute text_budget proportionally across slices
+    sources_block_parts: list[str] = []
+    for idx, (unit, score, header) in enumerate(
+        zip(top_units, top_scores, header_strings, strict=False), 1
+    ):
+        fraction = (score / total_score) if total_score > 0 else (1.0 / k)
+        allocated = int(text_budget * fraction)  # floor; may be 0
+        text_slice = unit["text"][:allocated]
         sources_block_parts.append(f"{header}\n{text_slice}")
 
     sources_block = "\n\n".join(sources_block_parts)
-
-    # Final safety trim to char_budget
-    if len(sources_block) > char_budget:
-        sources_block = sources_block[:char_budget]
 
     # --- 4. Build sources list -------------------------------------------------
     sources: list[QASource] = [
@@ -325,7 +348,6 @@ def answer(
 
 def _resolve_llm(*, provider: str = "anthropic", model: str | None = None):
     """Return an LLM callable for the given provider."""
-    import os
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
     resolved_model = resolve_model(provider, model)

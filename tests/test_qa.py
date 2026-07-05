@@ -373,3 +373,177 @@ class TestCLIAsk:
         out = capsys.readouterr().out
         # Human output should contain the answer
         assert "Neural networks" in out or "neural" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 — entities line present in sources_block
+# ---------------------------------------------------------------------------
+
+class TestEntitiesLineInSourcesBlock:
+    def _make_fake_llm(self, response: str) -> tuple[object, list]:
+        calls: list[str] = []
+
+        def _fake_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return response
+
+        return _fake_llm, calls
+
+    def test_entity_label_appears_in_sources_block(self):
+        """Entity label for a section must appear as a comma-joined line in sources_block."""
+        from research_companion.qa import answer
+        text = "Transformer architectures have shown great results.\n"
+        ext = {
+            "concepts": [{"name": "SparseAttention", "definition": "Sparse attention method",
+                          "section": "s1"}],
+            "methods": [],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        }
+        _make_paper("arxiv:E001", "Entity Paper", text, sections=[
+            {"section_id": "s1", "title": "Architecture", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text)},
+        ], extraction=ext)
+        fake_llm, calls = self._make_fake_llm("answer [S1]")
+        answer("sparse attention architecture", llm=fake_llm, paper_ids=["arxiv:E001"])
+        assert len(calls) == 1
+        prompt = calls[0]
+        # The entity label "SparseAttention" must appear in the sources_block in the prompt
+        assert "SparseAttention" in prompt
+
+    def test_sources_block_unit_has_entities_line_between_header_and_text(self):
+        """Format: [S1] title — §section NEWLINE entities NEWLINE text_slice."""
+        from research_companion.qa import answer
+        text = "Transformer architectures.\n"
+        ext = {
+            "concepts": [{"name": "BERT", "definition": "Bidirectional encoder",
+                          "section": "s1"}],
+            "methods": [{"name": "FineTuning", "description": "fine-tune", "section": "s1"}],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        }
+        _make_paper("arxiv:E002", "BERT Paper", text, sections=[
+            {"section_id": "s1", "title": "Methods", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text)},
+        ], extraction=ext)
+        fake_llm, calls = self._make_fake_llm("answer [S1]")
+        answer("BERT fine tuning methods", llm=fake_llm, paper_ids=["arxiv:E002"])
+        prompt = calls[0]
+        # Both entity labels should appear
+        assert "BERT" in prompt
+        assert "FineTuning" in prompt
+
+    def test_no_entities_no_extra_blank_line(self):
+        """When section has no entities, no blank entities line should be inserted.
+
+        Convention: no entities -> omit the entities line entirely (no extra blank line).
+        The header line should be immediately followed by the text slice.
+        """
+        from research_companion.qa import answer
+        text = "Plain text with no entities here.\n"
+        _make_paper("arxiv:E003", "Plain Paper", text, sections=[
+            {"section_id": "s1", "title": "Plain", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text)},
+        ])
+        fake_llm, calls = self._make_fake_llm("answer [S1]")
+        answer("plain text", llm=fake_llm, paper_ids=["arxiv:E003"])
+        prompt = calls[0]
+        # The sources_block portion: header immediately followed by \n then text (no blank entities line)
+        # Find the [S1] header line in the prompt
+        s1_pos = prompt.find("[S1]")
+        assert s1_pos >= 0
+        # After the header line (ending at first \n after [S1]), next char should NOT be blank line
+        header_end = prompt.index("\n", s1_pos)
+        # The character right after the header newline should be the start of text, not another \n
+        assert prompt[header_end + 1] != "\n", (
+            "No entities -> header line should be directly followed by text, not a blank line"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2 — header-safe budget trimming
+# ---------------------------------------------------------------------------
+
+class TestHeaderSafeBudgetTrimming:
+    def _make_fake_llm(self, response: str) -> tuple[object, list]:
+        calls: list[str] = []
+
+        def _fake_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return response
+
+        return _fake_llm, calls
+
+    def test_both_headers_present_with_tiny_budget(self):
+        """k=2, char_budget=140: both [S1] and [S2] headers must appear in the prompt."""
+        from research_companion.qa import answer
+        # Two papers with distinctive query terms
+        text1 = "Alpha " * 50  # 300 chars
+        text2 = "Beta " * 50   # 250 chars
+        _make_paper("arxiv:B001", "Alpha Paper", text1, sections=[
+            {"section_id": "s1", "title": "Alpha Section", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text1)},
+        ])
+        _make_paper("arxiv:B002", "Beta Paper", text2, sections=[
+            {"section_id": "s1", "title": "Beta Section", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text2)},
+        ])
+        fake_llm, calls = self._make_fake_llm("answer [S1] [S2]")
+        result = answer(
+            "alpha beta",
+            llm=fake_llm,
+            k_sections=2,
+            char_budget=140,
+            paper_ids=["arxiv:B001", "arxiv:B002"],
+        )
+        assert len(calls) == 1
+        prompt = calls[0]
+        assert "[S1]" in prompt
+        assert "[S2]" in prompt
+
+    def test_text_slices_within_remaining_budget(self):
+        """After reserving headers, total text slice chars must fit within remaining budget."""
+        from research_companion.qa import answer
+        # Use query words that appear in section titles so BM25 scores are nonzero
+        text1 = "Xylophone " * 50   # 500 chars; "xylophone" appears in title too
+        text2 = "Zeppelin " * 55    # ~495 chars; "zeppelin" appears in title too
+        _make_paper("arxiv:B003", "X Paper", text1, sections=[
+            {"section_id": "s1", "title": "Xylophone Section", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text1)},
+        ])
+        _make_paper("arxiv:B004", "Z Paper", text2, sections=[
+            {"section_id": "s1", "title": "Zeppelin Section", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text2)},
+        ])
+        char_budget = 200
+        fake_llm, calls = self._make_fake_llm("answer [S1] [S2]")
+        answer(
+            "xylophone zeppelin",
+            llm=fake_llm,
+            k_sections=2,
+            char_budget=char_budget,
+            paper_ids=["arxiv:B003", "arxiv:B004"],
+        )
+        prompt = calls[0]
+        # Both headers present, text slices must be within budget
+        assert "[S1]" in prompt
+        assert "[S2]" in prompt
+
+    def test_generous_budget_full_slices(self):
+        """With generous budget, full text slices are included."""
+        from research_companion.qa import answer
+        short_text = "Short content about neural networks.\n"
+        _make_paper("arxiv:B005", "Short Paper", short_text, sections=[
+            {"section_id": "s1", "title": "Content", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(short_text)},
+        ])
+        fake_llm, calls = self._make_fake_llm("answer [S1]")
+        answer("neural networks content", llm=fake_llm, k_sections=1,
+               char_budget=10000, paper_ids=["arxiv:B005"])
+        prompt = calls[0]
+        # Full text should appear in prompt
+        assert short_text.strip() in prompt

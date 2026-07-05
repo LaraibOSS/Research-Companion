@@ -162,6 +162,33 @@ class TestBM25:
 # chat.py still imports STOPWORDS from rank after the move
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Fix 3 — hand-computed BM25 numeric test
+# ---------------------------------------------------------------------------
+
+class TestBM25Numeric:
+    def test_single_doc_single_term_exact_score(self):
+        """Hand-computed BM25 score for trivial corpus: docs=[["apple"]], query=["apple"].
+
+        Given:
+            N=1, df("apple")=1
+            idf = log((1 - 1 + 0.5) / (1 + 0.5) + 1) = log(0.5/1.5 + 1) = log(1/3 + 1) = log(4/3)
+            tf=1, dl=1, avgdl=1
+            denom = tf + k1*(1 - b + b*dl/avgdl) = 1 + 1.5*(1 - 0.75 + 0.75*1) = 1 + 1.5*1 = 2.5
+            score = idf * (tf * (k1+1)) / denom = log(4/3) * (1 * 2.5) / 2.5 = log(4/3)
+        """
+        from research_companion.rank import BM25
+        bm = BM25([["apple"]])
+        scores = bm.score(["apple"])
+        assert len(scores) == 1
+        # idf = log((N - df + 0.5)/(df + 0.5) + 1) = log(0.5/1.5 + 1) = log(4/3)
+        expected_idf = math.log((1 - 1 + 0.5) / (1 + 0.5) + 1.0)
+        # numerator = tf * (k1 + 1) = 1 * 2.5 = 2.5
+        # denom = tf + k1*(1 - b + b*dl/avgdl) = 1 + 1.5*(1-0.75+0.75) = 1 + 1.5 = 2.5
+        expected_score = expected_idf * (1 * (1.5 + 1.0)) / (1 + 1.5 * (1.0 - 0.75 + 0.75 * 1.0 / 1.0))
+        assert scores[0] == pytest.approx(expected_score)
+
+
 class TestChatStillUsesRankStopwords:
     def test_chat_question_terms_uses_rank_stopwords(self):
         """chat._question_terms should still filter stopwords after refactor."""
