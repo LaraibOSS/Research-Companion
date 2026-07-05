@@ -1,0 +1,958 @@
+"""Research Lab REST + SSE server.
+
+Single long-running server behind the Research Lab web UI.
+
+Design rules (from the approved plan):
+- SINGLE event loop: uvicorn runs foreground; POST handlers spawn asyncio.create_task;
+  SSE subscribes to the same-loop Bus. No threads for the Bus.
+- Lazy FastAPI imports: module import must not require fastapi. The ImportError is
+  raised at serve time with a friendly message.
+- SSE: subscribe-first -> replay history (with original seq) -> live stream (dedup).
+  Heartbeat ': ping' every 15s while idle. Stream stays open.
+- One ingest at a time: concurrent POST /api/ingest -> 409.
+- CORS not needed (same origin).
+
+Public API:
+    create_lab_app(bus: Bus, *, llm=None) -> FastAPI
+    serve_lab(port: int = 8765, *, open_browser: bool = True) -> None
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from typing import Any, Optional
+
+from research_companion.agents.bus import Bus
+from research_companion.agents.events import event_to_dict
+
+# ---------------------------------------------------------------------------
+# Request body models (module-level so annotations resolve correctly with
+# `from __future__ import annotations` in effect).
+# Pydantic is a fastapi dependency, so importing it here is safe if fastapi
+# is installed; if not, the ImportError is deferred to create_lab_app / serve_lab.
+# ---------------------------------------------------------------------------
+
+try:
+    from pydantic import BaseModel as _BaseModel
+
+    class _DraftBody(_BaseModel):
+        paper_id: Optional[str] = None
+
+    class _IngestBody(_BaseModel):
+        folder: str = ""
+
+    class _AlignBody(_BaseModel):
+        paper_id: str = ""
+        against: Optional[str] = None
+        force: bool = False
+
+    class _AskBody(_BaseModel):
+        question: str = ""
+        section_id: Optional[str] = None
+
+    class _CompareBody(_BaseModel):
+        paper_a: str = ""
+        paper_b: str = ""
+
+    class _AddPaperBody(_BaseModel):
+        target: str = ""
+
+except ImportError:
+    # fastapi/pydantic not installed — placeholders (create_lab_app will fail
+    # with a friendly message before any endpoint tries to use these classes).
+    _DraftBody = None  # type: ignore[assignment,misc]
+    _IngestBody = None  # type: ignore[assignment,misc]
+    _AlignBody = None  # type: ignore[assignment,misc]
+    _AskBody = None  # type: ignore[assignment,misc]
+    _CompareBody = None  # type: ignore[assignment,misc]
+    _AddPaperBody = None  # type: ignore[assignment,misc]
+
+# ---------------------------------------------------------------------------
+# Static directory (always relative to this file)
+# ---------------------------------------------------------------------------
+
+_STATIC_DIR = Path(__file__).parent / "lab" / "static"
+_INDEX_HTML = _STATIC_DIR / "index.html"
+
+_PLACEHOLDER_HTML = """\
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Research Lab</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <h1>Research Lab</h1>
+  <p>The Research Lab frontend is not yet installed.
+     Run the Task F1 build to generate the static assets.</p>
+  <script>
+    // Placeholder EventSource for health check
+    if (typeof EventSource !== 'undefined') {
+      const es = new EventSource('/api/events');
+      es.onerror = function() { es.close(); };
+    }
+  </script>
+</body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Seq-recorder: wraps Bus with monotonic seq assignment
+# ---------------------------------------------------------------------------
+
+class _SeqRecorder:
+    """Subscribes to a Bus at creation time and assigns monotonic seq numbers.
+
+    Maintains a list of (seq, event) so SSE can replay them to reconnecting clients.
+    Seq starts at 1.
+
+    On construction, pre-assigns seq numbers to any events already in bus.history
+    so reconnecting clients can replay pre-connect events.
+    """
+
+    def __init__(self, bus: Bus) -> None:
+        self._bus = bus
+        self._records: list[tuple[int, Any]] = []
+        self._seq = 0
+        # Pre-assign seq for events already in history (before this recorder was created)
+        pre_history = list(bus.history)
+        self._seen_ids: set[int] = set()
+        for event in pre_history:
+            self._assign(event)
+            self._seen_ids.add(id(event))
+        # Subscribe AFTER snapshotting history to avoid duplicates
+        self._q = bus.subscribe()
+
+    def _assign(self, event) -> int:
+        self._seq += 1
+        self._records.append((self._seq, event))
+        return self._seq
+
+    async def drain(self) -> None:
+        """Continuously drain the Bus queue, assigning seq numbers (skipping pre-history)."""
+        while True:
+            try:
+                event = await asyncio.wait_for(self._q.get(), timeout=1.0)
+                if id(event) not in self._seen_ids:
+                    self._assign(event)
+                    self._seen_ids.add(id(event))
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+
+    def snapshot(self) -> list[tuple[int, Any]]:
+        """Return a copy of all (seq, event) pairs recorded so far."""
+        return list(self._records)
+
+    def current_max_seq(self) -> int:
+        return self._seq
+
+
+# ---------------------------------------------------------------------------
+# create_lab_app
+# ---------------------------------------------------------------------------
+
+def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
+    """Create and return the Lab FastAPI application.
+
+    Args:
+        bus:  Event bus (shared with background tasks).
+        llm:  Optional LLM callable(prompt: str) -> str. When None, real provider
+              is wired lazily per request.
+
+    Returns:
+        A FastAPI application instance.
+    """
+    try:
+        from fastapi import FastAPI, HTTPException
+        from fastapi.responses import HTMLResponse, StreamingResponse
+        from fastapi.staticfiles import StaticFiles
+    except ImportError as exc:
+        raise ImportError(
+            "research-companion lab server requires fastapi and uvicorn. "
+            "Install with: pip install 'research-companion[server]'"
+        ) from exc
+
+    app = FastAPI(title="Research Lab")
+
+    # Recorder assigned on startup
+    recorder = _SeqRecorder(bus)
+    app.state.recorder = recorder
+    app.state.bus = bus
+    app.state.llm = llm
+    app.state.jobs: dict[str, dict] = {}
+    app.state.job_counter = 0
+    app.state.ingest_running = False
+
+    # Allow test overrides
+    app.state.ingest_override = None
+    app.state.add_paper_override = None
+    app.state.retry_override = None
+    # Test hook: when set to True, SSE stream terminates after replaying history
+    # (mirrors dashboard's done-state pattern; production code leaves this False).
+    app.state._sse_done = False
+
+    @app.on_event("startup")
+    async def _startup() -> None:
+        asyncio.create_task(recorder.drain())
+
+    # -----------------------------------------------------------------
+    # Mount static files (tolerates sparse/absent directory)
+    # -----------------------------------------------------------------
+    _STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    # -----------------------------------------------------------------
+    # GET /
+    # -----------------------------------------------------------------
+    @app.get("/", response_class=HTMLResponse)
+    async def index() -> str:
+        if _INDEX_HTML.exists():
+            return _INDEX_HTML.read_text(encoding="utf-8")
+        return _PLACEHOLDER_HTML
+
+    # -----------------------------------------------------------------
+    # GET /api/lab
+    # -----------------------------------------------------------------
+    @app.get("/api/lab")
+    async def get_lab() -> dict:
+        from research_companion import store
+        from research_companion.graph import load_graph
+
+        papers = store.list_papers()
+        G = load_graph()
+        active_jobs = [
+            jid for jid, info in app.state.jobs.items()
+            if info.get("status") == "running"
+        ]
+        return {
+            "draft_id": store.get_draft_paper_id(),
+            "paper_count": len(papers),
+            "node_count": G.number_of_nodes(),
+            "edge_count": G.number_of_edges(),
+            "active_jobs": active_jobs,
+        }
+
+    # -----------------------------------------------------------------
+    # GET /api/papers
+    # -----------------------------------------------------------------
+    @app.get("/api/papers")
+    async def get_papers() -> list:
+        from research_companion import store
+        from research_companion.prompts import extraction_prompt_sha256
+
+        papers = store.list_papers()
+        failures = store.list_failures()
+        draft_id = store.get_draft_paper_id()
+        prompt_sha = extraction_prompt_sha256()
+
+        result = []
+        for meta in papers:
+            paper_id = meta.paper_id
+            # Determine status
+            status = "pending"
+            failure_reason = None
+
+            # Check failures by paper_id or path
+            for key, info in failures.items():
+                if key == paper_id or info.get("paper_id") == paper_id:
+                    status = "failed"
+                    failure_reason = info.get("error")
+                    break
+
+            if status != "failed":
+                cached = store.load_extraction(paper_id, prompt_sha=prompt_sha)
+                if cached is not None:
+                    status = "done"
+
+            # Strength
+            strength_payload = store.load_strength(paper_id)
+            if strength_payload is not None:
+                strength = {
+                    "score": strength_payload.get("score"),
+                    "band": strength_payload.get("band", ""),
+                    "color": strength_payload.get("color", ""),
+                }
+            else:
+                strength = None
+
+            # Stance counts from alignment
+            stance_counts = {"strengthens": 0, "challenges": 0, "alternative": 0}
+            if draft_id is not None:
+                alignment = store.load_alignment(paper_id, draft_paper_id=draft_id)
+                if alignment is not None:
+                    for sec in alignment.get("sections", []):
+                        rel = sec.get("relation", "")
+                        if rel in stance_counts:
+                            stance_counts[rel] += 1
+
+            result.append({
+                "paper_id": paper_id,
+                "title": meta.title,
+                "authors": meta.authors,
+                "year": meta.year,
+                "status": status,
+                "failure_reason": failure_reason,
+                "strength": strength,
+                "is_draft": paper_id == draft_id,
+                "stance_counts": stance_counts,
+                "added_at": meta.added_at,
+            })
+
+        return result
+
+    # -----------------------------------------------------------------
+    # POST /api/papers  (add a paper)
+    # -----------------------------------------------------------------
+    @app.post("/api/papers", status_code=202)
+    async def add_paper(body: _AddPaperBody) -> dict:
+        target = body.target.strip() if body.target else ""
+        if not target:
+            raise HTTPException(status_code=400, detail="target is required and must not be empty")
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None}
+
+        if app.state.add_paper_override is not None:
+            coro = app.state.add_paper_override(target, bus)
+        else:
+            coro = _add_paper_task(target, bus)
+
+        async def _run():
+            try:
+                await coro
+                app.state.jobs[job_id] = {"status": "done", "detail": None}
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc)}
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
+    # POST /api/papers/{id}/retry
+    # -----------------------------------------------------------------
+    @app.post("/api/papers/{paper_id:path}/retry", status_code=202)
+    async def retry_paper(paper_id: str) -> dict:
+        from research_companion import store
+
+        failures = store.list_failures()
+        # Find a failure matching this paper_id
+        matched_key = None
+        matched_info = None
+        for key, info in failures.items():
+            if key == paper_id or info.get("paper_id") == paper_id:
+                matched_key = key
+                matched_info = info
+                break
+
+        if matched_key is None:
+            raise HTTPException(status_code=404, detail=f"No failure record for {paper_id!r}")
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None}
+
+        if app.state.retry_override is not None:
+            coro = app.state.retry_override(matched_key, paper_id, bus)
+        else:
+            coro = _retry_paper_task(matched_key, paper_id, bus)
+
+        async def _run():
+            try:
+                await coro
+                store.clear_failure(matched_key)
+                app.state.jobs[job_id] = {"status": "done", "detail": None}
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc)}
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
+    # DELETE /api/papers/{id}
+    # -----------------------------------------------------------------
+    @app.delete("/api/papers/{paper_id:path}")
+    async def delete_paper(paper_id: str) -> dict:
+        from research_companion import store
+        from research_companion.graph import build_graph, save_graph
+
+        removed = await asyncio.to_thread(store.remove_paper, paper_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        # Rebuild and save graph
+        try:
+            G = await asyncio.to_thread(build_graph)
+            await asyncio.to_thread(save_graph, G)
+        except Exception:
+            pass  # Non-fatal; graph rebuild failure doesn't undo removal
+
+        return {"removed": True}
+
+    # -----------------------------------------------------------------
+    # GET /api/draft
+    # -----------------------------------------------------------------
+    @app.get("/api/draft")
+    async def get_draft() -> dict:
+        from research_companion import store
+        return {"draft_paper_id": store.get_draft_paper_id()}
+
+    # -----------------------------------------------------------------
+    # POST /api/draft
+    # -----------------------------------------------------------------
+    @app.post("/api/draft")
+    async def set_draft(body: _DraftBody) -> dict:
+        from research_companion import store
+
+        paper_id = body.paper_id
+
+        if paper_id is not None:
+            meta = store.PaperMetadata.load(paper_id)
+            if meta is None:
+                raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        await asyncio.to_thread(store.set_draft_paper_id, paper_id)
+        return {"draft_paper_id": paper_id}
+
+    # -----------------------------------------------------------------
+    # GET /api/sections
+    # -----------------------------------------------------------------
+    @app.get("/api/sections")
+    async def get_sections() -> list:
+        from research_companion import store
+        from research_companion.graph import load_graph, section_subgraph
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            return []
+
+        sections_payload = store.load_sections(draft_id)
+        if sections_payload is None:
+            return []
+
+        G = load_graph()
+        result = []
+        for sec in sections_payload.get("sections", []):
+            sec_id = sec["section_id"]
+            sub = section_subgraph(G, draft_id, sec_id)
+            # node_count = number of non-paper nodes in subgraph
+            node_count = sum(
+                1 for _, d in sub.nodes(data=True) if d.get("kind") != "paper"
+            )
+            result.append({
+                "section_id": sec_id,
+                "index": sec.get("index", 0),
+                "title": sec.get("title", ""),
+                "level": sec.get("level", 1),
+                "node_count": node_count,
+            })
+
+        return result
+
+    # -----------------------------------------------------------------
+    # GET /api/draft/alignment
+    # -----------------------------------------------------------------
+    @app.get("/api/draft/alignment")
+    async def get_draft_alignment() -> dict:
+        from research_companion import store
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            return {"draft_id": None, "sections": []}
+
+        papers = store.list_papers()
+        # Map section_id -> {title, alignments: [...]}
+        sections_map: dict[str, dict] = {}
+
+        for meta in papers:
+            if meta.paper_id == draft_id:
+                continue
+            alignment = store.load_alignment(meta.paper_id, draft_paper_id=draft_id)
+            if alignment is None:
+                continue
+
+            for sec in alignment.get("sections", []):
+                sec_id = sec.get("section_id", "")
+                sec_title = sec.get("section_title", sec_id)
+
+                if sec_id not in sections_map:
+                    sections_map[sec_id] = {
+                        "section_id": sec_id,
+                        "title": sec_title,
+                        "alignments": [],
+                    }
+
+                sections_map[sec_id]["alignments"].append({
+                    "paper_id": meta.paper_id,
+                    "paper_title": meta.title,
+                    "relation": sec.get("relation", ""),
+                    "relevance": sec.get("relevance", 0.0),
+                    "rationale": sec.get("rationale", ""),
+                    "evidence": sec.get("evidence", []),
+                    "score": alignment.get("score", 0.0),
+                    "verdict": alignment.get("verdict", ""),
+                })
+
+        return {
+            "draft_id": draft_id,
+            "sections": list(sections_map.values()),
+        }
+
+    # -----------------------------------------------------------------
+    # GET /api/papers/{id}/alignment
+    # -----------------------------------------------------------------
+    @app.get("/api/papers/{paper_id:path}/alignment")
+    async def get_paper_alignment(paper_id: str) -> dict:
+        from research_companion import store
+
+        draft_id = store.get_draft_paper_id()
+        alignment = store.load_alignment(paper_id, draft_paper_id=draft_id)
+        if alignment is None:
+            raise HTTPException(status_code=404,
+                                detail=f"No alignment for {paper_id!r}")
+        return alignment
+
+    # -----------------------------------------------------------------
+    # GET /api/graph
+    # -----------------------------------------------------------------
+    @app.get("/api/graph")
+    async def get_graph(section: Optional[str] = None) -> dict:
+        from research_companion import store
+        from research_companion.graph import load_graph, section_subgraph
+
+        section_id = section
+        G = load_graph()
+
+        if section_id is not None:
+            draft_id = store.get_draft_paper_id()
+            if draft_id is None:
+                raise HTTPException(status_code=400,
+                                    detail="?section filter requires a configured draft paper")
+            G = section_subgraph(G, draft_id, section_id)
+
+        nodes = []
+        for nid, data in G.nodes(data=True):
+            kind = data.get("kind", "")
+            attrs = {k: v for k, v in data.items()
+                     if k not in ("kind", "label", "strength_band", "strength_color")}
+
+            # sections attr: for paper nodes = their section ids from the store;
+            # for entity nodes = sorted set of section ids on contains-edges from papers
+            if kind == "paper":
+                sections_payload = store.load_sections(nid)
+                if sections_payload is not None:
+                    sec_ids = [s["section_id"] for s in sections_payload.get("sections", [])]
+                else:
+                    sec_ids = []
+            else:
+                sec_ids_set = set()
+                for neighbor in G.neighbors(nid):
+                    edge_data = G.edges[neighbor, nid]
+                    if edge_data.get("relation") == "contains":
+                        sec_val = edge_data.get("section")
+                        if sec_val:
+                            sec_ids_set.add(sec_val)
+                sec_ids = sorted(sec_ids_set)
+
+            # Strength attr for paper nodes
+            strength = None
+            if kind == "paper":
+                band = data.get("strength_band")
+                color = data.get("strength_color")
+                if band or color:
+                    strength = {"band": band or "", "color": color or ""}
+                else:
+                    sp = store.load_strength(nid)
+                    if sp is not None:
+                        strength = {
+                            "band": sp.get("band", ""),
+                            "color": sp.get("color", ""),
+                        }
+
+            nodes.append({
+                "id": nid,
+                "kind": kind,
+                "label": data.get("label", nid),
+                "sections": sec_ids,
+                "strength": strength,
+                "attrs": attrs,
+            })
+
+        edges = []
+        for u, v, edata in G.edges(data=True):
+            edges.append({
+                "from": u,
+                "to": v,
+                "relation": edata.get("relation", ""),
+                "weight": edata.get("weight", 1),
+            })
+
+        return {
+            "seq": recorder.current_max_seq(),
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+    # -----------------------------------------------------------------
+    # POST /api/ingest
+    # -----------------------------------------------------------------
+    @app.post("/api/ingest", status_code=202)
+    async def ingest(body: _IngestBody) -> dict:
+        from research_companion.lab import scan_pdfs
+
+        folder = body.folder.strip() if body.folder else ""
+        if not folder:
+            raise HTTPException(status_code=400, detail="folder is required")
+
+        # Validate folder
+        try:
+            pdfs = await asyncio.to_thread(scan_pdfs, folder)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        # One ingest at a time
+        running_jobs = [
+            jid for jid, info in app.state.jobs.items()
+            if info.get("status") == "running"
+        ]
+        if running_jobs:
+            raise HTTPException(status_code=409, detail="An ingest job is already running")
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None}
+
+        ingest_fn = app.state.ingest_override
+        if ingest_fn is None:
+            from research_companion.lab import ingest_folder as _real_ingest
+            ingest_fn = _real_ingest
+
+        async def _run_ingest():
+            try:
+                await ingest_fn(folder, bus=bus)
+                app.state.jobs[job_id] = {"status": "done", "detail": None}
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc)}
+
+        asyncio.create_task(_run_ingest())
+
+        return {
+            "job_id": job_id,
+            "discovered": len(pdfs),
+            "files": [p.name for p in pdfs],
+        }
+
+    # -----------------------------------------------------------------
+    # GET /api/jobs/{id}
+    # -----------------------------------------------------------------
+    @app.get("/api/jobs/{job_id}")
+    async def get_job(job_id: str) -> dict:
+        info = app.state.jobs.get(job_id)
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id!r}")
+        return info
+
+    # -----------------------------------------------------------------
+    # GET /api/failures
+    # -----------------------------------------------------------------
+    @app.get("/api/failures")
+    async def get_failures() -> dict:
+        from research_companion import store
+        return store.list_failures()
+
+    # -----------------------------------------------------------------
+    # POST /api/align
+    # -----------------------------------------------------------------
+    @app.post("/api/align")
+    async def align(body: _AlignBody) -> dict:
+        from research_companion import store
+        from research_companion.alignment import AlignmentError, align_papers
+
+        paper_id = body.paper_id.strip() if body.paper_id else ""
+        against = body.against
+        force = body.force
+
+        if not paper_id:
+            raise HTTPException(status_code=400, detail="paper_id required")
+
+        meta = store.PaperMetadata.load(paper_id)
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        draft_id = against or store.get_draft_paper_id()
+        if not draft_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No draft configured. Provide against or run set-draft first."
+            )
+
+        resolved_llm = app.state.llm
+        if resolved_llm is None:
+            resolved_llm = _resolve_llm()
+
+        try:
+            payload = await asyncio.to_thread(
+                align_papers,
+                draft_id,
+                paper_id,
+                llm=resolved_llm,
+                force=force,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except AlignmentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        return payload
+
+    # -----------------------------------------------------------------
+    # POST /api/ask
+    # -----------------------------------------------------------------
+    @app.post("/api/ask")
+    async def ask(body: _AskBody) -> dict:
+        from research_companion.qa import answer
+
+        question = body.question.strip() if body.question else ""
+        section_id = body.section_id
+
+        if not question:
+            raise HTTPException(status_code=400, detail="question required")
+
+        resolved_llm = app.state.llm
+
+        result = await asyncio.to_thread(
+            answer,
+            question,
+            llm=resolved_llm,
+            section_id=section_id,
+        )
+
+        # Build citations list with n = source tag number
+        cited_ids = {(s.paper_id, s.section_id) for s in result.cited}
+        citations = [
+            {
+                "n": i + 1,
+                "paper_id": s.paper_id,
+                "title": s.paper_title,
+                "section_id": s.section_id,
+                "section_title": s.section_title,
+                "cited": (s.paper_id, s.section_id) in cited_ids,
+            }
+            for i, s in enumerate(result.sources)
+        ]
+
+        grounding_paper_ids = list({s.paper_id for s in result.cited})
+
+        return {
+            "answer": result.answer,
+            "citations": citations,
+            "unverified_quotes": result.unverified_quotes,
+            "grounding": {"paper_ids": grounding_paper_ids},
+        }
+
+    # -----------------------------------------------------------------
+    # POST /api/compare
+    # -----------------------------------------------------------------
+    @app.post("/api/compare")
+    async def compare(body: _CompareBody) -> dict:
+        from research_companion import store
+        from research_companion.compare import compare_papers
+
+        paper_a = body.paper_a.strip() if body.paper_a else ""
+        paper_b = body.paper_b.strip() if body.paper_b else ""
+
+        if not paper_a or not paper_b:
+            raise HTTPException(status_code=400, detail="paper_a and paper_b required")
+
+        if paper_a == paper_b:
+            raise HTTPException(status_code=400, detail="Cannot compare a paper to itself")
+
+        # Check existence
+        for pid in (paper_a, paper_b):
+            if store.PaperMetadata.load(pid) is None:
+                raise HTTPException(status_code=404, detail=f"Paper not found: {pid!r}")
+
+        resolved_llm = app.state.llm
+
+        try:
+            result = await asyncio.to_thread(
+                compare_papers, paper_a, paper_b, llm=resolved_llm
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        return result
+
+    # -----------------------------------------------------------------
+    # GET /api/events (SSE)
+    # -----------------------------------------------------------------
+    @app.get("/api/events")
+    async def events_stream():
+        from fastapi.responses import StreamingResponse
+
+        # Capture done flag at connection time (for test mode)
+        _done_flag = app.state._sse_done
+
+        async def gen():
+            # Subscribe FIRST so we don't miss events published after this point
+            q = bus.subscribe()
+            # Snapshot the already-recorded (seq, event) pairs for replay
+            snapshot = recorder.snapshot()
+            seen_event_ids = {id(e) for _, e in snapshot}
+            # Track live seq: starts after the last replayed seq
+            live_seq = recorder.current_max_seq()
+            try:
+                # Replay pre-connect events with their original seq
+                for seq, event in snapshot:
+                    data = event_to_dict(event) | {"seq": seq}
+                    yield f"data: {json.dumps(data)}\n\n"
+
+                # If done flag is set (test mode), terminate after replaying history
+                if _done_flag:
+                    return
+
+                # Live stream with heartbeat
+                last_ping = asyncio.get_event_loop().time()
+                while True:
+                    try:
+                        event = await asyncio.wait_for(q.get(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        # Emit heartbeat if idle
+                        now = asyncio.get_event_loop().time()
+                        if now - last_ping >= 15.0:
+                            yield ": ping\n\n"
+                            last_ping = now
+                        continue
+
+                    # Skip events already replayed (dedup)
+                    if id(event) in seen_event_ids:
+                        continue
+                    seen_event_ids.add(id(event))
+
+                    # Assign seq: try to find in recorder (drain may have already run),
+                    # otherwise increment live counter.
+                    matched_seq = None
+                    for s, e in reversed(recorder.snapshot()):
+                        if e is event:
+                            matched_seq = s
+                            break
+                    if matched_seq is None:
+                        live_seq += 1
+                        matched_seq = live_seq
+
+                    data = event_to_dict(event) | {"seq": matched_seq}
+                    yield f"data: {json.dumps(data)}\n\n"
+                    last_ping = asyncio.get_event_loop().time()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                bus.unsubscribe(q)
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Background task helpers
+# ---------------------------------------------------------------------------
+
+async def _add_paper_task(target: str, bus: Bus) -> None:
+    """Add a paper to the store and run the single-paper pipeline."""
+    from research_companion.fetch import add_paper
+    from research_companion import store
+    from research_companion.agents.events import PaperAdded
+
+    meta = await asyncio.to_thread(add_paper, target)
+    await bus.publish(PaperAdded(
+        paper_id=meta.paper_id,
+        title=meta.title,
+        source=meta.source_url,
+    ))
+
+
+async def _retry_paper_task(path: str, paper_id: str, bus: Bus) -> None:
+    """Re-run the pipeline for a failed paper."""
+    from research_companion.agents.events import JobDone
+
+    # For retry, we just re-attempt add_paper for the path
+    try:
+        from research_companion.fetch import add_local_pdf
+        meta = await asyncio.to_thread(add_local_pdf, path)
+        from research_companion.agents.events import PaperAdded
+        await bus.publish(PaperAdded(
+            paper_id=meta.paper_id,
+            title=meta.title,
+            source="",
+        ))
+    except Exception:
+        pass
+
+    await bus.publish(JobDone(job="retry"))
+
+
+# ---------------------------------------------------------------------------
+# LLM resolver (mirrors cli.py / alignment.py pattern)
+# ---------------------------------------------------------------------------
+
+def _resolve_llm():
+    """Return a real LLM callable using the default provider."""
+    import os
+    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
+    model = os.environ.get("RESEARCH_COMPANION_MODEL")
+    resolved_model = resolve_model(provider, model)
+    call = _call_openai if provider == "openai" else _call_anthropic
+
+    def _real_llm(prompt: str) -> str:
+        text, _usage = call(prompt, model=resolved_model)
+        return text
+
+    return _real_llm
+
+
+# ---------------------------------------------------------------------------
+# serve_lab (foreground uvicorn)
+# ---------------------------------------------------------------------------
+
+def serve_lab(port: int = 8765, *, open_browser: bool = True) -> None:
+    """Start the lab server on *port* and optionally open the browser.
+
+    Imports fastapi/uvicorn lazily with a friendly error message.
+    """
+    try:
+        import uvicorn
+    except ImportError as exc:
+        import sys
+        print(
+            "research-companion: lab server requires fastapi and uvicorn. "
+            "Install with: pip install 'research-companion[server]'",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+
+    from research_companion.agents.bus import Bus
+    from research_companion.agents.events import EventLog
+    from research_companion.store import papergraph_dir
+
+    log_path = papergraph_dir() / "lab_events.jsonl"
+    bus = Bus(log=EventLog(log_path))
+    app = create_lab_app(bus)
+
+    if open_browser:
+        async def _open_browser_task():
+            import webbrowser
+            await asyncio.sleep(1.0)
+            webbrowser.open(f"http://127.0.0.1:{port}")
+
+        @app.on_event("startup")
+        async def _schedule_open():
+            asyncio.create_task(_open_browser_task())
+
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
