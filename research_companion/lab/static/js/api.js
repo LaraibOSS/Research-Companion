@@ -26,7 +26,9 @@ async function _fetch(method, path, body) {
     } catch {
       detail = await res.text().catch(() => res.statusText);
     }
-    throw new Error(detail || `HTTP ${res.status}`);
+    const err = new Error(detail || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   // No content responses (DELETE returning 204, etc.)
   if (res.status === 204) return null;

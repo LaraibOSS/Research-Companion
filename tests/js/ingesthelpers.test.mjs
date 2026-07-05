@@ -1,0 +1,47 @@
+/**
+ * ingesthelpers.test.mjs — TDD tests for classifyIngestError pure helper.
+ * Run from repo root: node --test tests/js/
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot  = path.resolve(__dirname, '..', '..');
+
+const { classifyIngestError } = await import(
+  pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'components', 'ingestHelpers.js')).href
+);
+
+// ---------------------------------------------------------------------------
+// classifyIngestError
+// ---------------------------------------------------------------------------
+
+test('classifyIngestError: status 409 -> conflict', () => {
+  const err = Object.assign(new Error('An ingest job is already running'), { status: 409 });
+  assert.equal(classifyIngestError(err), 'conflict');
+});
+
+test('classifyIngestError: status 400 -> inline', () => {
+  const err = Object.assign(new Error('Folder not found'), { status: 400 });
+  assert.equal(classifyIngestError(err), 'inline');
+});
+
+test('classifyIngestError: status 500 -> inline', () => {
+  const err = Object.assign(new Error('Internal server error'), { status: 500 });
+  assert.equal(classifyIngestError(err), 'inline');
+});
+
+test('classifyIngestError: no status property -> inline', () => {
+  const err = new Error('Network error');
+  assert.equal(classifyIngestError(err), 'inline');
+});
+
+test('classifyIngestError: old-style message-only 409 text -> inline (not conflict)', () => {
+  // Guard: old message.includes('409') approach would have matched this incorrectly
+  // The new approach requires err.status === 409; message content is irrelevant
+  const err = new Error('409 conflict found');
+  // err.status is undefined -> inline
+  assert.equal(classifyIngestError(err), 'inline');
+});

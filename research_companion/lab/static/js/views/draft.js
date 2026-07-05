@@ -14,6 +14,7 @@ import * as store from '../store.js';
 import { open as drawerOpen } from '../components/drawer.js';
 import { showToast } from '../components/toast.js';
 import { stanceIcon, strengthColor, escapeHtml, authorsLine } from '../format.js';
+// strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
 let _unsub = null;
@@ -67,9 +68,12 @@ async function _render() {
   try {
     _alignment = await api.getDraftAlignment();
   } catch (err) {
+    if (!_el) return;
     _el.innerHTML = `<div class="draft-error muted">Could not load alignment: ${escapeHtml(err.message)}</div>`;
     return;
   }
+
+  if (!_el) return;
 
   const sections = (_alignment && _alignment.sections) || [];
 
@@ -156,16 +160,20 @@ function _renderSectionList(sections) {
     const hasChallenges = (sec.alignments || []).some(a => a.relation === 'challenges');
     const isActive = sec.section_id === _selectedSectionId;
 
+    const { papers: _papers } = store.getState();
     const chipHtml = (sec.alignments || []).map(a => {
-      const color = STANCE_COLORS[a.relation] || '#8b949e';
+      const stanceColor = STANCE_COLORS[a.relation] || '#8b949e';
       const icon = stanceIcon(a.relation);
+      // dot color: use the paper's strength color, falling back to unscored gray
+      const paper = _papers.get(a.paper_id);
+      const dotColor = strengthColor(paper ? paper.strength : null);
       // first word of first author OR first 15 chars of title
       let label = '';
       if (a.paper_title) {
         label = a.paper_title.length > 15 ? a.paper_title.slice(0, 15) : a.paper_title;
       }
-      return `<span class="draft-chip" style="color:${escapeHtml(color)}" title="${escapeHtml(a.paper_title || '')}">
-        <span style="color:${escapeHtml(color)}">&#9679;</span>${escapeHtml(icon)} ${escapeHtml(label)}
+      return `<span class="draft-chip" style="color:${escapeHtml(stanceColor)}" title="${escapeHtml(a.paper_title || '')}">
+        <span style="color:${escapeHtml(dotColor)}">&#9679;</span>${escapeHtml(icon)} ${escapeHtml(label)}
       </span>`;
     }).join('');
 

@@ -11,7 +11,7 @@
  * DOM renderer: mountDock(el, store, api)
  */
 
-import * as api from '../api.js';
+import { escapeHtml } from '../format.js';
 
 // ---------------------------------------------------------------------------
 // Pure model (exported for node --test)
@@ -76,7 +76,7 @@ export function dockModel(state) {
 let _dockEl = null;
 let _collapsed = false;
 let _dismissed = false;
-let _unsub = null;
+let _mounted = false;
 
 /**
  * Mount the progress dock once at boot.
@@ -85,6 +85,8 @@ let _unsub = null;
  * @param {object}      apiRef    — api module reference (for retryPaper)
  */
 export function mountDock(el, storeRef, apiRef) {
+  if (_mounted) return;
+  _mounted = true;
   _dockEl = el;
 
   function render() {
@@ -178,32 +180,32 @@ export function mountDock(el, storeRef, apiRef) {
     });
   }
 
-  // Re-collapse on job_done
+  // Track previous job status to detect real transitions
+  let _prevJobStatus = null;
+
   storeRef.subscribe(['jobs', 'papers'], () => {
     const state = storeRef.getState();
     const job = state.jobs && state.jobs.get('ingest');
-    if (job && job.status === 'done') {
-      _collapsed = false; // model.collapsed drives the pill; reset internal flag
-      _dismissed = false;
+    const currentStatus = job ? job.status : null;
+
+    if (currentStatus !== _prevJobStatus) {
+      // New run starting (transition from done/null to running) -> reset dismissed
+      if (currentStatus === 'running' && _prevJobStatus !== 'running') {
+        _collapsed = false;
+        _dismissed = false;
+      }
+      // Transition into done -> reset internal collapsed flag (pill mode takes over)
+      if (currentStatus === 'done' && _prevJobStatus !== 'done') {
+        _collapsed = false;
+        _dismissed = false;
+      }
+      _prevJobStatus = currentStatus;
     }
+
     render();
   });
 
   render();
-}
-
-// ---------------------------------------------------------------------------
-// Tiny fallback escapeHtml (avoids circular import — format.js not imported here)
-// ---------------------------------------------------------------------------
-
-function escapeHtml(s) {
-  if (typeof s !== 'string') s = String(s == null ? '' : s);
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 function showToastFallback(msg, type) {

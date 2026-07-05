@@ -249,3 +249,71 @@ test('fixture replay: ingestLog has 1 failure entry from lab_events.jsonl', () =
   assert.equal(failEntry.ok, false);
   assert.ok(failEntry.label, 'failure entry should have a label');
 });
+
+// ===========================================================================
+// dockModel: dismiss/resurrect behaviour
+// These tests verify the pure model: after job_done, subsequent notifications
+// that don't change the job status must NOT flip visible back to true from a
+// dismissed state — the subscriber logic (not the model) is responsible for
+// resetting _dismissed only on real transitions.
+// ===========================================================================
+
+test('dockModel: done state stays collapsed/summary across multiple calls (no spontaneous reset)', () => {
+  // Simulate: job finishes, dockModel is called multiple times (e.g. papers events arrive)
+  // The model must keep returning collapsed:true / summary for the same done state.
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'done', done: 2, total: 2 });
+  state.ingestLog = [
+    { ok: true, label: 'p1.pdf', paperId: 'local:p1', seq: 0 },
+    { ok: true, label: 'p2.pdf', paperId: 'local:p2', seq: 1 },
+  ];
+
+  // Call dockModel multiple times — simulates alignment_ready / papers notifications
+  const m1 = dockModel(state);
+  const m2 = dockModel(state);
+  const m3 = dockModel(state);
+
+  assert.equal(m1.collapsed, true, 'first call: collapsed');
+  assert.equal(m2.collapsed, true, 'second call: still collapsed (no transition)');
+  assert.equal(m3.collapsed, true, 'third call: still collapsed');
+  assert.ok(m1.summary, 'summary present');
+  assert.ok(m2.summary, 'summary still present on re-call');
+  assert.ok(m3.summary, 'summary still present on third re-call');
+});
+
+test('dockModel: new run (status transitions running) yields visible=true, collapsed=false', () => {
+  // Simulate a second ingest starting after first completed
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'done', done: 1, total: 1 });
+  state.ingestLog = [{ ok: true, label: 'p1.pdf', paperId: 'local:p1', seq: 0 }];
+
+  // First run done
+  const m1 = dockModel(state);
+  assert.equal(m1.collapsed, true, 'done -> collapsed pill');
+
+  // New run starts
+  state.jobs.set('ingest', { status: 'running', done: 0, total: 3, current: 'x.pdf' });
+  state.ingestLog = [];
+  const m2 = dockModel(state);
+  assert.equal(m2.visible, true, 'new run -> visible');
+  assert.equal(m2.collapsed, false, 'new run -> not collapsed');
+  assert.equal(m2.summary, null, 'new run -> no summary');
+});
+
+test('dockModel: done state -> papers notification same status -> model unchanged (caller must not reset _dismissed)', () => {
+  // Confirms the model never spontaneously changes state between equal-status calls.
+  // The spec fix is: _dismissed resets ONLY on status transition, not on every 'done' notification.
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'done', done: 1, total: 1 });
+  state.ingestLog = [{ ok: true, label: 'p.pdf', paperId: 'local:p', seq: 0 }];
+
+  const before = dockModel(state);
+  // Simulate a papers-topic notification (e.g. alignment_ready) — state unchanged
+  state.papers.set('local:p', { paper_id: 'local:p', title: 'P', strength: 'strong' });
+  const after = dockModel(state);
+
+  // Model outputs must be identical in structure (summary, collapsed, visible)
+  assert.equal(before.visible,   after.visible);
+  assert.equal(before.collapsed, after.collapsed);
+  assert.equal(before.summary,   after.summary);
+});

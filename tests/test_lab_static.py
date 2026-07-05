@@ -3,7 +3,7 @@
 Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/draftdock.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/draftdock.test.mjs tests/js/askcompare.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -65,6 +65,7 @@ REQUIRED_STATIC_FILES = [
     "js/components/paperCard.js",
     "js/components/toast.js",
     "js/components/ingestModal.js",
+    "js/components/ingestHelpers.js",
     "js/components/progressDock.js",
     "vendor/vis-network.min.js",
 ]
@@ -213,6 +214,20 @@ def test_get_static_draft_view_js_returns_200(lab_client):
     assert res.status_code == 200
 
 
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_ask_view_js_returns_200(lab_client):
+    """GET /static/js/views/ask.js must return 200 (F4 Ask view)."""
+    res = lab_client.get("/static/js/views/ask.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_compare_view_js_returns_200(lab_client):
+    """GET /static/js/views/compare.js must return 200 (F4 Compare view)."""
+    res = lab_client.get("/static/js/views/compare.js")
+    assert res.status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # Import-chain checks (file content assertions)
 # ---------------------------------------------------------------------------
@@ -264,3 +279,52 @@ def test_index_html_has_dock_mount_point():
     """index.html must have <div id=\"dock\"> for the persistent progress dock."""
     html = _index_text()
     assert 'id="dock"' in html, 'index.html missing <div id="dock">'
+
+
+def test_ask_view_not_stub():
+    """views/ask.js must not be the F1 stub (must export renderAnswerHtml)."""
+    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "export function renderAnswerHtml" in ask_js, \
+        "ask.js must export renderAnswerHtml"
+    assert "escapeHtml" in ask_js, "ask.js must escape LLM output"
+    assert "stub-view" not in ask_js, "ask.js must not be the stub"
+
+
+def test_compare_view_not_stub():
+    """views/compare.js must not be the F1 stub (must export the pure helpers)."""
+    cmp_js = (STATIC_DIR / "js" / "views" / "compare.js").read_text(encoding="utf-8")
+    assert "export function resolvePaperInput" in cmp_js, \
+        "compare.js must export resolvePaperInput"
+    assert "export function betterValue" in cmp_js, \
+        "compare.js must export betterValue"
+    assert "stub-view" not in cmp_js, "compare.js must not be the stub"
+
+
+def test_ask_view_escapes_before_markup():
+    """renderAnswerHtml must call escapeHtml before any tag construction
+    (structural check: escapeHtml applied to the raw answer)."""
+    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert re.search(r"escapeHtml\(\s*answer", ask_js), \
+        "renderAnswerHtml must pass the raw answer through escapeHtml FIRST"
+
+
+def test_lab_css_has_f4_styles():
+    """lab.css must include the F4 additions: shimmer, cite chips, mini-card,
+    compare columns and results table."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in ("@keyframes shimmer", ".cite-minicard", "sup.cite",
+                   ".compare-columns", ".compare-table"):
+        assert needle in css, f"lab.css missing F4 style: {needle}"
+
+
+def test_main_js_wires_draft_chip_navigation():
+    """main.js must navigate to #/draft when the top-bar draft chip is clicked."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "draft-chip" in main_js, "main.js must reference draft-chip"
+    assert "#/draft" in main_js, "main.js must navigate to #/draft on chip click"
+
+
+def test_askcompare_node_test_file_exists():
+    """tests/js/askcompare.test.mjs must exist (F4 pure-function tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "askcompare.test.mjs").exists(), \
+        "Missing tests/js/askcompare.test.mjs"

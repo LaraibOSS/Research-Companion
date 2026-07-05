@@ -12,9 +12,11 @@
 
 import * as api from '../api.js';
 import { showToast } from './toast.js';
+import { classifyIngestError } from './ingestHelpers.js';
 
 let _overlay = null;
 let _modal = null;
+let _autoCloseTimer = null;
 
 // ---------------------------------------------------------------------------
 // DOM creation (lazy, once)
@@ -147,11 +149,11 @@ function _renderModal(activeTab = 'single') {
         // Show info for 2s then close
         infoLine.textContent = `Found ${res.discovered} PDFs — ingest started`;
         infoLine.style.display = '';
-        setTimeout(() => closeModal(), 2000);
+        _autoCloseTimer = setTimeout(() => closeModal(), 2000);
       } catch (err) {
         startBtn.disabled = false;
-        // 409 -> toast; 400 -> inline
-        if (err.message && err.message.includes('409')) {
+        const kind = classifyIngestError(err);
+        if (kind === 'conflict') {
           showToast('An ingest is already running', 'error');
           closeModal();
         } else {
@@ -178,6 +180,10 @@ function _renderModal(activeTab = 'single') {
  * @param {'single'|'folder'} [tab='single']
  */
 export function openModal(tab = 'single') {
+  if (_autoCloseTimer !== null) {
+    clearTimeout(_autoCloseTimer);
+    _autoCloseTimer = null;
+  }
   _ensureDOM();
   _renderModal(tab);
   _overlay.classList.add('open');
@@ -188,6 +194,10 @@ export function openModal(tab = 'single') {
  * Close the modal.
  */
 export function closeModal() {
+  if (_autoCloseTimer !== null) {
+    clearTimeout(_autoCloseTimer);
+    _autoCloseTimer = null;
+  }
   if (!_overlay) return;
   _overlay.classList.remove('open');
   document.body.style.overflow = '';
