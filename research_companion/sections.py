@@ -236,7 +236,23 @@ def build_section_tree(text: str) -> list[Section]:
                 char_end=char_end,
             ))
 
-    return sections if sections else _fallback_section(text)
+    if not sections:
+        return _fallback_section(text)
+
+    # Fix #1: absorb preamble text (before the first heading) into the first section
+    # so that level-1 sections tile the entire text from offset 0.
+    if sections[0].char_start > 0:
+        first = sections[0]
+        sections[0] = Section(
+            section_id=first.section_id,
+            title=first.title,
+            level=first.level,
+            parent=first.parent,
+            char_start=0,
+            char_end=first.char_end,
+        )
+
+    return sections
 
 
 # ---------------------------------------------------------------------------
@@ -345,18 +361,61 @@ def refine_sections_llm(text: str, sections: list[Section], llm: Callable[[str],
 def _find_in_original(text: str, norm_target: str, approx_norm_idx: int) -> int:
     """Find the start position in `text` corresponding to a normalized match.
 
-    Scans the original text around the approximate position to find a span whose
-    normalized form matches norm_target.
-    """
-    target_len_approx = len(norm_target)
-    search_start = max(0, approx_norm_idx - 10)
-    search_end = min(len(text), approx_norm_idx + target_len_approx + 50)
+    approx_norm_idx is an index into the *normalized* version of text.  We build
+    a norm->original index mapping so the search window is anchored correctly in
+    the original text, then scan a bounded window for the span whose normalized
+    form equals norm_target.
 
-    for i in range(search_start, search_end):
-        for end in range(i + len(norm_target), min(i + len(norm_target) + 30, len(text) + 1)):
-            span = text[i:end]
+    Headings are assumed to be < 100 characters in the original text.
+    """
+    # Build a mapping: norm_pos -> original_pos for each character kept after
+    # whitespace normalization (i.e. every non-whitespace char + first space of
+    # each run).  This lets us translate approx_norm_idx back to original space.
+    norm_to_orig: list[int] = []  # norm_to_orig[k] = original index of norm[k]
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c in (' ', '\t', '\n', '\r'):
+            # Start of a whitespace run -> emit one space in the normalized text
+            norm_to_orig.append(i)
+            i += 1
+            while i < n and text[i] in (' ', '\t', '\n', '\r'):
+                i += 1
+        else:
+            norm_to_orig.append(i)
+            i += 1
+    # norm_to_orig now has one entry per character of _norm(text).
+    # Leading/trailing spaces are stripped by _norm, so the mapping may have a
+    # leading space we need to account for.  Instead of reproducing _norm exactly,
+    # we look up the original index for approx_norm_idx with a small guard.
+    if approx_norm_idx < len(norm_to_orig):
+        orig_anchor = norm_to_orig[approx_norm_idx]
+    else:
+        orig_anchor = len(text)
+
+    # Search window: scan forward from orig_anchor (which maps directly to the
+    # first character of the heading in the original text).  We allow up to
+    # len(norm_target) + 30 extra characters to accommodate trailing whitespace
+    # in the span.  We do NOT scan before orig_anchor — any span that starts
+    # before orig_anchor would include leading whitespace and still match, but
+    # would give an incorrect (too-early) position.
+    search_end = min(n, orig_anchor + len(norm_target) + 30)
+
+    for start in range(orig_anchor, search_end):
+        for end in range(start + len(norm_target), min(start + len(norm_target) + 100, n + 1)):
+            span = text[start:end]
             if _norm(span) == norm_target:
-                return i
+                return start
+
+    # Fallback: scan a small window before orig_anchor in case the anchor is
+    # slightly over-shot (e.g. leading whitespace is counted differently).
+    search_start = max(0, orig_anchor - 10)
+    for start in range(search_start, orig_anchor):
+        for end in range(start + len(norm_target), min(start + len(norm_target) + 100, n + 1)):
+            span = text[start:end]
+            if _norm(span) == norm_target:
+                return start
 
     return -1
 
@@ -432,8 +491,12 @@ def build_and_save_sections(
     method = "heuristic"
 
     if len(raw_sections) < 3 and llm is not None:
-        raw_sections = refine_sections_llm(text, raw_sections, llm)
-        method = "heuristic+llm"
+        refined = refine_sections_llm(text, raw_sections, llm)
+        if refined != raw_sections:
+            raw_sections = refined
+            method = "heuristic+llm"
+        else:
+            raw_sections = refined  # same object, method stays "heuristic"
 
     # Persist
     payload = {

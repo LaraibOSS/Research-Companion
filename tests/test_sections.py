@@ -83,19 +83,28 @@ def test_numbered_headings_level2_parent_linkage():
 
 
 def test_numbered_headings_tiling():
-    """Sections tile the text: ranges are contiguous, last ends at len(text)."""
+    """Sections tile the text: ranges are contiguous, last ends at len(text).
+
+    Bodies are >= 40 chars so all 3 sections survive the body-length filter and
+    adjacency is genuinely exercised.
+    """
     text = (
         "1 Introduction\n"
-        "Intro text.\n\n"
+        "This introduction body is long enough to pass the forty character filter.\n\n"
         "2 Methods\n"
-        "Methods text.\n\n"
+        "This methods body is also long enough to pass the forty character filter.\n\n"
         "3 Results\n"
-        "Results text.\n"
+        "This results body is also long enough to pass the forty character filter.\n"
     )
     sections = build_section_tree(text)
     # Only keep level-1 sections for tiling check
     l1_sections = [s for s in sections if s.level == 1]
     l1_sections.sort(key=lambda s: s.char_start)
+
+    # Must have 3 sections (bodies are all >= 40 chars)
+    assert len(l1_sections) == 3, (
+        f"Expected 3 level-1 sections, got {len(l1_sections)}: {[s.section_id for s in l1_sections]}"
+    )
 
     # Each section end must equal the next section start
     for i in range(len(l1_sections) - 1):
@@ -797,3 +806,188 @@ def test_build_and_save_sections_method_heuristic_plus_llm():
     build_and_save_sections(paper_id, llm=fake_llm)
     cached = store.load_sections(paper_id)
     assert cached["method"] == "heuristic+llm"
+
+
+# ===========================================================================
+# Fix #1 — preamble tiling: first section must start at offset 0
+# ===========================================================================
+
+def test_preamble_absorbed_into_first_section():
+    """Preamble text before the first heading is absorbed into section s1.
+
+    char_start of the first section must be 0, and all level-1 sections
+    must together cover the entire text.
+    """
+    text = (
+        "Title of the Paper\n"
+        "Author One, Author Two\n"
+        "Abstract: this is the abstract of the paper, a summary.\n\n"
+        "1 Introduction\n"
+        "This is the introduction body which is long enough to survive the filter.\n\n"
+        "2 Methods\n"
+        "This is the methods body which is also long enough to survive the filter.\n"
+    )
+    sections = build_section_tree(text)
+    l1 = [s for s in sections if s.level == 1]
+    l1.sort(key=lambda s: s.char_start)
+
+    # The first section must start at offset 0 (preamble absorbed)
+    assert l1[0].char_start == 0, (
+        f"First section starts at {l1[0].char_start}, not 0 — preamble not absorbed"
+    )
+
+    # Level-1 sections must tile the full text
+    for i in range(len(l1) - 1):
+        assert l1[i].char_end == l1[i + 1].char_start
+    assert l1[-1].char_end == len(text)
+
+
+# ===========================================================================
+# Fix #2 — method flag: honest reporting based on whether LLM changed result
+# ===========================================================================
+
+def test_method_stays_heuristic_when_llm_returns_garbage():
+    """method stays 'heuristic' when the LLM returns invalid JSON."""
+    paper_id = "arxiv:1234.56797"
+    # Text with < 3 heuristic sections to trigger LLM path
+    text = (
+        "This is a plain text paper without any clear section structure at all.\n"
+        "Additional content here to fill out the paper body with more text.\n"
+    )
+    _make_paper(paper_id, text)
+
+    def garbage_llm(prompt: str) -> str:
+        return "NOT JSON }{{{{"
+
+    build_and_save_sections(paper_id, llm=garbage_llm)
+    cached = store.load_sections(paper_id)
+    assert cached["method"] == "heuristic", (
+        f"Expected method='heuristic' but got {cached['method']!r}"
+    )
+
+
+def test_method_heuristic_plus_llm_only_when_result_differs():
+    """method is 'heuristic+llm' only when the LLM actually changes the sections."""
+    paper_id = "arxiv:1234.56798"
+    # Plain text with no detectable headings — heuristic returns 1 fallback section
+    text = (
+        "This is unstructured paper text with no detectable headings at all here.\n"
+        "Second line of content providing more detail about the experiment setup.\n"
+        "Third line of content providing even more detail about the results here.\n"
+    )
+    _make_paper(paper_id, text)
+
+    def good_llm(prompt: str) -> str:
+        return json.dumps({
+            "headings": [
+                "This is unstructured paper text with no detectable headings at all here.",
+                "Third line of content providing even more detail about the results here.",
+            ]
+        })
+
+    build_and_save_sections(paper_id, llm=good_llm)
+    cached = store.load_sections(paper_id)
+    assert cached["method"] == "heuristic+llm", (
+        f"Expected method='heuristic+llm' but got {cached['method']!r}"
+    )
+
+
+# ===========================================================================
+# Minor #3 — regression: normalized match works on multi-space/newline text
+# ===========================================================================
+
+def test_refine_sections_llm_normalized_match_with_extra_whitespace():
+    """Whitespace-normalized fallback finds headings even when the original text
+    contains multi-space / newline runs before the heading that make the norm-index
+    diverge from the original-text index.
+    """
+    # Construct text where whitespace runs cause the normalized index to be
+    # significantly smaller than the original index.
+    # 200 chars of whitespace before "Methodology" means norm_idx << orig_idx.
+    prefix = "Introduction\n" + "A" * 50 + "\n\n"  # 65 chars
+    whitespace_blob = "   \n   \n   \n   \n   \n   \n   \n   \n   \n   \n"  # 40 chars of whitespace
+    text = prefix + whitespace_blob + "Methodology\nBody of the methodology section.\n"
+
+    original = [Section("s1", "Full Text", 1, None, 0, len(text))]
+
+    # The LLM proposes "Methodology" with extra surrounding spaces (normalized match)
+    def fake_llm(prompt: str) -> str:
+        return json.dumps({"headings": ["Introduction", "  Methodology  "]})
+
+    result = refine_sections_llm(text, original, fake_llm)
+
+    # Both headings should be found — Introduction (exact) and Methodology (normalized)
+    assert len(result) >= 2, (
+        f"Expected >= 2 sections but got {len(result)}: {[s.title for s in result]}"
+    )
+    titles = [s.title for s in result]
+    assert "Introduction" in titles
+    # Verify the Methodology section starts at the correct original-text offset
+    methodology_section = next((s for s in result if "Methodology" in s.title or "methodology" in s.title.lower()), None)
+    assert methodology_section is not None, "Methodology section not found in result"
+    expected_start = text.index("Methodology")
+    assert methodology_section.char_start == expected_start, (
+        f"Methodology starts at {methodology_section.char_start}, expected {expected_start}"
+    )
+
+
+# ===========================================================================
+# Minor #5 — edge cases: very short text and heading as last line
+# ===========================================================================
+
+def test_very_short_text_single_fallback_section():
+    """Text shorter than 40 chars total returns a single fallback section."""
+    text = "Short text."  # 11 chars, well under 40
+    sections = build_section_tree(text)
+    assert len(sections) == 1
+    assert sections[0].section_id == "s1"
+    assert sections[0].title == "Full Text"
+    assert sections[0].char_start == 0
+    assert sections[0].char_end == len(text)
+
+
+def test_heading_as_very_last_line_no_body_no_crash():
+    """A heading on the very last line with no body text does not crash.
+
+    The result must be a sane list of sections (no exception).
+    """
+    text = (
+        "1 Introduction\n"
+        "This is the introduction body which is long enough to pass the filter.\n\n"
+        "2 Conclusion"  # no trailing newline, no body
+    )
+    # Should not raise
+    sections = build_section_tree(text)
+    assert len(sections) >= 1
+    # All sections must have valid char ranges
+    for s in sections:
+        assert s.char_start >= 0
+        assert s.char_end <= len(text)
+        assert s.char_start <= s.char_end
+
+
+# ===========================================================================
+# Minor #6 — ALL-CAPS priority: non-canonical heading detected independently
+# ===========================================================================
+
+def test_allcaps_non_canonical_heading_detected():
+    """A non-canonical ALL-CAPS heading (not in the canonical list) is detected
+    via priority-3 (ALL-CAPS rule) independently of the canonical-name list.
+    """
+    text = (
+        "SYSTEM OVERVIEW\n"
+        "This section describes the overall system architecture and design.\n\n"
+        "IMPLEMENTATION DETAILS\n"
+        "This section covers the implementation specifics of our approach here.\n"
+    )
+    sections = build_section_tree(text)
+    titles = [s.title for s in sections]
+
+    assert "SYSTEM OVERVIEW" in titles, (
+        f"Expected 'SYSTEM OVERVIEW' in titles but got {titles}"
+    )
+    assert "IMPLEMENTATION DETAILS" in titles, (
+        f"Expected 'IMPLEMENTATION DETAILS' in titles but got {titles}"
+    )
+    for s in sections:
+        assert s.level == 1
