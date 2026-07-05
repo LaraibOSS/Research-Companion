@@ -13,6 +13,8 @@ Subcommands:
     export [--format {markdown,csv,json,obsidian}] [--output DIR]
     discover <topic> [--limit N] [--year-min Y] [--year-max Y] [--add] [--json]
     discover --expand [--limit N] [--min-citations N] [--add] [--json]
+    set-draft <paper_id> [--clear] [--show]
+    align <paper_id> [--against <paper_id>] [--force] [--json]
 """
 from __future__ import annotations
 
@@ -721,6 +723,130 @@ def _cmd_review(args: argparse.Namespace) -> int:
 REBUTTAL_CONTEXT_OVERRIDES: dict = {}
 
 
+# Test seam for the align command: tests monkeypatch this to inject a fake LLM.
+ALIGN_CONTEXT_OVERRIDES: dict = {}
+
+
+def _resolve_llm_for_align(args: argparse.Namespace) -> object:
+    """Return an LLM callable for the align command.
+
+    In tests, ALIGN_CONTEXT_OVERRIDES["_llm"] is injected.
+    In production, wires the real provider (same pattern as novelty/rebuttal agents).
+    """
+    injected = ALIGN_CONTEXT_OVERRIDES.get("_llm")
+    if injected is not None:
+        return injected
+
+    # Real provider wiring (lazy import, mirrors agents/novelty.py::_default_llm)
+    import os
+    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+    provider = getattr(args, "provider", None) or os.environ.get(
+        "RESEARCH_COMPANION_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+    resolved_model = resolve_model(provider, model)
+    call = _call_openai if provider == "openai" else _call_anthropic
+
+    def _real_llm(prompt: str) -> str:
+        text, _usage = call(prompt, model=resolved_model)
+        return text
+
+    return _real_llm
+
+
+def _cmd_set_draft(args: argparse.Namespace) -> int:
+    from research_companion.store import (
+        PaperMetadata,
+        get_draft_paper_id,
+        set_draft_paper_id,
+    )
+
+    # --show: print current draft (or message if none)
+    if getattr(args, "show", False):
+        current = get_draft_paper_id()
+        if current:
+            print(f"research-companion: draft paper: {current}")
+        else:
+            print("research-companion: no draft set")
+        return 0
+
+    # --clear: remove configured draft
+    if getattr(args, "clear", False):
+        set_draft_paper_id(None)
+        print("research-companion: draft cleared")
+        return 0
+
+    # Positional paper_id required
+    paper_id = getattr(args, "paper_id", None)
+    if not paper_id:
+        print("research-companion: paper_id required (or use --clear / --show)", file=sys.stderr)
+        return 1
+
+    meta = PaperMetadata.load(paper_id)
+    if meta is None:
+        print(f"research-companion: no such paper: {paper_id}", file=sys.stderr)
+        return 1
+
+    set_draft_paper_id(paper_id)
+    print(f"research-companion: draft set to {paper_id}  \"{meta.title}\"")
+    return 0
+
+
+def _cmd_align(args: argparse.Namespace) -> int:
+    from research_companion.alignment import AlignmentError, align_papers
+    from research_companion.store import get_draft_paper_id
+
+    candidate_id: str = args.paper_id
+    draft_id: str | None = getattr(args, "against", None) or get_draft_paper_id()
+
+    if not draft_id:
+        print(
+            "research-companion: no draft configured. Use --against <paper_id> or "
+            "run `research-companion set-draft <paper_id>` first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    llm = _resolve_llm_for_align(args)
+    force = getattr(args, "force", False)
+    # When using --against (not the configured draft), persist=None triggers
+    # the "different draft" branch (no write) unless it happens to match.
+    persist = None
+
+    try:
+        payload = align_papers(
+            draft_id,
+            candidate_id,
+            llm=llm,
+            force=force,
+            persist=persist,
+        )
+    except (ValueError, AlignmentError) as exc:
+        print(f"research-companion: align failed: {exc}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    # Human-readable output
+    verdict = payload["verdict"]
+    score = payload["score"]
+    band = payload["band"]
+    print(f"\nAlignment: {candidate_id}")
+    print(f"  vs draft: {draft_id}")
+    print(f"  verdict:  {verdict.upper()}  score={score:.3f} ±{band:.3f}")
+    print()
+    for sec in payload["sections"]:
+        n_ev = len(sec["evidence"])
+        n_verified = sum(1 for e in sec["evidence"] if e.get("verified"))
+        ev_str = f"  [{n_verified}/{n_ev} quotes verified]" if n_ev else ""
+        print(f"  {sec['section_id']}  [{sec['relation']}]  {sec['section_title']}{ev_str}")
+    print()
+    return 0
+
+
 def _cmd_rebuttal(args: argparse.Namespace) -> int:
     import asyncio
 
@@ -960,6 +1086,24 @@ def _build_parser() -> argparse.ArgumentParser:
     prb.add_argument("--tone", choices=["deferential", "balanced", "firm"], default="balanced")
     prb.add_argument("--json", action="store_true", help="JSON output")
     prb.set_defaults(func=_cmd_rebuttal)
+
+    psd = sub.add_parser("set-draft",
+                         help="Designate a paper as the draft (the reference for alignment)")
+    psd.add_argument("paper_id", nargs="?", help="Paper ID to set as draft")
+    psd.add_argument("--clear", action="store_true", help="Clear the configured draft")
+    psd.add_argument("--show", action="store_true", help="Print the currently configured draft")
+    psd.set_defaults(func=_cmd_set_draft)
+
+    pal = sub.add_parser("align",
+                         help="Assess how a candidate paper relates to the draft paper")
+    pal.add_argument("paper_id", help="Candidate paper ID to align against the draft")
+    pal.add_argument("--against", metavar="PAPER_ID",
+                     help="Draft paper ID (overrides configured draft)")
+    pal.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pal.add_argument("--model", default=None, help="Model override")
+    pal.add_argument("--force", action="store_true", help="Re-run even if cached")
+    pal.add_argument("--json", action="store_true", help="JSON output")
+    pal.set_defaults(func=_cmd_align)
 
     return p
 
