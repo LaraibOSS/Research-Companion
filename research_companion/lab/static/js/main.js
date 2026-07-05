@@ -123,7 +123,14 @@ async function boot() {
   store.subscribe('connection', updateConnectionPill);
   updateConnectionPill();
 
-  // Draft chip in top bar
+  // Draft chip in top bar — clicking navigates to the Draft view (F4 polish)
+  const draftChipEl = document.getElementById('draft-chip');
+  if (draftChipEl) {
+    draftChipEl.addEventListener('click', () => {
+      window.location.hash = '#/draft';
+    });
+  }
+
   function updateDraftChip() {
     const chip = document.getElementById('draft-chip');
     if (!chip) return;
