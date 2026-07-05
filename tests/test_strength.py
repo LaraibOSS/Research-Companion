@@ -465,3 +465,179 @@ def test_compute_strength_all_signals_unavailable():
     # Verify all signals show as unavailable
     for sig in result["signals"].values():
         assert not sig["available"]
+
+
+def test_compute_strength_exactly_2_signals():
+    """Test with exactly 2 signals available (minimum for scoring)."""
+    result = compute_strength(
+        extraction={
+            "concepts": [{"name": "test"}],
+            "methods": [{"name": "test"}],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        },  # 2/6 = 0.333...
+        refcheck={"verified": 5, "total": 10},  # 0.5
+        alignment=None,
+        year=None,
+        now_year=2024,
+    )
+    assert result["score"] is not None
+    assert result["band"] != "unscored"
+    # Check: (0.30 * 1/3 + 0.25 * 0.5) / 0.55 = (0.1 + 0.125) / 0.55 ≈ 0.409
+    expected_score = (0.30 * (2 / 6) + 0.25 * 0.5) / 0.55
+    assert abs(result["score"] - expected_score) < 1e-3
+
+
+def test_compute_strength_exactly_1_signal_unavailable():
+    """Test with 3 signals available (just above minimum)."""
+    result = compute_strength(
+        extraction={
+            "concepts": [{"name": "test"}],
+            "methods": [{"name": "test"}],
+            "datasets": [{"name": "test"}],
+            "claims": [{"name": "test"}],
+            "results": [{"name": "test"}],
+            "related_work": ["test"],
+        },  # 6/6 = 1.0
+        refcheck={"verified": 8, "total": 10},  # 0.8
+        alignment={"score": 0.9},
+        year=None,  # recency unavailable
+        now_year=2024,
+    )
+    assert result["score"] is not None
+    assert result["band"] == "strong"  # High score expected
+
+
+def test_compute_strength_extreme_recency():
+    """Test recency at extreme boundaries."""
+    # Year far in future (beyond now_year)
+    result = compute_strength(
+        extraction={
+            "concepts": [{"name": "test"}],
+            "methods": [],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        },
+        refcheck=None,
+        alignment=None,
+        year=2050,
+        now_year=2024,
+    )
+    # Should still return 1.0 for future year
+    assert result["signals"]["recency"]["value"] == 1.0
+
+
+def test_compute_strength_negative_year():
+    """Test with negative year (very old paper)."""
+    result = compute_strength(
+        extraction={
+            "concepts": [{"name": "test"}],
+            "methods": [],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        },
+        refcheck=None,
+        alignment=None,
+        year=-500,
+        now_year=2024,
+    )
+    # Should clamp to 0.2
+    assert result["signals"]["recency"]["value"] == 0.2
+
+
+def test_strength_for_paper_with_draft_self():
+    """Test that draft paper does not consume its own alignment."""
+    with patch("research_companion.strength.PaperMetadata.load") as mock_load_meta:
+        mock_meta = MagicMock()
+        mock_meta.year = 2020
+        mock_load_meta.return_value = mock_meta
+
+        with patch(
+            "research_companion.strength.load_extraction_for_paper"
+        ) as mock_load_ext:
+            mock_load_ext.return_value = {
+                "concepts": [{"name": "test"}],
+                "methods": [],
+                "datasets": [],
+                "claims": [],
+                "results": [],
+                "related_work": [],
+            }
+
+            with patch(
+                "research_companion.strength.store.get_draft_paper_id"
+            ) as mock_get_draft:
+                mock_get_draft.return_value = "arxiv:2410.05779"
+
+                with patch(
+                    "research_companion.strength.store.load_alignment"
+                ) as mock_load_align:
+                    # This should NOT be called since paper_id == draft_paper_id
+                    result = strength_for_paper("arxiv:2410.05779")
+
+                    mock_load_align.assert_not_called()
+
+
+def test_compute_strength_refcheck_with_missing_verified():
+    """Test refcheck dict that has total but missing verified key."""
+    result = compute_strength(
+        extraction=None,
+        refcheck={"total": 10},  # Missing "verified"
+        alignment=None,
+        year=None,
+        now_year=2024,
+    )
+    sig = result["signals"]["citation_health"]
+    assert sig["available"]
+    assert sig["value"] == 0.0  # Missing verified treated as 0
+
+
+def test_compute_strength_all_four_signals_perfect():
+    """Test all four signals with perfect values."""
+    result = compute_strength(
+        extraction={
+            "concepts": [{"name": "test"}],
+            "methods": [{"name": "test"}],
+            "datasets": [{"name": "test"}],
+            "claims": [{"name": "test"}],
+            "results": [{"name": "test"}],
+            "related_work": ["test"],
+        },  # 1.0
+        refcheck={"verified": 100, "total": 100},  # 1.0
+        alignment={"score": 1.0},
+        year=2024,  # 1.0
+        now_year=2024,
+    )
+    # All signals = 1.0, so score should be 1.0
+    assert result["score"] == 1.0
+    assert result["band"] == "strong"
+    assert result["color"] == "#3fb950"
+
+
+def test_compute_strength_all_four_signals_zero():
+    """Test all four signals with zero values but available."""
+    result = compute_strength(
+        extraction={
+            "concepts": [],
+            "methods": [],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        },  # 0.0
+        refcheck={"verified": 0, "total": 10},  # 0.0
+        alignment={"score": 0.0},
+        year=2000,  # 0.2
+        now_year=2024,
+    )
+    # Score should be weighted average of 0.0, 0.0, 0.0, 0.2
+    expected = (0.30 * 0.0 + 0.25 * 0.0 + 0.25 * 0.0 + 0.20 * 0.2) / 1.0
+    assert abs(result["score"] - expected) < 1e-6
+    assert result["band"] == "weak"
+    assert result["color"] == "#f0883e"
