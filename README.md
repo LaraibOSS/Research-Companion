@@ -13,6 +13,28 @@ research-companion chat "what are the main approaches?"  # KG-aware Q&A with cit
 
 ---
 
+## Research Lab (new in 0.2)
+
+The Research Lab is a live-growing knowledge-graph workspace that runs in your browser.  Drop a folder of PDFs in — or point the CLI at one — and papers stream into a vis.js graph in real time over SSE.  As each paper lands, the system builds a section-wise subgraph (one subgraph per logical section), scores every section against your draft paper with alignment verdicts (`strengthens / challenges / alternative`) backed by verified evidence quotes, and colours each paper node by its evidence-strength score (strong / moderate / weak).
+
+Use **Ask** for token-efficient, section-scoped Q&A — every answer cites the exact section it draws from — and **Compare** for a structured head-to-head comparison of any two papers.
+
+```bash
+pip install -e ".[server]"
+research-companion lab serve              # opens http://127.0.0.1:8765
+research-companion lab ingest <folder>   # ingest a folder from the CLI
+research-companion set-draft <paper-id>  # set the paper you are writing
+research-companion align <paper-id>      # score a paper against your draft
+research-companion ask "how does X compare to Y?"
+research-companion compare <paper-a> <paper-b>
+
+# Lab CLI twins
+research-companion lab failures          # list ingestion failures
+python examples/demo_lab_offline.py      # zero-key, zero-network demo
+```
+
+Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the subgraph for the matching sections is used, which cuts token cost and improves precision over whole-paper retrieval.
+
 ## Why this exists
 
 Reading 50 papers to get up to speed on a research field takes weeks. Existing tools fall into two camps and neither does what researchers actually want:
@@ -32,7 +54,7 @@ research-companion builds a *concept-level* knowledge graph (concepts, methods, 
 ```bash
 git clone https://github.com/Laraib-Hasan/Research-Companion.git
 cd research-companion
-pip install -e ".[demo]"   # core + live dashboard (fastapi, uvicorn)
+pip install -e ".[server]"   # core + Research Lab server (fastapi, uvicorn)
 
 # you also need ONE of:
 export ANTHROPIC_API_KEY=sk-ant-...   # default
@@ -193,10 +215,14 @@ Two additional library-level agents (not yet CLI-wired): problem (refines a rese
 ## Try it in 30 seconds (no API key)
 
 ```bash
+# Review pipeline demo (6 agent lanes + rebuttal, entirely offline):
 python examples/demo_offline.py
+
+# Research Lab demo (fixture event replay — papers, sections, graph, strength):
+python examples/demo_lab_offline.py
 ```
 
-Seeds a synthetic paper, runs all 6 review-agent lanes, and drafts a rebuttal entirely offline -- no API keys or network required.
+Both demos seed synthetic data, run their respective pipelines, and print a narrative summary — no API keys or network required.
 
 ## Answer reviewers (rebuttal assistant)
 
@@ -236,6 +262,15 @@ research-companion list [--json]
 research-companion remove <paper-id>
 research-companion stats
 research-companion export [--format markdown|csv|json|obsidian] [--output DIR]
+
+# Research Lab (new in 0.2 — requires [server] extra)
+research-companion lab serve [--port N] [--no-open]
+research-companion lab ingest <folder>
+research-companion lab failures [--retry <paper-id>]
+research-companion set-draft <paper-id>
+research-companion align <paper-id> [--against <draft-id>] [--force]
+research-companion ask "<question>" [--section <section-id>]
+research-companion compare <paper-a> <paper-b>
 ```
 
 ## Programmatic API
@@ -264,18 +299,23 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 
 ## Roadmap
 
-- **v0.1 (current)** — CLI, arXiv + DOI + Semantic Scholar + local PDFs, graph viz, chat with citations, search, export (markdown/obsidian/csv/json), cost estimation.
-- **v0.2** — Semantic Scholar integration for proper citation graph; concept-level cross-paper deduplication via embedding similarity (optional); MCP server so Claude desktop can query research-companion directly; graph export to Obsidian Canvas.
-- **v0.3** — Web UI (Streamlit), multi-corpus support (one user, many topic graphs), live arXiv watch (`research-companion watch cs.CL --since today`).
+- **v0.1** — CLI, arXiv + DOI + Semantic Scholar + local PDFs, graph viz, chat with citations, search, export (markdown/obsidian/csv/json), cost estimation.
+- **v0.2 (current)** — Research Lab UI (live graph, SSE, section-wise subgraphs, draft alignment, evidence-strength colours, Ask, Compare, folder ingest).
+- **v0.3** — MCP server so Claude desktop can query research-companion directly; multi-corpus support (one user, many topic graphs); live arXiv watch (`research-companion watch cs.CL --since today`).
 - **v0.4** — Hosted cloud version for non-technical users.
 
 ## Contributing
 
-PRs welcome. Issues even more welcome. The codebase is intentionally small (~2.5k LoC, MIT-licensed, no heavy frameworks). Run tests:
+PRs welcome. Issues even more welcome. The codebase is intentionally small (MIT-licensed, no heavy frameworks). Run tests:
 
 ```bash
-pip install -e .[dev]
-pytest
+pip install -e ".[dev]"
+python -m pytest -q   # 700+ Python tests
+node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs \
+  tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs \
+  tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs \
+  tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs \
+  tests/js/askcompare.test.mjs   # 164 JS tests
 ```
 
 ## Acknowledgements
