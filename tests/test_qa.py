@@ -557,7 +557,7 @@ class TestProviderEnvResolution:
 
         calls = []
         monkeypatch.setattr(extract_mod, "_call_openai",
-                            lambda prompt, model=None: (calls.append(("openai", model)) or ("ok", {})))
+                            lambda prompt, model=None, **kw: (calls.append(("openai", model)) or ("ok", {})))
         monkeypatch.setattr(extract_mod, "_call_anthropic",
                             lambda prompt, model=None: (calls.append(("anthropic", model)) or ("ok", {})))
         monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
@@ -573,7 +573,7 @@ class TestProviderEnvResolution:
 
         calls = []
         monkeypatch.setattr(extract_mod, "_call_openai",
-                            lambda prompt, model=None: (calls.append("openai") or ("ok", {})))
+                            lambda prompt, model=None, **kw: (calls.append("openai") or ("ok", {})))
         monkeypatch.setattr(extract_mod, "_call_anthropic",
                             lambda prompt, model=None: (calls.append("anthropic") or ("ok", {})))
         monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
@@ -581,3 +581,29 @@ class TestProviderEnvResolution:
         llm = qa_mod._resolve_llm(provider="anthropic")
         assert llm("hi") == "ok"
         assert calls == ["anthropic"]
+
+    def test_qa_openai_llm_uses_prose_mode(self, monkeypatch):
+        """qa's resolved OpenAI llm must pass json_mode=False (prose answer)."""
+        from research_companion import qa as qa_mod
+        from research_companion import extract as extract_mod
+
+        seen = {}
+
+        def fake_openai(prompt, *, model=None, json_mode=True, **kw):
+            seen["json_mode"] = json_mode
+            return "ok", {}
+
+        monkeypatch.setattr(extract_mod, "_call_openai", fake_openai)
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+        llm = qa_mod._resolve_llm()
+        assert llm("hi") == "ok"
+        assert seen["json_mode"] is False
+
+    def test_openai_request_kwargs_json_toggle(self):
+        from research_companion.extract import _openai_request_kwargs
+
+        with_json = _openai_request_kwargs(model="m", max_output_tokens=10, json_mode=True)
+        without = _openai_request_kwargs(model="m", max_output_tokens=10, json_mode=False)
+        assert with_json["response_format"] == {"type": "json_object"}
+        assert "response_format" not in without
+        assert without["model"] == "m" and without["temperature"] == 0.0

@@ -786,10 +786,13 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             )
             model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
             resolved_model = resolve_model(provider, model)
-            call = _call_openai if provider == "openai" else _call_anthropic
 
             def _real_llm(prompt: str) -> str:
-                text, _usage = call(prompt, model=resolved_model)
+                if provider == "openai":
+                    # Narrative summary is prose: JSON mode would mangle it.
+                    text, _usage = _call_openai(prompt, model=resolved_model, json_mode=False)
+                else:
+                    text, _usage = _call_anthropic(prompt, model=resolved_model)
                 return text
 
             llm = _real_llm

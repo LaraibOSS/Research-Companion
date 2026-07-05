@@ -117,15 +117,28 @@ def _call_anthropic(prompt: str, *, model: str, max_output_tokens: int = 2048) -
     return text, usage
 
 
-def _call_openai(prompt: str, *, model: str, max_output_tokens: int = 2048) -> tuple[str, dict]:
+def _openai_request_kwargs(*, model: str, max_output_tokens: int, json_mode: bool) -> dict:
+    """Request kwargs for the OpenAI chat call. json_mode forces a JSON object
+    response (extraction/novelty/alignment need it); prose callers (qa, compare
+    narrative) must pass json_mode=False or the model mangles free text."""
+    kwargs = {
+        "model": model,
+        "max_tokens": max_output_tokens,
+        "temperature": 0.0,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    return kwargs
+
+
+def _call_openai(prompt: str, *, model: str, max_output_tokens: int = 2048,
+                 json_mode: bool = True) -> tuple[str, dict]:
     from openai import OpenAI
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     resp = client.chat.completions.create(
-        model=model,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_output_tokens,
-        temperature=0.0,
-        response_format={"type": "json_object"},
+        **_openai_request_kwargs(model=model, max_output_tokens=max_output_tokens,
+                                 json_mode=json_mode),
     )
     text = (resp.choices[0].message.content or "").strip()
     usage = {

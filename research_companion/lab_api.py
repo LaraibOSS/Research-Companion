@@ -830,6 +830,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 raise HTTPException(status_code=404, detail=f"Paper not found: {pid!r}")
 
         resolved_llm = app.state.llm
+        if resolved_llm is None:
+            # Narrative summary is prose — never force JSON mode.
+            resolved_llm = _resolve_llm(json_mode=False)
 
         try:
             result = await asyncio.to_thread(
@@ -1036,18 +1039,25 @@ async def _retry_paper_task(
 # LLM resolver (mirrors cli.py / alignment.py pattern)
 # ---------------------------------------------------------------------------
 
-def _resolve_llm():
-    """Return a real LLM callable using the default provider."""
+def _resolve_llm(*, json_mode: bool = True):
+    """Return a real LLM callable using the default provider.
+
+    json_mode=True for JSON-contract callers (alignment); prose callers
+    (compare narrative) pass json_mode=False so OpenAI's forced JSON response
+    format does not mangle free text.
+    """
     import os
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
     provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
     model = os.environ.get("RESEARCH_COMPANION_MODEL")
     resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
 
     def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
+        if provider == "openai":
+            text, _usage = _call_openai(prompt, model=resolved_model, json_mode=json_mode)
+        else:
+            text, _usage = _call_anthropic(prompt, model=resolved_model)
         return text
 
     return _real_llm
