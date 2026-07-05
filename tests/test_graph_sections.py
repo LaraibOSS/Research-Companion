@@ -4,10 +4,7 @@ TDD: tests written first, then implementation added to research_companion/graph.
 """
 from __future__ import annotations
 
-import pytest
-
 from research_companion import graph, prompts, store
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -388,3 +385,52 @@ def test_save_load_graph_preserves_contains_section():
         if (u == pid or v == pid) and d.get("relation") == "contains"
     ]
     assert contains_g2 == ["secX"]
+
+
+# ---------------------------------------------------------------------------
+# 7. evaluates_on must not clobber a prior contains edge (I4 regression)
+# ---------------------------------------------------------------------------
+
+def test_evaluates_on_does_not_clobber_contains_edge():
+    """A dataset that appears in both datasets[] (with section) and results[] must
+    keep relation='contains' and its section attribute on the paper->dataset edge.
+
+    Before the fix, adding evaluates_on overwrote the single edge between the
+    paper and the dataset node, losing relation='contains' and section=<sid>.
+    """
+    pid = "arxiv:2410.10021"
+    ds_name = "SharedDataset"
+    section_id = "sec1"
+
+    extraction = {
+        "concepts": [],
+        "methods": [],
+        "datasets": [
+            {"name": ds_name, "description": "A benchmark dataset", "section": section_id},
+        ],
+        "claims": [],
+        "results": [
+            {"metric": "accuracy", "value": "0.95", "dataset": ds_name, "section": section_id},
+        ],
+        "related_work": [],
+    }
+    _seed_paper(pid, "Paper Dataset Both", extraction)
+
+    G = graph.build_graph()
+
+    # Find the edge between paper and dataset node
+    from research_companion.graph import _node_id, _norm  # noqa: PLC0415
+    ds_nid = _node_id("dataset", _norm(ds_name))
+
+    assert G.has_edge(pid, ds_nid), "paper->dataset edge must exist"
+    edge_data = G.edges[pid, ds_nid]
+
+    # The edge from the datasets[] list (contains) must survive; evaluates_on must not overwrite it
+    assert edge_data["relation"] == "contains", (
+        f"Expected relation='contains' but got {edge_data['relation']!r}; "
+        "evaluates_on must not overwrite the contains edge"
+    )
+    assert edge_data.get("section") == section_id, (
+        f"Expected section={section_id!r} but got {edge_data.get('section')!r}; "
+        "section attr must survive the evaluates_on pass"
+    )

@@ -210,7 +210,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
             G.add_edge(meta.paper_id, result_nid, relation="contains",
                        section=r.get("section", None))
             if ds_nid:
-                G.add_edge(meta.paper_id, ds_nid, relation="evaluates_on")
+                if not G.has_edge(meta.paper_id, ds_nid):
+                    G.add_edge(meta.paper_id, ds_nid, relation="evaluates_on")
                 G.add_edge(result_nid, ds_nid, relation="on")
 
         # related_work -> cites edges (only when the cited title resolves to a known paper title).
