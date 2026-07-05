@@ -115,3 +115,137 @@ def test_chat_one_shot_with_mocked_llm(monkeypatch, tmp_path, fake_pdf_bytes,
     assert rc == 0
     out = capsys.readouterr().out
     assert "GraphRAG" in out
+
+
+def test_compare_unknown_paper_a(capsys):
+    """Comparing with unknown paper A returns error."""
+    store.PaperMetadata(paper_id="arxiv:0001", title="Paper B", authors=["A"]).save()
+    rc = cli.main(["compare", "arxiv:9999", "arxiv:0001"])
+    assert rc == 1
+    assert "not found" in capsys.readouterr().err.lower()
+
+
+def test_compare_unknown_paper_b(capsys):
+    """Comparing with unknown paper B returns error."""
+    store.PaperMetadata(paper_id="arxiv:0001", title="Paper A", authors=["A"]).save()
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:9999"])
+    assert rc == 1
+    assert "not found" in capsys.readouterr().err.lower()
+
+
+def test_compare_same_paper(capsys):
+    """Comparing a paper to itself returns error."""
+    store.PaperMetadata(paper_id="arxiv:0001", title="Paper A", authors=["A"]).save()
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0001"])
+    assert rc == 1
+    assert "itself" in capsys.readouterr().err.lower()
+
+
+def test_compare_json_output(capsys):
+    """JSON output mode returns valid JSON."""
+    ext_a = {
+        "concepts": [{"name": "Concept A", "definition": "CA"}],
+        "methods": [], "datasets": [], "claims": [], "results": [], "related_work": [],
+    }
+    ext_b = {
+        "concepts": [{"name": "Concept B", "definition": "CB"}],
+        "methods": [], "datasets": [], "claims": [], "results": [], "related_work": [],
+    }
+    store.PaperMetadata(paper_id="arxiv:0001", title="Paper A", authors=["A"]).save()
+    store.PaperMetadata(paper_id="arxiv:0002", title="Paper B", authors=["B"]).save()
+    store.save_extraction("arxiv:0001", ext_a, prompt_sha=extract.extraction_prompt_sha256())
+    store.save_extraction("arxiv:0002", ext_b, prompt_sha=extract.extraction_prompt_sha256())
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--json", "--no-summary"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    result = json.loads(out)
+    assert result["version"] == 1
+    assert result["paper_a"]["title"] == "Paper A"
+    assert result["paper_b"]["title"] == "Paper B"
+    assert "Concept A" in result["only_a"]["concepts"]
+    assert "Concept B" in result["only_b"]["concepts"]
+
+
+def test_compare_human_output(capsys):
+    """Human output shows titles, three columns, results."""
+    ext_a = {
+        "concepts": [{"name": "Concept A", "definition": "CA"}],
+        "methods": [{"name": "Method A", "description": "MA"}],
+        "datasets": [],
+        "claims": [], "results": [], "related_work": [],
+    }
+    ext_b = {
+        "concepts": [{"name": "Concept A", "definition": "CA"}],
+        "methods": [],
+        "datasets": [],
+        "claims": [], "results": [], "related_work": [],
+    }
+    store.PaperMetadata(paper_id="arxiv:0001", title="Paper One", authors=["A"]).save()
+    store.PaperMetadata(paper_id="arxiv:0002", title="Paper Two", authors=["B"]).save()
+    store.save_extraction("arxiv:0001", ext_a, prompt_sha=extract.extraction_prompt_sha256())
+    store.save_extraction("arxiv:0002", ext_b, prompt_sha=extract.extraction_prompt_sha256())
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--no-summary"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Paper One" in out
+    assert "Paper Two" in out
+    assert "Shared" in out
+    assert "Paper A" in out  # only_a
+    assert "Paper B" in out  # only_b
+    assert "Concept A" in out
+
+
+def test_compare_no_summary_skips_llm(monkeypatch, capsys):
+    """--no-summary skips LLM call."""
+    ext_a = {
+        "concepts": [{"name": "C", "definition": "C"}],
+        "methods": [], "datasets": [], "claims": [], "results": [], "related_work": [],
+    }
+    store.PaperMetadata(paper_id="arxiv:0001", title="P1", authors=["A"]).save()
+    store.PaperMetadata(paper_id="arxiv:0002", title="P2", authors=["B"]).save()
+    store.save_extraction("arxiv:0001", ext_a, prompt_sha=extract.extraction_prompt_sha256())
+    store.save_extraction("arxiv:0002", ext_a, prompt_sha=extract.extraction_prompt_sha256())
+
+    # Use override seam to count LLM calls
+    call_count = [0]
+    def fake_llm(prompt):
+        call_count[0] += 1
+        return "Summary"
+    monkeypatch.setattr(cli, "COMPARE_CONTEXT_OVERRIDES", {"llm": fake_llm})
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--no-summary", "--json"])
+    assert rc == 0
+    assert call_count[0] == 0  # LLM not called
+
+
+def test_compare_with_injected_llm(monkeypatch, capsys):
+    """Compare with injected LLM (test seam) includes summary."""
+    ext_a = {
+        "concepts": [{"name": "C", "definition": "C"}],
+        "methods": [], "datasets": [], "claims": [{"text": "Claim A"}], "results": [],
+        "related_work": [],
+    }
+    ext_b = {
+        "concepts": [],
+        "methods": [], "datasets": [], "claims": [{"text": "Claim B"}], "results": [],
+        "related_work": [],
+    }
+    store.PaperMetadata(paper_id="arxiv:0001", title="P1", authors=["A"]).save()
+    store.PaperMetadata(paper_id="arxiv:0002", title="P2", authors=["B"]).save()
+    store.save_extraction("arxiv:0001", ext_a, prompt_sha=extract.extraction_prompt_sha256())
+    store.save_extraction("arxiv:0002", ext_b, prompt_sha=extract.extraction_prompt_sha256())
+
+    call_count = [0]
+    def fake_llm(prompt):
+        call_count[0] += 1
+        return "Papers differ significantly."
+    monkeypatch.setattr(cli, "COMPARE_CONTEXT_OVERRIDES", {"llm": fake_llm})
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--json"])
+    assert rc == 0
+    assert call_count[0] == 1  # LLM called
+    out = capsys.readouterr().out
+    result = json.loads(out)
+    assert result["summary"] == "Papers differ significantly."

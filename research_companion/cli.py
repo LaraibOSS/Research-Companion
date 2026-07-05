@@ -732,6 +732,11 @@ ALIGN_CONTEXT_OVERRIDES: dict = {}
 QA_CONTEXT_OVERRIDES: dict = {}
 
 
+# Test seam for the compare command: tests monkeypatch this to inject a fake LLM.
+# Key "llm": callable(prompt: str) -> str
+COMPARE_CONTEXT_OVERRIDES: dict = {}
+
+
 def _resolve_llm_for_align(args: argparse.Namespace) -> object:
     """Return an LLM callable for the align command.
 
@@ -758,6 +763,112 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
         return text
 
     return _real_llm
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """Compare two papers: entity overlap and optional narrative."""
+    from research_companion.compare import compare_papers
+
+    paper_a = args.paper_a
+    paper_b = args.paper_b
+
+    # Resolve LLM: use injected callable from COMPARE_CONTEXT_OVERRIDES if present
+    llm = None
+    if not getattr(args, "no_summary", False):
+        llm = COMPARE_CONTEXT_OVERRIDES.get("llm")
+        if llm is None:
+            # Wire real provider (mirrors _resolve_llm_for_align pattern)
+            import os
+            from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+            provider = getattr(args, "provider", None) or os.environ.get(
+                "RESEARCH_COMPANION_PROVIDER", "anthropic"
+            )
+            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+            resolved_model = resolve_model(provider, model)
+            call = _call_openai if provider == "openai" else _call_anthropic
+
+            def _real_llm(prompt: str) -> str:
+                text, _usage = call(prompt, model=resolved_model)
+                return text
+
+            llm = _real_llm
+
+    try:
+        result = compare_papers(paper_a, paper_b, llm=llm)
+    except ValueError as e:
+        print(f"research-companion: compare failed: {e}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    # Human-readable output: titles, three columns, results table, summary
+    print()
+    print(f"Paper A: {result['paper_a']['title']}")
+    print(f"Paper B: {result['paper_b']['title']}")
+    print()
+
+    # Three-column summary
+    def _count_section(entities: dict) -> int:
+        return len(entities.get("concepts", [])) + len(entities.get("methods", [])) + len(entities.get("datasets", []))
+
+    shared_count = _count_section(result["shared"])
+    only_a_count = _count_section(result["only_a"])
+    only_b_count = _count_section(result["only_b"])
+
+    print(f"Shared ({shared_count}):")
+    for ent in result["shared"]["concepts"]:
+        print(f"  • {ent} (concept)")
+    for ent in result["shared"]["methods"]:
+        print(f"  • {ent} (method)")
+    for ent in result["shared"]["datasets"]:
+        print(f"  • {ent} (dataset)")
+    if shared_count == 0:
+        print("  (none)")
+
+    print()
+    print(f"Only in Paper A ({only_a_count}):")
+    for ent in result["only_a"]["concepts"]:
+        print(f"  • {ent} (concept)")
+    for ent in result["only_a"]["methods"]:
+        print(f"  • {ent} (method)")
+    for ent in result["only_a"]["datasets"]:
+        print(f"  • {ent} (dataset)")
+    if only_a_count == 0:
+        print("  (none)")
+
+    print()
+    print(f"Only in Paper B ({only_b_count}):")
+    for ent in result["only_b"]["concepts"]:
+        print(f"  • {ent} (concept)")
+    for ent in result["only_b"]["methods"]:
+        print(f"  • {ent} (method)")
+    for ent in result["only_b"]["datasets"]:
+        print(f"  • {ent} (dataset)")
+    if only_b_count == 0:
+        print("  (none)")
+
+    # Results table
+    if result["results"]:
+        print()
+        print("Results:")
+        print(f"  {'Metric':<15} {'Dataset':<20} {'Value A':<15} {'Value B':<15}")
+        print(f"  {'-'*15} {'-'*20} {'-'*15} {'-'*15}")
+        for row in result["results"]:
+            val_a = row["value_a"] if row["value_a"] is not None else "-"
+            val_b = row["value_b"] if row["value_b"] is not None else "-"
+            print(f"  {row['metric']:<15} {row['dataset']:<20} {val_a:<15} {val_b:<15}")
+
+    # Summary
+    if result["summary"]:
+        print()
+        print("Summary:")
+        print(f"  {result['summary']}")
+
+    print()
+    return 0
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:
@@ -1173,6 +1284,15 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Section ID to scope query context (uses configured draft)")
     pask.add_argument("--json", action="store_true", help="JSON output")
     pask.set_defaults(func=_cmd_ask)
+
+    pcmp = sub.add_parser("compare", help="Compare two papers: entity overlap and metrics")
+    pcmp.add_argument("paper_a", help="First paper ID")
+    pcmp.add_argument("paper_b", help="Second paper ID")
+    pcmp.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pcmp.add_argument("--model", default=None, help="Model override (for summary LLM)")
+    pcmp.add_argument("--no-summary", action="store_true", help="Skip LLM summary generation")
+    pcmp.add_argument("--json", action="store_true", help="JSON output")
+    pcmp.set_defaults(func=_cmd_compare)
 
     return p
 
