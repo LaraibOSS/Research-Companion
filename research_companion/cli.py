@@ -727,6 +727,11 @@ REBUTTAL_CONTEXT_OVERRIDES: dict = {}
 ALIGN_CONTEXT_OVERRIDES: dict = {}
 
 
+# Test seam for the ask command: tests monkeypatch this to inject a fake LLM.
+# Key "llm": callable(prompt: str) -> str
+QA_CONTEXT_OVERRIDES: dict = {}
+
+
 def _resolve_llm_for_align(args: argparse.Namespace) -> object:
     """Return an LLM callable for the align command.
 
@@ -753,6 +758,59 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
         return text
 
     return _real_llm
+
+
+def _cmd_ask(args: argparse.Namespace) -> int:
+    """Answer a research question using BM25-retrieved paper sections."""
+    from research_companion.qa import QAAnswer, answer
+    import dataclasses
+
+    question = args.question
+    if not question:
+        print("research-companion: no question given. Usage: research-companion ask '<question>'",
+              file=sys.stderr)
+        return 1
+
+    # Resolve LLM: use injected callable from QA_CONTEXT_OVERRIDES if present
+    llm = QA_CONTEXT_OVERRIDES.get("llm")
+
+    try:
+        result: QAAnswer = answer(
+            question,
+            llm=llm,
+            k_sections=args.k,
+            section_id=getattr(args, "section", None),
+        )
+    except Exception as e:
+        print(f"research-companion: ask failed: {e}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        payload = {
+            "answer": result.answer,
+            "sources": [dataclasses.asdict(s) for s in result.sources],
+            "cited": [dataclasses.asdict(s) for s in result.cited],
+            "unverified_quotes": result.unverified_quotes,
+            "input_chars": result.input_chars,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    # Human output
+    print()
+    print(result.answer)
+    print()
+    if result.sources:
+        print("Sources:")
+        cited_ids = {(s.paper_id, s.section_id) for s in result.cited}
+        for i, src in enumerate(result.sources, 1):
+            mark = " *" if (src.paper_id, src.section_id) in cited_ids else ""
+            print(f"  [S{i}]{mark} {src.paper_title} §{src.section_title}")
+    if result.unverified_quotes:
+        print(f"\nWARNING: {len(result.unverified_quotes)} quote(s) could not be verified "
+              "against source text.")
+    print()
+    return 0
 
 
 def _cmd_set_draft(args: argparse.Namespace) -> int:
@@ -1104,6 +1162,17 @@ def _build_parser() -> argparse.ArgumentParser:
     pal.add_argument("--force", action="store_true", help="Re-run even if cached")
     pal.add_argument("--json", action="store_true", help="JSON output")
     pal.set_defaults(func=_cmd_align)
+
+    pask = sub.add_parser("ask",
+                          help="Answer a research question using BM25-retrieved paper sections")
+    pask.add_argument("question", nargs="?", default="",
+                      help="Question to answer (required)")
+    pask.add_argument("-k", type=int, default=6,
+                      help="Number of top sections to retrieve (default 6)")
+    pask.add_argument("--section", default=None,
+                      help="Section ID to scope query context (uses configured draft)")
+    pask.add_argument("--json", action="store_true", help="JSON output")
+    pask.set_defaults(func=_cmd_ask)
 
     return p
 
