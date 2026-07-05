@@ -197,23 +197,24 @@ let _onEdgeClick = null;
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+// vis-data's DataView (bundled with vis-network 9.1.9) has NO setFilter method:
+// the filter is fixed at construction. The supported pattern for a dynamic filter
+// is a stable closure that delegates to this mutable predicate, plus refresh().
+let _activePredicate = () => true;
+
 /**
  * Rebuild the DataView filter predicate (section + kind only, NOT search).
- * Does NOT call network.setData — the Network was constructed with the DataViews
- * and continues to observe them reactively via their setFilter.
+ * Does NOT call network.setData — the Network observes the DataViews, whose
+ * construction-time filter closure delegates to _activePredicate; refresh()
+ * re-evaluates it.
  */
 function _rebuildViews() {
   if (!_vis || !_nodesDS || !_edgesDS) return;
 
-  const predicate = makeFilterPredicate(_sectionId, _hiddenKinds, _draftPaperId);
+  _activePredicate = makeFilterPredicate(_sectionId, _hiddenKinds, _draftPaperId);
 
-  if (_nodesView) {
-    _nodesView.setFilter(predicate);
-    // vis 9.1.9 DataView: setFilter automatically triggers re-evaluation.
-    // Some older vis builds require a manual refresh() call — guard defensively.
-    if (typeof _nodesView.refresh === 'function') {
-      _nodesView.refresh();
-    }
+  if (_nodesView && typeof _nodesView.refresh === 'function') {
+    _nodesView.refresh();
   }
 
   // Edges DataView does not need a filter update (vis hides edges whose endpoints
@@ -292,9 +293,12 @@ export function initGraph(container, visLib) {
   _nodesDS = new _vis.DataSet([]);
   _edgesDS = new _vis.DataSet([]);
 
-  // Build initial DataViews with pass-through filter — _rebuildViews will refine them.
-  // These DataViews are passed to the Network ONCE and never replaced via setData.
-  _nodesView = new _vis.DataView(_nodesDS, { filter: () => true });
+  // Build DataViews with a stable closure filter delegating to the mutable
+  // _activePredicate (vis-data DataView has no setFilter). These DataViews are
+  // passed to the Network ONCE and never replaced via setData; filter changes
+  // mutate _activePredicate and call refresh().
+  _activePredicate = () => true;
+  _nodesView = new _vis.DataView(_nodesDS, { filter: (item) => _activePredicate(item) });
   _edgesView = new _vis.DataView(_edgesDS);
 
   const options = {
