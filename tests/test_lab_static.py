@@ -3,7 +3,7 @@
 Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/draftdock.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -64,6 +64,8 @@ REQUIRED_STATIC_FILES = [
     "js/components/drawer.js",
     "js/components/paperCard.js",
     "js/components/toast.js",
+    "js/components/ingestModal.js",
+    "js/components/progressDock.js",
     "vendor/vis-network.min.js",
 ]
 
@@ -188,3 +190,77 @@ def test_get_static_graphview_js_returns_200(lab_client):
     """GET /static/js/graph/graphview.js must return 200 (F2 growth engine)."""
     res = lab_client.get("/static/js/graph/graphview.js")
     assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_ingest_modal_js_returns_200(lab_client):
+    """GET /static/js/components/ingestModal.js must return 200 (F3 add/ingest modal)."""
+    res = lab_client.get("/static/js/components/ingestModal.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_progress_dock_js_returns_200(lab_client):
+    """GET /static/js/components/progressDock.js must return 200 (F3 progress dock)."""
+    res = lab_client.get("/static/js/components/progressDock.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_draft_view_js_returns_200(lab_client):
+    """GET /static/js/views/draft.js must return 200 (F3 draft alignment view)."""
+    res = lab_client.get("/static/js/views/draft.js")
+    assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Import-chain checks (file content assertions)
+# ---------------------------------------------------------------------------
+
+def test_main_js_imports_ingest_modal():
+    """main.js must import ingestModal.js (wires + Add papers button)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "ingestModal" in main_js, "main.js must reference ingestModal"
+
+
+def test_main_js_imports_progress_dock():
+    """main.js must import progressDock.js (mounts the dock)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "progressDock" in main_js, "main.js must reference progressDock"
+
+
+def test_library_js_imports_ingest_modal():
+    """library.js must import ingestModal (wires Ingest folder... button)."""
+    lib_js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "ingestModal" in lib_js, "library.js must reference ingestModal"
+
+
+def test_draft_view_not_stub():
+    """views/draft.js must not be the F1 stub (must export a real implementation)."""
+    draft_js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "getDraftAlignment" in draft_js, "draft.js must call getDraftAlignment"
+    assert "draft-layout" in draft_js, "draft.js must render two-column layout"
+
+
+def test_progress_dock_exports_dock_model():
+    """progressDock.js must export dockModel for pure-logic tests."""
+    dock_js = (STATIC_DIR / "js" / "components" / "progressDock.js").read_text(encoding="utf-8")
+    assert "export function dockModel" in dock_js, "progressDock.js must export dockModel"
+
+
+def test_reducer_emits_alignment_topic():
+    """reducer.js must emit 'alignment' topic on alignment_ready events."""
+    reducer_js = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "'alignment'" in reducer_js, "reducer.js must include 'alignment' topic"
+
+
+def test_reducer_has_ingest_log():
+    """reducer.js must maintain ingestLog for the progress dock."""
+    reducer_js = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "ingestLog" in reducer_js, "reducer.js must reference ingestLog"
+
+
+def test_index_html_has_dock_mount_point():
+    """index.html must have <div id=\"dock\"> for the persistent progress dock."""
+    html = _index_text()
+    assert 'id="dock"' in html, 'index.html missing <div id="dock">'

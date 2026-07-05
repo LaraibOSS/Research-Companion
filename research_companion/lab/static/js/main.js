@@ -19,6 +19,8 @@ import * as compareView from './views/compare.js';
 import * as askView from './views/ask.js';
 import { initGraph, setMapping } from './graph/graphview.js';
 import { nodeToVis, edgeToVis } from './graph/mapping.js';
+import { openModal } from './components/ingestModal.js';
+import { mountDock } from './components/progressDock.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
@@ -96,17 +98,16 @@ async function boot() {
     });
   });
 
-  // Wire "+ Add papers" button in top bar
+  // Wire "+ Add papers" button in top bar -> ingest modal
   const addBtn = document.getElementById('topbar-add');
   if (addBtn) {
-    addBtn.addEventListener('click', () => {
-      // Navigate to library view (which has the add input)
-      window.location.hash = '#/library';
-      setTimeout(() => {
-        const input = document.getElementById('lib-add-input');
-        if (input) input.focus();
-      }, 50);
-    });
+    addBtn.addEventListener('click', () => openModal('single'));
+  }
+
+  // Mount the persistent progress dock
+  const dockEl = document.getElementById('dock');
+  if (dockEl) {
+    mountDock(dockEl, store, api);
   }
 
   // Connection pill

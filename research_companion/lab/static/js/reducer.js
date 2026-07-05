@@ -4,14 +4,19 @@
  * applyEvent(state, evt) -> string[]  (list of changed topics to notify)
  *
  * State shape:
- *   papers: Map<paper_id, paper>
- *   draftId: string | null
- *   sections: []
- *   lab: { counts: {} }
- *   jobs: Map<string, job>
+ *   papers:    Map<paper_id, paper>
+ *   draftId:   string | null
+ *   sections:  []
+ *   lab:       { counts: {} }
+ *   jobs:      Map<string, job>
  *   connection: string
- *   failures: {}
- *   graphSeq: number
+ *   failures:  {}
+ *   graphSeq:  number
+ *   ingestLog: Array<{ok, label, path, stage, error, paperId, seq}>
+ *              Flat list of per-file ingest outcomes keyed by insertion order (seq).
+ *              Each ingest_failed pushes {ok:false, ...}.
+ *              Each paper_added during an active job pushes {ok:true, label, paperId}.
+ *              The progressDock derives its mini-list from this array.
  */
 
 /**
@@ -43,6 +48,23 @@ export function applyEvent(state, evt) {
         stance_counts: existing.stance_counts || { strengthens: 0, challenges: 0, alternative: 0 },
         failure_reason: null,
       });
+
+      // If a job is active, push a success entry to ingestLog for the dock mini-list
+      if (!state.ingestLog) state.ingestLog = [];
+      const activeJob = state.jobs && state.jobs.get('ingest');
+      if (activeJob && activeJob.status === 'running') {
+        const label = evt.title
+          || (evt.source ? _basename(evt.source) : null)
+          || evt.paper_id;
+        state.ingestLog.push({
+          ok:      true,
+          label,
+          paperId: evt.paper_id,
+          seq:     state.ingestLog.length,
+        });
+        return ['papers', 'ingestLog'];
+      }
+
       return ['papers'];
     }
 
@@ -74,7 +96,8 @@ export function applyEvent(state, evt) {
         // main.js watches for this and triggers a debounced GET /api/papers.
         paper.alignmentFresh = false;
       }
-      return ['papers'];
+      // Notify 'alignment' topic so draft view can re-fetch alignment data
+      return ['papers', 'alignment'];
     }
 
     case 'strength_updated': {
@@ -113,10 +136,28 @@ export function applyEvent(state, evt) {
           state.failures[evt.path] = state.failures[failKey];
         }
       }
-      return ['papers', 'failures'];
+
+      // Push failure entry to ingestLog for dock mini-list
+      if (!state.ingestLog) state.ingestLog = [];
+      state.ingestLog.push({
+        ok:      false,
+        label:   evt.path || paperId || '',
+        path:    evt.path || '',
+        stage:   evt.stage || '',
+        error:   evt.error || '',
+        paperId: paperId || null,
+        seq:     state.ingestLog.length,
+      });
+
+      return ['papers', 'failures', 'ingestLog'];
     }
 
     case 'ingest_progress': {
+      const prevJob = state.jobs.get('ingest');
+      // If no prior job (or prior was done), this is a new ingest run — reset log
+      if (!prevJob || prevJob.status === 'done') {
+        state.ingestLog = [];
+      }
       state.jobs.set('ingest', {
         status: 'running',
         done: evt.done,
@@ -144,4 +185,18 @@ export function applyEvent(state, evt) {
     default:
       return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the basename from a path string (handles / and \ separators).
+ * @param {string} p
+ * @returns {string}
+ */
+function _basename(p) {
+  if (!p) return '';
+  return p.replace(/^.*[/\\]/, '');
 }

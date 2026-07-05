@@ -11,6 +11,7 @@
  *   connection: 'connected' | 'reconnecting' | 'disconnected'
  *   failures:   {}
  *   graphSeq:   number
+ *   ingestLog:  Array<{ok, label, path?, stage?, error?, paperId, seq}>
  */
 
 import { applyEvent as _applyEvent } from './reducer.js';
@@ -28,6 +29,7 @@ const _state = {
   connection: 'disconnected',
   failures: {},
   graphSeq: 0,
+  ingestLog: [],
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -113,6 +115,7 @@ export function resetFromSnapshot(snapshot) {
   _state.failures = {};
   _state.graphSeq = 0;
   _state.jobs = new Map();
+  _state.ingestLog = [];
 
   for (const p of (snapshot.papers || [])) {
     _state.papers.set(p.paper_id, p);

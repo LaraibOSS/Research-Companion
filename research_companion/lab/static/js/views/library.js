@@ -8,6 +8,7 @@ import { renderPaperCard } from '../components/paperCard.js';
 import { open as drawerOpen, close as drawerClose } from '../components/drawer.js';
 import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine } from '../format.js';
+import { openModal } from '../components/ingestModal.js';
 
 let _el = null;
 let _unsubscribe = null;
@@ -82,9 +83,9 @@ function _render() {
     if (e.key === 'Enter') _handleAdd();
   });
 
-  // Wire ingest stub
+  // Wire ingest button -> modal
   _el.querySelector('#lib-ingest-btn').addEventListener('click', () => {
-    showToast('Ingest UI lands in the next build', 'info');
+    openModal('folder');
   });
 
   _renderGrid();
@@ -164,7 +165,7 @@ function _renderGrid() {
       _el && _el.querySelector('#lib-add-input').focus();
     });
     grid.querySelector('#empty-ingest-btn').addEventListener('click', () => {
-      showToast('Ingest UI lands in the next build', 'info');
+      openModal('folder');
     });
     return;
   }
