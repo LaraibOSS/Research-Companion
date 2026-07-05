@@ -360,3 +360,43 @@ def test_save_functions_create_paper_dir_if_missing():
     d3 = store.papers_dir() / store._id_to_dirname(paper_id3)
     store.save_strength(paper_id3, {"data": "strength"})
     assert d3.exists()
+
+
+# ============================================================================
+# Config and failure writes on fresh (non-existent) root directory
+# ============================================================================
+
+
+def test_save_config_and_record_failure_create_root_dir(tmp_path, monkeypatch):
+    """save_config() and record_failure() should create papergraph_dir() if missing.
+
+    This tests the case where RESEARCH_COMPANION_DIR points to a non-existent path
+    (e.g., on fresh install). Both functions must ensure the parent directory exists.
+    """
+    # Point to a fresh, non-existent subdirectory
+    fresh_root = tmp_path / "fresh-research-dir"
+    assert not fresh_root.exists()
+
+    monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(fresh_root))
+
+    # save_config should succeed despite root not existing
+    store.save_config({"a": 1})
+    assert fresh_root.exists()
+    config_file = fresh_root / "config.json"
+    assert config_file.exists()
+    assert store.load_config() == {"a": 1}
+
+    # Remove the root again for record_failure test
+    import shutil
+    shutil.rmtree(fresh_root)
+    assert not fresh_root.exists()
+
+    # record_failure should also succeed and create root
+    store.record_failure("k", {"stage": "add", "error": "x"})
+    assert fresh_root.exists()
+    failed_file = fresh_root / "failed.json"
+    assert failed_file.exists()
+    failures = store.list_failures()
+    assert "k" in failures
+    assert failures["k"]["stage"] == "add"
+    assert failures["k"]["error"] == "x"

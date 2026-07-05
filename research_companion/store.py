@@ -216,6 +216,7 @@ def load_config() -> dict:
 def save_config(cfg: dict) -> None:
     """Save config dict to config.json with indent=2, utf-8 encoding."""
     p = config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -331,6 +332,7 @@ def record_failure(key: str, info: dict) -> None:
     failures[key] = info
 
     p = failed_json_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
