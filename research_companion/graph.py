@@ -34,6 +34,8 @@ from research_companion.store import (
     graph_json_path,
     list_papers,
     load_extraction,
+    load_sections,
+    load_strength,
 )
 
 # ---------------------------------------------------------------------------
@@ -91,14 +93,26 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
             continue
 
         # Paper node.
-        G.add_node(
-            meta.paper_id,
+        paper_attrs: dict[str, Any] = dict(
             kind="paper",
             label=meta.title,
             authors=meta.authors,
             year=meta.year,
             source_url=meta.source_url,
         )
+        # Optional: sections enrichment.
+        sections_payload = load_sections(meta.paper_id)
+        if sections_payload is not None:
+            paper_attrs["sections"] = [
+                {"id": s["section_id"], "title": s["title"], "level": s["level"]}
+                for s in sections_payload.get("sections", [])
+            ]
+        # Optional: strength enrichment.
+        strength_payload = load_strength(meta.paper_id)
+        if strength_payload is not None:
+            paper_attrs["strength_band"] = strength_payload.get("band", "")
+            paper_attrs["strength_color"] = strength_payload.get("color", "")
+        G.add_node(meta.paper_id, **paper_attrs)
 
         # Concepts.
         for c in ext.get("concepts", []):
@@ -116,7 +130,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
                 label=canonical[("concept", key)],
                 definition=_safe_str(c.get("definition")),
             )
-            G.add_edge(meta.paper_id, nid, relation="contains")
+            G.add_edge(meta.paper_id, nid, relation="contains",
+                       section=c.get("section", None))
             concept_to_papers[nid].add(meta.paper_id)
 
         # Methods.
@@ -135,7 +150,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
                 label=canonical[("method", key)],
                 description=_safe_str(m.get("description")),
             )
-            G.add_edge(meta.paper_id, nid, relation="contains")
+            G.add_edge(meta.paper_id, nid, relation="contains",
+                       section=m.get("section", None))
 
         # Datasets.
         for d in ext.get("datasets", []):
@@ -153,7 +169,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
                 label=canonical[("dataset", key)],
                 description=_safe_str(d.get("description")),
             )
-            G.add_edge(meta.paper_id, nid, relation="contains")
+            G.add_edge(meta.paper_id, nid, relation="contains",
+                       section=d.get("section", None))
 
         # Claims (rarely shared across papers; we still merge by exact text).
         for cl in ext.get("claims", []):
@@ -165,7 +182,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
                 continue
             nid = _node_id("claim", key)
             G.add_node(nid, kind="claim", label=text[:120], full_text=text)
-            G.add_edge(meta.paper_id, nid, relation="contains")
+            G.add_edge(meta.paper_id, nid, relation="contains",
+                       section=cl.get("section", None))
 
         # Results — link paper to dataset (evaluates_on) and method (uses) when possible.
         for r in ext.get("results", []):
@@ -189,7 +207,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
                 value=value,
                 dataset=dataset,
             )
-            G.add_edge(meta.paper_id, result_nid, relation="contains")
+            G.add_edge(meta.paper_id, result_nid, relation="contains",
+                       section=r.get("section", None))
             if ds_nid:
                 G.add_edge(meta.paper_id, ds_nid, relation="evaluates_on")
                 G.add_edge(result_nid, ds_nid, relation="on")
@@ -233,6 +252,81 @@ def _resolve_citation(ref: str, papers: list[PaperMetadata]) -> str | None:
         if title_l in ref_l or ref_l in title_l:
             return p.paper_id
     return None
+
+
+# ---------------------------------------------------------------------------
+# Section subgraph helper
+# ---------------------------------------------------------------------------
+
+def section_subgraph(G: nx.Graph, paper_id: str, section_id: str) -> nx.Graph:
+    """Return a subgraph copy with the paper node + neighbours whose contains-edge
+    from this paper carries section == section_id, plus all edges among included nodes.
+
+    - Unknown paper_id -> empty graph.
+    - Unknown / no-match section_id -> graph with just the paper node (if present).
+    """
+    if paper_id not in G.nodes:
+        return nx.Graph()
+
+    included = {paper_id}
+    for nbr in G.neighbors(paper_id):
+        edge_data = G.edges[paper_id, nbr]
+        if edge_data.get("relation") == "contains" and edge_data.get("section") == section_id:
+            included.add(nbr)
+
+    return G.subgraph(included).copy()
+
+
+# ---------------------------------------------------------------------------
+# Graph delta helper
+# ---------------------------------------------------------------------------
+
+def graph_delta(old: nx.Graph, new: nx.Graph) -> dict:
+    """Return nodes and edges present in *new* but not in *old*.
+
+    Returns:
+        {
+            "nodes_added": [{"id", "kind", "label"}, ...],  # sorted by id
+            "edges_added": [{"source", "target", "relation"}, ...],  # sorted by (source, target, relation)
+        }
+
+    Node identity: node id string.
+    Edge identity: frozenset({u, v}) + relation attribute value.
+    """
+    old_node_ids: set[str] = set(old.nodes())
+    new_node_ids: set[str] = set(new.nodes())
+
+    added_node_ids = sorted(new_node_ids - old_node_ids)
+    nodes_added = [
+        {
+            "id": nid,
+            "kind": new.nodes[nid].get("kind", ""),
+            "label": new.nodes[nid].get("label", ""),
+        }
+        for nid in added_node_ids
+    ]
+
+    # Build set of (frozenset, relation) for old edges.
+    old_edge_keys: set[tuple[frozenset, str]] = {
+        (frozenset((u, v)), d.get("relation", ""))
+        for u, v, d in old.edges(data=True)
+    }
+
+    edges_added_raw = []
+    for u, v, d in new.edges(data=True):
+        relation = d.get("relation", "")
+        key = (frozenset((u, v)), relation)
+        if key not in old_edge_keys:
+            edges_added_raw.append((u, v, relation))
+
+    # Deterministic sort: by (source, target, relation).
+    edges_added_raw.sort(key=lambda t: (t[0], t[1], t[2]))
+    edges_added = [
+        {"source": u, "target": v, "relation": rel}
+        for u, v, rel in edges_added_raw
+    ]
+
+    return {"nodes_added": nodes_added, "edges_added": edges_added}
 
 
 # ---------------------------------------------------------------------------
