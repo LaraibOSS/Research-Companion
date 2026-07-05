@@ -2,6 +2,9 @@
 
 Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
+Node JS tests (run separately from repo root):
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs
+
 Tests:
   - Every file referenced by index.html exists in lab/static
   - index.html contains the module script tag and vendor script tag
@@ -50,7 +53,9 @@ REQUIRED_STATIC_FILES = [
     "js/store.js",
     "js/reducer.js",
     "js/format.js",
+    "js/snapshotRefresher.js",
     "js/graph/mapping.js",
+    "js/graph/graphview.js",
     "js/views/library.js",
     "js/views/graph.js",
     "js/views/draft.js",
@@ -175,4 +180,11 @@ def test_get_root_serves_index_html(lab_client):
 def test_get_static_main_js_returns_200(lab_client):
     """GET /static/js/main.js must return 200."""
     res = lab_client.get("/static/js/main.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_graphview_js_returns_200(lab_client):
+    """GET /static/js/graph/graphview.js must return 200 (F2 growth engine)."""
+    res = lab_client.get("/static/js/graph/graphview.js")
     assert res.status_code == 200

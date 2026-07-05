@@ -70,6 +70,9 @@ export function applyEvent(state, evt) {
       if (paper) {
         paper.stance = evt.verdict;
         paper.score = evt.score;
+        // Flag that stance_counts (server-side aggregate) may be stale;
+        // main.js watches for this and triggers a debounced GET /api/papers.
+        paper.alignmentFresh = false;
       }
       return ['papers'];
     }

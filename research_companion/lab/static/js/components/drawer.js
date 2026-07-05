@@ -5,6 +5,11 @@
 
 let _drawer = null;
 let _overlay = null;
+let _escapeListenerAttached = false;
+
+function _handleEscape(e) {
+  if (e.key === 'Escape') close();
+}
 
 function _ensureDOM() {
   if (_drawer) return;
@@ -34,10 +39,11 @@ function _ensureDOM() {
   document.body.appendChild(_overlay);
   document.body.appendChild(_drawer);
 
-  // Close on Escape
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') close();
-  });
+  // Close on Escape — named handler so it can be removed if needed
+  if (!_escapeListenerAttached) {
+    document.addEventListener('keydown', _handleEscape);
+    _escapeListenerAttached = true;
+  }
 }
 
 /**

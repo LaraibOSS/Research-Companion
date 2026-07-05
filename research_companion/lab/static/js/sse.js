@@ -77,24 +77,19 @@ export function makeCoalescer(
 
 /**
  * Open an EventSource to /api/events and dispatch events through the store.
- * Not exported as a named export to keep it browser-only — callers import the
- * default or call this function from main.js which runs in the browser.
  *
  * @param {object} store  — the store module
  * @param {Function} onResync  — called when a gap is detected and we need to resync
+ * @param {Function} [EventSourceImpl]  — injectable EventSource constructor (defaults to
+ *   globalThis.EventSource); pass a fake in node tests so no browser globals are needed
  * @returns {{ close: () => void }}
  */
-export function connectSSE(store, onResync) {
-  const { applyEvent } = store._reducer
-    ? { applyEvent: store._reducer }
-    : (() => { throw new Error('store must expose _reducer for SSE'); })();
-
-  // We import reducer lazily to avoid circular deps; main.js wires this.
-  // This function is only called in the browser.
-  return _connectSSEImpl(store, onResync);
+export function connectSSE(store, onResync, EventSourceImpl) {
+  return _connectSSEImpl(store, onResync, EventSourceImpl);
 }
 
-function _connectSSEImpl(store, onResync) {
+function _connectSSEImpl(store, onResync, EventSourceImpl) {
+  const ES = EventSourceImpl || globalThis.EventSource;
   const gate = makeSeqGate();
   let es = null;
   let closed = false;
@@ -107,7 +102,7 @@ function _connectSSEImpl(store, onResync) {
 
   function open() {
     if (closed) return;
-    es = new EventSource('/api/events');
+    es = new ES('/api/events');
 
     es.onopen = () => {
       store.setConnection('connected');

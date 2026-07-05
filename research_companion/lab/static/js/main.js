@@ -10,12 +10,15 @@
 import * as store from './store.js';
 import * as api from './api.js';
 import { connectSSE } from './sse.js';
+import { makeSnapshotRefresher } from './snapshotRefresher.js';
 import { startRouter, registerRoute } from './router.js';
 import * as libraryView from './views/library.js';
 import * as graphView from './views/graph.js';
 import * as draftView from './views/draft.js';
 import * as compareView from './views/compare.js';
 import * as askView from './views/ask.js';
+import { initGraph, setMapping } from './graph/graphview.js';
+import { nodeToVis, edgeToVis } from './graph/mapping.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
@@ -30,6 +33,13 @@ registerRoute('/ask',     askView);
 // Boot
 // ---------------------------------------------------------------------------
 async function boot() {
+  // Initialize graph engine on the persistent #graph-canvas container (once, at boot)
+  const graphCanvas = document.getElementById('graph-canvas');
+  if (graphCanvas && typeof vis !== 'undefined') {
+    setMapping({ nodeToVis, edgeToVis });
+    initGraph(graphCanvas, vis);
+  }
+
   // Fetch snapshots
   try {
     const [lab, papers] = await Promise.all([api.getLab(), api.getPapers()]);
@@ -37,6 +47,36 @@ async function boot() {
   } catch (err) {
     console.warn('[boot] failed to load snapshots:', err);
   }
+
+  // Snapshot refresher: when alignment_ready fires the reducer marks
+  // paper.alignmentFresh=false; we pick that up on 'papers' notify and
+  // schedule a debounced GET /api/papers to pull fresh stance_counts.
+  const snapshotRefresher = makeSnapshotRefresher(
+    api.getPapers,
+    (papers) => {
+      const state = store.getState();
+      for (const p of papers) {
+        const existing = state.papers.get(p.paper_id);
+        if (existing && p.stance_counts) {
+          existing.stance_counts = p.stance_counts;
+          // Clear the stale flag now that we have fresh data
+          existing.alignmentFresh = true;
+        }
+      }
+      store.notify(['papers']);
+    },
+    500,
+  );
+
+  store.subscribe('papers', () => {
+    const { papers } = store.getState();
+    for (const paper of papers.values()) {
+      if (paper.alignmentFresh === false) {
+        snapshotRefresher.schedule();
+        break;
+      }
+    }
+  });
 
   // Connect SSE
   connectSSE(store, async () => {

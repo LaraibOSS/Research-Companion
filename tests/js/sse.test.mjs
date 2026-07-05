@@ -1,6 +1,7 @@
 /**
- * sse.test.mjs — TDD tests for makeSeqGate and makeCoalescer.
- * Run from repo root: node --test tests/js/
+ * sse.test.mjs — TDD tests for makeSeqGate, makeCoalescer, and connectSSE.
+ * Run from repo root:
+ *   node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
-const { makeSeqGate, makeCoalescer } = await import(
+const { makeSeqGate, makeCoalescer, connectSSE } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'sse.js')).href
 );
 
@@ -156,4 +157,70 @@ test('makeCoalescer: after flush, new calls schedule again', () => {
   pendingFn(); // second flush
   assert.equal(flushed.length, 2);
   assert.equal(flushed[1][0].seq, 2);
+});
+
+// --- connectSSE tests ---
+
+// Minimal fake EventSource that never fires events (just records the URL)
+class FakeEventSource {
+  constructor(url) {
+    this.url = url;
+    this.onopen = null;
+    this.onerror = null;
+    this.onmessage = null;
+  }
+  close() {}
+}
+
+// Minimal fake store (no _reducer property — tests the guard is gone)
+function makeFakeStore() {
+  const notifications = [];
+  return {
+    // Deliberately no _reducer property
+    setConnection(status) { notifications.push({ type: 'connection', status }); },
+    notify(topics) { notifications.push({ type: 'notify', topics }); },
+    applyAndNotify(evt) { return []; },
+    _notifications: notifications,
+  };
+}
+
+test('connectSSE does NOT throw when store lacks _reducer', () => {
+  const fakeStore = makeFakeStore();
+  assert.doesNotThrow(() => {
+    const conn = connectSSE(fakeStore, null, FakeEventSource);
+    conn.close();
+  }, 'connectSSE must not throw a guard error when store._reducer is absent');
+});
+
+test('connectSSE returns an object with a close() method', () => {
+  const fakeStore = makeFakeStore();
+  const conn = connectSSE(fakeStore, null, FakeEventSource);
+  assert.ok(conn && typeof conn.close === 'function', 'should return { close() }');
+  conn.close();
+});
+
+test('connectSSE calls store.setConnection when EventSource opens', () => {
+  const fakeStore = makeFakeStore();
+  let openHandler = null;
+
+  class CapturingES extends FakeEventSource {
+    constructor(url) {
+      super(url);
+      // Defer so connectSSE can assign onopen first
+      Promise.resolve().then(() => {
+        if (typeof this.onopen === 'function') this.onopen();
+      });
+    }
+  }
+
+  const conn = connectSSE(fakeStore, null, CapturingES);
+  // Return a promise so the test runner awaits it
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const connNotif = fakeStore._notifications.find(n => n.type === 'connection' && n.status === 'connected');
+      assert.ok(connNotif, 'store.setConnection("connected") should be called on open');
+      conn.close();
+      resolve();
+    }, 20);
+  });
 });
