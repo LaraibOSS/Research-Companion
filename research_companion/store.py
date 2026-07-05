@@ -189,3 +189,167 @@ def remove_paper(paper_id: str) -> bool:
     import shutil
     shutil.rmtree(d)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Research Lab persistence: config, sections, alignment, strength, failures
+# ---------------------------------------------------------------------------
+
+
+def config_path() -> Path:
+    """Return papergraph_dir()/config.json."""
+    return papergraph_dir() / "config.json"
+
+
+def load_config() -> dict:
+    """Load config.json. Returns {} if missing or unparseable."""
+    p = config_path()
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+
+def save_config(cfg: dict) -> None:
+    """Save config dict to config.json with indent=2, utf-8 encoding."""
+    p = config_path()
+    p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def get_draft_paper_id() -> str | None:
+    """Return draft_paper_id from config, or None if not set."""
+    cfg = load_config()
+    return cfg.get("draft_paper_id")
+
+
+def set_draft_paper_id(paper_id: str | None) -> None:
+    """Set or clear draft_paper_id in config."""
+    cfg = load_config()
+    if paper_id is None:
+        cfg.pop("draft_paper_id", None)
+    else:
+        cfg["draft_paper_id"] = paper_id
+    save_config(cfg)
+
+
+def save_sections(paper_id: str, payload: dict) -> Path:
+    """Save sections JSON to papers/<dir>/sections.json."""
+    p = paper_dir(paper_id) / "sections.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_sections(paper_id: str, *, text_sha: str | None = None) -> dict | None:
+    """Load sections from papers/<dir>/sections.json.
+
+    Returns None if file missing, JSON unparseable, or if text_sha given and
+    payload["text_sha256"] does not match (stale cache).
+    """
+    p = paper_dir(paper_id) / "sections.json"
+    if not p.exists():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if text_sha is not None:
+        if payload.get("text_sha256") != text_sha:
+            return None
+
+    return payload
+
+
+def save_alignment(paper_id: str, payload: dict) -> Path:
+    """Save alignment JSON to papers/<dir>/alignment.json."""
+    p = paper_dir(paper_id) / "alignment.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_alignment(paper_id: str, *, draft_paper_id: str | None = None) -> dict | None:
+    """Load alignment from papers/<dir>/alignment.json.
+
+    Returns None if file missing, JSON unparseable, or if draft_paper_id given and
+    payload["draft_paper_id"] does not match (stale cache).
+    """
+    p = paper_dir(paper_id) / "alignment.json"
+    if not p.exists():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if draft_paper_id is not None:
+        if payload.get("draft_paper_id") != draft_paper_id:
+            return None
+
+    return payload
+
+
+def save_strength(paper_id: str, payload: dict) -> Path:
+    """Save strength JSON to papers/<dir>/strength.json."""
+    p = paper_dir(paper_id) / "strength.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_strength(paper_id: str) -> dict | None:
+    """Load strength from papers/<dir>/strength.json.
+
+    Returns None if file missing or JSON unparseable.
+    """
+    p = paper_dir(paper_id) / "strength.json"
+    if not p.exists():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        return payload
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def failed_json_path() -> Path:
+    """Return papergraph_dir()/failed.json."""
+    return papergraph_dir() / "failed.json"
+
+
+def record_failure(key: str, info: dict) -> None:
+    """Record or update a failure entry under key. Adds 'at' timestamp if absent."""
+    failures = list_failures()
+
+    # Add timestamp if not present
+    if "at" not in info:
+        from datetime import datetime, timezone
+        info = dict(info)  # Don't mutate caller's dict
+        info["at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    failures[key] = info
+
+    p = failed_json_path()
+    p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def clear_failure(key: str) -> None:
+    """Remove a failure entry by key. No-op if absent."""
+    failures = list_failures()
+    if key in failures:
+        del failures[key]
+        p = failed_json_path()
+        p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def list_failures() -> dict[str, dict]:
+    """Load and return all failures. Returns {} if file missing or unparseable."""
+    p = failed_json_path()
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, ValueError):
+        return {}
