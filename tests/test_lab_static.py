@@ -129,7 +129,7 @@ def test_vis_network_file_is_valid_js():
 # ---------------------------------------------------------------------------
 
 try:
-    from fastapi.testclient import TestClient
+    import fastapi  # noqa: F401
     _FASTAPI_AVAILABLE = True
 except ImportError:
     _FASTAPI_AVAILABLE = False
@@ -143,9 +143,10 @@ pytestmark_fastapi = pytest.mark.skipif(
 @pytest.fixture
 def lab_client():
     """Create a TestClient for the lab app with a dummy bus."""
-    from fastapi.testclient import TestClient
-    from unittest.mock import MagicMock, AsyncMock
     import asyncio
+    from unittest.mock import MagicMock
+
+    from fastapi.testclient import TestClient
 
     # Minimal Bus mock
     bus = MagicMock()
@@ -155,7 +156,6 @@ def lab_client():
     bus.history = []
 
     # Patch store imports used by startup routes
-    import sys
     from unittest.mock import patch
 
     # We need to import lab_api without the full store loaded
@@ -337,3 +337,30 @@ def test_documented_node_command_lists_every_js_test():
     existing = sorted(p.name for p in (REPO_ROOT / "tests" / "js").glob("*.test.mjs"))
     missing = [name for name in existing if f"tests/js/{name}" not in doc]
     assert not missing, f"docstring node command is missing: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# C2 regression: graph.js section-switcher must use sec.section_id not sec.id
+# ---------------------------------------------------------------------------
+
+def test_graph_js_section_row_uses_section_id():
+    """graph.js section-row renderer must use sec.section_id (not sec.id).
+
+    GET /api/sections returns objects with section_id, not id.  Using sec.id
+    produces data-section-id="" on every row and breaks section filtering.
+    """
+    graph_js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
+
+    # The section-list renderer must reference sec.section_id
+    assert "sec.section_id" in graph_js, (
+        "graph.js must use sec.section_id (not sec.id) to match the API response field"
+    )
+
+    # Make sure the broken form is not used in the section-list renderer context.
+    # We look for sec.id used as a value (sec.id) which would be a plain property access.
+    # A safe check: the string 'sec.id' must not appear (sec.section_id has 'sec.' + 'section_id').
+    import re as _re
+    bad_uses = _re.findall(r'\bsec\.id\b', graph_js)
+    assert not bad_uses, (
+        f"graph.js must not use sec.id in section-row renderer; found {len(bad_uses)} occurrence(s)"
+    )

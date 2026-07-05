@@ -285,11 +285,11 @@ function _renderSectionList() {
     rows.push(`<div class="graph-section-hint muted">No draft sections yet</div>`);
   } else {
     _sectionsCache.forEach((sec, idx) => {
-      const isActive = _activeSectionId === sec.id;
+      const isActive = _activeSectionId === sec.section_id;
       const title = escapeHtml(sec.title || `Section ${idx + 1}`);
       const count = sec.node_count != null ? ` <span class="muted">${sec.node_count}</span>` : '';
       rows.push(
-        `<div class="graph-section-row${isActive ? ' active' : ''}" data-section-id="${escapeHtml(sec.id)}">` +
+        `<div class="graph-section-row${isActive ? ' active' : ''}" data-section-id="${escapeHtml(sec.section_id)}">` +
         `<span class="graph-section-bullet">§${idx + 1}</span> ${title}${count}</div>`
       );
     });

@@ -166,7 +166,7 @@ function _renderSectionList(sections) {
       const icon = stanceIcon(a.relation);
       // dot color: use the paper's strength color, falling back to unscored gray
       const paper = _papers.get(a.paper_id);
-      const dotColor = strengthColor(paper ? paper.strength : null);
+      const dotColor = strengthColor(paper && paper.strength ? paper.strength.band : null);
       // first word of first author OR first 15 chars of title
       let label = '';
       if (a.paper_title) {
