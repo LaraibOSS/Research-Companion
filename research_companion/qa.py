@@ -182,7 +182,7 @@ def answer(
     char_budget: int = 8000,
     section_id: str | None = None,
     paper_ids: list[str] | None = None,
-    provider: str = "anthropic",
+    provider: str | None = None,
     model: str | None = None,
 ) -> QAAnswer:
     """Answer *question* using BM25-retrieved paper sections.
@@ -196,8 +196,9 @@ def answer(
                     The draft's own units are excluded from retrieval.
                     Extra query tokens come from that draft section's BM25 tokens.
         paper_ids:  Restrict index to these papers (None = all).
-        provider:   "anthropic" or "openai" when llm is None.
-        model:      Model override when llm is None.
+        provider:   "anthropic" or "openai" when llm is None; defaults from
+                    RESEARCH_COMPANION_PROVIDER (falling back to "anthropic").
+        model:      Model override when llm is None; defaults from RESEARCH_COMPANION_MODEL.
     """
     # --- 1. Build index & determine query tokens --------------------------------
     all_units = build_section_index(paper_ids)
@@ -346,10 +347,16 @@ def answer(
 # LLM resolver (mirrors pattern from cli.py / alignment.py)
 # ---------------------------------------------------------------------------
 
-def _resolve_llm(*, provider: str = "anthropic", model: str | None = None):
-    """Return an LLM callable for the given provider."""
+def _resolve_llm(*, provider: str | None = None, model: str | None = None):
+    """Return an LLM callable; provider/model default from the environment
+    (RESEARCH_COMPANION_PROVIDER / RESEARCH_COMPANION_MODEL), matching the
+    other commands' resolution rules."""
+    import os
+
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
+    provider = provider or os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
+    model = model or os.environ.get("RESEARCH_COMPANION_MODEL") or None
     resolved_model = resolve_model(provider, model)
     call = _call_openai if provider == "openai" else _call_anthropic
 

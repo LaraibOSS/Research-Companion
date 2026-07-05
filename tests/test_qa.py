@@ -547,3 +547,37 @@ class TestHeaderSafeBudgetTrimming:
         prompt = calls[0]
         # Full text should appear in prompt
         assert short_text.strip() in prompt
+
+
+class TestProviderEnvResolution:
+    def test_resolve_llm_honors_provider_env(self, monkeypatch):
+        """_resolve_llm must consult RESEARCH_COMPANION_PROVIDER when provider not given."""
+        from research_companion import qa as qa_mod
+        from research_companion import extract as extract_mod
+
+        calls = []
+        monkeypatch.setattr(extract_mod, "_call_openai",
+                            lambda prompt, model=None: (calls.append(("openai", model)) or ("ok", {})))
+        monkeypatch.setattr(extract_mod, "_call_anthropic",
+                            lambda prompt, model=None: (calls.append(("anthropic", model)) or ("ok", {})))
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+        monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+
+        llm = qa_mod._resolve_llm()
+        assert llm("hi") == "ok"
+        assert calls and calls[0][0] == "openai"
+
+    def test_explicit_provider_overrides_env(self, monkeypatch):
+        from research_companion import qa as qa_mod
+        from research_companion import extract as extract_mod
+
+        calls = []
+        monkeypatch.setattr(extract_mod, "_call_openai",
+                            lambda prompt, model=None: (calls.append("openai") or ("ok", {})))
+        monkeypatch.setattr(extract_mod, "_call_anthropic",
+                            lambda prompt, model=None: (calls.append("anthropic") or ("ok", {})))
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+        llm = qa_mod._resolve_llm(provider="anthropic")
+        assert llm("hi") == "ok"
+        assert calls == ["anthropic"]
