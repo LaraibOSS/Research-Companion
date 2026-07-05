@@ -15,6 +15,16 @@ _KIND = {
     "AgentMessage": "agent_message",
     "AgentDone": "agent_done",
     "AgentError": "agent_error",
+    # Lab pipeline events (Task 8)
+    "PaperAdded": "paper_added",
+    "SectionTreeBuilt": "section_tree_built",
+    "SectionExtracted": "section_extracted",
+    "GraphDelta": "graph_delta",
+    "AlignmentReady": "alignment_ready",
+    "StrengthUpdated": "strength_updated",
+    "IngestFailed": "ingest_failed",
+    "IngestProgress": "ingest_progress",
+    "JobDone": "job_done",
 }
 
 
@@ -48,6 +58,74 @@ class AgentDone:
 class AgentError:
     agent: str
     error: str
+
+
+# ---------------------------------------------------------------------------
+# Lab pipeline events (Task 8)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PaperAdded:
+    paper_id: str
+    title: str
+    source: str = ""
+
+
+@dataclass
+class SectionTreeBuilt:
+    paper_id: str
+    n_sections: int
+
+
+@dataclass
+class SectionExtracted:
+    paper_id: str
+    section_id: str
+    title: str
+    counts: dict = field(default_factory=dict)
+
+
+@dataclass
+class GraphDelta:
+    paper_id: str
+    nodes_added: list = field(default_factory=list)
+    edges_added: list = field(default_factory=list)
+
+
+@dataclass
+class AlignmentReady:
+    paper_id: str
+    draft_paper_id: str
+    verdict: str
+    score: float
+
+
+@dataclass
+class StrengthUpdated:
+    paper_id: str
+    score: object  # float or None
+    band: str
+    color: str
+
+
+@dataclass
+class IngestFailed:
+    path: str
+    stage: str
+    error: str
+    paper_id: str = ""
+
+
+@dataclass
+class IngestProgress:
+    done: int
+    total: int
+    current: str = ""
+
+
+@dataclass
+class JobDone:
+    job: str = "ingest"
 
 
 def event_to_dict(event) -> dict[str, object]:
