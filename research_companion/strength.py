@@ -44,17 +44,14 @@ def _extract_signal_value(
     if extraction is None:
         return False, None
 
-    # Check if extraction has the required keys as lists
+    # Available iff extraction is not None; value = count of the six keys that
+    # are present as non-empty lists, divided by 6.
     required_keys = ["concepts", "methods", "datasets", "claims", "results", "related_work"]
-
-    # If extraction dict is empty or missing keys, unavailable
-    if not extraction or not all(key in extraction for key in required_keys):
-        return False, None
 
     non_empty_count = 0
 
     for key in required_keys:
-        val = extraction[key]
+        val = extraction.get(key)
         if isinstance(val, list) and len(val) > 0:
             non_empty_count += 1
 

@@ -44,8 +44,8 @@ from research_companion.strength import compute_strength, strength_for_paper
         ),
         # No extraction
         (None, None, False),
-        # Empty extraction dict
-        ({}, None, False),
+        # Empty extraction dict — available (extraction is not None), value 0.0
+        ({}, 0.0, True),
         # Extraction with only empty lists
         (
             {
@@ -238,81 +238,37 @@ def test_compute_strength_fewer_than_2_signals():
     assert result["color"] == "#8b949e"
 
 
-def test_compute_strength_band_boundaries():
-    """Test band/color assignment at boundary values using simple alignment + year."""
-    test_cases = [
+@pytest.mark.parametrize(
+    "score_target,expected_band,expected_color",
+    [
         (0.65, "strong", "#3fb950"),
         (0.6499, "moderate", "#d29922"),
         (0.40, "moderate", "#d29922"),
         (0.399, "weak", "#f0883e"),
-    ]
+    ],
+)
+def test_compute_strength_band_boundaries(score_target, expected_band, expected_color):
+    """Test band/color assignment at exact boundary values.
 
-    for score_target, expected_band, expected_color in test_cases:
-        # Use alignment directly (passthrough) + a recent year (recency=1.0)
-        # score = (0.25 * score_target + 0.20 * 1.0) / 0.45
-        # To get score_target, we need a different approach.
-        # Use alignment alone with another unavailable signal:
-        # Actually, alignment requires another signal. Let me use two explicit signals.
-        # Use extraction + alignment both set to score_target:
-        # alignment directly has score_target
-        # extraction: set num keys to get score_target (approximately)
-        num_keys = int(score_target * 6)
-        extraction = {
-            k: ([{"name": "x"}] if i < num_keys else [])
-            for i, k in enumerate(
-                ["concepts", "methods", "datasets", "claims", "results", "related_work"]
-            )
-        }
-        ext_value = num_keys / 6
-
-        result = compute_strength(
-            extraction=extraction,
-            refcheck=None,
-            alignment={"score": score_target},
-            year=None,
-            now_year=2024,
-        )
-        # renorm_score = (0.30 * ext_value + 0.25 * score_target) / 0.55
-        # This still might not match exactly. Instead use test with multiple values
-        # that produce the exact scores we need. Let me use a simpler parameterization:
-        # All signals have same value = score_target
-
-        # Better: use 2 signals, both score_target
-        result = compute_strength(
-            extraction={
-                k: (
-                    [{"name": "x"}] * int(score_target * 6 + 0.5)
-                    if int(score_target * 6 + 0.5) > 0
-                    else []
-                )
-                for k in ["concepts", "methods", "datasets", "claims", "results", "related_work"]
-            },
-            refcheck={"verified": int(score_target * 10), "total": 10}
-            if score_target > 0
-            else {"verified": 0, "total": 1},
-            alignment=None,
-            year=None,
-            now_year=2024,
-        )
-        # This still has renormalization. Let me just compute the expected renorm_score
-        ext_val = sum(
-            1
-            for k in ["concepts", "methods", "datasets", "claims", "results", "related_work"]
-            if int(score_target * 6 + 0.5) > 0
-        )
-        ext_val = ext_val / 6
-        ref_val = score_target
-        renorm = (0.30 * ext_val + 0.25 * ref_val) / 0.55
-        # Check vs expected band
-        if renorm >= 0.65:
-            assert result["band"] == "strong"
-            assert result["color"] == "#3fb950"
-        elif renorm >= 0.40:
-            assert result["band"] == "moderate"
-            assert result["color"] == "#d29922"
-        else:
-            assert result["band"] == "weak"
-            assert result["color"] == "#f0883e"
+    Use only alignment (weight 0.25) + citation_health (weight 0.25) with equal
+    values both set to score_target.  Renorm = (0.25*t + 0.25*t) / (0.25+0.25) = t
+    exactly, so the renormalized score equals score_target with no rounding error.
+    Exactly 2 signals are available so the result is never unscored.
+    """
+    # verified = int(score_target * 10000), total = 10000 keeps the ratio exact.
+    verified = int(score_target * 10000)
+    result = compute_strength(
+        extraction=None,
+        refcheck={"verified": verified, "total": 10000},
+        alignment={"score": score_target},
+        year=None,
+        now_year=2024,
+    )
+    assert result["band"] == expected_band, (
+        f"score_target={score_target}: expected band={expected_band!r}, "
+        f"got band={result['band']!r} (score={result['score']})"
+    )
+    assert result["color"] == expected_color
 
 
 def test_compute_strength_return_shape():
@@ -377,7 +333,15 @@ def test_compute_strength_return_shape():
 
 
 def test_compute_strength_score_rounding():
-    """Test that score is rounded to 4 decimal places."""
+    """Test that score is rounded to exactly 4 decimal places.
+
+    extraction = 1/6 ≈ 0.16666..., refcheck = 7/10 = 0.7
+    renorm: (0.30 * 1/6 + 0.25 * 0.7) / (0.30 + 0.25)
+          = (0.05 + 0.175) / 0.55
+          = 0.225 / 0.55
+          = 0.40909090...
+    Rounded to 4 dp: 0.4091
+    """
     result = compute_strength(
         extraction={
             "concepts": [{"name": "a"}],
@@ -392,16 +356,7 @@ def test_compute_strength_score_rounding():
         year=None,
         now_year=2024,
     )
-    # renorm: (0.30 * 1/6 + 0.25 * 0.7) / 0.55
-    # = (0.05 + 0.175) / 0.55 = 0.225 / 0.55 ≈ 0.40909...
-    # Should be rounded to 4 dp: 0.4091
-    if result["score"] is not None:
-        # Verify it has at most 4 decimal places
-        score_str = f"{result['score']:.20f}"  # get many decimals
-        decimal_part = score_str.split(".")[1]
-        # Check that it matches a 4-dp rounded value
-        rounded = round(result["score"], 4)
-        assert abs(result["score"] - rounded) < 1e-10
+    assert result["score"] == 0.4091
 
 
 def test_strength_for_paper_unknown_paper(tmp_path):
@@ -551,8 +506,12 @@ def test_compute_strength_negative_year():
     assert result["signals"]["recency"]["value"] == 0.2
 
 
-def test_strength_for_paper_with_draft_self():
-    """Test that draft paper does not consume its own alignment."""
+def test_strength_for_paper_with_draft_self(isolated_papergraph_dir):
+    """Test that draft paper does not consume its own alignment.
+
+    Uses isolated_papergraph_dir to prevent writes to the real ~/.research-companion.
+    store.save_strength is also mocked so the test is fully unit-isolated.
+    """
     with patch("research_companion.strength.PaperMetadata.load") as mock_load_meta:
         mock_meta = MagicMock()
         mock_meta.year = 2020
@@ -578,10 +537,14 @@ def test_strength_for_paper_with_draft_self():
                 with patch(
                     "research_companion.strength.store.load_alignment"
                 ) as mock_load_align:
-                    # This should NOT be called since paper_id == draft_paper_id
-                    result = strength_for_paper("arxiv:2410.05779")
+                    with patch(
+                        "research_companion.strength.store.save_strength"
+                    ) as mock_save:
+                        # This should NOT be called since paper_id == draft_paper_id
+                        result = strength_for_paper("arxiv:2410.05779")
 
-                    mock_load_align.assert_not_called()
+                        mock_load_align.assert_not_called()
+                        mock_save.assert_called_once()
 
 
 def test_compute_strength_refcheck_with_missing_verified():
