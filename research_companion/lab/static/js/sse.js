@@ -4,9 +4,12 @@
  * Exports (DOM-free, node-testable):
  *   makeSeqGate()          — creates a seq-gate closure
  *   makeCoalescer(fn, ms, scheduler, canceller) — creates a timer-injectable coalescer
+ *   onGraphDeltas(cb)      — register a callback that receives each coalesced batch of
+ *                            raw graph_delta event objects; returns an unregister function
  *
  * Default export (browser only):
- *   connectSSE(store, onResync) — opens EventSource and wires everything up
+ *   connectSSE(store, onResync, EventSourceImpl?, scheduler?, canceller?)
+ *                          — opens EventSource and wires everything up
  */
 
 // ---------------------------------------------------------------------------
@@ -72,33 +75,63 @@ export function makeCoalescer(
 }
 
 // ---------------------------------------------------------------------------
+// Module-level graph_delta listener registry
+// ---------------------------------------------------------------------------
+
+/** @type {Set<(batch: object[]) => void>} */
+const _graphDeltaListeners = new Set();
+
+/**
+ * Register a callback to receive coalesced graph_delta batches.
+ * The callback is called with an array of raw graph_delta SSE event objects
+ * every time the 200ms coalescer flushes.
+ *
+ * @param {(batch: object[]) => void} cb
+ * @returns {() => void}  — call to unregister
+ */
+export function onGraphDeltas(cb) {
+  _graphDeltaListeners.add(cb);
+  return () => _graphDeltaListeners.delete(cb);
+}
+
+// ---------------------------------------------------------------------------
 // Browser-only: connectSSE
 // ---------------------------------------------------------------------------
 
 /**
  * Open an EventSource to /api/events and dispatch events through the store.
  *
- * @param {object} store  — the store module
- * @param {Function} onResync  — called when a gap is detected and we need to resync
- * @param {Function} [EventSourceImpl]  — injectable EventSource constructor (defaults to
+ * @param {object}   store            — the store module
+ * @param {Function} onResync         — called when a gap is detected and we need to resync
+ * @param {Function} [EventSourceImpl] — injectable EventSource constructor (defaults to
  *   globalThis.EventSource); pass a fake in node tests so no browser globals are needed
+ * @param {Function} [scheduler]      — injectable setTimeout (for testing coalescer timing)
+ * @param {Function} [canceller]      — injectable clearTimeout (for testing coalescer timing)
  * @returns {{ close: () => void }}
  */
-export function connectSSE(store, onResync, EventSourceImpl) {
-  return _connectSSEImpl(store, onResync, EventSourceImpl);
+export function connectSSE(store, onResync, EventSourceImpl, scheduler, canceller) {
+  return _connectSSEImpl(store, onResync, EventSourceImpl, scheduler, canceller);
 }
 
-function _connectSSEImpl(store, onResync, EventSourceImpl) {
+function _connectSSEImpl(store, onResync, EventSourceImpl, scheduler, canceller) {
   const ES = EventSourceImpl || globalThis.EventSource;
   const gate = makeSeqGate();
   let es = null;
   let closed = false;
 
-  // Coalescer for graph_delta — flush into store every 200ms
+  // Coalescer for graph_delta — flush every 200ms.
+  // On flush: notify store (for counters / graphSeq) AND call all registered
+  // onGraphDeltas listeners with the raw batch.
   const graphCoalescer = makeCoalescer((batch) => {
-    // Just bump graphSeq once for the batch; real graph data is F2's concern
+    // Notify store that graph changed (bumps graphSeq for counters)
     store.notify(['graph']);
-  }, 200);
+    // Deliver raw batch to all registered delta listeners (e.g. views/graph.js)
+    if (_graphDeltaListeners.size > 0) {
+      for (const cb of _graphDeltaListeners) {
+        try { cb(batch); } catch (e) { console.error('[sse] onGraphDeltas listener error', e); }
+      }
+    }
+  }, 200, scheduler, canceller);
 
   function open() {
     if (closed) return;
@@ -125,9 +158,10 @@ function _connectSSEImpl(store, onResync, EventSourceImpl) {
 
       gate(evt, (validEvt) => {
         if (validEvt.event === 'graph_delta') {
-          // Coalesce graph_delta events
+          // Coalesce graph_delta events; flush delivers to store.notify + onGraphDeltas listeners
           graphCoalescer(validEvt);
-          // Still apply to reducer for graphSeq
+          // Still apply to reducer for graphSeq (but suppress 'graph' topic here —
+          // the coalescer flush already calls store.notify(['graph']))
           const topics = store.applyAndNotify(validEvt);
           const nonGraphTopics = topics.filter(t => t !== 'graph');
           if (nonGraphTopics.length) store.notify(nonGraphTopics);

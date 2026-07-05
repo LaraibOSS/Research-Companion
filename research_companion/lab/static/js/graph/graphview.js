@@ -5,6 +5,7 @@
  *   seedPosition(newNode, edgesInDelta, getPositions, rng)
  *   makeFlasher(updateFn, schedule)
  *   makeFilterPredicate(sectionId, hiddenKinds, draftPaperId)
+ *   calcSearchDim(nodes, query, currentlyDimmed)
  *   dedup(newItems, existsSet)
  *   shouldReducePerf(nodeCount)
  *
@@ -75,6 +76,7 @@ export function makeFlasher(updateFn, schedule = setTimeout) {
 
 /**
  * Compose a single DataView filter predicate from section + kind + draft-paper rules.
+ * Does NOT include search — search is handled by dimming, not DataView filtering.
  *
  * @param {string|null}   sectionId    — null means "show all"
  * @param {Set<string>}   hiddenKinds  — set of kind strings to hide
@@ -99,6 +101,50 @@ export function makeFilterPredicate(sectionId, hiddenKinds, draftPaperId) {
     }
     return true;
   };
+}
+
+/**
+ * Compute the minimal diff for search dimming.
+ * Matching nodes keep full opacity (original color); non-matching nodes are dimmed.
+ * Only returns nodes whose dim-state actually changes (efficient bounded update).
+ *
+ * @param {object[]}    nodes          — all nodes from the DataSet (.get())
+ * @param {string}      query          — search string (empty = clear all dimming)
+ * @param {Set<string>} currentlyDimmed — set of node ids currently dimmed
+ * @returns {{ toDim: object[], toRestore: object[] }}
+ *   toDim:    nodes that should now be dimmed (not currently dimmed, and don't match)
+ *   toRestore: nodes that should be restored (currently dimmed, but now match or query cleared)
+ */
+export function calcSearchDim(nodes, query, currentlyDimmed) {
+  const q = (query || '').trim().toLowerCase();
+  const toDim = [];
+  const toRestore = [];
+
+  if (!q) {
+    // Clear all dimming
+    for (const node of nodes) {
+      if (currentlyDimmed.has(node.id)) {
+        toRestore.push(node);
+      }
+    }
+    return { toDim, toRestore };
+  }
+
+  for (const node of nodes) {
+    const label = (node.label || '').toLowerCase();
+    const matches = label.includes(q);
+    const isDimmed = currentlyDimmed.has(node.id);
+
+    if (!matches && !isDimmed) {
+      toDim.push(node);
+    } else if (matches && isDimmed) {
+      toRestore.push(node);
+    }
+    // matches && !isDimmed -> no change needed
+    // !matches && isDimmed -> already dimmed, no change needed
+  }
+
+  return { toDim, toRestore };
 }
 
 /**
@@ -140,6 +186,8 @@ let _sectionId = null;
 let _hiddenKinds = new Set();
 let _draftPaperId = null;
 let _searchQuery = '';
+let _dimmedNodeIds = new Set();       // ids currently dimmed by search
+let _originalNodeColors = new Map();  // id -> original color string, stored before dimming
 
 // Callbacks
 let _onNodeClick = null;
@@ -149,36 +197,27 @@ let _onEdgeClick = null;
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Rebuild the DataView filter predicate (section + kind only, NOT search).
+ * Does NOT call network.setData — the Network was constructed with the DataViews
+ * and continues to observe them reactively via their setFilter.
+ */
 function _rebuildViews() {
   if (!_vis || !_nodesDS || !_edgesDS) return;
 
   const predicate = makeFilterPredicate(_sectionId, _hiddenKinds, _draftPaperId);
 
-  // Build node filter that also considers search
-  const filterFn = (node) => {
-    if (!predicate(node)) return false;
-    if (_searchQuery) {
-      const label = (node.label || '').toLowerCase();
-      return label.includes(_searchQuery.toLowerCase());
-    }
-    return true;
-  };
-
   if (_nodesView) {
-    _nodesView.setFilter(filterFn);
-  } else {
-    _nodesView = new _vis.DataView(_nodesDS, { filter: filterFn });
+    _nodesView.setFilter(predicate);
+    // vis 9.1.9 DataView: setFilter automatically triggers re-evaluation.
+    // Some older vis builds require a manual refresh() call — guard defensively.
+    if (typeof _nodesView.refresh === 'function') {
+      _nodesView.refresh();
+    }
   }
 
-  // Edges: vis-network DataView on nodes hides edges automatically when endpoints
-  // are hidden, but we still set up a DataView on edges for safety
-  if (!_edgesView) {
-    _edgesView = new _vis.DataView(_edgesDS);
-  }
-
-  if (_network) {
-    _network.setData({ nodes: _nodesView, edges: _edgesView });
-  }
+  // Edges DataView does not need a filter update (vis hides edges whose endpoints
+  // are hidden automatically). No setData call needed.
 }
 
 function _applyScaleGuard() {
@@ -189,6 +228,48 @@ function _applyScaleGuard() {
     _flashDuration = 200;
   } else {
     _flashDuration = 800;
+  }
+}
+
+/**
+ * Apply search dimming to the DataSet (not the DataView) by updating node colors.
+ * Non-matching nodes get a dimmed color/opacity; matching nodes keep original colors.
+ * Only updates nodes whose dim-state actually changes (efficient diff).
+ */
+function _applySearchDim() {
+  if (!_nodesDS) return;
+
+  const allNodes = _nodesDS.get();
+  const { toDim, toRestore } = calcSearchDim(allNodes, _searchQuery, _dimmedNodeIds);
+
+  // Store original colors before dimming
+  for (const node of toDim) {
+    if (!_originalNodeColors.has(node.id)) {
+      _originalNodeColors.set(node.id, node.color);
+    }
+  }
+
+  // Apply dim updates
+  if (toDim.length > 0) {
+    _nodesDS.update(toDim.map(n => ({
+      id: n.id,
+      color: { background: '#2d333b', border: '#444c56', highlight: { background: '#2d333b', border: '#444c56' } },
+      font: { color: '#555' },
+    })));
+    for (const n of toDim) _dimmedNodeIds.add(n.id);
+  }
+
+  // Restore un-dimmed nodes to original colors
+  if (toRestore.length > 0) {
+    _nodesDS.update(toRestore.map(n => ({
+      id: n.id,
+      color: _originalNodeColors.get(n.id) || undefined,
+      font: undefined,
+    })));
+    for (const n of toRestore) {
+      _dimmedNodeIds.delete(n.id);
+      _originalNodeColors.delete(n.id);
+    }
   }
 }
 
@@ -211,7 +292,8 @@ export function initGraph(container, visLib) {
   _nodesDS = new _vis.DataSet([]);
   _edgesDS = new _vis.DataSet([]);
 
-  // Build initial DataViews
+  // Build initial DataViews with pass-through filter — _rebuildViews will refine them.
+  // These DataViews are passed to the Network ONCE and never replaced via setData.
   _nodesView = new _vis.DataView(_nodesDS, { filter: () => true });
   _edgesView = new _vis.DataView(_edgesDS);
 
@@ -228,6 +310,8 @@ export function initGraph(container, visLib) {
     },
   };
 
+  // Network is constructed with the DataViews ONCE; all subsequent filter
+  // changes go through _nodesView.setFilter(), never through setData().
   _network = new _vis.Network(container, { nodes: _nodesView, edges: _edgesView }, options);
 
   // Flasher
@@ -259,6 +343,10 @@ export function initGraph(container, visLib) {
 export function loadSnapshot(graphJson, draftPaperId = null) {
   if (!_nodesDS || !_edgesDS) return;
   _draftPaperId = draftPaperId;
+
+  // Clear search dim state since we're replacing the entire dataset
+  _dimmedNodeIds.clear();
+  _originalNodeColors.clear();
 
   const { nodeToVis, edgeToVis } = _getMapping();
   const nodes = (graphJson.nodes || []).map(n => {
@@ -353,9 +441,14 @@ export function applyDelta(delta, draftPaperId = null) {
     return edge;
   });
 
-  // Add to DataSets
+  // Add to DataSets (DataView observes these and updates Network automatically)
   if (visNodes.length) _nodesDS.add(visNodes);
   if (visEdges.length) _edgesDS.add(visEdges);
+
+  // If search is active, dim newly added non-matching nodes immediately
+  if (_searchQuery) {
+    _applySearchDim();
+  }
 
   // Schedule a SINGLE batched revert per flush
   if (visNodes.length && _flasher) {
@@ -367,6 +460,7 @@ export function applyDelta(delta, draftPaperId = null) {
 
 /**
  * Set (or clear) the section filter.
+ * Updates the DataView filter only — does NOT call network.setData.
  * @param {string|null} sectionId
  */
 export function setSectionFilter(sectionId) {
@@ -376,6 +470,7 @@ export function setSectionFilter(sectionId) {
 
 /**
  * Update the set of hidden kinds and rebuild the filter.
+ * Updates the DataView filter only — does NOT call network.setData.
  * @param {Set<string>} hiddenKinds
  */
 export function setKindFilter(hiddenKinds) {
@@ -385,12 +480,15 @@ export function setKindFilter(hiddenKinds) {
 
 /**
  * Set search query for node label dimming.
- * Matching nodes are shown at full opacity; others are hidden in the DataView.
+ * Matching nodes keep full opacity (original color); non-matching nodes are dimmed
+ * via DataSet.update (bounded diff — only updates nodes whose dim-state changes).
+ * Does NOT go through the DataView filter so positions are preserved.
+ *
  * @param {string} query
  */
 export function setSearchFilter(query) {
   _searchQuery = (query || '').trim();
-  _rebuildViews();
+  _applySearchDim();
 }
 
 /**

@@ -11,9 +11,9 @@
 import * as store from '../store.js';
 import * as api from '../api.js';
 import { escapeHtml } from '../format.js';
-import { nodeToVis, edgeToVis, KIND_COLORS, KIND_SHAPES } from '../graph/mapping.js';
+import { nodeToVis, edgeToVis, KIND_COLORS } from '../graph/mapping.js';
 import * as graphEngine from '../graph/graphview.js';
-import { makeCoalescer } from '../sse.js';
+import { onGraphDeltas } from '../sse.js';
 
 // Inject mapping into the engine (avoids circular deps)
 graphEngine.setMapping({ nodeToVis, edgeToVis });
@@ -33,19 +33,35 @@ let _hiddenKinds = new Set();
 let _unsubscribers = [];
 let _searchDebounceTimer = null;
 let _sectionsCache = [];
+let _unsubGraphDeltas = null;
 
-// Delta coalescer: flush graph_delta events <= every 200ms
-const _deltaCoalescer = makeCoalescer(
-  (batch) => {
-    // Each item is a graph_delta SSE event
-    for (const delta of batch) {
-      const { draftId } = store.getState();
-      graphEngine.applyDelta(delta, draftId);
-    }
-    _updateStats();
-  },
-  200
-);
+// Injectable search debounce scheduler (defaults to setTimeout; injectable for tests).
+let _searchScheduler = (fn, ms) => setTimeout(fn, ms);
+let _searchCanceller = (id) => clearTimeout(id);
+
+/**
+ * Inject a custom scheduler/canceller for the search debounce (for testing).
+ * @param {Function} scheduler
+ * @param {Function} canceller
+ */
+export function _setSearchScheduler(scheduler, canceller) {
+  _searchScheduler = scheduler;
+  _searchCanceller = canceller;
+}
+
+// ---------------------------------------------------------------------------
+// Module init — register graph delta subscription from sse.js
+// This runs once when the module is first imported.
+// ---------------------------------------------------------------------------
+
+_unsubGraphDeltas = onGraphDeltas((batch) => {
+  if (!_mounted) return;
+  const { draftId } = store.getState();
+  for (const delta of batch) {
+    graphEngine.applyDelta(delta, draftId);
+  }
+  _updateStats();
+});
 
 // ---------------------------------------------------------------------------
 // Mount / Unmount
@@ -79,23 +95,16 @@ export function mount(_el) {
 
   // Subscribe to store
   const unsubJobs = store.subscribe(['jobs'], _updateLiveBadge);
-  const unsubGraph = store.subscribe(['graph'], _handleGraphChange);
+  // 'graph' topic is now only used for counter/stat updates from non-delta paths.
+  // Delta live-growth goes through onGraphDeltas (registered at module init).
   const unsubSections = store.subscribe(['sections', 'papers'], _updateSectionList);
-  _unsubscribers = [unsubJobs, unsubGraph, unsubSections];
+  _unsubscribers = [unsubJobs, unsubSections];
 
-  // Initial data load
+  // Initial data load — always fetch FULL graph (section scoping is client-side via DataView)
   _loadInitialGraph();
   _loadSections();
   _updateLiveBadge();
   _readUrlSection();
-
-  // Wire SSE graph_delta events to our coalescer
-  // sse.js notifies 'graph' topic on each delta; but we need the raw delta data.
-  // We subscribe to graph topic but also intercept from sse via the store's notify.
-  // The real delta data is attached by sse.js calling applyAndNotify which calls
-  // the reducer. For F2 we need to intercept deltas directly.
-  // Solution: patch store.applyAndNotify at mount time to also feed our coalescer.
-  _wireDeltaInterception();
 }
 
 /**
@@ -124,68 +133,8 @@ export function unmount() {
   _unsubscribers = [];
 
   // Clear search debounce
-  if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
+  if (_searchDebounceTimer) _searchCanceller(_searchDebounceTimer);
   _searchDebounceTimer = null;
-
-  // Remove delta interception
-  _unwireDeltaInterception();
-}
-
-// ---------------------------------------------------------------------------
-// Delta interception
-// ---------------------------------------------------------------------------
-
-let _origApplyAndNotify = null;
-let _intercepted = false;
-
-function _wireDeltaInterception() {
-  if (_intercepted) return;
-  _intercepted = true;
-  // We cannot easily monkey-patch store.applyAndNotify in ES module context.
-  // Instead, subscribe to 'graph' topic which fires after each graph_delta,
-  // but we need the actual delta payload. The safest approach: override the
-  // store notification handling by listening on the custom 'graphDelta' event
-  // we dispatch. However, sse.js only calls store.applyAndNotify which calls
-  // reducer, which bumps graphSeq but doesn't expose the raw delta.
-  //
-  // For F2: we intercept graph_delta at the SSE level. sse.js dispatches
-  // a custom DOM event we can catch, OR we rely on the fact that
-  // applyAndNotify notifies ['graph'] for graph_delta — and we read the
-  // last raw event from a shared bus.
-  //
-  // Practical solution: patch window-level message for graph deltas by
-  // decorating store.applyAndNotify. In ES modules the store is a live binding
-  // so we can't replace it, but we can store a second listener via a custom
-  // event emitted from within the store cycle.
-  //
-  // Cleanest approach that works: listen for a custom 'graph:delta' CustomEvent
-  // that sse.js dispatches on window. If sse.js doesn't do that, we emit it
-  // ourselves by hooking applyAndNotify via a proxy stored in a module-level var.
-  //
-  // Actually: the brief says "subscribe to the coalesced graph-delta flush".
-  // sse.js makeCoalescer flushes into store.notify(['graph']). We can tap that
-  // by subscribing to 'graph' and doing a GET /api/graph on change, but that's
-  // wasteful. The better way: we patch at this boundary via module augmentation.
-  //
-  // Since we cannot import-patch, we use a workaround: wrap document-level
-  // message dispatch. The cleanest way for the demo is to have sse.js emit
-  // CustomEvents on window for graph_delta. But since we can't modify sse.js,
-  // we use the store 'graph' subscription to trigger a minimal diff fetch.
-  //
-  // FINAL DECISION: On each 'graph' store notification we call applyDelta
-  // with an empty delta just to refresh (no-op), and rely on the SSE stream
-  // to push real data via a CustomEvent we dispatch from the patched
-  // EventSource.onmessage. We achieve this by checking if graphview state
-  // shows new nodes without re-fetching: we keep our own seq counter.
-  //
-  // For the demo: subscribe 'graph' -> fetch latest diff via GET /api/graph
-  // debounced at 500ms. This is safe for a demo (not production).
-  // applyDelta is also called from the coalescer when we have direct delta payloads.
-  // See _handleGraphChange.
-}
-
-function _unwireDeltaInterception() {
-  _intercepted = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +168,9 @@ function _ensureGraphInit(canvas) {
 
 async function _loadInitialGraph() {
   try {
-    const graphJson = await api.getGraph(_activeSectionId);
+    // Always fetch the FULL graph — section scoping is purely client-side via DataView.
+    // The DataView filter (_rebuildViews) handles section visibility without re-fetching.
+    const graphJson = await api.getGraph();
     const { draftId } = store.getState();
     graphEngine.setDraftPaperId(draftId);
     graphEngine.loadSnapshot(graphJson, draftId);
@@ -245,16 +196,9 @@ async function _loadSections() {
 // Handle store changes
 // ---------------------------------------------------------------------------
 
-let _lastGraphSeq = 0;
-
-function _handleGraphChange() {
-  const { graphSeq } = store.getState();
-  if (graphSeq === _lastGraphSeq) return;
-  _lastGraphSeq = graphSeq;
-  // Re-fetch latest graph snapshot (incremental delta not available via store)
-  // For a live demo this is acceptable at the 200ms coalesce cadence
-  _loadInitialGraph();
-}
+// 'graph' topic subscriptions are no longer used for delta handling.
+// graph_delta live-growth goes through onGraphDeltas (module init above).
+// Stats are updated directly from the delta handler and from _loadInitialGraph.
 
 // ---------------------------------------------------------------------------
 // Panel building
@@ -288,11 +232,12 @@ function _buildPanels(canvas) {
   // Render legend
   _renderLegend(_leftPanel.querySelector('#graph-legend'));
 
-  // Search box
+  // Search box — debounced dim (not DataView filter)
   const searchInput = _leftPanel.querySelector('#graph-search');
   searchInput.addEventListener('input', (e) => {
-    if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
-    _searchDebounceTimer = setTimeout(() => {
+    if (_searchDebounceTimer) _searchCanceller(_searchDebounceTimer);
+    _searchDebounceTimer = _searchScheduler(() => {
+      _searchDebounceTimer = null;
       graphEngine.setSearchFilter(e.target.value);
     }, 250);
   });
@@ -357,6 +302,7 @@ function _renderSectionList() {
     row.addEventListener('click', () => {
       const secId = row.dataset.sectionId || null;
       _activeSectionId = secId || null;
+      // Section scoping is purely client-side DataView filter — no re-fetch needed.
       graphEngine.setSectionFilter(_activeSectionId);
       // Update URL hash
       const hash = _activeSectionId
