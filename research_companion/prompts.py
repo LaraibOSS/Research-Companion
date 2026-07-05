@@ -51,7 +51,7 @@ Rules:
 - related_work: just the names/titles as they appear in the paper. Do NOT fabricate IDs or URLs.
 - If a section is absent, return an empty list for it.
 - DO NOT wrap the JSON in code fences or add commentary. Output starts with `{` and ends with `}`.
-
+<<SECTION_OUTLINE_BLOCK>>
 Paper title: <<TITLE>>
 Paper authors: <<AUTHORS>>
 
@@ -62,15 +62,51 @@ Paper text follows. Extract from this text only:
 
 JSON output:"""
 
+_SECTION_OUTLINE_INSTRUCTION = """\
 
-def render_extraction_prompt(*, title: str, authors: str, paper_text: str) -> str:
+Section outline (the paper is divided into these sections, in order):
+<<SECTION_OUTLINE>>
+
+Additional rules when section outline is provided:
+- Every object in concepts, methods, datasets, claims, and results must include a "section" field.
+- Set "section" to the id of the section it primarily comes from (one of the listed ids above),
+  or null when the entity spans multiple sections or the section is unclear.
+- related_work entries do NOT need a "section" field.
+
+"""
+
+
+def render_extraction_prompt(
+    *,
+    title: str,
+    authors: str,
+    paper_text: str,
+    section_outline: str = "",
+) -> str:
     """Substitute placeholders in EXTRACTION_PROMPT.
 
     Uses .replace() rather than .format() because the prompt contains literal
     JSON-schema braces that would confuse str.format.
+
+    section_outline: one line per section in the form ``id title``, e.g.::
+
+        s1 Introduction
+        s2 Methods
+        s2.1 Datasets
+
+    When empty (default) the rendered prompt contains no mention of sections
+    and degrades to exactly the original behavior.
     """
+    if section_outline:
+        outline_block = _SECTION_OUTLINE_INSTRUCTION.replace(
+            "<<SECTION_OUTLINE>>", section_outline
+        )
+    else:
+        outline_block = ""
+
     return (
         EXTRACTION_PROMPT
+        .replace("<<SECTION_OUTLINE_BLOCK>>", outline_block)
         .replace("<<TITLE>>", title)
         .replace("<<AUTHORS>>", authors)
         .replace("<<PAPER_TEXT>>", paper_text)
@@ -285,3 +321,133 @@ def format_problem_prompt(statement: str, graph_context: str) -> str:
 
 def problem_prompt_sha256() -> str:
     return hashlib.sha256(PROBLEM_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Alignment prompt (agents/align.py). SHA-cached.
+# Assesses how a candidate paper relates to sections of a draft paper.
+# ---------------------------------------------------------------------------
+
+ALIGNMENT_PROMPT = """You are assessing how a candidate paper relates to the sections of a draft paper.
+
+Draft paper sections (id, title, first ~400 chars each):
+<<DRAFT_SECTIONS_BLOCK>>
+
+Candidate paper (title, abstract/first chunk, claims):
+<<CANDIDATE_BLOCK>>
+
+For each draft section, determine the relation of the candidate paper to that section.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "sections": [
+    {
+      "section_id": "string (one of the section ids listed above)",
+      "relation": "strengthens|challenges|different_perspective|irrelevant",
+      "relevance": 0.0,
+      "rationale": "one or two sentences grounded in the blocks above",
+      "evidence": [
+        {"quote": "verbatim quote from the candidate paper text"}
+      ]
+    }
+  ]
+}
+
+Rules:
+- Relation must be exactly one of: strengthens, challenges, different_perspective, irrelevant.
+- relevance is a float between 0.0 and 1.0 (0 = completely irrelevant, 1 = highly relevant).
+- rationale must be grounded ONLY in the provided draft sections and candidate blocks.
+- evidence quotes MUST be verbatim from the candidate paper text provided above. Do not paraphrase.
+  If no direct quote supports the relation, use an empty list for evidence.
+- Return one entry per draft section.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+"""
+
+
+def format_alignment_prompt(*, draft_sections_block: str, candidate_block: str) -> str:
+    """Substitute placeholders in ALIGNMENT_PROMPT."""
+    return (
+        ALIGNMENT_PROMPT
+        .replace("<<DRAFT_SECTIONS_BLOCK>>", draft_sections_block)
+        .replace("<<CANDIDATE_BLOCK>>", candidate_block)
+    )
+
+
+def alignment_prompt_sha256() -> str:
+    return hashlib.sha256(ALIGNMENT_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# QA prompt (agents/qa.py). SHA-cached.
+# Answers a question using only numbered sources, citing [S#] inline.
+# ---------------------------------------------------------------------------
+
+QA_PROMPT = """You answer a research question using ONLY the numbered sources provided.
+
+Question: <<QUESTION>>
+
+Sources:
+<<SOURCES_BLOCK>>
+
+Rules:
+- Use ONLY the numbered sources above ([S1], [S2], ...). Do NOT use prior knowledge.
+- Cite [S#] inline after every factual claim (e.g. "GraphRAG uses community summaries [S1]").
+- When quoting, quote exactly and verbatim from the source text. Wrap quotes in double quotes.
+- If the sources are insufficient to answer the question, say so explicitly:
+  "The provided sources do not contain enough information to answer this question."
+- Keep the answer focused and under 200 words unless detail is explicitly requested.
+- Do NOT invent facts, paper titles, author names, or results not present in the sources.
+
+Answer (cite [S#] after every claim):"""
+
+
+def format_qa_prompt(*, question: str, sources_block: str) -> str:
+    """Substitute placeholders in QA_PROMPT."""
+    return (
+        QA_PROMPT
+        .replace("<<QUESTION>>", question)
+        .replace("<<SOURCES_BLOCK>>", sources_block)
+    )
+
+
+def qa_prompt_sha256() -> str:
+    return hashlib.sha256(QA_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Compare prompt (agents/compare.py). SHA-cached.
+# Produces a short narrative comparison of two papers grounded in provided blocks.
+# ---------------------------------------------------------------------------
+
+COMPARE_PROMPT = """You are writing a short narrative comparison of two research papers.
+
+Paper A:
+<<PAPER_A_BLOCK>>
+
+Paper B:
+<<PAPER_B_BLOCK>>
+
+Shared context (datasets, methods, or topics both papers address):
+<<SHARED_BLOCK>>
+
+Write a concise comparison of 3-6 sentences. Cite paper titles in [brackets] whenever you refer
+to a specific paper (e.g. [Paper Title A]). Your comparison must be grounded only in the provided
+blocks above — do NOT introduce facts, claims, or results not present in the blocks.
+
+Comparison:"""
+
+
+def format_compare_prompt(
+    *, paper_a_block: str, paper_b_block: str, shared_block: str
+) -> str:
+    """Substitute placeholders in COMPARE_PROMPT."""
+    return (
+        COMPARE_PROMPT
+        .replace("<<PAPER_A_BLOCK>>", paper_a_block)
+        .replace("<<PAPER_B_BLOCK>>", paper_b_block)
+        .replace("<<SHARED_BLOCK>>", shared_block)
+    )
+
+
+def compare_prompt_sha256() -> str:
+    return hashlib.sha256(COMPARE_PROMPT.encode("utf-8")).hexdigest()
