@@ -8,8 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Callable
 
 from research_companion import store
 from research_companion.extract import get_paper_text
@@ -75,9 +75,7 @@ def _is_allcaps_heading(line: str) -> bool:
     if not any(c.isalpha() for c in stripped):
         return False
     # All letters must be uppercase
-    if not all(c.isupper() for c in stripped if c.isalpha()):
-        return False
-    return True
+    return all(c.isupper() for c in stripped if c.isalpha())
 
 
 def _find_heading_candidates(text: str) -> list[tuple[int, str, int, str | None]]:
@@ -389,10 +387,7 @@ def _find_in_original(text: str, norm_target: str, approx_norm_idx: int) -> int:
     # Leading/trailing spaces are stripped by _norm, so the mapping may have a
     # leading space we need to account for.  Instead of reproducing _norm exactly,
     # we look up the original index for approx_norm_idx with a small guard.
-    if approx_norm_idx < len(norm_to_orig):
-        orig_anchor = norm_to_orig[approx_norm_idx]
-    else:
-        orig_anchor = len(text)
+    orig_anchor = norm_to_orig[approx_norm_idx] if approx_norm_idx < len(norm_to_orig) else len(text)
 
     # Search window: scan forward from orig_anchor (which maps directly to the
     # first character of the heading in the original text).  We allow up to

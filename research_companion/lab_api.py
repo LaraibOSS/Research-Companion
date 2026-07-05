@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import event_to_dict
@@ -38,19 +38,19 @@ try:
     from pydantic import BaseModel as _BaseModel
 
     class _DraftBody(_BaseModel):
-        paper_id: Optional[str] = None
+        paper_id: str | None = None
 
     class _IngestBody(_BaseModel):
         folder: str = ""
 
     class _AlignBody(_BaseModel):
         paper_id: str = ""
-        against: Optional[str] = None
+        against: str | None = None
         force: bool = False
 
     class _AskBody(_BaseModel):
         question: str = ""
-        section_id: Optional[str] = None
+        section_id: str | None = None
 
     class _CompareBody(_BaseModel):
         paper_a: str = ""
@@ -196,7 +196,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     """
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import HTMLResponse, StreamingResponse
+        from fastapi.responses import HTMLResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
         raise ImportError(
@@ -214,10 +214,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             yield
         finally:
             drain_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await drain_task
-            except asyncio.CancelledError:
-                pass
 
     app = FastAPI(title="Research Lab", lifespan=lifespan)
 
@@ -388,11 +386,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         failures = store.list_failures()
         # Find a failure matching this paper_id
         matched_key = None
-        matched_info = None
         for key, info in failures.items():
             if key == paper_id or info.get("paper_id") == paper_id:
                 matched_key = key
-                matched_info = info
                 break
 
         if matched_key is None:
@@ -573,7 +569,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # GET /api/graph
     # -----------------------------------------------------------------
     @app.get("/api/graph")
-    async def get_graph(section: Optional[str] = None) -> dict:
+    async def get_graph(section: str | None = None) -> dict:
         from research_companion import store
         from research_companion.graph import load_graph, section_subgraph
 
@@ -665,7 +661,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         try:
             pdfs = await asyncio.to_thread(scan_pdfs, folder)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         # One ingest at a time — narrow to INGEST jobs only (add/retry are not blocked)
         running_ingest_jobs = [
@@ -756,9 +752,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 force=force,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except AlignmentError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         return payload
 
@@ -839,7 +835,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 compare_papers, paper_a, paper_b, llm=resolved_llm
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         return result
 
@@ -921,11 +917,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
 async def _add_paper_task(target: str, bus: Bus, *, pipeline_overrides: dict | None = None) -> None:
     """Add a paper to the store and run the full single-paper pipeline."""
-    from research_companion.fetch import add_paper
-    from research_companion import store
-    from research_companion.agents.events import JobDone, PaperAdded
-    from research_companion.lab import ingest_one, _default_aligner, _default_strengther
     import os
+
+    from research_companion.agents.events import JobDone, PaperAdded
+    from research_companion.fetch import add_paper
+    from research_companion.lab import _default_aligner, _default_strengther, ingest_one
 
     if pipeline_overrides is None:
         pipeline_overrides = {}
@@ -984,9 +980,10 @@ async def _retry_paper_task(
     Raises on add failure so the caller's _run() records "failed" status and
     the failure entry is kept (not cleared).
     """
-    from research_companion.agents.events import JobDone, PaperAdded
-    from research_companion.lab import ingest_one, _default_aligner, _default_strengther
     import os
+
+    from research_companion.agents.events import JobDone, PaperAdded
+    from research_companion.lab import _default_aligner, _default_strengther, ingest_one
 
     if pipeline_overrides is None:
         pipeline_overrides = {}
@@ -1047,6 +1044,7 @@ def _resolve_llm(*, json_mode: bool = True):
     format does not mangle free text.
     """
     import os
+
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
     provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")

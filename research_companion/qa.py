@@ -10,13 +10,11 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
-from research_companion.rank import BM25, tokenize
-from research_companion.prompts import format_qa_prompt, qa_prompt_sha256
 from research_companion import store
+from research_companion.prompts import format_qa_prompt
+from research_companion.rank import BM25, tokenize
 from research_companion.sections import Section, group_extraction_by_section, is_boilerplate
-
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -55,7 +53,6 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
     section_title "Full Text").
     """
     from research_companion.prompts import extraction_prompt_sha256 as _ext_sha
-    from research_companion.extract import get_paper_text
 
     if paper_ids is None:
         papers = store.list_papers()
@@ -88,10 +85,7 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
 
         if raw_sections:
             # Group extraction entities by section
-            if extraction:
-                grouped = group_extraction_by_section(extraction, raw_sections)
-            else:
-                grouped = {}
+            grouped = group_extraction_by_section(extraction, raw_sections) if extraction else {}
 
             for sec in raw_sections:
                 if is_boilerplate(sec.title):
@@ -160,9 +154,7 @@ def _verify_quote(quote: str, text: str) -> bool:
     """Return True if quote is found verbatim or after whitespace-normalization in text."""
     if quote in text:
         return True
-    if _norm_text(quote) in _norm_text(text):
-        return True
-    return False
+    return _norm_text(quote) in _norm_text(text)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +258,7 @@ def answer(
 
     # Distribute text_budget proportionally across slices
     sources_block_parts: list[str] = []
-    for idx, (unit, score, header) in enumerate(
+    for _idx, (unit, score, header) in enumerate(
         zip(top_units, top_scores, header_strings, strict=False), 1
     ):
         fraction = (score / total_score) if total_score > 0 else (1.0 / k)

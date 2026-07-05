@@ -13,7 +13,6 @@ from research_companion import cli, store
 from research_companion.prompts import alignment_prompt_sha256, extraction_prompt_sha256
 from research_companion.sections import Section
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -390,11 +389,11 @@ class TestAlignPapersHappyPath:
     def test_score_band_verdict_hand_computed(self):
         """Verify score and verdict match hand-computed values."""
         from research_companion.alignment import (
+            _tokenize,
             align_papers,
             lexical_overlap,
             score_alignment,
             usefulness_verdict,
-            _tokenize,
         )
         draft_text = "Introduction text here.\n\nMethods text here.\n"
         draft_id = _make_paper("local:draft00007", "Draft Paper", draft_text)

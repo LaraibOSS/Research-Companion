@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from research_companion import store
 from research_companion.sections import (
     Section,
     build_and_save_sections,
@@ -18,8 +19,6 @@ from research_companion.sections import (
     refine_sections_llm,
     section_text,
 )
-from research_companion import store
-
 
 # ===========================================================================
 # build_section_tree — numbered headings (levels 1+2, parent linkage, tiling)
@@ -59,8 +58,6 @@ def test_numbered_headings_level2_parent_linkage():
     )
     sections = build_section_tree(text)
     ids = [s.section_id for s in sections]
-    levels = [s.level for s in sections]
-    parents = [s.parent for s in sections]
 
     assert "s1" in ids
     assert "s2" in ids
@@ -685,7 +682,7 @@ def test_build_and_save_sections_stale_sha_rebuilds():
         "Version 1 conclusion.\n"
     )
     _make_paper(paper_id, text_v1)
-    sections_v1 = build_and_save_sections(paper_id)
+    build_and_save_sections(paper_id)
 
     # Simulate text change: save new text with different sha
     text_v2 = (
@@ -732,7 +729,7 @@ def test_build_and_save_sections_llm_fallback_triggered_when_lt3_sections():
             ]
         })
 
-    sections = build_and_save_sections(paper_id, llm=fake_llm)
+    build_and_save_sections(paper_id, llm=fake_llm)
     # LLM should have been called because heuristics found < 3 sections
     assert llm_call_count == 1
 

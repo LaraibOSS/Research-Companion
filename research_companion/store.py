@@ -257,9 +257,8 @@ def load_sections(paper_id: str, *, text_sha: str | None = None) -> dict | None:
     except (json.JSONDecodeError, ValueError):
         return None
 
-    if text_sha is not None:
-        if payload.get("text_sha256") != text_sha:
-            return None
+    if text_sha is not None and payload.get("text_sha256") != text_sha:
+        return None
 
     return payload
 
@@ -285,9 +284,8 @@ def load_alignment(paper_id: str, *, draft_paper_id: str | None = None) -> dict 
     except (json.JSONDecodeError, ValueError):
         return None
 
-    if draft_paper_id is not None:
-        if payload.get("draft_paper_id") != draft_paper_id:
-            return None
+    if draft_paper_id is not None and payload.get("draft_paper_id") != draft_paper_id:
+        return None
 
     return payload
 

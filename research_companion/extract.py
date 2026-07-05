@@ -244,9 +244,8 @@ def extract_paper(
     _ENTITY_LIST_KEYS = ("concepts", "methods", "datasets", "claims", "results")
     for key in _ENTITY_LIST_KEYS:
         for entity in extraction.get(key, []):
-            if isinstance(entity, dict) and "section" in entity:
-                if entity["section"] not in section_ids:
-                    entity["section"] = None
+            if isinstance(entity, dict) and "section" in entity and entity["section"] not in section_ids:
+                entity["section"] = None
 
     save_extraction(meta.paper_id, extraction, prompt_sha=prompt_sha)
     usage["cached"] = False

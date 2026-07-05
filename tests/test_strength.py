@@ -1,9 +1,7 @@
 """Tests for research_companion.strength — paper strength scoring."""
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -318,7 +316,7 @@ def test_compute_strength_return_shape():
     }
 
     # Each signal has value, weight, available
-    for name, sig in result["signals"].items():
+    for _name, sig in result["signals"].items():
         assert "value" in sig
         assert "weight" in sig
         assert "available" in sig
@@ -361,9 +359,8 @@ def test_compute_strength_score_rounding():
 
 def test_strength_for_paper_unknown_paper(tmp_path):
     """Test strength_for_paper raises ValueError for unknown paper."""
-    with patch.dict("os.environ", {"RESEARCH_COMPANION_DIR": str(tmp_path)}):
-        with pytest.raises(ValueError, match="Unknown paper_id"):
-            strength_for_paper("arxiv:9999.99999")
+    with patch.dict("os.environ", {"RESEARCH_COMPANION_DIR": str(tmp_path)}), pytest.raises(ValueError, match="Unknown paper_id"):
+        strength_for_paper("arxiv:9999.99999")
 
 
 def test_strength_for_paper_persists(tmp_path):
@@ -536,15 +533,14 @@ def test_strength_for_paper_with_draft_self(isolated_papergraph_dir):
 
                 with patch(
                     "research_companion.strength.store.load_alignment"
-                ) as mock_load_align:
-                    with patch(
-                        "research_companion.strength.store.save_strength"
-                    ) as mock_save:
-                        # This should NOT be called since paper_id == draft_paper_id
-                        result = strength_for_paper("arxiv:2410.05779")
+                ) as mock_load_align, patch(
+                    "research_companion.strength.store.save_strength"
+                ) as mock_save:
+                    # This should NOT be called since paper_id == draft_paper_id
+                    strength_for_paper("arxiv:2410.05779")
 
-                        mock_load_align.assert_not_called()
-                        mock_save.assert_called_once()
+                    mock_load_align.assert_not_called()
+                    mock_save.assert_called_once()
 
 
 def test_compute_strength_refcheck_with_missing_verified():

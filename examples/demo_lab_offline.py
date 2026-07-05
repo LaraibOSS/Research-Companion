@@ -34,14 +34,14 @@ def _load_fixture_dicts() -> list[dict]:
 def _dict_to_event(d: dict):
     """Convert a plain dict (from the JSONL fixture) to a typed event dataclass."""
     from research_companion.agents.events import (
-        PaperAdded,
-        SectionTreeBuilt,
-        SectionExtracted,
         GraphDelta,
-        StrengthUpdated,
         IngestFailed,
         IngestProgress,
         JobDone,
+        PaperAdded,
+        SectionExtracted,
+        SectionTreeBuilt,
+        StrengthUpdated,
     )
 
     kind = d.get("event", "")
@@ -87,14 +87,14 @@ def _dict_to_event(d: dict):
 def _narrative(event) -> str | None:
     """Return a human-readable one-liner for an event, or None to skip."""
     from research_companion.agents.events import (
-        PaperAdded,
-        SectionTreeBuilt,
-        SectionExtracted,
         GraphDelta,
-        StrengthUpdated,
         IngestFailed,
         IngestProgress,
         JobDone,
+        PaperAdded,
+        SectionExtracted,
+        SectionTreeBuilt,
+        StrengthUpdated,
     )
 
     if isinstance(event, PaperAdded):

@@ -23,9 +23,8 @@ from research_companion.agents.events import (
     StrengthUpdated,
     event_to_dict,
 )
-from research_companion.lab import IngestResult, scan_pdfs, ingest_folder
+from research_companion.lab import IngestResult, ingest_folder, scan_pdfs
 from research_companion.store import PaperMetadata
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -164,13 +163,13 @@ class TestHappyPath:
     def test_two_papers_event_order(self, tmp_path, isolated_papergraph_dir):
         """Event order: progress, paper_added, section_tree_built, section_extracted...,
         graph_delta, strength_updated, ..., job_done."""
-        p1 = _make_pdf(tmp_path, "p1.pdf")
-        p2 = _make_pdf(tmp_path, "p2.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p2.pdf")
 
         add, sect, ext, align, strength = _make_fakes(["local:aaa", "local:bbb"])
         bus = Bus()
 
-        result = asyncio.run(
+        asyncio.run(
             ingest_folder(
                 tmp_path,
                 bus=bus,
@@ -209,8 +208,8 @@ class TestHappyPath:
         assert bus.history[-1].job == "ingest"
 
     def test_two_papers_ingest_result_counts(self, tmp_path, isolated_papergraph_dir):
-        p1 = _make_pdf(tmp_path, "p1.pdf")
-        p2 = _make_pdf(tmp_path, "p2.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p2.pdf")
 
         add, sect, ext, align, strength = _make_fakes(["local:aaa", "local:bbb"])
         bus = Bus()
@@ -232,8 +231,8 @@ class TestHappyPath:
         assert len(result.failed) == 0
 
     def test_progress_before_each_file(self, tmp_path, isolated_papergraph_dir):
-        p1 = _make_pdf(tmp_path, "p1.pdf")
-        p2 = _make_pdf(tmp_path, "p2.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p2.pdf")
 
         add, sect, ext, _, _ = _make_fakes(["local:aaa", "local:bbb"])
         bus = Bus()
@@ -264,8 +263,8 @@ class TestExtractFailure:
         """IngestFailed published, failure recorded, run continues."""
         from research_companion import store
 
-        p1 = _make_pdf(tmp_path, "p1.pdf")
-        p2 = _make_pdf(tmp_path, "p2.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p2.pdf")
 
         _idx = [0]
 
@@ -321,8 +320,8 @@ class TestExtractFailure:
         """After one failure, remaining papers still get processed."""
         from research_companion import store
 
-        p_bad = _make_pdf(tmp_path, "a_bad.pdf")
-        p_good = _make_pdf(tmp_path, "b_good.pdf")
+        _make_pdf(tmp_path, "a_bad.pdf")
+        _make_pdf(tmp_path, "b_good.pdf")
 
         _idx = [0]
 
@@ -401,7 +400,7 @@ class TestSkipPath:
         from research_companion import store
         from research_companion.prompts import extraction_prompt_sha256
 
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
 
         # Pre-populate extraction cache so it looks already ingested
         paper_id = "local:skip_me"
@@ -442,7 +441,7 @@ class TestSkipPath:
 class TestAlignment:
     def test_align_skipped_when_no_draft(self, tmp_path, isolated_papergraph_dir):
         """No AlignmentReady when draft not set."""
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, align, strength = _make_fakes(["local:aaa"])
         bus = Bus()
 
@@ -467,7 +466,7 @@ class TestAlignment:
         from research_companion import store as _store
 
         _store.set_draft_paper_id("local:draft")
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, align, _ = _make_fakes(["local:candidate"])
         bus = Bus()
 
@@ -493,7 +492,7 @@ class TestAlignment:
 
         paper_id = "local:draft_paper"
         _store.set_draft_paper_id(paper_id)
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
 
         # Use _make_fakes (which saves text) but override add_pdf to return draft paper
         add, sect, ext, align, _ = _make_fakes([paper_id])
@@ -523,7 +522,7 @@ class TestAlignment:
         candidate_id = "local:candidate_paper"
         _store.set_draft_paper_id(draft_id)
 
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, align, _ = _make_fakes([candidate_id])
         bus = Bus()
 
@@ -551,7 +550,7 @@ class TestAlignment:
         from research_companion import store as _store
 
         _store.set_draft_paper_id("local:draft")
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, _, _ = _make_fakes(["local:candidate"])
         bus = Bus()
 
@@ -588,7 +587,7 @@ class TestAlignStrengthFailures:
         candidate_id = "local:candidate"
         _store.set_draft_paper_id(draft_id)
 
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, _, _ = _make_fakes([candidate_id])
 
         def bad_aligner(draft, cand, *, llm, **kw):
@@ -626,7 +625,7 @@ class TestAlignStrengthFailures:
         """Strengther raising -> IngestFailed(stage='strength') published; paper still added."""
         from research_companion import store as _store
 
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, _, _ = _make_fakes(["local:aaa"])
 
         def bad_strengther(paper_id, **kw):
@@ -664,7 +663,7 @@ class TestAlignStrengthFailures:
         from research_companion import store as _store
 
         _store.set_draft_paper_id("local:draft")
-        p1 = _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p1.pdf")
         add, sect, ext, _, _ = _make_fakes(["local:cand"])
 
         def bad_aligner(draft, cand, *, llm, **kw):
@@ -899,7 +898,7 @@ class TestFixtureRegression:
             f"Fixture kinds: {[d['event'] for d in fixture_dicts]}"
         )
 
-        for i, (live, expected) in enumerate(zip(live_dicts, fixture_dicts)):
+        for i, (live, expected) in enumerate(zip(live_dicts, fixture_dicts, strict=False)):
             assert live.keys() == expected.keys(), (
                 f"Line {i}: key set mismatch\n  live={set(live.keys())}\n  expected={set(expected.keys())}"
             )
@@ -989,8 +988,8 @@ class TestCliLab:
 
     def test_lab_failures_shows_recorded(self, isolated_papergraph_dir, capsys):
         """lab failures prints recorded failures."""
-        from research_companion import store
         import research_companion.cli as cli
+        from research_companion import store
 
         store.record_failure("/path/to/paper.pdf", {
             "stage": "extract",
@@ -1011,8 +1010,8 @@ class TestCliLab:
 def _generate_fixture(fixture_path: Path) -> None:
     """Generate the lab_events.jsonl fixture from a synthetic 3-paper run
     (one failing at extract stage). Writes to fixture_path."""
-    import tempfile
     import os
+    import tempfile
 
     fixture_path.parent.mkdir(parents=True, exist_ok=True)
 

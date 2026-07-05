@@ -6,11 +6,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from research_companion import store
 from research_companion.prompts import extraction_prompt_sha256
-
 
 # ---------------------------------------------------------------------------
 # Helpers: fabricate papers with sections.json + extraction.json + text.txt
@@ -203,7 +200,6 @@ class TestAnswer:
         fake_llm, _ = self._make_fake_llm("Graph networks are powerful [S1]. Methods vary [S1].")
         result = answer("graph networks methods", llm=fake_llm, k_sections=2)
         # cited should contain only the sources actually referenced in text
-        cited_ns = {s.section_id for s in result.cited}
         # At least S1 should be cited (it was referenced)
         assert len(result.cited) >= 1
 
@@ -314,7 +310,7 @@ class TestAnswer:
                                 "parent": None, "char_start": 0, "char_end": 28}])
         # Empty question -> tokenize returns [] -> all zeros -> canned response, no LLM
         fake_llm, calls = self._make_fake_llm("answer")
-        result = answer("", llm=fake_llm)
+        answer("", llm=fake_llm)
         assert calls == []
 
 
@@ -329,7 +325,7 @@ class TestCLIAsk:
         assert rc == 1
 
     def test_ask_no_papers_graceful(self, capsys, monkeypatch):
-        from research_companion import cli, qa
+        from research_companion import cli
         monkeypatch.setitem(cli.QA_CONTEXT_OVERRIDES, "llm",
                             lambda prompt: "No answer")
         rc = cli.main(["ask", "what is attention?"])
@@ -338,8 +334,7 @@ class TestCLIAsk:
         assert "No relevant material" in out or "no" in out.lower()
 
     def test_ask_json_output(self, capsys, monkeypatch):
-        from research_companion import cli, store
-        from research_companion.prompts import extraction_prompt_sha256
+        from research_companion import cli
         # Seed a paper
         _make_paper("arxiv:9101", "CLI Paper",
                     "Introduction to attention mechanisms.\n",
@@ -493,7 +488,7 @@ class TestHeaderSafeBudgetTrimming:
              "parent": None, "char_start": 0, "char_end": len(text2)},
         ])
         fake_llm, calls = self._make_fake_llm("answer [S1] [S2]")
-        result = answer(
+        answer(
             "alpha beta",
             llm=fake_llm,
             k_sections=2,
@@ -552,8 +547,8 @@ class TestHeaderSafeBudgetTrimming:
 class TestProviderEnvResolution:
     def test_resolve_llm_honors_provider_env(self, monkeypatch):
         """_resolve_llm must consult RESEARCH_COMPANION_PROVIDER when provider not given."""
-        from research_companion import qa as qa_mod
         from research_companion import extract as extract_mod
+        from research_companion import qa as qa_mod
 
         calls = []
         monkeypatch.setattr(extract_mod, "_call_openai",
@@ -568,8 +563,8 @@ class TestProviderEnvResolution:
         assert calls and calls[0][0] == "openai"
 
     def test_explicit_provider_overrides_env(self, monkeypatch):
-        from research_companion import qa as qa_mod
         from research_companion import extract as extract_mod
+        from research_companion import qa as qa_mod
 
         calls = []
         monkeypatch.setattr(extract_mod, "_call_openai",
@@ -584,8 +579,8 @@ class TestProviderEnvResolution:
 
     def test_qa_openai_llm_uses_prose_mode(self, monkeypatch):
         """qa's resolved OpenAI llm must pass json_mode=False (prose answer)."""
-        from research_companion import qa as qa_mod
         from research_companion import extract as extract_mod
+        from research_companion import qa as qa_mod
 
         seen = {}
 

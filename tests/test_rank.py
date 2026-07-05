@@ -8,7 +8,6 @@ import math
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # tokenize
 # ---------------------------------------------------------------------------
@@ -31,7 +30,7 @@ class TestTokenize:
         assert "graph" in tokens
 
     def test_filters_stopwords(self):
-        from research_companion.rank import tokenize, STOPWORDS
+        from research_companion.rank import STOPWORDS, tokenize
         # Pick a stopword that is >= 3 chars
         sw = next(s for s in STOPWORDS if len(s) >= 3)
         tokens = tokenize(f"graph {sw} method")

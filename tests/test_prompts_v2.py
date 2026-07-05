@@ -5,12 +5,7 @@ then implement, then confirm green.
 """
 from __future__ import annotations
 
-import json
-
-import pytest
-
 from research_companion import prompts
-
 
 # ===========================================================================
 # render_extraction_prompt — section_outline parameter

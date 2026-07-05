@@ -22,11 +22,8 @@ from research_companion.agents.events import (  # noqa: E402
     GraphDelta,
     JobDone,
     PaperAdded,
-    SectionTreeBuilt,
-    StrengthUpdated,
 )
 from research_companion.lab_api import create_lab_app  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,7 +127,6 @@ class TestStaticMount:
 
     def test_static_serves_file(self, isolated_papergraph_dir):
         """A file placed in lab/static/ is served."""
-        from research_companion import lab_api as _la
         import research_companion.lab_api as _la_mod
         static_dir = Path(_la_mod.__file__).parent / "lab" / "static"
         test_file = static_dir / "test_asset.txt"
@@ -365,7 +361,6 @@ class TestGraph:
 
     def test_graph_with_paper(self, isolated_papergraph_dir):
         from research_companion import graph as _g
-        from research_companion import store
         _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "My Paper")
         G = _g.build_graph()
         _g.save_graph(G)
@@ -578,7 +573,6 @@ class TestIngest:
         async def blocking_ingest(folder, *, bus, **kwargs):
             await block_event.wait()
 
-        import research_companion.lab_api as _la
         app = create_lab_app(Bus())
         app.state.ingest_override = blocking_ingest
 
@@ -736,8 +730,8 @@ def _make_pipeline_spying_fakes(store_paper: bool = True):
     to the store so that ingest_one's get_paper_text won't fail.
     """
     from research_companion import store as _store
-    from research_companion.store import PaperMetadata
     from research_companion.sections import Section
+    from research_companion.store import PaperMetadata
 
     paper_id = "local:pipe_test_abc"
 
@@ -815,7 +809,6 @@ class TestAddPaper:
             b"trailer<</Size 4/Root 1 0 R>>\n"
             b"startxref\n0\n%%EOF\n"
         )
-        from research_companion.store import PaperMetadata
 
         async def fake_add_paper_task(target, bus):
             pass
@@ -831,8 +824,7 @@ class TestAddPaper:
     def test_pipeline_stages_run_via_seams(self, isolated_papergraph_dir, tmp_path):
         """When add_paper_override is NOT set, pipeline_overrides stage fakes are invoked."""
         from unittest.mock import patch
-        from research_companion import store as _store
-        from research_companion.store import PaperMetadata
+
 
         fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=True)
 
@@ -844,21 +836,20 @@ class TestAddPaper:
         app = create_lab_app(bus)
         app.state.pipeline_overrides = seam_overrides
 
-        with patch("research_companion.fetch.add_paper", fake_add_paper):
-            with TestClient(app) as c:
-                resp = c.post("/api/papers", json={"target": "local:pipe_test_abc"})
-                assert resp.status_code == 202
-                job_id = resp.json()["job_id"]
+        with patch("research_companion.fetch.add_paper", fake_add_paper), TestClient(app) as c:
+            resp = c.post("/api/papers", json={"target": "local:pipe_test_abc"})
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
 
-                # Poll until job completes (TestClient runs background tasks)
-                import time
-                for _ in range(50):
-                    job = c.get(f"/api/jobs/{job_id}").json()
-                    if job["status"] != "running":
-                        break
-                    time.sleep(0.05)
+            # Poll until job completes (TestClient runs background tasks)
+            import time
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
 
-                assert job["status"] == "done", f"job failed: {job}"
+            assert job["status"] == "done", f"job failed: {job}"
 
         # Verify pipeline seams were invoked
         assert counts["sectioner"] >= 1, "sectioner stage was not called"
@@ -922,8 +913,9 @@ class TestRetryPaper:
 
     def test_retry_add_failure_preserves_failure_entry(self, isolated_papergraph_dir):
         """When the add step in retry raises, the failure entry is NOT cleared."""
-        from research_companion import store
         from unittest.mock import patch
+
+        from research_companion import store
 
         path_key = "local:fail_paper"
         store.record_failure(path_key, {"stage": "extract", "error": "old error",
@@ -935,17 +927,16 @@ class TestRetryPaper:
         bus = Bus()
         app = create_lab_app(bus)
 
-        with patch("research_companion.fetch.add_local_pdf", raising_add_local_pdf):
-            with TestClient(app) as c:
-                resp = c.post(f"/api/papers/{path_key}/retry")
-                assert resp.status_code == 202
-                job_id = resp.json()["job_id"]
+        with patch("research_companion.fetch.add_local_pdf", raising_add_local_pdf), TestClient(app) as c:
+            resp = c.post(f"/api/papers/{path_key}/retry")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
 
-                import time
-                for _ in range(50):
-                    job = c.get(f"/api/jobs/{job_id}").json()
-                    if job["status"] != "running":
-                        break
+            import time
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
                     time.sleep(0.05)
 
                 assert job["status"] == "failed", f"expected failed, got: {job}"
@@ -956,8 +947,9 @@ class TestRetryPaper:
 
     def test_retry_pipeline_stages_run_on_success(self, isolated_papergraph_dir):
         """When retry succeeds, pipeline stage seams are invoked and failure is cleared."""
-        from research_companion import store
         from unittest.mock import patch
+
+        from research_companion import store
 
         path_key = "some/paper.pdf"
         paper_id_val = "local:retry_success_test"
@@ -984,20 +976,19 @@ class TestRetryPaper:
         app = create_lab_app(bus)
         app.state.pipeline_overrides = seam_overrides
 
-        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf):
-            with TestClient(app) as c:
-                resp = c.post(f"/api/papers/{paper_id_val}/retry")
-                assert resp.status_code == 202
-                job_id = resp.json()["job_id"]
+        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), TestClient(app) as c:
+            resp = c.post(f"/api/papers/{paper_id_val}/retry")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
 
-                import time
-                for _ in range(50):
-                    job = c.get(f"/api/jobs/{job_id}").json()
-                    if job["status"] != "running":
-                        break
-                    time.sleep(0.05)
+            import time
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
 
-                assert job["status"] == "done", f"expected done, got: {job}"
+            assert job["status"] == "done", f"expected done, got: {job}"
 
         # Pipeline stages must have run
         assert counts["sectioner"] >= 1, "sectioner stage was not called"
@@ -1046,7 +1037,7 @@ class TestSSE:
         assert "seq" in body
         assert "paper_added" in body
         # Replayed events get seq 1, 2
-        data = [l for l in body.split("\n") if l.startswith("data:")]
+        data = [line for line in body.split("\n") if line.startswith("data:")]
         assert len(data) >= 2
         evt1 = json.loads(data[0][len("data: "):])
         assert evt1["seq"] == 1
@@ -1062,9 +1053,9 @@ class TestSSE:
         with c.stream("GET", "/api/events") as resp:
             body = "".join(resp.iter_text())
 
-        data_lines = [l for l in body.split("\n") if l.startswith("data:")]
+        data_lines = [line for line in body.split("\n") if line.startswith("data:")]
         assert len(data_lines) >= 2
-        events = [json.loads(l[len("data: "):].strip()) for l in data_lines]
+        events = [json.loads(line[len("data: "):].strip()) for line in data_lines]
         seqs = [e["seq"] for e in events]
         assert all(isinstance(s, int) and s > 0 for s in seqs)
         assert seqs == sorted(seqs)
@@ -1088,7 +1079,6 @@ class TestSSE:
         seq numbers for the same event.  This verifies that seq is assigned once (in
         _SeqRecorder) and not computed independently per-generator.
         """
-        from research_companion.lab_api import _SeqRecorder
 
         bus = Bus()
         events = [
@@ -1106,11 +1096,10 @@ class TestSSE:
         app2.state._sse_done = True
 
         def _read_seqs(app):
-            with TestClient(app) as c:
-                with c.stream("GET", "/api/events") as resp:
-                    body = "".join(resp.iter_text())
-            data_lines = [l for l in body.split("\n") if l.startswith("data:")]
-            return [json.loads(l[len("data: "):].strip())["seq"] for l in data_lines]
+            with TestClient(app) as c, c.stream("GET", "/api/events") as resp:
+                body = "".join(resp.iter_text())
+            data_lines = [line for line in body.split("\n") if line.startswith("data:")]
+            return [json.loads(line[len("data: "):].strip())["seq"] for line in data_lines]
 
         seqs1 = _read_seqs(app1)
         seqs2 = _read_seqs(app2)
@@ -1120,7 +1109,7 @@ class TestSSE:
             f"stream 1 has {len(seqs1)} events, stream 2 has {len(seqs2)}"
         )
         # Each seq must match — same event, same seq number
-        for i, (s1, s2) in enumerate(zip(seqs1, seqs2)):
+        for i, (s1, s2) in enumerate(zip(seqs1, seqs2, strict=False)):
             assert s1 == s2, (
                 f"event {i}: stream 1 seq={s1}, stream 2 seq={s2} — "
                 "seq numbers diverged between concurrent clients"

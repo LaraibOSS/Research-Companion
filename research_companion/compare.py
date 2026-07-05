@@ -10,11 +10,11 @@ Returns a structured dict with:
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from research_companion.graph import _norm
-from research_companion.store import PaperMetadata, load_extraction
 from research_companion.prompts import extraction_prompt_sha256, format_compare_prompt
+from research_companion.store import PaperMetadata, load_extraction
 
 
 def compare_papers(paper_a: str, paper_b: str, *, llm: Callable[[str], str] | None = None) -> dict:

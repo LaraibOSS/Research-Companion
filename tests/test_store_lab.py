@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-
-import pytest
+from datetime import datetime
 
 from research_companion import store
-
 
 # ============================================================================
 # Config helpers: load_config, save_config, get/set draft_paper_id

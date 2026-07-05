@@ -9,12 +9,9 @@ Failures are per-stage, persisted, never abort the run, and re-runs are idempote
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
-
-# Sentinel for "not provided" — distinguishes explicit None (skip) from unset (use default).
-_UNSET = object()
 
 from research_companion.agents.events import (
     AlignmentReady,
@@ -27,6 +24,9 @@ from research_companion.agents.events import (
     SectionTreeBuilt,
     StrengthUpdated,
 )
+
+# Sentinel for "not provided" — distinguishes explicit None (skip) from unset (use default).
+_UNSET = object()
 
 # Module-level lock to serialize graph read/write operations across concurrent tasks.
 _GRAPH_LOCK = asyncio.Lock()
@@ -274,7 +274,6 @@ async def ingest_folder(
     Returns IngestResult with lists of added, skipped, and failed paper path strings.
     """
     from research_companion import store
-    from research_companion.extract import get_paper_text
 
     # Resolve seam defaults
     if add_pdf is None:
@@ -290,16 +289,10 @@ async def ingest_folder(
         sectioner = build_and_save_sections
 
     # aligner: sentinel _UNSET -> try real default; None -> explicitly skip
-    if aligner is _UNSET:
-        _aligner_resolved = _default_aligner()
-    else:
-        _aligner_resolved = aligner  # None or a callable
+    _aligner_resolved = _default_aligner() if aligner is _UNSET else aligner  # None or a callable
 
     # strengther: sentinel _UNSET -> try real default; None -> explicitly skip
-    if strengther is _UNSET:
-        _strengther_resolved = _default_strengther()
-    else:
-        _strengther_resolved = strengther
+    _strengther_resolved = _default_strengther() if strengther is _UNSET else strengther
 
     pdfs = scan_pdfs(Path(folder))
     total = len(pdfs)

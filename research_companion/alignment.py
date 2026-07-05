@@ -50,8 +50,8 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Callable
 
 from research_companion import store
 from research_companion.prompts import alignment_prompt_sha256, format_alignment_prompt
@@ -379,17 +379,11 @@ def align_papers(
     relevant_sections = [s for s in out_sections if s["relation"] != "irrelevant"]
 
     # verified_frac: if zero quotes -> 0.0 (honesty first)
-    if all_quotes:
-        verified_frac = sum(1 for v in all_quotes if v) / len(all_quotes)
-    else:
-        verified_frac = 0.0
+    verified_frac = sum(1 for v in all_quotes if v) / len(all_quotes) if all_quotes else 0.0
 
     # mean_relevance: mean of non-irrelevant sections; 0.0 if none
     non_irrel = [s for s in out_sections if s["relation"] != "irrelevant"]
-    if non_irrel:
-        mean_relevance = sum(s["relevance"] for s in non_irrel) / len(non_irrel)
-    else:
-        mean_relevance = 0.0
+    mean_relevance = sum(s["relevance"] for s in non_irrel) / len(non_irrel) if non_irrel else 0.0
 
     # lexical signal: lexical_overlap between draft text tokens and candidate text tokens
     draft_tokens = _tokenize(draft_text_full)

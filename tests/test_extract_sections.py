@@ -12,9 +12,8 @@ import json
 
 import pytest
 
-from research_companion import extract, fetch, prompts, store
+from research_companion import extract, fetch
 from research_companion.sections import Section
-
 
 # ---------------------------------------------------------------------------
 # Helpers

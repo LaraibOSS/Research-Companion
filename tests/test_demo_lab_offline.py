@@ -10,8 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).parent.parent
 DEMO_SCRIPT = REPO_ROOT / "examples" / "demo_lab_offline.py"
 

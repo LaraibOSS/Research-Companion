@@ -12,7 +12,6 @@ from typing import Any
 from research_companion import store
 from research_companion.store import PaperMetadata
 
-
 # Canonical constants (exact values — UI depends on them)
 SIGNAL_WEIGHTS = {
     "extraction_completeness": 0.30,
@@ -204,7 +203,7 @@ def compute_strength(
     numerator = 0.0
     denominator = 0.0
 
-    for sig_name, sig_data in signals.items():
+    for _sig_name, sig_data in signals.items():
         if sig_data["available"]:
             numerator += sig_data["weight"] * sig_data["value"]
             denominator += sig_data["weight"]

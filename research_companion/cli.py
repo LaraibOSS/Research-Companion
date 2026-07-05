@@ -749,6 +749,7 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
 
     # Real provider wiring (lazy import, mirrors agents/novelty.py::_default_llm)
     import os
+
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
     provider = getattr(args, "provider", None) or os.environ.get(
@@ -779,6 +780,7 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         if llm is None:
             # Wire real provider (mirrors _resolve_llm_for_align pattern)
             import os
+
             from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
             provider = getattr(args, "provider", None) or os.environ.get(
@@ -876,8 +878,9 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 
 def _cmd_ask(args: argparse.Namespace) -> int:
     """Answer a research question using BM25-retrieved paper sections."""
-    from research_companion.qa import QAAnswer, answer
     import dataclasses
+
+    from research_companion.qa import QAAnswer, answer
 
     question = args.question
     if not question:

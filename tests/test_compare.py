@@ -4,13 +4,10 @@ Strict TDD: tests written before implementation.
 """
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from research_companion import store
 from research_companion.prompts import extraction_prompt_sha256
-
 
 # ---------------------------------------------------------------------------
 # Helpers: fabricate papers with cached extractions
