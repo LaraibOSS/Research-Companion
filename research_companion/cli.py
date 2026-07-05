@@ -1195,6 +1195,28 @@ def _cmd_lab_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_lab_serve(args: argparse.Namespace) -> int:
+    """Start the Research Lab web server (REST + SSE)."""
+    try:
+        from research_companion.lab_api import serve_lab
+    except ImportError:
+        print(
+            "research-companion: lab server requires fastapi and uvicorn. "
+            "Install with: pip install 'research-companion[server]'",
+            file=sys.stderr,
+        )
+        return 1
+
+    port = getattr(args, "port", 8765)
+    open_browser = not getattr(args, "no_open", False)
+
+    try:
+        serve_lab(port=port, open_browser=open_browser)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
+    return 0
+
+
 def _cmd_lab_failures(args: argparse.Namespace) -> int:
     from research_companion.store import list_failures
 
@@ -1376,6 +1398,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     plab_failures = lab_sub.add_parser("failures", help="List persisted ingest failures")
     plab_failures.set_defaults(func=_cmd_lab_failures)
+
+    plab_serve = lab_sub.add_parser(
+        "serve", help="Start the Research Lab web server (REST + SSE)"
+    )
+    plab_serve.add_argument(
+        "--port", type=int, default=8765, help="Port to listen on (default: 8765)"
+    )
+    plab_serve.add_argument(
+        "--no-open", action="store_true", help="Don't auto-open the browser"
+    )
+    plab_serve.set_defaults(func=_cmd_lab_serve)
 
     plab.set_defaults(func=lambda args: plab.print_help() or 0)
 
