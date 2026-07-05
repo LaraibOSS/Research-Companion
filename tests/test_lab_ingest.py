@@ -574,6 +574,120 @@ class TestAlignment:
 
 
 # ---------------------------------------------------------------------------
+# Align / strength non-fatal failures publish IngestFailed
+# ---------------------------------------------------------------------------
+
+class TestAlignStrengthFailures:
+    """Stages 5 and 6: failures publish IngestFailed but do NOT count as file failures."""
+
+    def test_align_failure_publishes_ingest_failed(self, tmp_path, isolated_papergraph_dir):
+        """Aligner raising -> IngestFailed(stage='align') published; paper still added."""
+        from research_companion import store as _store
+
+        draft_id = "local:draft"
+        candidate_id = "local:candidate"
+        _store.set_draft_paper_id(draft_id)
+
+        p1 = _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes([candidate_id])
+
+        def bad_aligner(draft, cand, *, llm, **kw):
+            raise RuntimeError("align kaboom")
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=bad_aligner,
+                strengther=None,
+                align=True,
+            )
+        )
+
+        # Paper still added — non-fatal
+        assert len(result.added) == 1
+        assert len(result.failed) == 0
+
+        # IngestFailed with stage='align' published
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(failed_events) == 1
+        assert failed_events[0].stage == "align"
+        assert "kaboom" in failed_events[0].error
+        assert failed_events[0].paper_id == candidate_id
+
+        # Failure NOT recorded in store (non-fatal)
+        assert not _store.list_failures()
+
+    def test_strength_failure_publishes_ingest_failed(self, tmp_path, isolated_papergraph_dir):
+        """Strengther raising -> IngestFailed(stage='strength') published; paper still added."""
+        from research_companion import store as _store
+
+        p1 = _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        def bad_strengther(paper_id, **kw):
+            raise RuntimeError("strength kaboom")
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=bad_strengther,
+            )
+        )
+
+        # Paper still added — non-fatal
+        assert len(result.added) == 1
+        assert len(result.failed) == 0
+
+        # IngestFailed with stage='strength' published
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(failed_events) == 1
+        assert failed_events[0].stage == "strength"
+        assert "kaboom" in failed_events[0].error
+        assert failed_events[0].paper_id == "local:aaa"
+
+        # Failure NOT recorded in store (non-fatal)
+        assert not _store.list_failures()
+
+    def test_align_failure_does_not_affect_job_done(self, tmp_path, isolated_papergraph_dir):
+        """After align failure, pipeline still emits JobDone."""
+        from research_companion import store as _store
+
+        _store.set_draft_paper_id("local:draft")
+        p1 = _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:cand"])
+
+        def bad_aligner(draft, cand, *, llm, **kw):
+            raise RuntimeError("align err")
+
+        bus = Bus()
+        asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=bad_aligner,
+                strengther=None,
+                align=True,
+            )
+        )
+
+        assert isinstance(bus.history[-1], JobDone)
+
+
+# ---------------------------------------------------------------------------
 # Event serialization round-trips
 # ---------------------------------------------------------------------------
 
@@ -747,6 +861,52 @@ class TestFixtureRegression:
             e = events_by_kind["job_done"][0]
             assert {"event", "job"} <= e.keys()
 
+    def test_fixture_replay_exact(self, tmp_path, isolated_papergraph_dir):
+        """Re-run the same deterministic fake ingest and assert line-by-line JSON
+        equality with the committed fixture (compares parsed dicts, not raw bytes,
+        to be key-order-independent).  Any event shape or value drift causes failure.
+        """
+        import research_companion.lab as _lab
+
+        add_pdf, sectioner, extractor, strengther, fake_scan = _fixture_fakes()
+
+        original_scan = _lab.scan_pdfs
+        _lab.scan_pdfs = fake_scan
+        try:
+            bus = Bus()
+            asyncio.run(
+                ingest_folder(
+                    tmp_path,  # ignored by fake_scan
+                    bus=bus,
+                    add_pdf=add_pdf,
+                    extractor=extractor,
+                    sectioner=sectioner,
+                    aligner=None,
+                    strengther=strengther,
+                )
+            )
+        finally:
+            _lab.scan_pdfs = original_scan
+
+        live_dicts = [event_to_dict(e) for e in bus.history]
+
+        fixture_lines = self.FIXTURE_PATH.read_text(encoding="utf-8").strip().splitlines()
+        fixture_dicts = [json.loads(line) for line in fixture_lines]
+
+        assert len(live_dicts) == len(fixture_dicts), (
+            f"Event count mismatch: live={len(live_dicts)}, fixture={len(fixture_dicts)}\n"
+            f"Live kinds: {[d['event'] for d in live_dicts]}\n"
+            f"Fixture kinds: {[d['event'] for d in fixture_dicts]}"
+        )
+
+        for i, (live, expected) in enumerate(zip(live_dicts, fixture_dicts)):
+            assert live.keys() == expected.keys(), (
+                f"Line {i}: key set mismatch\n  live={set(live.keys())}\n  expected={set(expected.keys())}"
+            )
+            assert live == expected, (
+                f"Line {i} ({live.get('event')!r}) value mismatch:\n  live={live}\n  expected={expected}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # CLI tests
@@ -871,31 +1031,13 @@ def _generate_fixture(fixture_path: Path) -> None:
                 os.environ["RESEARCH_COMPANION_DIR"] = old_env
 
 
-def _run_fixture_generation(tmp_path: Path, fixture_path: Path) -> None:
-    """Internal: run synthetic ingest and capture events to fixture."""
+def _fixture_fakes():
+    """Return the canonical fake seams used for fixture generation and replay.
+
+    scan_pdfs is also returned so callers can monkeypatch lab.scan_pdfs to
+    return basename-only paths, keeping the fixture portable.
+    """
     from research_companion import store as _store
-    from research_companion.agents.bus import Bus
-    from research_companion.agents.events import event_to_dict
-
-    folder = tmp_path / "papers"
-    folder.mkdir()
-
-    # Create 3 PDFs
-    for name in ["paper_a.pdf", "paper_b.pdf", "paper_c.pdf"]:
-        p = folder / name
-        p.write_bytes(
-            b"%PDF-1.4\n"
-            b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-            b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R>>endobj\n"
-            b"4 0 obj<</Length 44>>stream\n"
-            b"BT /F1 12 Tf 50 750 Td (Hello papergraph) Tj ET\n"
-            b"endstream endobj\n"
-            b"xref\n0 5\n0000000000 65535 f\n0000000009 00000 n\n0000000058 00000 n\n"
-            b"0000000109 00000 n\n0000000189 00000 n\n"
-            b"trailer<</Size 5/Root 1 0 R>>\n"
-            b"startxref\n279\n%%EOF\n"
-        )
 
     _ids = ["local:fixa", "local:fixb", "local:fixc"]
     _idx = [0]
@@ -932,18 +1074,41 @@ def _run_fixture_generation(tmp_path: Path, fixture_path: Path) -> None:
     def strengther(paper_id, **kwargs):
         return {"score": 0.6, "band": "moderate", "color": "#d29922"}
 
-    bus = Bus()
-    asyncio.run(
-        ingest_folder(
-            folder,
-            bus=bus,
-            add_pdf=add_pdf,
-            extractor=extractor,
-            sectioner=sectioner,
-            aligner=None,
-            strengther=strengther,
+    # Deterministic basename-only scan: always returns the three synthetic papers
+    # as bare filename Paths so IngestProgress.current is portable.
+    def fake_scan(folder):
+        return [Path("paper_a.pdf"), Path("paper_b.pdf"), Path("paper_c.pdf")]
+
+    return add_pdf, sectioner, extractor, strengther, fake_scan
+
+
+def _run_fixture_generation(tmp_path: Path, fixture_path: Path) -> None:
+    """Internal: run synthetic ingest and capture events to fixture."""
+    import research_companion.lab as _lab
+    from research_companion.agents.bus import Bus
+    from research_companion.agents.events import event_to_dict
+
+    add_pdf, sectioner, extractor, strengther, fake_scan = _fixture_fakes()
+
+    # Monkeypatch scan_pdfs so that path strings in events are basenames only.
+    # This keeps the fixture free of machine-specific absolute temp paths.
+    original_scan = _lab.scan_pdfs
+    _lab.scan_pdfs = fake_scan
+    try:
+        bus = Bus()
+        asyncio.run(
+            ingest_folder(
+                tmp_path,  # folder arg is ignored by fake_scan
+                bus=bus,
+                add_pdf=add_pdf,
+                extractor=extractor,
+                sectioner=sectioner,
+                aligner=None,
+                strengther=strengther,
+            )
         )
-    )
+    finally:
+        _lab.scan_pdfs = original_scan
 
     with fixture_path.open("w", encoding="utf-8") as f:
         for event in bus.history:

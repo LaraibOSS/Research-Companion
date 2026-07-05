@@ -276,9 +276,15 @@ async def ingest_folder(
                         verdict=align_payload.get("verdict", ""),
                         score=align_payload.get("score", 0.0),
                     ))
-                except Exception:
-                    # Alignment failures are non-fatal; silently skip
-                    pass
+                except Exception as exc:
+                    # Alignment failures are non-fatal; publish IngestFailed but do NOT
+                    # record_failure and do NOT count the file as failed.
+                    await bus.publish(IngestFailed(
+                        path=path_str,
+                        stage="align",
+                        error=str(exc),
+                        paper_id=paper_id,
+                    ))
 
         # -----------------------------------------------------------------------
         # Stage 6: strength (optional)
@@ -292,9 +298,15 @@ async def ingest_folder(
                     band=strength_payload.get("band", ""),
                     color=strength_payload.get("color", ""),
                 ))
-            except Exception:
-                # Strength failures are non-fatal; silently skip
-                pass
+            except Exception as exc:
+                # Strength failures are non-fatal; publish IngestFailed but do NOT
+                # record_failure and do NOT count the file as failed.
+                await bus.publish(IngestFailed(
+                    path=path_str,
+                    stage="strength",
+                    error=str(exc),
+                    paper_id=paper_id,
+                ))
 
         # -----------------------------------------------------------------------
         # Stage 7: clear failure, add to result

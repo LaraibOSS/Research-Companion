@@ -1,15 +1,15 @@
-{"event": "ingest_progress", "done": 0, "total": 3, "current": "C:\\Users\\LARAIB\\AppData\\Local\\Temp\\tmpks0_nkxw\\papers\\paper_a.pdf"}
+{"event": "ingest_progress", "done": 0, "total": 3, "current": "paper_a.pdf"}
 {"event": "paper_added", "paper_id": "local:fixa", "title": "Fixture Paper 1", "source": ""}
 {"event": "section_tree_built", "paper_id": "local:fixa", "n_sections": 2}
 {"event": "section_extracted", "paper_id": "local:fixa", "section_id": "s1", "title": "Introduction", "counts": {"concepts": 1}}
 {"event": "section_extracted", "paper_id": "local:fixa", "section_id": "s2", "title": "Methods", "counts": {"methods": 1}}
 {"event": "graph_delta", "paper_id": "local:fixa", "nodes_added": [], "edges_added": []}
 {"event": "strength_updated", "paper_id": "local:fixa", "score": 0.6, "band": "moderate", "color": "#d29922"}
-{"event": "ingest_progress", "done": 1, "total": 3, "current": "C:\\Users\\LARAIB\\AppData\\Local\\Temp\\tmpks0_nkxw\\papers\\paper_b.pdf"}
+{"event": "ingest_progress", "done": 1, "total": 3, "current": "paper_b.pdf"}
 {"event": "paper_added", "paper_id": "local:fixb", "title": "Fixture Paper 2", "source": ""}
 {"event": "section_tree_built", "paper_id": "local:fixb", "n_sections": 2}
-{"event": "ingest_failed", "path": "C:\\Users\\LARAIB\\AppData\\Local\\Temp\\tmpks0_nkxw\\papers\\paper_b.pdf", "stage": "extract", "error": "fixture extraction error", "paper_id": "local:fixb"}
-{"event": "ingest_progress", "done": 2, "total": 3, "current": "C:\\Users\\LARAIB\\AppData\\Local\\Temp\\tmpks0_nkxw\\papers\\paper_c.pdf"}
+{"event": "ingest_failed", "path": "paper_b.pdf", "stage": "extract", "error": "fixture extraction error", "paper_id": "local:fixb"}
+{"event": "ingest_progress", "done": 2, "total": 3, "current": "paper_c.pdf"}
 {"event": "paper_added", "paper_id": "local:fixc", "title": "Fixture Paper 3", "source": ""}
 {"event": "section_tree_built", "paper_id": "local:fixc", "n_sections": 2}
 {"event": "section_extracted", "paper_id": "local:fixc", "section_id": "s1", "title": "Introduction", "counts": {"concepts": 1}}
