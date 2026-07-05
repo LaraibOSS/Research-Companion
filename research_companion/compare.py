@@ -10,7 +10,6 @@ Returns a structured dict with:
 """
 from __future__ import annotations
 
-import re
 from typing import Callable
 
 from research_companion.graph import _norm
