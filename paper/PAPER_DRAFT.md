@@ -2,7 +2,7 @@
 
 **Laraib Hasan** — Independent Researcher — Lxh417bham@gmail.com
 
-Code: https://github.com/Laraib-Hasan/Research-Companion (MIT) · Demo video: [LINK] · Zero-key demo: `python examples/demo_offline.py`
+Code: https://github.com/Laraib-Hasan-Future/Research-Companion (MIT) · Demo video: [LINK] · Zero-key demo: `python examples/demo_offline.py`
 
 ## Abstract
 
@@ -100,7 +100,7 @@ The tool assists authors; it does not generate paper content, and its rebuttal d
 
 ## Availability & License
 
-MIT-licensed at https://github.com/Laraib-Hasan/Research-Companion. Install: `git clone … && pip install -e ".[demo]"`. Zero-key demo: `python examples/demo_offline.py`. Evaluation artifacts and reproduction commands: `eval/`.
+MIT-licensed at https://github.com/Laraib-Hasan-Future/Research-Companion. Install: `git clone … && pip install -e ".[demo]"`. Zero-key demo: `python examples/demo_offline.py`. Evaluation artifacts and reproduction commands: `eval/`.
 
 ## Appendix A: Audit-Log Excerpt
 
@@ -118,7 +118,7 @@ MIT-licensed at https://github.com/Laraib-Hasan/Research-Companion. Install: `gi
 ## Appendix B: Reproduction
 
 ```bash
-git clone https://github.com/Laraib-Hasan/Research-Companion && cd Research-Companion
+git clone https://github.com/Laraib-Hasan-Future/Research-Companion && cd Research-Companion
 pip install -e ".[demo]"
 python -m pytest -q                      # 704 tests, no network
 python examples/demo_offline.py         # full pipeline, zero keys

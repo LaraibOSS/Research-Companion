@@ -34,8 +34,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Laraib-Hasan/Research-Companion"
-Issues = "https://github.com/Laraib-Hasan/Research-Companion/issues"
+Repository = "https://github.com/Laraib-Hasan-Future/Research-Companion"
+Issues = "https://github.com/Laraib-Hasan-Future/Research-Companion/issues"
 
 [project.optional-dependencies]
 server = [

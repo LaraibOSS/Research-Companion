@@ -3,7 +3,7 @@
 > Drop arXiv URLs, DOIs, or PDFs in. Get a knowledge graph and a chat interface that answers questions with paper citations. Local-first. Open source.
 
 ```bash
-git clone https://github.com/Laraib-Hasan/Research-Companion.git && cd research-companion && pip install -e .
+git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git && cd research-companion && pip install -e .
 research-companion add https://arxiv.org/abs/2410.05779
 research-companion add https://arxiv.org/abs/2404.16130
 research-companion build
@@ -52,7 +52,7 @@ research-companion builds a *concept-level* knowledge graph (concepts, methods, 
 ## Install
 
 ```bash
-git clone https://github.com/Laraib-Hasan/Research-Companion.git
+git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git
 cd research-companion
 pip install -e ".[server]"   # core + Research Lab server (fastapi, uvicorn)
 
