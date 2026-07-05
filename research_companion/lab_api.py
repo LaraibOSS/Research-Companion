@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -111,12 +112,20 @@ class _SeqRecorder:
 
     On construction, pre-assigns seq numbers to any events already in bus.history
     so reconnecting clients can replay pre-connect events.
+
+    NOTE: _records grows unbounded for the lifetime of the server. In practice this
+    is acceptable because event volume is bounded by the number of papers ingested
+    per session. A production deployment with very long uptimes may want to cap this
+    (e.g. keep only the last N records or flush after a JobDone).
     """
 
     def __init__(self, bus: Bus) -> None:
         self._bus = bus
         self._records: list[tuple[int, Any]] = []
         self._seq = 0
+        # Condition used to notify waiting SSE consumers when new events arrive.
+        # Must be created lazily (inside the running event loop) — see _get_condition().
+        self._condition: asyncio.Condition | None = None
         # Pre-assign seq for events already in history (before this recorder was created)
         pre_history = list(bus.history)
         self._seen_ids: set[int] = set()
@@ -126,19 +135,37 @@ class _SeqRecorder:
         # Subscribe AFTER snapshotting history to avoid duplicates
         self._q = bus.subscribe()
 
+    def _get_condition(self) -> asyncio.Condition:
+        """Return (lazily creating) the asyncio.Condition for this recorder.
+
+        Creating the Condition inside __init__ would bind it to whatever event loop
+        is current at import time.  Lazy creation ensures it is bound to the
+        server's event loop.
+        """
+        if self._condition is None:
+            self._condition = asyncio.Condition()
+        return self._condition
+
     def _assign(self, event) -> int:
         self._seq += 1
         self._records.append((self._seq, event))
         return self._seq
 
     async def drain(self) -> None:
-        """Continuously drain the Bus queue, assigning seq numbers (skipping pre-history)."""
+        """Continuously drain the Bus queue, assigning seq numbers (skipping pre-history).
+
+        Notifies all waiting SSE consumers (via the Condition) after each new event
+        so that generators can serve the authoritative (seq, event) pair.
+        """
+        condition = self._get_condition()
         while True:
             try:
                 event = await asyncio.wait_for(self._q.get(), timeout=1.0)
                 if id(event) not in self._seen_ids:
                     self._assign(event)
                     self._seen_ids.add(id(event))
+                    async with condition:
+                        condition.notify_all()
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -177,28 +204,42 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             "Install with: pip install 'research-companion[server]'"
         ) from exc
 
-    app = FastAPI(title="Research Lab")
-
-    # Recorder assigned on startup
     recorder = _SeqRecorder(bus)
+
+    @asynccontextmanager
+    async def lifespan(app):  # type: ignore[type-arg]
+        # Start the recorder drain task so seq numbers are assigned centrally.
+        drain_task = asyncio.create_task(recorder.drain())
+        try:
+            yield
+        finally:
+            drain_task.cancel()
+            try:
+                await drain_task
+            except asyncio.CancelledError:
+                pass
+
+    app = FastAPI(title="Research Lab", lifespan=lifespan)
+
     app.state.recorder = recorder
     app.state.bus = bus
     app.state.llm = llm
     app.state.jobs: dict[str, dict] = {}
     app.state.job_counter = 0
-    app.state.ingest_running = False
 
-    # Allow test overrides
+    # Allow test overrides for the full task coroutine
     app.state.ingest_override = None
     app.state.add_paper_override = None
     app.state.retry_override = None
+
+    # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
+    # Tests inject counting/spying fakes here; production code leaves these None
+    # (real defaults are resolved inside _add_paper_task / _retry_paper_task).
+    app.state.pipeline_overrides: dict = {}
+
     # Test hook: when set to True, SSE stream terminates after replaying history
     # (mirrors dashboard's done-state pattern; production code leaves this False).
     app.state._sse_done = False
-
-    @app.on_event("startup")
-    async def _startup() -> None:
-        asyncio.create_task(recorder.drain())
 
     # -----------------------------------------------------------------
     # Mount static files (tolerates sparse/absent directory)
@@ -316,19 +357,23 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None}
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add"}
 
         if app.state.add_paper_override is not None:
             coro = app.state.add_paper_override(target, bus)
         else:
-            coro = _add_paper_task(target, bus)
+            coro = _add_paper_task(
+                target,
+                bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
 
         async def _run():
             try:
                 await coro
-                app.state.jobs[job_id] = {"status": "done", "detail": None}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
             except Exception as exc:
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc)}
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
 
         asyncio.create_task(_run())
         return {"job_id": job_id}
@@ -355,20 +400,27 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None}
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "retry"}
 
         if app.state.retry_override is not None:
             coro = app.state.retry_override(matched_key, paper_id, bus)
         else:
-            coro = _retry_paper_task(matched_key, paper_id, bus)
+            coro = _retry_paper_task(
+                matched_key,
+                paper_id,
+                bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
 
         async def _run():
             try:
                 await coro
+                # clear_failure only on success — failure entry kept/updated on error
                 store.clear_failure(matched_key)
-                app.state.jobs[job_id] = {"status": "done", "detail": None}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry"}
             except Exception as exc:
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc)}
+                # Do NOT clear_failure — keep the failure record so the user can see it
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry"}
 
         asyncio.create_task(_run())
         return {"job_id": job_id}
@@ -615,17 +667,17 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        # One ingest at a time
-        running_jobs = [
+        # One ingest at a time — narrow to INGEST jobs only (add/retry are not blocked)
+        running_ingest_jobs = [
             jid for jid, info in app.state.jobs.items()
-            if info.get("status") == "running"
+            if info.get("status") == "running" and info.get("kind") == "ingest"
         ]
-        if running_jobs:
+        if running_ingest_jobs:
             raise HTTPException(status_code=409, detail="An ingest job is already running")
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None}
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "ingest"}
 
         ingest_fn = app.state.ingest_override
         if ingest_fn is None:
@@ -635,9 +687,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run_ingest():
             try:
                 await ingest_fn(folder, bus=bus)
-                app.state.jobs[job_id] = {"status": "done", "detail": None}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "ingest"}
             except Exception as exc:
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc)}
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "ingest"}
 
         asyncio.create_task(_run_ingest())
 
@@ -804,8 +856,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             # Snapshot the already-recorded (seq, event) pairs for replay
             snapshot = recorder.snapshot()
             seen_event_ids = {id(e) for _, e in snapshot}
-            # Track live seq: starts after the last replayed seq
-            live_seq = recorder.current_max_seq()
+            # Cursor: the number of records we have already yielded (starts after replay)
+            cursor = len(snapshot)
             try:
                 # Replay pre-connect events with their original seq
                 for seq, event in snapshot:
@@ -816,11 +868,21 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 if _done_flag:
                     return
 
-                # Live stream with heartbeat
+                # Live stream: serve (seq, event) pairs from the recorder's stream.
+                # The recorder's drain() task is the sole seq authority; we wait on
+                # its Condition to avoid busy-polling and to guarantee seq consistency
+                # across concurrent connections.
+                condition = recorder._get_condition()
                 last_ping = asyncio.get_event_loop().time()
                 while True:
+                    # Wait for the recorder to notify us of new events (with timeout
+                    # for heartbeat).
                     try:
-                        event = await asyncio.wait_for(q.get(), timeout=1.0)
+                        async with condition:
+                            await asyncio.wait_for(
+                                condition.wait(),
+                                timeout=1.0,
+                            )
                     except asyncio.TimeoutError:
                         # Emit heartbeat if idle
                         now = asyncio.get_event_loop().time()
@@ -829,25 +891,17 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                             last_ping = now
                         continue
 
-                    # Skip events already replayed (dedup)
-                    if id(event) in seen_event_ids:
-                        continue
-                    seen_event_ids.add(id(event))
-
-                    # Assign seq: try to find in recorder (drain may have already run),
-                    # otherwise increment live counter.
-                    matched_seq = None
-                    for s, e in reversed(recorder.snapshot()):
-                        if e is event:
-                            matched_seq = s
-                            break
-                    if matched_seq is None:
-                        live_seq += 1
-                        matched_seq = live_seq
-
-                    data = event_to_dict(event) | {"seq": matched_seq}
-                    yield f"data: {json.dumps(data)}\n\n"
-                    last_ping = asyncio.get_event_loop().time()
+                    # Drain any new records the recorder has added since our cursor
+                    current_records = recorder.snapshot()
+                    while cursor < len(current_records):
+                        seq, event = current_records[cursor]
+                        cursor += 1
+                        if id(event) in seen_event_ids:
+                            continue
+                        seen_event_ids.add(id(event))
+                        data = event_to_dict(event) | {"seq": seq}
+                        yield f"data: {json.dumps(data)}\n\n"
+                        last_ping = asyncio.get_event_loop().time()
             except asyncio.CancelledError:
                 pass
             finally:
@@ -862,11 +916,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 # Background task helpers
 # ---------------------------------------------------------------------------
 
-async def _add_paper_task(target: str, bus: Bus) -> None:
-    """Add a paper to the store and run the single-paper pipeline."""
+async def _add_paper_task(target: str, bus: Bus, *, pipeline_overrides: dict | None = None) -> None:
+    """Add a paper to the store and run the full single-paper pipeline."""
     from research_companion.fetch import add_paper
     from research_companion import store
-    from research_companion.agents.events import PaperAdded
+    from research_companion.agents.events import JobDone, PaperAdded
+    from research_companion.lab import ingest_one, _default_aligner, _default_strengther
+    import os
+
+    if pipeline_overrides is None:
+        pipeline_overrides = {}
 
     meta = await asyncio.to_thread(add_paper, target)
     await bus.publish(PaperAdded(
@@ -875,23 +934,100 @@ async def _add_paper_task(target: str, bus: Bus) -> None:
         source=meta.source_url,
     ))
 
+    # Resolve pipeline seams — test overrides take priority
+    extractor = pipeline_overrides.get("extractor")
+    if extractor is None:
+        from research_companion.extract import extract_paper
+        extractor = extract_paper
 
-async def _retry_paper_task(path: str, paper_id: str, bus: Bus) -> None:
-    """Re-run the pipeline for a failed paper."""
-    from research_companion.agents.events import JobDone
+    sectioner = pipeline_overrides.get("sectioner")
+    if sectioner is None:
+        from research_companion.sections import build_and_save_sections
+        sectioner = build_and_save_sections
 
-    # For retry, we just re-attempt add_paper for the path
-    try:
-        from research_companion.fetch import add_local_pdf
-        meta = await asyncio.to_thread(add_local_pdf, path)
-        from research_companion.agents.events import PaperAdded
-        await bus.publish(PaperAdded(
-            paper_id=meta.paper_id,
-            title=meta.title,
-            source="",
-        ))
-    except Exception:
-        pass
+    aligner = pipeline_overrides.get("aligner", _default_aligner())
+    strengther = pipeline_overrides.get("strengther", _default_strengther())
+
+    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
+    model = os.environ.get("RESEARCH_COMPANION_MODEL")
+
+    path_str = target  # use the target URL/path as the failure key
+
+    await ingest_one(
+        meta,
+        path_str,
+        bus=bus,
+        provider=provider,
+        model=model,
+        align=True,
+        aligner=aligner,
+        strengther=strengther,
+        extractor=extractor,
+        sectioner=sectioner,
+    )
+
+    await bus.publish(JobDone(job="add"))
+
+
+async def _retry_paper_task(
+    path: str,
+    paper_id: str,
+    bus: Bus,
+    *,
+    pipeline_overrides: dict | None = None,
+) -> None:
+    """Re-run the add + full pipeline for a failed paper.
+
+    Raises on add failure so the caller's _run() records "failed" status and
+    the failure entry is kept (not cleared).
+    """
+    from research_companion.agents.events import JobDone, PaperAdded
+    from research_companion.lab import ingest_one, _default_aligner, _default_strengther
+    import os
+
+    if pipeline_overrides is None:
+        pipeline_overrides = {}
+
+    # Re-attempt add_paper for the path — let errors propagate so the job is
+    # recorded as "failed" and the failure entry is preserved.
+    from research_companion.fetch import add_local_pdf
+    meta = await asyncio.to_thread(add_local_pdf, path)
+
+    await bus.publish(PaperAdded(
+        paper_id=meta.paper_id,
+        title=meta.title,
+        source="",
+    ))
+
+    # Resolve pipeline seams
+    extractor = pipeline_overrides.get("extractor")
+    if extractor is None:
+        from research_companion.extract import extract_paper
+        extractor = extract_paper
+
+    sectioner = pipeline_overrides.get("sectioner")
+    if sectioner is None:
+        from research_companion.sections import build_and_save_sections
+        sectioner = build_and_save_sections
+
+    aligner = pipeline_overrides.get("aligner", _default_aligner())
+    strengther = pipeline_overrides.get("strengther", _default_strengther())
+
+    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
+    model = os.environ.get("RESEARCH_COMPANION_MODEL")
+
+    await ingest_one(
+        meta,
+        path,
+        bus=bus,
+        provider=provider,
+        model=model,
+        align=True,
+        aligner=aligner,
+        strengther=strengther,
+        extractor=extractor,
+        sectioner=sectioner,
+    )
 
     await bus.publish(JobDone(job="retry"))
 
@@ -951,7 +1087,7 @@ def serve_lab(port: int = 8765, *, open_browser: bool = True) -> None:
             await asyncio.sleep(1.0)
             webbrowser.open(f"http://127.0.0.1:{port}")
 
-        @app.on_event("startup")
+        @app.router.on_startup
         async def _schedule_open():
             asyncio.create_task(_open_browser_task())
 

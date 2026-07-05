@@ -84,6 +84,175 @@ def _build_llm_callable(provider: str, model: str | None) -> Callable[[str], str
     return _llm
 
 
+async def ingest_one(
+    meta,
+    path_str: str,
+    *,
+    bus,
+    provider: str,
+    model: str | None,
+    align: bool,
+    aligner,
+    strengther,
+    extractor,
+    sectioner,
+) -> bool:
+    """Run the full pipeline for a single paper (stages 2–7).
+
+    Assumes Stage 1 (add_pdf) has already been called and *meta* is the resulting
+    PaperMetadata.  *path_str* is the string path used as the failure-record key.
+
+    Returns True if the paper was successfully processed (added), False if a fatal
+    stage (sections / extract / graph) failed.
+
+    Publishes:
+      - SectionTreeBuilt, SectionExtracted  (stage 2)
+      - SectionExtracted per section        (stage 3)
+      - GraphDelta                          (stage 4, under _GRAPH_LOCK)
+      - AlignmentReady or IngestFailed      (stage 5, non-fatal)
+      - StrengthUpdated or IngestFailed     (stage 6, non-fatal)
+      - clear_failure on success            (stage 7)
+    """
+    from research_companion import graph as _graph
+    from research_companion import store
+    from research_companion.extract import get_paper_text
+    from research_companion.sections import group_extraction_by_section
+
+    paper_id = meta.paper_id
+
+    # -----------------------------------------------------------------------
+    # Stage 2: text + sections
+    # -----------------------------------------------------------------------
+    try:
+        _text = await asyncio.to_thread(get_paper_text, meta)
+        paper_sections = await asyncio.to_thread(sectioner, paper_id)
+        await bus.publish(SectionTreeBuilt(
+            paper_id=paper_id,
+            n_sections=len(paper_sections),
+        ))
+    except Exception as exc:
+        error_str = str(exc)
+        store.record_failure(path_str, {"stage": "sections", "error": error_str, "paper_id": paper_id})
+        await bus.publish(IngestFailed(path=path_str, stage="sections", error=error_str, paper_id=paper_id))
+        return False
+
+    # -----------------------------------------------------------------------
+    # Stage 3: extract
+    # -----------------------------------------------------------------------
+    try:
+        extraction, _usage = await asyncio.to_thread(
+            extractor, meta, provider=provider, model=model
+        )
+        # Group extraction by section and publish SectionExtracted for each
+        # non-boilerplate section with any entities (only non-zero keys)
+        try:
+            from research_companion.sections import is_boilerplate
+            grouped = group_extraction_by_section(extraction, paper_sections)
+            for sec in paper_sections:
+                if is_boilerplate(sec.title):
+                    continue
+                sec_data = grouped.get(sec.section_id, {})
+                counts = {
+                    k: len(v)
+                    for k, v in sec_data.items()
+                    if isinstance(v, list) and len(v) > 0
+                }
+                if counts:
+                    await bus.publish(SectionExtracted(
+                        paper_id=paper_id,
+                        section_id=sec.section_id,
+                        title=sec.title,
+                        counts=counts,
+                    ))
+        except Exception:
+            # Section grouping is best-effort; don't abort on failure
+            pass
+    except Exception as exc:
+        error_str = str(exc)
+        store.record_failure(path_str, {"stage": "extract", "error": error_str, "paper_id": paper_id})
+        await bus.publish(IngestFailed(path=path_str, stage="extract", error=error_str, paper_id=paper_id))
+        return False
+
+    # -----------------------------------------------------------------------
+    # Stage 4: graph delta (serialized under lock)
+    # -----------------------------------------------------------------------
+    try:
+        async with _GRAPH_LOCK:
+            old_g = await asyncio.to_thread(_graph.load_graph)
+            new_g = await asyncio.to_thread(_graph.build_graph)
+            delta = _graph.graph_delta(old_g, new_g)
+            await asyncio.to_thread(_graph.save_graph, new_g)
+        await bus.publish(GraphDelta(
+            paper_id=paper_id,
+            nodes_added=delta["nodes_added"],
+            edges_added=delta["edges_added"],
+        ))
+    except Exception as exc:
+        error_str = str(exc)
+        store.record_failure(path_str, {"stage": "graph", "error": error_str, "paper_id": paper_id})
+        await bus.publish(IngestFailed(path=path_str, stage="graph", error=error_str, paper_id=paper_id))
+        return False
+
+    # -----------------------------------------------------------------------
+    # Stage 5: alignment (optional)
+    # -----------------------------------------------------------------------
+    if align and aligner is not None:
+        draft_id = store.get_draft_paper_id()
+        if draft_id is not None and paper_id != draft_id:
+            try:
+                # Build LLM callable lazily only when needed
+                _llm = _build_llm_callable(provider, model)
+                align_payload = await asyncio.to_thread(
+                    aligner,
+                    draft_id,
+                    paper_id,
+                    llm=_llm,
+                )
+                await bus.publish(AlignmentReady(
+                    paper_id=paper_id,
+                    draft_paper_id=draft_id,
+                    verdict=align_payload.get("verdict", ""),
+                    score=align_payload.get("score", 0.0),
+                ))
+            except Exception as exc:
+                # Alignment failures are non-fatal; publish IngestFailed but do NOT
+                # record_failure and do NOT count the file as failed.
+                await bus.publish(IngestFailed(
+                    path=path_str,
+                    stage="align",
+                    error=str(exc),
+                    paper_id=paper_id,
+                ))
+
+    # -----------------------------------------------------------------------
+    # Stage 6: strength (optional)
+    # -----------------------------------------------------------------------
+    if strengther is not None:
+        try:
+            strength_payload = await asyncio.to_thread(strengther, paper_id)
+            await bus.publish(StrengthUpdated(
+                paper_id=paper_id,
+                score=strength_payload.get("score"),
+                band=strength_payload.get("band", ""),
+                color=strength_payload.get("color", ""),
+            ))
+        except Exception as exc:
+            # Strength failures are non-fatal; publish IngestFailed but do NOT
+            # record_failure and do NOT count the file as failed.
+            await bus.publish(IngestFailed(
+                path=path_str,
+                stage="strength",
+                error=str(exc),
+                paper_id=paper_id,
+            ))
+
+    # -----------------------------------------------------------------------
+    # Stage 7: clear failure, signal success
+    # -----------------------------------------------------------------------
+    store.clear_failure(path_str)
+    return True
+
+
 async def ingest_folder(
     folder,
     *,
@@ -104,10 +273,8 @@ async def ingest_folder(
 
     Returns IngestResult with lists of added, skipped, and failed paper path strings.
     """
-    from research_companion import graph as _graph
     from research_companion import store
     from research_companion.extract import get_paper_text
-    from research_companion.sections import group_extraction_by_section
 
     # Resolve seam defaults
     if add_pdf is None:
@@ -180,139 +347,25 @@ async def ingest_folder(
         ))
 
         # -----------------------------------------------------------------------
-        # Stage 2: text + sections
+        # Stages 2–7: run shared pipeline
         # -----------------------------------------------------------------------
-        try:
-            _text = await asyncio.to_thread(get_paper_text, meta)
-            paper_sections = await asyncio.to_thread(sectioner, paper_id)
-            await bus.publish(SectionTreeBuilt(
-                paper_id=paper_id,
-                n_sections=len(paper_sections),
-            ))
-        except Exception as exc:
-            error_str = str(exc)
-            store.record_failure(path_str, {"stage": "sections", "error": error_str, "paper_id": paper_id})
-            await bus.publish(IngestFailed(path=path_str, stage="sections", error=error_str, paper_id=paper_id))
-            result.failed.append({"path": path_str, "stage": "sections", "error": error_str, "paper_id": paper_id})
-            continue
+        ok = await ingest_one(
+            meta,
+            path_str,
+            bus=bus,
+            provider=provider,
+            model=model,
+            align=align,
+            aligner=_aligner_resolved,
+            strengther=_strengther_resolved,
+            extractor=extractor,
+            sectioner=sectioner,
+        )
 
-        # -----------------------------------------------------------------------
-        # Stage 3: extract
-        # -----------------------------------------------------------------------
-        try:
-            extraction, _usage = await asyncio.to_thread(
-                extractor, meta, provider=provider, model=model
-            )
-            # Group extraction by section and publish SectionExtracted for each
-            # non-boilerplate section with any entities (only non-zero keys)
-            try:
-                from research_companion.sections import is_boilerplate
-                grouped = group_extraction_by_section(extraction, paper_sections)
-                for sec in paper_sections:
-                    if is_boilerplate(sec.title):
-                        continue
-                    sec_data = grouped.get(sec.section_id, {})
-                    counts = {
-                        k: len(v)
-                        for k, v in sec_data.items()
-                        if isinstance(v, list) and len(v) > 0
-                    }
-                    if counts:
-                        await bus.publish(SectionExtracted(
-                            paper_id=paper_id,
-                            section_id=sec.section_id,
-                            title=sec.title,
-                            counts=counts,
-                        ))
-            except Exception:
-                # Section grouping is best-effort; don't abort on failure
-                pass
-        except Exception as exc:
-            error_str = str(exc)
-            store.record_failure(path_str, {"stage": "extract", "error": error_str, "paper_id": paper_id})
-            await bus.publish(IngestFailed(path=path_str, stage="extract", error=error_str, paper_id=paper_id))
-            result.failed.append({"path": path_str, "stage": "extract", "error": error_str, "paper_id": paper_id})
-            continue
-
-        # -----------------------------------------------------------------------
-        # Stage 4: graph delta (serialized under lock)
-        # -----------------------------------------------------------------------
-        try:
-            async with _GRAPH_LOCK:
-                old_g = await asyncio.to_thread(_graph.load_graph)
-                new_g = await asyncio.to_thread(_graph.build_graph)
-                delta = _graph.graph_delta(old_g, new_g)
-                await asyncio.to_thread(_graph.save_graph, new_g)
-            await bus.publish(GraphDelta(
-                paper_id=paper_id,
-                nodes_added=delta["nodes_added"],
-                edges_added=delta["edges_added"],
-            ))
-        except Exception as exc:
-            error_str = str(exc)
-            store.record_failure(path_str, {"stage": "graph", "error": error_str, "paper_id": paper_id})
-            await bus.publish(IngestFailed(path=path_str, stage="graph", error=error_str, paper_id=paper_id))
-            result.failed.append({"path": path_str, "stage": "graph", "error": error_str, "paper_id": paper_id})
-            continue
-
-        # -----------------------------------------------------------------------
-        # Stage 5: alignment (optional)
-        # -----------------------------------------------------------------------
-        if align and _aligner_resolved is not None:
-            draft_id = store.get_draft_paper_id()
-            if draft_id is not None and paper_id != draft_id:
-                try:
-                    # Build LLM callable lazily only when needed
-                    _llm = _build_llm_callable(provider, model)
-                    align_payload = await asyncio.to_thread(
-                        _aligner_resolved,
-                        draft_id,
-                        paper_id,
-                        llm=_llm,
-                    )
-                    await bus.publish(AlignmentReady(
-                        paper_id=paper_id,
-                        draft_paper_id=draft_id,
-                        verdict=align_payload.get("verdict", ""),
-                        score=align_payload.get("score", 0.0),
-                    ))
-                except Exception as exc:
-                    # Alignment failures are non-fatal; publish IngestFailed but do NOT
-                    # record_failure and do NOT count the file as failed.
-                    await bus.publish(IngestFailed(
-                        path=path_str,
-                        stage="align",
-                        error=str(exc),
-                        paper_id=paper_id,
-                    ))
-
-        # -----------------------------------------------------------------------
-        # Stage 6: strength (optional)
-        # -----------------------------------------------------------------------
-        if _strengther_resolved is not None:
-            try:
-                strength_payload = await asyncio.to_thread(_strengther_resolved, paper_id)
-                await bus.publish(StrengthUpdated(
-                    paper_id=paper_id,
-                    score=strength_payload.get("score"),
-                    band=strength_payload.get("band", ""),
-                    color=strength_payload.get("color", ""),
-                ))
-            except Exception as exc:
-                # Strength failures are non-fatal; publish IngestFailed but do NOT
-                # record_failure and do NOT count the file as failed.
-                await bus.publish(IngestFailed(
-                    path=path_str,
-                    stage="strength",
-                    error=str(exc),
-                    paper_id=paper_id,
-                ))
-
-        # -----------------------------------------------------------------------
-        # Stage 7: clear failure, add to result
-        # -----------------------------------------------------------------------
-        store.clear_failure(path_str)
-        result.added.append(path_str)
+        if ok:
+            result.added.append(path_str)
+        else:
+            result.failed.append({"path": path_str, "stage": "pipeline", "error": "pipeline stage failed"})
 
     # Final progress and done signal
     await bus.publish(IngestProgress(done=total, total=total))

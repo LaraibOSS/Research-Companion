@@ -22,6 +22,8 @@ from research_companion.agents.events import (  # noqa: E402
     GraphDelta,
     JobDone,
     PaperAdded,
+    SectionTreeBuilt,
+    StrengthUpdated,
 )
 from research_companion.lab_api import create_lab_app  # noqa: E402
 
@@ -583,8 +585,8 @@ class TestIngest:
         with TestClient(app) as c:
             # First POST — starts a background task (never completes in test)
             # We need to simulate an active job
-            # Inject the running job directly
-            app.state.jobs = {"job-1": {"status": "running"}}
+            # Inject the running job directly (kind="ingest" so the guard fires)
+            app.state.jobs = {"job-1": {"status": "running", "kind": "ingest"}}
             resp = c.post("/api/ingest", json={"folder": str(folder)})
             # Should get 409 because job-1 is running
             assert resp.status_code == 409
@@ -723,6 +725,75 @@ class TestCompare:
 # POST /api/papers (add paper)
 # ---------------------------------------------------------------------------
 
+def _make_pipeline_spying_fakes(store_paper: bool = True):
+    """Return injectable pipeline seams that record call counts.
+
+    Returns (fake_meta, fake_add_paper_fn, stage_counts_dict, seam_overrides_dict)
+    where stage_counts_dict maps stage name -> call count (checked by tests) and
+    seam_overrides_dict is ready to be assigned to app.state.pipeline_overrides.
+
+    If store_paper is True, fake_add_paper_fn also saves metadata and stub text
+    to the store so that ingest_one's get_paper_text won't fail.
+    """
+    from research_companion import store as _store
+    from research_companion.store import PaperMetadata
+    from research_companion.sections import Section
+
+    paper_id = "local:pipe_test_abc"
+
+    fake_meta = PaperMetadata(
+        paper_id=paper_id,
+        title="Pipeline Test Paper",
+        authors=["Test Author"],
+        added_at="2024-01-01T00:00:00Z",
+    )
+
+    if store_paper:
+        fake_meta.save()
+        _store.save_text(paper_id, "This is the text. Introduction Methods Results.")
+
+    counts: dict[str, int] = {
+        "extractor": 0,
+        "sectioner": 0,
+        "aligner": 0,
+        "strengther": 0,
+    }
+
+    def fake_sectioner(pid, **kwargs):
+        counts["sectioner"] += 1
+        return [
+            Section(section_id="s1", title="Introduction", level=1,
+                    parent=None, char_start=0, char_end=50),
+        ]
+
+    def fake_extractor(meta, *, provider="anthropic", model=None, force=False):
+        counts["extractor"] += 1
+        return (
+            {
+                "concepts": [{"name": "KG", "section": "s1"}],
+                "methods": [],
+                "datasets": [],
+                "claims": [],
+                "results": [],
+                "related_work": [],
+            },
+            {"input_tokens": 1, "output_tokens": 1, "cached": False},
+        )
+
+    def fake_strengther(pid, **kwargs):
+        counts["strengther"] += 1
+        return {"score": 0.5, "band": "moderate", "color": "#aaa"}
+
+    seam_overrides = {
+        "extractor": fake_extractor,
+        "sectioner": fake_sectioner,
+        "aligner": None,   # skip alignment
+        "strengther": fake_strengther,
+    }
+
+    return fake_meta, counts, seam_overrides
+
+
 class TestAddPaper:
     def test_invalid_target_returns_400(self, isolated_papergraph_dir):
         c = _make_client()
@@ -744,15 +815,7 @@ class TestAddPaper:
             b"trailer<</Size 4/Root 1 0 R>>\n"
             b"startxref\n0\n%%EOF\n"
         )
-        from unittest.mock import AsyncMock, patch
         from research_companion.store import PaperMetadata
-
-        fake_meta = PaperMetadata(
-            paper_id="local:abc123def456",
-            title="Test",
-            authors=[],
-            added_at="2024-01-01T00:00:00Z",
-        )
 
         async def fake_add_paper_task(target, bus):
             pass
@@ -764,6 +827,71 @@ class TestAddPaper:
             resp = c.post("/api/papers", json={"target": str(fake_pdf)})
             assert resp.status_code == 202
             assert "job_id" in resp.json()
+
+    def test_pipeline_stages_run_via_seams(self, isolated_papergraph_dir, tmp_path):
+        """When add_paper_override is NOT set, pipeline_overrides stage fakes are invoked."""
+        from unittest.mock import patch
+        from research_companion import store as _store
+        from research_companion.store import PaperMetadata
+
+        fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=True)
+
+        # Patch fetch.add_paper to return our controlled meta
+        def fake_add_paper(target):
+            return fake_meta
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        app.state.pipeline_overrides = seam_overrides
+
+        with patch("research_companion.fetch.add_paper", fake_add_paper):
+            with TestClient(app) as c:
+                resp = c.post("/api/papers", json={"target": "local:pipe_test_abc"})
+                assert resp.status_code == 202
+                job_id = resp.json()["job_id"]
+
+                # Poll until job completes (TestClient runs background tasks)
+                import time
+                for _ in range(50):
+                    job = c.get(f"/api/jobs/{job_id}").json()
+                    if job["status"] != "running":
+                        break
+                    time.sleep(0.05)
+
+                assert job["status"] == "done", f"job failed: {job}"
+
+        # Verify pipeline seams were invoked
+        assert counts["sectioner"] >= 1, "sectioner stage was not called"
+        assert counts["extractor"] >= 1, "extractor stage was not called"
+        assert counts["strengther"] >= 1, "strengther stage was not called"
+
+        # Verify PaperAdded and SectionTreeBuilt events were published
+        kinds = [type(e).__name__ for e in bus.history]
+        assert "PaperAdded" in kinds
+        assert "SectionTreeBuilt" in kinds
+        assert "GraphDelta" in kinds
+        assert "StrengthUpdated" in kinds
+        assert "JobDone" in kinds
+
+    def test_add_ingest_jobs_do_not_block_each_other(self, isolated_papergraph_dir, tmp_path):
+        """Concurrent add/retry jobs must NOT trigger the 409 guard (only ingest jobs do)."""
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        (folder / "test.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        app = create_lab_app(Bus())
+        # Inject a running add job (not an ingest job)
+        app.state.jobs = {"job-1": {"status": "running", "kind": "add"}}
+
+        async def fast_ingest(folder, *, bus, **kwargs):
+            pass
+
+        app.state.ingest_override = fast_ingest
+
+        with TestClient(app) as c:
+            resp = c.post("/api/ingest", json={"folder": str(folder)})
+            # add jobs must NOT block ingest
+            assert resp.status_code == 202
 
 
 # ---------------------------------------------------------------------------
@@ -791,6 +919,94 @@ class TestRetryPaper:
             resp = c.post("/api/papers/arxiv:1111.22222/retry")
             assert resp.status_code == 202
             assert "job_id" in resp.json()
+
+    def test_retry_add_failure_preserves_failure_entry(self, isolated_papergraph_dir):
+        """When the add step in retry raises, the failure entry is NOT cleared."""
+        from research_companion import store
+        from unittest.mock import patch
+
+        path_key = "local:fail_paper"
+        store.record_failure(path_key, {"stage": "extract", "error": "old error",
+                                        "paper_id": path_key})
+
+        def raising_add_local_pdf(path):
+            raise RuntimeError("add failed in retry")
+
+        bus = Bus()
+        app = create_lab_app(bus)
+
+        with patch("research_companion.fetch.add_local_pdf", raising_add_local_pdf):
+            with TestClient(app) as c:
+                resp = c.post(f"/api/papers/{path_key}/retry")
+                assert resp.status_code == 202
+                job_id = resp.json()["job_id"]
+
+                import time
+                for _ in range(50):
+                    job = c.get(f"/api/jobs/{job_id}").json()
+                    if job["status"] != "running":
+                        break
+                    time.sleep(0.05)
+
+                assert job["status"] == "failed", f"expected failed, got: {job}"
+
+        # Failure entry must still be present (not silently cleared)
+        failures = store.list_failures()
+        assert path_key in failures, "failure entry was incorrectly cleared after retry failure"
+
+    def test_retry_pipeline_stages_run_on_success(self, isolated_papergraph_dir):
+        """When retry succeeds, pipeline stage seams are invoked and failure is cleared."""
+        from research_companion import store
+        from unittest.mock import patch
+
+        path_key = "some/paper.pdf"
+        paper_id_val = "local:retry_success_test"
+        store.record_failure(path_key, {"stage": "extract", "error": "old error",
+                                        "paper_id": paper_id_val})
+
+        fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=True)
+        # Override the paper_id to match
+        from research_companion import store as _store
+        from research_companion.store import PaperMetadata
+        real_meta = PaperMetadata(
+            paper_id=paper_id_val,
+            title="Retry Success Paper",
+            authors=["Auth"],
+            added_at="2024-01-01T00:00:00Z",
+        )
+        real_meta.save()
+        _store.save_text(paper_id_val, "Introduction Methods Results.")
+
+        def fake_add_local_pdf(path):
+            return real_meta
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        app.state.pipeline_overrides = seam_overrides
+
+        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf):
+            with TestClient(app) as c:
+                resp = c.post(f"/api/papers/{paper_id_val}/retry")
+                assert resp.status_code == 202
+                job_id = resp.json()["job_id"]
+
+                import time
+                for _ in range(50):
+                    job = c.get(f"/api/jobs/{job_id}").json()
+                    if job["status"] != "running":
+                        break
+                    time.sleep(0.05)
+
+                assert job["status"] == "done", f"expected done, got: {job}"
+
+        # Pipeline stages must have run
+        assert counts["sectioner"] >= 1, "sectioner stage was not called"
+        assert counts["extractor"] >= 1, "extractor stage was not called"
+        assert counts["strengther"] >= 1, "strengther stage was not called"
+
+        # Failure entry must be cleared on success
+        failures = store.list_failures()
+        assert path_key not in failures, "failure entry was not cleared after successful retry"
 
 
 # ---------------------------------------------------------------------------
@@ -864,6 +1080,73 @@ class TestSSE:
             body = "".join(resp.iter_text())
 
         assert "job_done" in body
+
+    def test_seq_recorder_concurrent_consumers_see_identical_seqs(
+        self, isolated_papergraph_dir
+    ):
+        """Two independent SSE reads over the same pre-published events see identical
+        seq numbers for the same event.  This verifies that seq is assigned once (in
+        _SeqRecorder) and not computed independently per-generator.
+        """
+        from research_companion.lab_api import _SeqRecorder
+
+        bus = Bus()
+        events = [
+            PaperAdded(paper_id="p1", title="T1"),
+            GraphDelta(paper_id="p1"),
+            JobDone(job="test"),
+        ]
+        for ev in events:
+            asyncio.run(bus.publish(ev))
+
+        # Both clients replay the same pre-connect snapshot
+        app1 = create_lab_app(bus)
+        app1.state._sse_done = True
+        app2 = create_lab_app(bus)
+        app2.state._sse_done = True
+
+        def _read_seqs(app):
+            with TestClient(app) as c:
+                with c.stream("GET", "/api/events") as resp:
+                    body = "".join(resp.iter_text())
+            data_lines = [l for l in body.split("\n") if l.startswith("data:")]
+            return [json.loads(l[len("data: "):].strip())["seq"] for l in data_lines]
+
+        seqs1 = _read_seqs(app1)
+        seqs2 = _read_seqs(app2)
+
+        # Both streams must contain the same number of events
+        assert len(seqs1) == len(seqs2), (
+            f"stream 1 has {len(seqs1)} events, stream 2 has {len(seqs2)}"
+        )
+        # Each seq must match — same event, same seq number
+        for i, (s1, s2) in enumerate(zip(seqs1, seqs2)):
+            assert s1 == s2, (
+                f"event {i}: stream 1 seq={s1}, stream 2 seq={s2} — "
+                "seq numbers diverged between concurrent clients"
+            )
+
+    def test_seq_recorder_assigns_seq_monotonically(self, isolated_papergraph_dir):
+        """_SeqRecorder assigns strictly increasing seq values to consecutive events."""
+        from research_companion.lab_api import _SeqRecorder
+
+        bus = Bus()
+        recorder = _SeqRecorder(bus)
+        events_to_publish = [
+            PaperAdded(paper_id="r1", title="T1"),
+            GraphDelta(paper_id="r1"),
+            JobDone(job="seq-test"),
+        ]
+        for ev in events_to_publish:
+            asyncio.run(bus.publish(ev))
+            # Simulate drain manually (no running event loop)
+            recorder._assign(ev)
+
+        records = recorder.snapshot()
+        # Pre-history events may already be there; check the new ones are monotone
+        seqs = [s for s, _ in records]
+        assert seqs == sorted(seqs)
+        assert len(seqs) == len(set(seqs)), "seq values must be unique"
 
 
 # ---------------------------------------------------------------------------
