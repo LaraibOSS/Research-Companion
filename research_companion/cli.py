@@ -1144,6 +1144,75 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     return 0
 
 
+# Test seam: tests monkeypatch this to inject ingest_folder for CLI tests.
+LAB_INGEST_OVERRIDES: dict = {}
+
+
+def _cmd_lab_ingest(args: argparse.Namespace) -> int:
+    import asyncio as _asyncio
+
+    from research_companion.agents.bus import Bus
+    from research_companion.agents.events import EventLog
+    from research_companion.store import papergraph_dir
+
+    folder = Path(args.folder)
+    log_path = papergraph_dir() / "lab_events.jsonl"
+    bus = Bus(log=EventLog(log_path))
+
+    # Allow tests to inject ingest_folder via LAB_INGEST_OVERRIDES
+    ingest_fn = LAB_INGEST_OVERRIDES.get("ingest_folder")
+    if ingest_fn is None:
+        from research_companion.lab import ingest_folder as _real_ingest
+        ingest_fn = _real_ingest
+
+    try:
+        result = _asyncio.run(
+            ingest_fn(
+                folder,
+                bus=bus,
+                provider=getattr(args, "provider", "anthropic"),
+                model=getattr(args, "model", None),
+                align=not getattr(args, "no_align", False),
+            )
+        )
+    except ValueError as e:
+        print(f"research-companion lab ingest: {e}", file=sys.stderr)
+        return 1
+
+    # Summary table
+    print(f"\nresearch-companion lab ingest: {folder}")
+    print(f"  added:   {len(result.added)}")
+    print(f"  skipped: {len(result.skipped)}")
+    print(f"  failed:  {len(result.failed)}")
+    if result.failed:
+        print("\nFailures:")
+        for f_entry in result.failed:
+            stage = f_entry.get("stage", "?")
+            error = f_entry.get("error", "?")
+            path_ = f_entry.get("path", "?")
+            print(f"  [{stage}]  {path_}  -- {error}")
+        return 2
+    return 0
+
+
+def _cmd_lab_failures(args: argparse.Namespace) -> int:
+    from research_companion.store import list_failures
+
+    failures = list_failures()
+    if not failures:
+        print("research-companion lab failures: none")
+        return 0
+
+    print(f"research-companion lab failures: {len(failures)} recorded")
+    for key, info in failures.items():
+        stage = info.get("stage", "?")
+        error = info.get("error", "?")
+        at = info.get("at", "?")
+        print(f"  [{stage}]  {key}  ({at})")
+        print(f"           {error}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="research-companion",
@@ -1293,6 +1362,22 @@ def _build_parser() -> argparse.ArgumentParser:
     pcmp.add_argument("--no-summary", action="store_true", help="Skip LLM summary generation")
     pcmp.add_argument("--json", action="store_true", help="JSON output")
     pcmp.set_defaults(func=_cmd_compare)
+
+    # Lab subcommand group (serve added by Task 9)
+    plab = sub.add_parser("lab", help="Research Lab commands (folder ingestion, failures)")
+    lab_sub = plab.add_subparsers(dest="lab_cmd", required=True)
+
+    plab_ingest = lab_sub.add_parser("ingest", help="Ingest a folder of PDFs into the knowledge graph")
+    plab_ingest.add_argument("folder", help="Path to folder containing PDF files")
+    plab_ingest.add_argument("--no-align", action="store_true", help="Skip alignment stage")
+    plab_ingest.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    plab_ingest.add_argument("--model", default=None, help="Model override")
+    plab_ingest.set_defaults(func=_cmd_lab_ingest)
+
+    plab_failures = lab_sub.add_parser("failures", help="List persisted ingest failures")
+    plab_failures.set_defaults(func=_cmd_lab_failures)
+
+    plab.set_defaults(func=lambda args: plab.print_help() or 0)
 
     return p
 
