@@ -312,6 +312,44 @@ def load_strength(paper_id: str) -> dict | None:
         return None
 
 
+def save_embeddings(paper_id: str, payload: dict) -> Path:
+    """Save embeddings JSON to papers/<dir>/embeddings.json.
+
+    Payload shape::
+
+        {
+            "embed_model": str,
+            "vectors": {
+                section_id: {"text_sha256": str, "vector": [floats]}
+            }
+        }
+    """
+    p = paper_dir(paper_id) / "embeddings.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_embeddings(paper_id: str, *, embed_model: str | None = None) -> dict | None:
+    """Load embeddings from papers/<dir>/embeddings.json.
+
+    Returns None if:
+    * The file is missing or unparseable.
+    * *embed_model* is given and ``payload["embed_model"]`` does not match.
+    """
+    p = paper_dir(paper_id) / "embeddings.json"
+    if not p.exists():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if embed_model is not None and payload.get("embed_model") != embed_model:
+        return None
+
+    return payload
+
+
 def failed_json_path() -> Path:
     """Return papergraph_dir()/failed.json."""
     return papergraph_dir() / "failed.json"
