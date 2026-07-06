@@ -1296,3 +1296,292 @@ class TestSettingsEndpoints:
 
         put_resp = c.put("/api/settings", json={"theme": "light"})
         assert raw not in put_resp.text
+
+
+# ---------------------------------------------------------------------------
+# W3-T6: GET /api/suggestions
+# ---------------------------------------------------------------------------
+
+class TestGetSuggestions:
+    def test_no_draft_returns_empty(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/suggestions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["suggestions"] == []
+
+    def test_draft_with_no_saved_suggestions_returns_empty(self, isolated_papergraph_dir):
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        c = _make_client()
+        resp = c.get("/api/suggestions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["suggestions"] == []
+
+    def test_returns_saved_suggestions(self, isolated_papergraph_dir):
+        from research_companion import store
+        from research_companion.suggestions import generate_suggestions
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        report = {
+            "paper_id": "local:draft0001",
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 1, "suspect": 0},
+                        "references": [{"title": "A Ref", "status": "unverified"}],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+        generate_suggestions(draft_id="local:draft0001", report=report, alignments=[])
+        c = _make_client()
+        resp = c.get("/api/suggestions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["suggestions"]) >= 1
+
+    def test_status_filter_open(self, isolated_papergraph_dir):
+        from research_companion import store
+        from research_companion.suggestions import (
+            dismiss_suggestion,
+            generate_suggestions,
+        )
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        report = {
+            "paper_id": "local:draft0001",
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 2, "suspect": 0},
+                        "references": [
+                            {"title": "Ref A", "status": "unverified"},
+                            {"title": "Ref B", "status": "unverified"},
+                        ],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+        result = generate_suggestions(draft_id="local:draft0001", report=report, alignments=[])
+        # Dismiss one
+        sug_id = result["suggestions"][0]["id"]
+        dismiss_suggestion(sug_id)
+        c = _make_client()
+        resp = c.get("/api/suggestions?status=open")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert all(s["status"] == "open" for s in data["suggestions"])
+        # Dismissed one should not be included
+        assert all(s["id"] != sug_id for s in data["suggestions"])
+
+
+# ---------------------------------------------------------------------------
+# W3-T6: POST /api/suggestions/regenerate
+# ---------------------------------------------------------------------------
+
+class TestRegenerateSuggestions:
+    def _report(self, paper_id: str = "local:draft0001") -> dict:
+        return {
+            "paper_id": paper_id,
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 1, "suspect": 0},
+                        "references": [{"title": "New Ref", "status": "unverified"}],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+
+    def test_no_draft_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/suggestions/regenerate", json={})
+        assert resp.status_code == 400
+
+    def test_no_saved_report_returns_400(self, isolated_papergraph_dir):
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        c = _make_client()
+        resp = c.post("/api/suggestions/regenerate", json={})
+        assert resp.status_code == 400
+
+    def test_regenerate_with_report_returns_suggestions(self, isolated_papergraph_dir):
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        store.save_review_report("local:draft0001", self._report())
+        c = _make_client()
+        resp = c.post("/api/suggestions/regenerate", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "suggestions" in data
+        assert len(data["suggestions"]) >= 1
+
+    def test_regenerate_include_llm_false_no_structure(self, isolated_papergraph_dir):
+        """include_llm=False (default) — no structure suggestions even with LLM wired."""
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        store.save_review_report("local:draft0001", self._report())
+        c = _make_client()
+        resp = c.post("/api/suggestions/regenerate", json={"include_llm": False})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert all(s["kind"] != "structure" for s in data["suggestions"])
+
+
+# ---------------------------------------------------------------------------
+# W3-T6: POST /api/suggestions/{id}/dismiss
+# ---------------------------------------------------------------------------
+
+class TestDismissSuggestion:
+    def test_dismiss_returns_dismissed_suggestion(self, isolated_papergraph_dir):
+        from research_companion import store
+        from research_companion.suggestions import generate_suggestions
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        report = {
+            "paper_id": "local:draft0001",
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 1, "suspect": 0},
+                        "references": [{"title": "Dismiss Me", "status": "unverified"}],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+        result = generate_suggestions(draft_id="local:draft0001", report=report, alignments=[])
+        sug_id = result["suggestions"][0]["id"]
+        c = _make_client()
+        resp = c.post(f"/api/suggestions/{sug_id}/dismiss")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == sug_id
+        assert data["status"] == "dismissed"
+
+    def test_dismiss_unknown_id_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/suggestions/sug_nonexistent0000/dismiss")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# W3-T6: POST /api/align hook publishes SuggestionsUpdated
+# ---------------------------------------------------------------------------
+
+class TestAlignSuggestionsHook:
+    def _make_sections(self, paper_id: str, isolated_papergraph_dir) -> None:
+        from research_companion import store
+        sections_payload = {
+            "paper_id": paper_id,
+            "text_sha256": "abc123",
+            "sections": [
+                {"section_id": "s1", "title": "Introduction", "index": 0, "level": 1,
+                 "text": "Introduction text."},
+            ],
+        }
+        store.save_sections(paper_id, sections_payload)
+
+    def test_align_hook_publishes_suggestions_updated_event(self, isolated_papergraph_dir):
+        from research_companion import store
+        from research_companion.alignment import build_alignment_payload
+        from research_companion.suggestions import generate_suggestions
+
+        draft_id = "local:draft0001"
+        cand_id = "local:cand0001"
+        _make_paper(isolated_papergraph_dir, draft_id, "Draft Paper")
+        _make_paper(isolated_papergraph_dir, cand_id, "Candidate Paper")
+        store.set_draft_paper_id(draft_id)
+        self._make_sections(draft_id, isolated_papergraph_dir)
+        self._make_sections(cand_id, isolated_papergraph_dir)
+
+        # Pre-generate some suggestions so hook has something to count
+        report = {
+            "paper_id": draft_id,
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 1, "suspect": 0},
+                        "references": [{"title": "Pre-align Ref", "status": "unverified"}],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+        store.save_review_report(draft_id, report)
+        generate_suggestions(draft_id=draft_id, report=report, alignments=[])
+
+        # Build + save a fake alignment so POST /api/align can read it (force=False
+        # returns cached; we inject a fake LLM that returns valid JSON).
+        fake_align_result = {
+            "version": 1,
+            "draft_paper_id": draft_id,
+            "candidate_paper_id": cand_id,
+            "prompt_sha256": "fake123",
+            "computed_at": "2026-07-06T00:00:00Z",
+            "score": 0.6,
+            "band": 0.1,
+            "verdict": "medium",
+            "signals": {"quote_verification": 0.5, "llm_relevance": 0.6, "lexical_overlap": 0.4},
+            "sections": [
+                {"section_id": "s1", "section_title": "Introduction",
+                 "relation": "strengthens", "relevance": 0.8,
+                 "rationale": "Relevant.", "evidence": []}
+            ],
+        }
+        store.save_alignment(cand_id, fake_align_result)
+
+        def _fake_align_llm(prompt: str) -> str:
+            return json.dumps({
+                "sections": [
+                    {"section_id": "s1", "relation": "strengthens",
+                     "relevance": 0.8, "rationale": "Good.", "evidence": []}
+                ]
+            })
+
+        bus = Bus()
+        c = _make_client(bus=bus, llm=_fake_align_llm)
+        resp = c.post("/api/align", json={"paper_id": cand_id, "against": draft_id})
+        assert resp.status_code == 200
+
+        # Give the background hook a moment to publish (align is sync in TestClient,
+        # but the hook is wrapped in try/except — we check the bus history for the event)
+        import time
+        time.sleep(0.1)
+
+        event_kinds = []
+        loop = asyncio.new_event_loop()
+        try:
+            q = bus.subscribe()
+            snapshot = list(bus.history)
+            event_kinds = [type(e).__name__ for e in snapshot]
+        finally:
+            loop.close()
+
+        assert "SuggestionsUpdated" in event_kinds, (
+            f"SuggestionsUpdated not published. Events: {event_kinds}"
+        )
