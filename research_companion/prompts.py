@@ -451,3 +451,53 @@ def format_compare_prompt(
 
 def compare_prompt_sha256() -> str:
     return hashlib.sha256(COMPARE_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Suggest-structure prompt (suggestions.py). SHA-cached.
+# Proposes structure improvements given a section outline + open deterministic
+# suggestions. Strict JSON output — bad JSON is silently skipped by caller.
+# ---------------------------------------------------------------------------
+
+SUGGEST_STRUCTURE_PROMPT = """You are a research writing advisor reviewing a paper draft.
+
+Section outline (id title, one per line):
+<<SECTION_OUTLINE>>
+
+Open deterministic suggestions already identified (one per line):
+<<OPEN_SUGGESTIONS>>
+
+Propose up to 3 structural improvements NOT already covered by the open suggestions above.
+Focus on: missing sections, section ordering, depth imbalance, clarity of transitions.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "suggestions": [
+    {
+      "title": "one short imperative sentence",
+      "detail": "one to two sentences explaining what to fix and why",
+      "section_id": "the id of the most relevant section, or null",
+      "severity": "high|medium|low"
+    }
+  ]
+}
+
+Rules:
+- Return at most 3 suggestions. If nothing meaningful, return {"suggestions": []}.
+- section_id must be one of the ids in the outline above, or null.
+- severity must be exactly high, medium, or low.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+"""
+
+
+def format_suggest_structure_prompt(*, section_outline: str, open_suggestions: str) -> str:
+    """Substitute placeholders in SUGGEST_STRUCTURE_PROMPT."""
+    return (
+        SUGGEST_STRUCTURE_PROMPT
+        .replace("<<SECTION_OUTLINE>>", section_outline)
+        .replace("<<OPEN_SUGGESTIONS>>", open_suggestions)
+    )
+
+
+def suggest_structure_prompt_sha256() -> str:
+    return hashlib.sha256(SUGGEST_STRUCTURE_PROMPT.encode("utf-8")).hexdigest()
