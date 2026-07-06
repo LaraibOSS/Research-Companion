@@ -409,7 +409,7 @@ class TestConversationHistory:
         assert "first turn message" in prompt or "First answer here." in prompt
 
     def test_history_trimmed_to_budget(self):
-        """Tiny history budget should keep only newest turns."""
+        """Tiny history budget should exclude old turns but keep newest turn."""
         from research_companion.converse import converse
 
         paper_id = "arxiv:h004"
@@ -417,8 +417,10 @@ class TestConversationHistory:
         report = {"lanes": {"structure": {"ok": True, "items": []}}}
         store.save_review_report(paper_id, report)
 
-        llm1 = _fake_llm("Answer to old turn.")
-        result1 = converse("old turn with lots of text content here",
+        # "old turn" distinctive content — must NOT appear in the trimmed prompt
+        old_distinctive = "XQZOLD_DISTINCTIVE_CONTENT_XQZOLD"
+        llm1 = _fake_llm(f"Answer to old turn: {old_distinctive}.")
+        result1 = converse(f"old turn: {old_distinctive}",
                            context={"type": "review", "id": paper_id},
                            llm=llm1)
 
@@ -428,18 +430,158 @@ class TestConversationHistory:
                            conversation_id=result1.conversation_id,
                            llm=llm2)
 
+        # "newest turn" distinctive content — MUST appear in the prompt
+        newest_distinctive = "XQZNEWEST_DISTINCTIVE_CONTENT_XQZNEW"
         llm3 = _fake_llm("Final answer.")
-        # Use very small budget — should only keep newest turn(s)
-        converse("newest turn",
+        # history_char_budget=80 fits the newest turn (short) but NOT the old long turn
+        converse(f"newest: {newest_distinctive}",
                  context={"type": "review", "id": paper_id},
                  conversation_id=result2.conversation_id,
                  llm=llm3,
-                 history_char_budget=50)
+                 history_char_budget=80)
 
         assert len(llm3.calls) == 1
-        # With budget=50, older turns may be excluded but newest should be included
-        # The key assertion: old_turn should not appear but the function should still run
-        assert True  # no crash — main assertion is just that converse() doesn't raise
+        prompt = llm3.calls[0]
+        # Old distinctive content must NOT appear — it was trimmed away
+        assert old_distinctive not in prompt
+        # Newest distinctive content MUST appear — it's the current user message
+        assert newest_distinctive in prompt
+
+
+# ---------------------------------------------------------------------------
+# Bounded history read (Fix 2)
+# ---------------------------------------------------------------------------
+
+class TestBoundedHistoryRead:
+    def test_large_file_newest_turns_present(self):
+        """Build a conversation with many turns whose total size exceeds 64 KB;
+        verify that newest turns appear in the rendered history and the old bulk
+        content is not required to be loaded."""
+        import uuid
+
+        from research_companion.converse import _conv_path, _load_history
+
+        conv_id = f"conv_bounded_{uuid.uuid4().hex[:8]}"
+        path = _conv_path(conv_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write a meta line first
+        meta_line = json.dumps({"meta": {"conversation_id": conv_id}})
+        # Write many filler turns totalling > 64 KB
+        filler_content = "X" * 500  # 500 chars each
+        filler_turns = []
+        for _i in range(200):  # 200 * ~500 chars * 2 lines ≈ 200 KB total
+            filler_turns.append(json.dumps({"role": "user", "content": filler_content}))
+            filler_turns.append(json.dumps({"role": "assistant", "content": filler_content}))
+
+        # Write a clearly distinctive newest turn at the very end
+        newest_user = "BOUNDED_NEWEST_USER_TURN_MARKER"
+        newest_asst = "BOUNDED_NEWEST_ASST_TURN_MARKER"
+        newest_user_line = json.dumps({"role": "user", "content": newest_user})
+        newest_asst_line = json.dumps({"role": "assistant", "content": newest_asst})
+
+        with path.open("w", encoding="utf-8") as fh:
+            fh.write(meta_line + "\n")
+            for line in filler_turns:
+                fh.write(line + "\n")
+            fh.write(newest_user_line + "\n")
+            fh.write(newest_asst_line + "\n")
+
+        assert path.stat().st_size > 64 * 1024, "test file should exceed 64 KB"
+
+        # Use a large enough budget to include the newest turns
+        rendered = _load_history(conv_id, history_char_budget=10_000)
+
+        # Newest distinctive markers must appear
+        assert newest_user in rendered, "newest user turn must be in rendered history"
+        assert newest_asst in rendered, "newest assistant turn must be in rendered history"
+
+    def test_small_file_all_turns_present(self):
+        """A file smaller than 64 KB should still have all its turns rendered."""
+        import uuid
+
+        from research_companion.converse import _conv_path, _load_history
+
+        conv_id = f"conv_small_{uuid.uuid4().hex[:8]}"
+        path = _conv_path(conv_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = [
+            json.dumps({"meta": {"conversation_id": conv_id}}),
+            json.dumps({"role": "user", "content": "hello world"}),
+            json.dumps({"role": "assistant", "content": "hello back"}),
+        ]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        rendered = _load_history(conv_id, history_char_budget=10_000)
+        assert "hello world" in rendered
+        assert "hello back" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Orphaned meta when client supplies unknown conversation_id (Fix 3)
+# ---------------------------------------------------------------------------
+
+class TestOrphanedMetaOnClientId:
+    def test_fresh_client_id_writes_meta(self):
+        """Passing a fresh conversation_id that does not yet exist should create
+        the file with a meta line (treated as a new conversation)."""
+        from research_companion.converse import converse, load_conversation
+
+        paper_id = "arxiv:om001"
+        _make_paper(paper_id, "Orphan Meta Paper", "text content about orphan meta.")
+        report = {"lanes": {"structure": {"ok": True, "items": []}}}
+        store.save_review_report(paper_id, report)
+
+        fresh_id = "conv_fresh_client_supplied_id_xyz"
+        llm = _fake_llm("Answer for fresh id.")
+        result = converse(
+            "question with fresh id",
+            context={"type": "review", "id": paper_id},
+            conversation_id=fresh_id,
+            llm=llm,
+        )
+
+        # The returned conversation_id should be the one we supplied
+        assert result.conversation_id == fresh_id
+
+        # load_conversation should return a dict with meta
+        conv = load_conversation(fresh_id)
+        assert conv is not None
+        assert conv["meta"]["conversation_id"] == fresh_id
+
+    def test_existing_client_id_no_duplicate_meta(self):
+        """Passing the same conversation_id a second time must NOT write a second
+        meta line — the conversation continues normally."""
+        from research_companion.converse import converse, load_conversation
+
+        paper_id = "arxiv:om002"
+        _make_paper(paper_id, "Orphan Meta Paper 2", "text content about orphan meta 2.")
+        report = {"lanes": {"structure": {"ok": True, "items": []}}}
+        store.save_review_report(paper_id, report)
+
+        fresh_id = "conv_existing_client_id_abc"
+        llm1 = _fake_llm("First answer.")
+        converse(
+            "first question",
+            context={"type": "review", "id": paper_id},
+            conversation_id=fresh_id,
+            llm=llm1,
+        )
+
+        llm2 = _fake_llm("Second answer.")
+        converse(
+            "second question",
+            context={"type": "review", "id": paper_id},
+            conversation_id=fresh_id,
+            llm=llm2,
+        )
+
+        conv = load_conversation(fresh_id)
+        assert conv is not None
+        # Should have exactly 4 turns (2 per call), and only one meta
+        assert len(conv["turns"]) == 4
+        assert conv["meta"]["conversation_id"] == fresh_id
 
 
 # ---------------------------------------------------------------------------

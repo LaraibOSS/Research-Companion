@@ -17,6 +17,7 @@ from typing import Any
 from research_companion import store
 from research_companion.prompts import (
     converse_prompt_sha256,
+    extraction_prompt_sha256,
     format_converse_prompt,
 )
 from research_companion.qa import (
@@ -83,8 +84,8 @@ def _context_block_review(context: dict) -> tuple[str, list[str]]:
         for lane_name, lane_data in lanes.items():
             if isinstance(lane_data, dict):
                 ok = lane_data.get("ok", True)
-                status = "ok" if ok else "error"
-                lines.append(f"Lane {lane_name}: {status}")
+                item_status = "ok" if ok else "error"
+                lines.append(f"Lane {lane_name}: {item_status}")
                 items = lane_data.get("items", [])
                 for item in items:
                     if isinstance(item, dict):
@@ -163,9 +164,9 @@ def _context_block_suggestions(context: dict) -> tuple[str, list[str]]:
         severity = sug.get("severity", "")
         title = sug.get("title", "")
         detail = sug.get("detail", "")
-        status = sug.get("status", "open")
+        item_status = sug.get("status", "open")
         lines.append(
-            f"\n{idx}. [{severity.upper()}] {title} (id={sug_id}, kind={kind}, status={status})"
+            f"\n{idx}. [{severity.upper()}] {title} (id={sug_id}, kind={kind}, status={item_status})"
         )
         if detail:
             lines.append(f"   Detail: {detail}")
@@ -207,8 +208,8 @@ def _context_block_gaps(context: dict) -> tuple[str, list[str]]:
         for idx, gap in enumerate(gaps, 1):
             if isinstance(gap, dict):
                 title = gap.get("title", gap.get("gap", str(gap)))
-                status = gap.get("status", "open")
-                lines.append(f"\n{idx}. {title} (status={status})")
+                item_status = gap.get("status", "open")
+                lines.append(f"\n{idx}. {title} (status={item_status})")
                 detail = gap.get("detail", gap.get("description", ""))
                 if detail:
                     lines.append(f"   {detail}")
@@ -222,8 +223,6 @@ def _context_block_gaps(context: dict) -> tuple[str, list[str]]:
 
 def _context_block_paper(context: dict) -> tuple[str, list[str]]:
     """Build context block from paper metadata + extraction summary."""
-    from research_companion.prompts import extraction_prompt_sha256
-
     paper_id = context.get("id") or store.get_draft_paper_id()
     if paper_id is None:
         raise ConverseError("No paper id for paper context and no draft configured.", status=404)
@@ -306,8 +305,15 @@ def _new_conversation_id(now_iso: str, message: str) -> str:
     return f"conv_{digest}"
 
 
+_HISTORY_READ_LIMIT = 64 * 1024  # 64 KB tail read cap
+
+
 def _load_history(conversation_id: str, history_char_budget: int) -> str:
     """Read turns from the JSONL file; keep newest turns fitting the budget.
+
+    Reads at most the last ~64 KB of the file to avoid unbounded memory use on
+    large conversation files.  A possibly-partial first line after the seek is
+    discarded before JSON parsing.
 
     Returns formatted history block as "User: ...\nCompanion: ..." lines,
     or empty string when no history or no file.
@@ -316,23 +322,33 @@ def _load_history(conversation_id: str, history_char_budget: int) -> str:
     if not path.exists():
         return ""
 
+    file_size = path.stat().st_size
     turns: list[dict] = []
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            # Skip meta lines
-            if "meta" in obj:
-                continue
-            role = obj.get("role", "")
-            content = obj.get("content", "")
-            if role and content:
-                turns.append({"role": role, "content": content})
+    with path.open("rb") as fh:
+        if file_size > _HISTORY_READ_LIMIT:
+            fh.seek(-_HISTORY_READ_LIMIT, 2)  # seek from end
+            raw_bytes = fh.read()
+            raw_lines = raw_bytes.decode("utf-8", errors="replace").splitlines()
+            # First line after a mid-file seek is likely partial — drop it
+            raw_lines = raw_lines[1:]
+        else:
+            raw_lines = fh.read().decode("utf-8", errors="replace").splitlines()
+
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # Skip meta lines
+        if "meta" in obj:
+            continue
+        role = obj.get("role", "")
+        content = obj.get("content", "")
+        if role and content:
+            turns.append({"role": role, "content": content})
 
     if not turns:
         return ""
@@ -536,9 +552,13 @@ def converse(
 
     # --- 4. Conversation history ---------------------------------------------
     now_iso = now or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    is_new = conversation_id is None
-    if is_new:
+    if conversation_id is None:
+        is_new = True
         conversation_id = _new_conversation_id(now_iso, message)
+    else:
+        # Client supplied an id: treat as new if the file does not exist yet
+        # so the meta line gets written for that explicit id.
+        is_new = not _conv_path(conversation_id).exists()
 
     history_block = _load_history(conversation_id, history_char_budget)
     if not history_block:
