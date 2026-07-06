@@ -1490,13 +1490,18 @@ class TestRegenerateSuggestions:
         resp = c.post("/api/suggestions/regenerate", json={})
         assert resp.status_code == 400
 
-    def test_no_saved_report_returns_400(self, isolated_papergraph_dir):
+    def test_no_saved_report_succeeds_with_empty_suggestions(self, isolated_papergraph_dir):
+        """No review report is NOT an error: alignment/gap rules may still apply;
+        with no artifacts at all the result is an honest empty payload."""
         from research_companion import store
         _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
         store.set_draft_paper_id("local:draft0001")
         c = _make_client()
         resp = c.post("/api/suggestions/regenerate", json={})
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["counts"] == {"open": 0, "addressed": 0, "dismissed": 0}
+        assert data["suggestions"] == []
 
     def test_regenerate_with_report_returns_suggestions(self, isolated_papergraph_dir):
         from research_companion import store

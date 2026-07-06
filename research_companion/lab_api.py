@@ -1012,7 +1012,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             dismissed=counts["dismissed"],
         ))
 
-        return payload
+        # Same contract as GET /api/suggestions: payload + counts.
+        return {**payload, "counts": counts}
 
     # -----------------------------------------------------------------
     # POST /api/suggestions/{sug_id}/dismiss
