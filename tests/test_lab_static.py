@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -62,6 +62,12 @@ REQUIRED_STATIC_FILES = [
     "js/views/draft.js",
     "js/views/compare.js",
     "js/views/ask.js",
+    "js/icons.js",
+    "js/theme.js",
+    "js/settingsHelpers.js",
+    "js/views/settings.js",
+    "js/views/home.js",
+    "js/views/timeline.js",
     "js/components/drawer.js",
     "js/components/paperCard.js",
     "js/components/toast.js",
@@ -337,6 +343,97 @@ def test_documented_node_command_lists_every_js_test():
     existing = sorted(p.name for p in (REPO_ROOT / "tests" / "js").glob("*.test.mjs"))
     missing = [name for name in existing if f"tests/js/{name}" not in doc]
     assert not missing, f"docstring node command is missing: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# W3-F1: index.html content tests
+# ---------------------------------------------------------------------------
+
+def test_index_html_has_pre_paint_script():
+    """index.html must have the 3-line pre-paint inline script before the stylesheet."""
+    html = _index_text()
+    # The script must appear before the stylesheet link
+    script_pos = html.find('rc.theme')
+    css_pos = html.find('lab.css')
+    assert script_pos != -1, "index.html missing pre-paint rc.theme script"
+    assert css_pos != -1, "index.html missing lab.css link"
+    assert script_pos < css_pos, "pre-paint script must appear before the stylesheet"
+
+
+def test_index_html_has_bell_button():
+    """index.html must have the suggestions bell button (#topbar-bell)."""
+    html = _index_text()
+    assert 'id="topbar-bell"' in html, 'index.html missing bell button #topbar-bell'
+    assert 'id="bell-badge"' in html, 'index.html missing bell badge #bell-badge'
+
+
+def test_index_html_has_no_key_banner():
+    """index.html must have the no-key amber banner element (#no-key-banner)."""
+    html = _index_text()
+    assert 'id="no-key-banner"' in html, 'index.html missing #no-key-banner'
+
+
+def test_index_html_has_nav_spacer():
+    """index.html nav rail must have a spacer to push Help+Settings to the bottom."""
+    html = _index_text()
+    assert 'nav-spacer' in html, 'index.html nav rail missing nav-spacer'
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_icons_js_returns_200(lab_client):
+    """GET /static/js/icons.js must return 200."""
+    res = lab_client.get("/static/js/icons.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_theme_js_returns_200(lab_client):
+    """GET /static/js/theme.js must return 200."""
+    res = lab_client.get("/static/js/theme.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_settings_helpers_js_returns_200(lab_client):
+    """GET /static/js/settingsHelpers.js must return 200."""
+    res = lab_client.get("/static/js/settingsHelpers.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_settings_view_js_returns_200(lab_client):
+    """GET /static/js/views/settings.js must return 200."""
+    res = lab_client.get("/static/js/views/settings.js")
+    assert res.status_code == 200
+
+
+def test_settings_view_not_stub():
+    """views/settings.js must be a real implementation (exports mount + uses escapeHtml)."""
+    js = (STATIC_DIR / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+    assert "export function mount" in js, "settings.js must export mount"
+    assert "escapeHtml" in js, "settings.js must use escapeHtml for server strings"
+    assert "buildSettingsPatch" in js, "settings.js must use buildSettingsPatch"
+    assert "putSettings" in js, "settings.js must call putSettings"
+
+
+def test_main_js_imports_theme():
+    """main.js must import theme.js (applyTheme)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "theme.js" in main_js or "applyTheme" in main_js, \
+        "main.js must import from theme.js"
+
+
+def test_main_js_imports_settings_view():
+    """main.js must import views/settings.js."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "settings" in main_js, "main.js must reference settings view"
+
+
+def test_main_js_has_bell_wiring():
+    """main.js must wire the bell to dispatch rc:toggle-suggestions."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "rc:toggle-suggestions" in main_js, \
+        "main.js must dispatch CustomEvent('rc:toggle-suggestions')"
 
 
 # ---------------------------------------------------------------------------
