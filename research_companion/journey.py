@@ -405,6 +405,20 @@ def match_open_suggestions(
 
     For each open suggestion, apply per-kind conservative matchers.
     Returns list of newly-addressed suggestion dicts.
+
+    # CONCURRENCY NOTE — last-write-wins race on suggestions.json
+    # This function reads suggestions.json, modifies suggestion statuses, and
+    # writes the payload back (read-modify-write). A concurrent call to
+    # generate_suggestions (POST /api/suggestions/regenerate) or
+    # dismiss_suggestion (POST /api/suggestions/{id}/dismiss) can interleave:
+    #
+    #   match_open_suggestions reads  -> [s1 open, s2 open]
+    #   dismiss_suggestion writes     -> [s1 open, s2 dismissed]
+    #   match_open_suggestions writes -> [s1 addressed, s2 open]  (s2 dismiss lost)
+    #
+    # This is acceptable for a single-user local tool where races are rare and
+    # the user can regenerate suggestions to recover. A multi-user deployment
+    # would need file locking or a database with row-level transactions.
     """
     from research_companion.store import load_sections, load_text
     from research_companion.suggestions import load_suggestions, save_suggestions
@@ -422,6 +436,12 @@ def match_open_suggestions(
     draft_text = load_text(new_draft_id) or ""
     sections_payload = load_sections(new_draft_id)
     now_str = _now_utc(now)
+
+    # Resolve the current journey version integer for addressed_by records.
+    # Read journey once here so both auto and LLM paths use the same value.
+    _current_journey = load_journey()
+    _draft_versions = _current_journey.get("draft_versions", [])
+    _current_version: int | None = _draft_versions[-1]["version"] if _draft_versions else None
 
     addressed_ids: set[str] = set()
     addressed_by_map: dict[str, dict] = {}
@@ -460,7 +480,7 @@ def match_open_suggestions(
                     addressed_by_map[sug_id] = {
                         "by": "llm",
                         "note": "LLM confirmed with verified evidence",
-                        "version": payload.get("draft_version", ""),
+                        "version": _current_version,
                     }
                     continue
             # Without LLM or LLM failed: stay open
@@ -471,7 +491,7 @@ def match_open_suggestions(
             addressed_by_map[sug_id] = {
                 "by": "auto",
                 "note": f"{kind} match: deterministic rule",
-                "version": payload.get("draft_version", ""),
+                "version": _current_version,
             }
 
     if not addressed_ids:
@@ -530,24 +550,33 @@ def fold_counts(
 ) -> list[dict]:
     """Compute counts_over_time from a fold over events between version markers.
 
-    For each version, returns the cumulative counts of open/addressed/dismissed
-    suggestions as of that version based on the current suggestions payload
-    (not historical reconstruction — this is an approximation sufficient for
-    the Home view timeline).
+    For each version, derives the honest counts as of that version's timestamp:
+      - A suggestion is "known" at version V if its created_at <= V.at
+      - addressed_at_v = number of suggestion_addressed events with at <= V.at
+      - dismissed_at_v = number of suggestion_dismissed events with at <= V.at
+      - open_at_v = max(0, known_at_v - addressed_at_v - dismissed_at_v)
+
+    This correctly shows early versions with fewer open suggestions (only those
+    that existed at the time), rather than inflating early counts with suggestions
+    created later. For example, a suggestion created after V1 shows open==0 at V1.
 
     Pure function: no I/O.
     """
     if not versions:
         return []
 
-    # Use the current suggestions state as the reference
     result = []
     for ver in versions:
         ver_at = ver.get("added_at", "")
-        # Count suggestions based on events up to this version point
-        # Simple approach: use current status but tag with version snapshot
-        # For the timeline we count how many suggestion_addressed events occurred
-        # up to (and including) this version's timestamp.
+
+        # Count suggestions known to exist by this version's timestamp.
+        # A suggestion's created_at must be <= ver_at to have existed at that point.
+        known_count = sum(
+            1 for s in suggestions
+            if s.get("created_at", "") <= ver_at
+        )
+
+        # Count addressed and dismissed events up to (and including) this timestamp.
         addressed_count = 0
         dismissed_count = 0
         for evt in events:
@@ -559,8 +588,7 @@ def fold_counts(
             elif ek == "suggestion_dismissed":
                 dismissed_count += 1
 
-        total = len(suggestions)
-        open_count = max(0, total - addressed_count - dismissed_count)
+        open_count = max(0, known_count - addressed_count - dismissed_count)
         result.append({
             "version": ver.get("version"),
             "at": ver_at,
