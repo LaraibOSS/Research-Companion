@@ -967,9 +967,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if not draft_id:
             raise HTTPException(status_code=400, detail="No draft configured.")
 
+        # A missing review report is fine: alignment- and gap-derived suggestions
+        # are still valid (generate_suggestions tolerates report=None).
         report = store.load_review_report(draft_id)
-        if report is None:
-            raise HTTPException(status_code=400, detail="No review report found for draft.")
 
         papers = store.list_papers()
         alignments = []

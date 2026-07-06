@@ -2502,3 +2502,41 @@ class TestGapsEndpoints:
                 time.sleep(0.1)
             job_data = c.get(f"/api/jobs/{job_id}").json()
             assert job_data["kind"] == "gaps"
+
+
+class TestRegenerateWithoutReviewReport:
+    """W3 wrap-up fix: alignment-only suggestions must work without a review report."""
+
+    def test_regenerate_succeeds_with_alignments_but_no_report(self):
+        from research_companion import store
+
+        client = _make_client()
+
+        # Draft + one aligned candidate, NO review report persisted
+        meta = store.PaperMetadata(paper_id="local:draftnr", title="Draft NR",
+                                   authors=["A"], year=2026)
+        meta.save()
+        store.set_draft_paper_id("local:draftnr")
+        cand = store.PaperMetadata(paper_id="arxiv:9999.00001", title="Challenger",
+                                   authors=["B"], year=2025)
+        cand.save()
+        store.save_alignment("arxiv:9999.00001", {
+            "version": 1, "draft_paper_id": "local:draftnr",
+            "candidate_paper_id": "arxiv:9999.00001",
+            "prompt_sha256": "x", "computed_at": "2026-07-07T00:00:00Z",
+            "score": 0.8, "band": 0.1, "verdict": "high",
+            "signals": {"quote_verification": 1.0, "llm_relevance": 0.8,
+                        "lexical_overlap": 0.5},
+            "sections": [{"section_id": "s2", "section_title": "Method",
+                          "relation": "challenges", "relevance": 0.8,
+                          "rationale": "r",
+                          "evidence": [{"quote": "q", "verified": True,
+                                        "match": "exact"}]}],
+        })
+
+        resp = client.post("/api/suggestions/regenerate", json={})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["counts"]["open"] >= 1
+        kinds = {s["kind"] for s in data["suggestions"]}
+        assert "evidence" in kinds  # the challenges-derived suggestion
