@@ -1,6 +1,8 @@
 """Tests for research_companion.graph — pure construction, no LLM."""
 from __future__ import annotations
 
+import json
+
 from research_companion import graph, prompts, store
 
 
@@ -123,3 +125,29 @@ def test_graph_stats(sample_extraction: dict):
     assert stats["node_concept"] >= 1
     assert stats["node_method"] >= 1
     assert "edge_contains" in stats
+
+
+def test_load_graph_reads_edges_keyed_file(tmp_path):
+    """networkx >= 3.6 defaults node-link JSON to an "edges" key; load_graph must
+    read such files instead of KeyError-ing (CI runs a newer networkx than dev)."""
+    p = tmp_path / "graph.json"
+    p.write_text(json.dumps({
+        "directed": False, "multigraph": False, "graph": {},
+        "nodes": [{"id": "a"}, {"id": "b"}],
+        "edges": [{"source": "a", "target": "b"}],
+    }), encoding="utf-8")
+    G = graph.load_graph(p)
+    assert G.number_of_nodes() == 2
+    assert G.has_edge("a", "b")
+
+
+def test_list_papers_tie_break_is_deterministic():
+    """Equal added_at must not fall back to filesystem iteration order (differs
+    by OS): ties break by paper_id ascending, so first-seen labels are stable."""
+    for pid in ("arxiv:2410.00002", "arxiv:2410.00001", "arxiv:2410.00003"):
+        store.PaperMetadata(
+            paper_id=pid, title=pid, authors=["A"], year=2024,
+            added_at="2026-01-01T00:00:00",
+        ).save()
+    ids = [m.paper_id for m in store.list_papers()]
+    assert ids == ["arxiv:2410.00001", "arxiv:2410.00002", "arxiv:2410.00003"]

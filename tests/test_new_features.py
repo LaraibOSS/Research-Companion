@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import networkx as nx
 import pytest
-from networkx.readwrite import json_graph
 
 from research_companion import cli
 from research_companion.graph import build_graph
@@ -28,11 +27,11 @@ from research_companion.store import (
 
 
 def _save_graph_compat(G: nx.Graph) -> None:
-    """Save graph using the node-link format compatible with this networkx."""
-    p = graph_json_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    data = json_graph.node_link_data(G)
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    """Save via the shared writer so the on-disk key ("links") matches what
+    load_graph and the CLI read — a bare node_link_data() writes "edges" on
+    networkx >= 3.6 and broke CI while passing on older dev machines."""
+    from research_companion.graph import save_graph
+    save_graph(G, graph_json_path())
 
 
 def _add_paper_with_extraction(

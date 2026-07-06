@@ -219,7 +219,11 @@ def _export_json(output_dir: Path) -> Path:
     else:
         # Fall back: serialise from the in-memory graph.
         from networkx.readwrite import json_graph
-        data = json_graph.node_link_data(G, edges="links")
+        try:
+            data = json_graph.node_link_data(G, edges="links")
+        except TypeError:
+            # Older networkx (<3.4) doesn't support the `edges` kwarg.
+            data = json_graph.node_link_data(G)
         (output_dir / "graph.json").write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 

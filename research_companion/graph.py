@@ -427,8 +427,11 @@ def load_graph(path=None) -> nx.Graph:
     if not p.exists():
         return nx.Graph()
     data = json.loads(p.read_text(encoding="utf-8"))
+    # networkx >= 3.6 writes an "edges" key by default; our writer pins "links",
+    # but tolerate either so stores written by other tool versions still load.
+    edges_key = "links" if "links" in data else "edges"
     try:
-        return json_graph.node_link_graph(data, edges="links")
+        return json_graph.node_link_graph(data, edges=edges_key)
     except TypeError:
         return json_graph.node_link_graph(data)
 

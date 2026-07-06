@@ -177,6 +177,9 @@ def list_papers() -> list[PaperMetadata]:
             out.append(PaperMetadata(**data))
         except (json.JSONDecodeError, TypeError):
             continue
+    # Tie-break equal added_at by paper_id so ordering never depends on
+    # filesystem iteration order (sorted on NTFS, arbitrary on ext4).
+    out.sort(key=lambda m: m.paper_id)
     out.sort(key=lambda m: m.added_at, reverse=True)
     return out
 
