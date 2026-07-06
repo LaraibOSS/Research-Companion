@@ -44,12 +44,6 @@ export function selectNextActions(state) {
   // Rule 3: papers < 3 (non-draft papers)
   const papers = state.papers instanceof Map ? state.papers : new Map();
   let nonDraftCount = 0;
-  for (const [, p] of papers) {
-    if (!p.is_draft && p.paper_id !== state.draftId) nonDraftCount++;
-    else if (p.paper_id !== state.draftId && !p.is_draft) nonDraftCount++;
-  }
-  // Recalculate cleanly
-  nonDraftCount = 0;
   for (const [id, p] of papers) {
     if (id !== state.draftId && !p.is_draft) nonDraftCount++;
   }

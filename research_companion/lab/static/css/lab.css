@@ -3115,3 +3115,12 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 
 /* Dock offset when FAB present — doc: .dock { right: 76px } */
 .dock { right: 76px; }
+
+/* W3-F2: onboarding bell pulse — draws the eye to the suggestions bell */
+.bell-btn.bell-pulse {
+  animation: bell-pulse 0.8s ease-in-out 3;
+}
+@keyframes bell-pulse {
+  0%, 100% { transform: scale(1);    color: var(--color-muted);  }
+  50%      { transform: scale(1.18); color: var(--color-accent); }
+}

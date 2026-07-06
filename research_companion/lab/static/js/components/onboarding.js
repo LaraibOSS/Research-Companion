@@ -124,4 +124,20 @@ export function renderOnboarding(state, el, opts = {}) {
   el.querySelector('#ob-open-suggestions')?.addEventListener('click', () => {
     window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
   });
+
+  // Pulse the bell briefly when the user reaches the meet_suggestions step
+  if (currentStep === 'meet_suggestions') {
+    _pulseBell();
+  }
+}
+
+/**
+ * Add a short pulse animation class to the top-bar bell to draw the eye.
+ * No-op if the bell is not in the DOM.
+ */
+function _pulseBell() {
+  const bell = document.getElementById('topbar-bell');
+  if (!bell || bell.classList.contains('bell-pulse')) return;
+  bell.classList.add('bell-pulse');
+  setTimeout(() => bell.classList.remove('bell-pulse'), 2400);
 }
