@@ -103,7 +103,7 @@ function _render() {
     const obEl = _el.querySelector('#home-zone1-ob');
     if (obEl) {
       renderOnboarding(state, obEl, {
-        openIngest: (tab) => openModal(tab),
+        openIngest: (tab, opts) => openModal(tab, opts),
         onDismiss: () => _render(),
       });
     }
@@ -121,7 +121,9 @@ function _render() {
       if (action === 'open-suggestions') {
         window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
       } else if (action === 'open-ingest') {
-        openModal('single');
+        openModal('upload');
+      } else if (action === 'open-ingest-draft') {
+        openModal('upload', { draft: true });
       }
     });
   });

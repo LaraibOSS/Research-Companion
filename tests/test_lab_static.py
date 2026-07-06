@@ -1342,3 +1342,55 @@ def test_suggestions_panel_imports_tip_from_glossary():
     # tip() is interpolated into template literals: ${tip('...')} -> data-tip="..." at runtime
     assert "tip(" in js, \
         "suggestionsPanel.js must call tip() to inject data-tip attributes into HTML templates"
+
+
+# ---------------------------------------------------------------------------
+# v0.3.1 — Upload PDF tab + draft-first flow drift-guards
+# ---------------------------------------------------------------------------
+
+def test_ingest_modal_has_upload_tab():
+    """The Add Papers modal must offer the file-picker/drag-drop Upload tab."""
+    js = (STATIC_DIR / "js" / "components" / "ingestModal.js").read_text(encoding="utf-8")
+    assert 'data-tab="upload"' in js
+    assert "ingest-dropzone" in js
+    assert 'type="file"' in js
+    assert "ingest-draft-checkbox" in js
+
+
+def test_ingest_modal_default_tab_is_upload():
+    """Upload must be the default tab — it's the primary add-your-draft gesture."""
+    js = (STATIC_DIR / "js" / "components" / "ingestModal.js").read_text(encoding="utf-8")
+    assert "openModal(tab = 'upload'" in js
+    assert "_renderModal(activeTab = 'upload'" in js
+
+
+def test_api_js_exports_upload_paper():
+    js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "export async function uploadPaper" in js
+    assert "/api/papers/upload" in js
+
+
+def test_ingest_helpers_export_upload_validation():
+    js = (STATIC_DIR / "js" / "components" / "ingestHelpers.js").read_text(encoding="utf-8")
+    assert "export function validateUploadFile" in js
+    assert "MAX_UPLOAD_BYTES" in js
+
+
+def test_onboarding_add_draft_opens_upload_tab():
+    """The onboarding 'Add your draft' step opens Upload with draft pre-checked."""
+    js = (STATIC_DIR / "js" / "components" / "onboarding.js").read_text(encoding="utf-8")
+    assert "openIngest('upload', { draft: true })" in js
+
+
+def test_home_and_next_action_wire_open_ingest_draft():
+    home = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    nba = (STATIC_DIR / "js" / "nextAction.js").read_text(encoding="utf-8")
+    assert "'open-ingest-draft'" in nba
+    assert "open-ingest-draft" in home
+    assert "openModal('upload', { draft: true })" in home
+
+
+def test_lab_css_has_upload_styles():
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert ".ingest-dropzone" in css
+    assert ".ingest-dropzone.dragover" in css

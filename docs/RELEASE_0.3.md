@@ -74,3 +74,12 @@ remain valid.
 - **Python:** 3.10 – 3.13
 - **Dependencies:** no new external dependencies (all features use existing packages)
 - **Install:** `pip install research-companion` (PyPI, new in this release)
+
+## 0.3.1 (fast-follow)
+
+Direct PDF upload: the "+ Add papers" modal now opens on an **Upload PDF** tab —
+drag a PDF in or click to browse — with a **"This is my draft ★"** checkbox that
+uploads and marks your draft in one step. Onboarding's "Add your draft" and the
+home Do-this-next card route straight to it. Backed by `POST /api/papers/upload`
+(raw body, no new dependencies); duplicate uploads are recognized by content
+hash and answered gently.

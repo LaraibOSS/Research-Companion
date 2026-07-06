@@ -30,14 +30,14 @@ export function selectNextActions(state) {
     });
   }
 
-  // Rule 2: no draft
+  // Rule 2: no draft — opens the upload tab with "This is my draft" pre-checked
   if (!state.draftId) {
     candidates.push({
       id: 'add-draft',
       priority: 2,
       label: 'Add your draft',
-      detail: 'Set your paper as the draft to start analysis.',
-      action: 'open-ingest',
+      detail: 'Upload your paper PDF — everything else is compared against it.',
+      action: 'open-ingest-draft',
     });
   }
 

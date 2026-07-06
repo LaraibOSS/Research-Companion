@@ -27,6 +27,9 @@ from typing import Any
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import event_to_dict
 
+# Upload size cap for POST /api/papers/upload (module-level so tests can patch it)
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
 # ---------------------------------------------------------------------------
 # Request body models (module-level so annotations resolve correctly with
 # `from __future__ import annotations` in effect).
@@ -36,6 +39,10 @@ from research_companion.agents.events import event_to_dict
 
 try:
     from pydantic import BaseModel as _BaseModel
+
+    # Module-level so the deferred (string) annotation on the upload endpoint
+    # resolves against module globals; starlette ships with fastapi.
+    from starlette.requests import Request
 
     class _DraftBody(_BaseModel):
         paper_id: str | None = None
@@ -231,7 +238,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     """
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import HTMLResponse
+        from fastapi.responses import HTMLResponse, JSONResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
         raise ImportError(
@@ -263,6 +270,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Allow test overrides for the full task coroutine
     app.state.ingest_override = None
     app.state.add_paper_override = None
+    app.state.upload_override = None
     app.state.retry_override = None
 
     # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
@@ -412,6 +420,86 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         return {"job_id": job_id}
 
     # -----------------------------------------------------------------
+    # POST /api/papers/upload  (raw PDF body — the browser file-picker path)
+    # Registered before the {paper_id:path} routes so "upload" is never
+    # captured as a paper id.
+    # -----------------------------------------------------------------
+    @app.post("/api/papers/upload", status_code=202)
+    async def upload_paper(request: Request, filename: str = "",
+                           set_draft: bool = False) -> Any:
+        from research_companion import fetch, store
+        from research_companion.store import PaperMetadata, paper_dir
+
+        # Cheap pre-check before buffering the body
+        try:
+            declared = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            declared = 0
+        if declared > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413,
+                                detail="PDF exceeds the 50 MB upload limit")
+
+        body = await request.body()
+        if not body:
+            raise HTTPException(status_code=400, detail="upload body is empty")
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413,
+                                detail="PDF exceeds the 50 MB upload limit")
+        if not body.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=400,
+                detail="file does not look like a PDF (missing %PDF- header)")
+
+        # Title from the (sanitized) client filename; never trust directories
+        safe = Path(filename).name if filename else ""
+        stem = safe[:-4] if safe.lower().endswith(".pdf") else safe
+        title = (stem.strip() or "Uploaded PDF")[:120]
+
+        # Duplicate content: same sha id already fully in the store
+        paper_id = store.make_local_id(body)
+        existing = PaperMetadata.load(paper_id)
+        if existing is not None and (paper_dir(paper_id) / "paper.pdf").exists():
+            if set_draft:
+                await _apply_draft(paper_id)
+            return JSONResponse(status_code=200, content={
+                "job_id": None, "paper_id": paper_id,
+                "duplicate": True, "draft_set": set_draft,
+            })
+
+        meta = await asyncio.to_thread(
+            fetch.add_local_pdf_bytes, body,
+            source=f"upload://{safe or paper_id}", title=title,
+        )
+        # Metadata exists on disk now, so the draft can be set before the
+        # background pipeline runs — no race by construction.
+        if set_draft:
+            await _apply_draft(meta.paper_id)
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add"}
+
+        if app.state.upload_override is not None:
+            coro = app.state.upload_override(meta, bus)
+        else:
+            coro = _upload_paper_task(
+                meta,
+                bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
+
+        async def _run_upload():
+            try:
+                await coro
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
+
+        asyncio.create_task(_run_upload())
+        return {"job_id": job_id, "paper_id": meta.paper_id,
+                "duplicate": False, "draft_set": set_draft}
+
+    # -----------------------------------------------------------------
     # POST /api/papers/{id}/retry
     # -----------------------------------------------------------------
     @app.post("/api/papers/{paper_id:path}/retry", status_code=202)
@@ -488,16 +576,14 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/draft
     # -----------------------------------------------------------------
-    @app.post("/api/draft")
-    async def set_draft(body: _DraftBody) -> dict:
+    async def _apply_draft(paper_id: str | None) -> None:
+        """Set the draft + journey record + suggestion auto-match.
+
+        Shared by POST /api/draft and POST /api/papers/upload so the journey
+        version record (and its suggestions-store migration) is never duplicated.
+        Caller is responsible for validating that the paper exists.
+        """
         from research_companion import store
-
-        paper_id = body.paper_id
-
-        if paper_id is not None:
-            meta = store.PaperMetadata.load(paper_id)
-            if meta is None:
-                raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
 
         await asyncio.to_thread(store.set_draft_paper_id, paper_id)
 
@@ -525,6 +611,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     asyncio.create_task(_bg_match())
             except Exception:  # noqa: BLE001
                 pass
+
+    @app.post("/api/draft")
+    async def set_draft(body: _DraftBody) -> dict:
+        from research_companion import store
+
+        paper_id = body.paper_id
+
+        if paper_id is not None:
+            meta = store.PaperMetadata.load(paper_id)
+            if meta is None:
+                raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        await _apply_draft(paper_id)
 
         return {"draft_paper_id": paper_id}
 
@@ -1379,18 +1478,17 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 # Background task helpers
 # ---------------------------------------------------------------------------
 
-async def _add_paper_task(target: str, bus: Bus, *, pipeline_overrides: dict | None = None) -> None:
-    """Add a paper to the store and run the full single-paper pipeline."""
+async def _run_paper_pipeline(meta, path_str: str, bus: Bus, *,
+                              pipeline_overrides: dict | None = None) -> None:
+    """Publish PaperAdded and run the full single-paper pipeline for a stored paper."""
     import os
 
     from research_companion.agents.events import JobDone, PaperAdded
-    from research_companion.fetch import add_paper
     from research_companion.lab import _default_aligner, _default_strengther, ingest_one
 
     if pipeline_overrides is None:
         pipeline_overrides = {}
 
-    meta = await asyncio.to_thread(add_paper, target)
     await bus.publish(PaperAdded(
         paper_id=meta.paper_id,
         title=meta.title,
@@ -1414,8 +1512,6 @@ async def _add_paper_task(target: str, bus: Bus, *, pipeline_overrides: dict | N
     provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
     model = os.environ.get("RESEARCH_COMPANION_MODEL")
 
-    path_str = target  # use the target URL/path as the failure key
-
     await ingest_one(
         meta,
         path_str,
@@ -1430,6 +1526,21 @@ async def _add_paper_task(target: str, bus: Bus, *, pipeline_overrides: dict | N
     )
 
     await bus.publish(JobDone(job="add"))
+
+
+async def _add_paper_task(target: str, bus: Bus, *, pipeline_overrides: dict | None = None) -> None:
+    """Add a paper to the store and run the full single-paper pipeline."""
+    from research_companion.fetch import add_paper
+
+    meta = await asyncio.to_thread(add_paper, target)
+    # use the target URL/path as the failure key
+    await _run_paper_pipeline(meta, target, bus, pipeline_overrides=pipeline_overrides)
+
+
+async def _upload_paper_task(meta, bus: Bus, *, pipeline_overrides: dict | None = None) -> None:
+    """Pipeline for a paper already stored by the upload endpoint."""
+    path_str = meta.source_url or meta.paper_id  # upload://<filename> failure key
+    await _run_paper_pipeline(meta, path_str, bus, pipeline_overrides=pipeline_overrides)
 
 
 async def _retry_paper_task(

@@ -37,7 +37,7 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 
 ## What's new in 0.3
 
-Research Companion 0.3 adds five major features to the Research Lab: a guided research journey with a home view showing your discovery timeline, a suggestions engine that recommends papers to read with revision tracking, a converse panel for floating-chat conversations about specific papers, a temporal timeline view with gap analysis to find uncovered research areas, and saved views to preserve and restore your graph snapshots. See the [Release Notes](docs/RELEASE_0.3.md) for details.
+Research Companion 0.3 adds five major features to the Research Lab: a guided research journey with a home view showing your discovery timeline, a suggestions engine that recommends papers to read with revision tracking, a converse panel for floating-chat conversations about specific papers, a temporal timeline view with gap analysis to find uncovered research areas, and saved views to preserve and restore your graph snapshots. 0.3.1 adds direct PDF upload: drag your draft into the Lab and mark it as your draft in one step. See the [Release Notes](docs/RELEASE_0.3.md) for details.
 
 ## Configuration & Security
 

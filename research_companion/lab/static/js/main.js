@@ -136,7 +136,7 @@ async function boot() {
   // Wire "+ Add papers" button in top bar -> ingest modal
   const addBtn = document.getElementById('topbar-add');
   if (addBtn) {
-    addBtn.addEventListener('click', () => openModal('single'));
+    addBtn.addEventListener('click', () => openModal('upload'));
   }
 
   // Mount the persistent progress dock

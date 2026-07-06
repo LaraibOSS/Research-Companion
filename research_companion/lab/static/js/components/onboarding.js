@@ -114,7 +114,8 @@ export function renderOnboarding(state, el, opts = {}) {
   });
 
   el.querySelector('#ob-open-ingest-single')?.addEventListener('click', () => {
-    if (typeof opts.openIngest === 'function') opts.openIngest('single');
+    // Draft-first: upload tab with "This is my draft" pre-checked
+    if (typeof opts.openIngest === 'function') opts.openIngest('upload', { draft: true });
   });
 
   el.querySelector('#ob-open-ingest-folder')?.addEventListener('click', () => {

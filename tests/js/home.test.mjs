@@ -85,7 +85,8 @@ test('selectNextActions rule2: no draft returns add-draft action', () => {
   const actions = selectNextActions(state);
   assert.ok(actions.some(a => a.id === 'add-draft'));
   const addDraft = actions.find(a => a.id === 'add-draft');
-  assert.equal(addDraft.action, 'open-ingest');
+  // Draft-first: opens the upload tab with "This is my draft" pre-checked
+  assert.equal(addDraft.action, 'open-ingest-draft');
 });
 
 // -----------------------------------------------------------------------

@@ -2570,3 +2570,154 @@ class TestRegenerateWithoutReviewReport:
         assert data["counts"]["open"] >= 1
         kinds = {s["kind"] for s in data["suggestions"]}
         assert "evidence" in kinds  # the challenges-derived suggestion
+
+
+# ---------------------------------------------------------------------------
+# POST /api/papers/upload — raw-body PDF upload (v0.3.1)
+# ---------------------------------------------------------------------------
+
+_UPLOAD_PDF = (
+    b"%PDF-1.4\n"
+    b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+    b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+    b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\n"
+    b"trailer<</Size 4/Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
+)
+
+
+class TestUploadPaper:
+    """Raw-body upload: the browser file-picker/drag-drop path."""
+
+    def _client(self):
+        async def _noop_upload(meta, bus):
+            pass
+
+        app = create_lab_app(Bus())
+        app.state.upload_override = _noop_upload
+        return app, TestClient(app)
+
+    def _post(self, c, *, filename="my draft.pdf", set_draft=False, body=_UPLOAD_PDF):
+        qs = f"?filename={filename}&set_draft={'true' if set_draft else 'false'}"
+        return c.post(f"/api/papers/upload{qs}", content=body,
+                      headers={"Content-Type": "application/pdf"})
+
+    def test_upload_returns_202_and_paper_appears(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            resp = self._post(c, filename="my%20draft.pdf")
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["paper_id"].startswith("local:")
+            assert data["duplicate"] is False
+            assert data["job_id"]
+
+            papers = c.get("/api/papers").json()
+            mine = next(p for p in papers if p["paper_id"] == data["paper_id"])
+            assert "draft" in mine["title"].lower() or mine["title"]
+
+    def test_upload_title_from_filename(self, isolated_papergraph_dir):
+        from research_companion.store import PaperMetadata
+        app, c = self._client()
+        with c:
+            resp = self._post(c, filename="My Great Paper.pdf")
+            meta = PaperMetadata.load(resp.json()["paper_id"])
+            assert meta.title == "My Great Paper"
+            assert meta.source_url == "upload://My Great Paper.pdf"
+
+    def test_upload_set_draft_true_sets_draft(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            resp = self._post(c, set_draft=True)
+            assert resp.json()["draft_set"] is True
+            pid = resp.json()["paper_id"]
+            assert c.get("/api/draft").json()["draft_paper_id"] == pid
+            papers = c.get("/api/papers").json()
+            assert next(p for p in papers if p["paper_id"] == pid)["is_draft"] is True
+
+    def test_upload_set_draft_records_journey_version(self, isolated_papergraph_dir):
+        from research_companion.journey import load_journey
+        app, c = self._client()
+        with c:
+            resp = self._post(c, set_draft=True)
+            versions = load_journey()["draft_versions"]
+            assert versions and versions[-1]["paper_id"] == resp.json()["paper_id"]
+
+    def test_upload_set_draft_false_leaves_draft_unchanged(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            _make_paper(isolated_papergraph_dir, "arxiv:up_keep01", title="Existing Draft")
+            c.post("/api/draft", json={"paper_id": "arxiv:up_keep01"})
+            self._post(c, set_draft=False)
+            assert c.get("/api/draft").json()["draft_paper_id"] == "arxiv:up_keep01"
+
+    def test_upload_rejects_non_pdf_400(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            resp = self._post(c, body=b"hello world, not a pdf at all")
+            assert resp.status_code == 400
+            assert "PDF" in resp.json()["detail"]
+
+    def test_upload_rejects_empty_400(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            resp = self._post(c, body=b"")
+            assert resp.status_code == 400
+
+    def test_upload_rejects_oversize_413(self, isolated_papergraph_dir, monkeypatch):
+        import research_companion.lab_api as la
+        monkeypatch.setattr(la, "_MAX_UPLOAD_BYTES", 1024)
+        app, c = self._client()
+        with c:
+            resp = self._post(c, body=b"%PDF-1.4" + b"x" * 2048)
+            assert resp.status_code == 413
+
+    def test_upload_duplicate_returns_200_with_existing_id(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            first = self._post(c).json()
+            resp = self._post(c)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["duplicate"] is True
+            assert data["paper_id"] == first["paper_id"]
+            assert data["job_id"] is None
+
+    def test_upload_duplicate_with_set_draft_still_sets_draft(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            first = self._post(c).json()
+            resp = self._post(c, set_draft=True)
+            assert resp.status_code == 200
+            assert resp.json()["draft_set"] is True
+            assert c.get("/api/draft").json()["draft_paper_id"] == first["paper_id"]
+
+    def test_upload_pipeline_stages_run_via_seams(self, isolated_papergraph_dir):
+        from research_companion import store as _store
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        _fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=False)
+        app.state.pipeline_overrides = seam_overrides
+        # Pre-seed text for the sha-derived id so get_paper_text succeeds
+        expected_id = _store.make_local_id(_UPLOAD_PDF)
+        _store.save_text(expected_id, "Uploaded text. Introduction Methods Results.")
+
+        with TestClient(app) as c:
+            resp = self._post(c, filename="pipeline.pdf")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            import time as _time
+            deadline = _time.time() + 10
+            while _time.time() < deadline:
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] in ("done", "failed"):
+                    break
+                _time.sleep(0.05)
+            assert job["status"] == "done", job
+            assert counts["extractor"] == 1
+            assert counts["sectioner"] == 1
+
+        kinds = [type(e).__name__ for e in bus.history]
+        assert "PaperAdded" in kinds
+        assert "JobDone" in kinds

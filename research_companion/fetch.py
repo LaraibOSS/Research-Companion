@@ -362,15 +362,16 @@ def add_arxiv(url_or_id: str) -> PaperMetadata:
     return meta
 
 
-def add_local_pdf(path: Path | str, *, title: str | None = None,
-                  authors: list[str] | None = None, year: int | None = None) -> PaperMetadata:
-    """Add a local PDF. Title/authors/year are optional but recommended (no API to look them up)."""
-    p = Path(path)
-    if not p.exists():
-        raise FetchError(f"PDF not found: {p}")
-    pdf_bytes = p.read_bytes()
-    if not pdf_bytes.startswith(b"%PDF-"):
-        raise FetchError(f"file does not look like a PDF: {p}")
+def add_local_pdf_bytes(pdf_bytes: bytes, *, source: str = "", title: str | None = None,
+                        authors: list[str] | None = None,
+                        year: int | None = None) -> PaperMetadata:
+    """Bytes-based core shared by add_local_pdf and the Lab's upload endpoint.
+
+    `source` is a human-readable origin (a resolved path or upload://<filename>)
+    stored as source_url and used in error messages.
+    """
+    if not pdf_bytes or not pdf_bytes.startswith(b"%PDF-"):
+        raise FetchError(f"file does not look like a PDF: {source or '<bytes>'}")
 
     paper_id = make_local_id(pdf_bytes)
     existing = PaperMetadata.load(paper_id)
@@ -381,15 +382,30 @@ def add_local_pdf(path: Path | str, *, title: str | None = None,
 
     meta = PaperMetadata(
         paper_id=paper_id,
-        title=title or p.stem,
+        title=title or "Uploaded PDF",
         authors=authors or [],
         year=year,
         abstract="",
-        source_url=str(p.resolve()),
+        source_url=source,
         added_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     )
     meta.save()
     return meta
+
+
+def add_local_pdf(path: Path | str, *, title: str | None = None,
+                  authors: list[str] | None = None, year: int | None = None) -> PaperMetadata:
+    """Add a local PDF. Title/authors/year are optional but recommended (no API to look them up)."""
+    p = Path(path)
+    if not p.exists():
+        raise FetchError(f"PDF not found: {p}")
+    return add_local_pdf_bytes(
+        p.read_bytes(),
+        source=str(p.resolve()),
+        title=title or p.stem,
+        authors=authors,
+        year=year,
+    )
 
 
 def add_paper(url_or_path: str, **local_kwargs) -> PaperMetadata:

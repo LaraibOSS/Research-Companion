@@ -7,17 +7,7 @@
 // Core fetch helper
 // ---------------------------------------------------------------------------
 
-async function _fetch(method, path, body) {
-  const opts = {
-    method,
-    headers: {},
-  };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-
-  const res = await fetch(path, opts);
+async function _handleResponse(res) {
   if (!res.ok) {
     let detail;
     try {
@@ -33,6 +23,19 @@ async function _fetch(method, path, body) {
   // No content responses (DELETE returning 204, etc.)
   if (res.status === 204) return null;
   return res.json();
+}
+
+async function _fetch(method, path, body) {
+  const opts = {
+    method,
+    headers: {},
+  };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+
+  return _handleResponse(await fetch(path, opts));
 }
 
 const get  = (path)        => _fetch('GET',    path);
@@ -51,6 +54,19 @@ export const getPapers = () => get('/api/papers');
 
 /** POST /api/papers — add a paper. body: { target: string } */
 export const addPaper = (target) => post('/api/papers', { target });
+
+/** POST /api/papers/upload — raw PDF body. file: File/Blob, setDraft: boolean.
+ *  Returns { job_id, paper_id, duplicate, draft_set }. */
+export async function uploadPaper(file, setDraft = false) {
+  const url = `/api/papers/upload?filename=${encodeURIComponent(file.name || '')}`
+    + `&set_draft=${setDraft ? 'true' : 'false'}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf' },
+    body: file,
+  });
+  return _handleResponse(res);
+}
 
 /** POST /api/papers/{id}/retry */
 export const retryPaper = (paperId) => post(`/api/papers/${encodeURIComponent(paperId)}/retry`);
