@@ -672,6 +672,18 @@ def _cmd_review(args: argparse.Namespace) -> int:
     else:
         results = asyncio.run(run_agents(agents, ctx))
 
+    # Always persist the review report to the store (regardless of --report flag)
+    # so the suggestions engine can read it deterministically.
+    try:
+        from research_companion.report import build_report_json
+        from research_companion.store import PaperMetadata, save_review_report
+
+        _meta = PaperMetadata.load(args.paper_id)
+        _rep = build_report_json(args.paper_id, _meta.title if _meta else "", results)
+        save_review_report(args.paper_id, _rep)
+    except Exception:  # noqa: BLE001
+        pass  # Non-fatal: don't break review output if persistence fails
+
     if args.report:
         from research_companion.report import build_report_json, render_report_html
         from research_companion.store import PaperMetadata
@@ -1425,6 +1437,16 @@ def main(argv: list[str] | None = None) -> int:
     with contextlib.suppress(Exception):
         sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
         sys.stderr.reconfigure(errors="replace")  # type: ignore[attr-defined]
+
+    # Load .env files at startup: cwd convention + store .env.
+    # Both are exception-safe (missing files fine, errors silently ignored).
+    try:
+        from research_companion import settings as _settings
+        _settings.load_env_file(Path.cwd() / ".env")
+        _settings.load_env_file()
+    except Exception:  # noqa: BLE001
+        pass
+
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

@@ -353,3 +353,34 @@ def list_failures() -> dict[str, dict]:
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, ValueError):
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Review-report persistence
+# ---------------------------------------------------------------------------
+
+
+def review_report_path(paper_id: str) -> Path:
+    """Return papergraph_dir()/reviews/<dirname>/report.json."""
+    dirname = _id_to_dirname(paper_id)
+    return papergraph_dir() / "reviews" / dirname / "report.json"
+
+
+def save_review_report(paper_id: str, report: dict) -> Path:
+    """Save a review report dict to the reviews store. Returns the saved path."""
+    p = review_report_path(paper_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_review_report(paper_id: str) -> dict | None:
+    """Load a saved review report. Returns None if missing or corrupt."""
+    p = review_report_path(paper_id)
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None

@@ -1148,3 +1148,151 @@ class TestModuleImport:
         import research_companion.lab_api as la
         assert hasattr(la, "create_lab_app")
         assert hasattr(la, "serve_lab")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/settings  +  PUT /api/settings
+# ---------------------------------------------------------------------------
+
+class TestSettingsEndpoints:
+    """Tests for GET/PUT /api/settings — masked keys, validation, security."""
+
+    def _clean_env(self, monkeypatch):
+        """Remove all secret env vars and provider/model vars."""
+        from research_companion.settings import SECRET_KEYS
+        for env_var in SECRET_KEYS.values():
+            monkeypatch.delenv(env_var, raising=False)
+        for ev in ("RESEARCH_COMPANION_PROVIDER", "RESEARCH_COMPANION_MODEL"):
+            monkeypatch.delenv(ev, raising=False)
+
+    def test_get_settings_shape(self, isolated_papergraph_dir, monkeypatch):
+        """GET /api/settings returns the expected shape with keys block."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "provider" in data
+        assert "theme" in data
+        assert "keys" in data
+        for name in ("anthropic_api_key", "openai_api_key", "hf_token"):
+            assert name in data["keys"]
+            assert "set" in data["keys"][name]
+            assert "masked" in data["keys"][name]
+
+    def test_get_settings_defaults(self, isolated_papergraph_dir, monkeypatch):
+        """GET /api/settings returns DEFAULTS when no config saved."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "anthropic"
+        assert data["theme"] == "dark"
+        assert data["k_sections"] == 6
+        assert data["char_budget"] == 8000
+
+    def test_get_settings_keys_unset_when_no_env(self, isolated_papergraph_dir, monkeypatch):
+        """Keys show set:false and masked:null when env vars are absent."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.get("/api/settings")
+        data = resp.json()
+        for name in ("anthropic_api_key", "openai_api_key", "hf_token"):
+            assert data["keys"][name]["set"] is False
+            assert data["keys"][name]["masked"] is None
+
+    def test_put_settings_updates_theme(self, isolated_papergraph_dir, monkeypatch):
+        """PUT /api/settings with theme updates returns updated settings."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.put("/api/settings", json={"theme": "light"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["theme"] == "light"
+
+    def test_put_settings_partial_success(self, isolated_papergraph_dir, monkeypatch):
+        """PUT /api/settings with multiple valid fields updates all."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.put("/api/settings", json={"theme": "light", "k_sections": 10})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["theme"] == "light"
+        assert data["k_sections"] == 10
+
+    def test_put_settings_bad_provider_returns_400(self, isolated_papergraph_dir, monkeypatch):
+        """PUT /api/settings with invalid provider returns 400."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.put("/api/settings", json={"provider": "mistral"})
+        assert resp.status_code == 400
+        assert "provider" in resp.json()["detail"].lower()
+
+    def test_put_settings_bad_theme_returns_400(self, isolated_papergraph_dir, monkeypatch):
+        """PUT /api/settings with invalid theme returns 400."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.put("/api/settings", json={"theme": "pink"})
+        assert resp.status_code == 400
+
+    def test_put_settings_key_then_get_shows_set_true_and_masked(
+        self, isolated_papergraph_dir, monkeypatch, tmp_path
+    ):
+        """PUT key -> GET shows set:true + masked value; raw value never in response."""
+        self._clean_env(monkeypatch)
+        # Temporarily point env_file_path to tmp_path for this test via env override
+        c = _make_client()
+        raw_key = "sk-ant-api-test-12345678abcd"
+        resp = c.put("/api/settings", json={"keys": {"anthropic_api_key": raw_key}})
+        assert resp.status_code == 200
+        data = resp.json()
+        key_info = data["keys"]["anthropic_api_key"]
+        assert key_info["set"] is True
+        assert key_info["masked"] is not None
+        # The raw value must NOT appear anywhere in the response body
+        assert raw_key not in resp.text
+
+    def test_put_settings_key_masked_shows_last_4(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """Masked key ends with last 4 chars of the value."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        raw_key = "sk-ant-api-test-12345678abcd"
+        resp = c.put("/api/settings", json={"keys": {"anthropic_api_key": raw_key}})
+        data = resp.json()
+        masked = data["keys"]["anthropic_api_key"]["masked"]
+        assert masked.endswith("abcd")
+        assert masked.startswith("****")
+
+    def test_put_settings_empty_key_returns_400(self, isolated_papergraph_dir, monkeypatch):
+        """PUT with empty string key value returns 400 (must send null to delete)."""
+        self._clean_env(monkeypatch)
+        c = _make_client()
+        resp = c.put("/api/settings", json={"keys": {"anthropic_api_key": ""}})
+        assert resp.status_code == 400
+
+    def test_put_settings_key_null_deletes(self, isolated_papergraph_dir, monkeypatch):
+        """PUT keys.name=null removes the key from env and returns set:false."""
+        self._clean_env(monkeypatch)
+        # First set a key
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-12345678")
+        c = _make_client()
+        resp = c.put("/api/settings", json={"keys": {"anthropic_api_key": None}})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["keys"]["anthropic_api_key"]["set"] is False
+
+    def test_raw_secret_never_echoed_in_response(self, isolated_papergraph_dir, monkeypatch):
+        """The raw secret value is never present anywhere in GET or PUT responses."""
+        self._clean_env(monkeypatch)
+        raw = "super-secret-api-key-99999"
+        monkeypatch.setenv("ANTHROPIC_API_KEY", raw)
+        c = _make_client()
+
+        get_resp = c.get("/api/settings")
+        assert raw not in get_resp.text
+
+        put_resp = c.put("/api/settings", json={"theme": "light"})
+        assert raw not in put_resp.text

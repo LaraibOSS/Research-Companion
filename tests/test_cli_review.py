@@ -173,3 +173,30 @@ def test_review_doi_id_creates_run_log(monkeypatch: pytest.MonkeyPatch, capsys):
     runs = list((store.papergraph_dir() / "runs").glob("*.jsonl"))
     doi_runs = [r for r in runs if "doi__10_1145_12345_67890" in r.name]
     assert doi_runs, f"expected a DOI run log, found: {[r.name for r in runs]}"
+
+
+def test_review_always_persists_store_copy(monkeypatch: pytest.MonkeyPatch, capsys):
+    """review always writes a store copy via store.save_review_report (no --report flag)."""
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    rc = cli.main(["review", paper_id, "--fast"])
+    assert rc == 0
+    # The store copy must exist and be valid JSON with the paper_id
+    loaded = store.load_review_report(paper_id)
+    assert loaded is not None, "expected a persisted review report in the store"
+    assert loaded.get("paper_id") == paper_id
+
+
+def test_review_persists_store_copy_even_without_report_flag(
+    monkeypatch: pytest.MonkeyPatch, capsys
+):
+    """review stores a copy regardless of --report flag being absent."""
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    # No --report flag
+    rc = cli.main(["review", paper_id, "--fast"])
+    assert rc == 0
+    # load_review_report should find the persisted copy
+    loaded = store.load_review_report(paper_id)
+    assert loaded is not None
+    assert "lanes" in loaded or "agents" in loaded or "paper_id" in loaded

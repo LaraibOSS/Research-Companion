@@ -59,6 +59,18 @@ try:
     class _AddPaperBody(_BaseModel):
         target: str = ""
 
+    class _SettingsPatchBody(_BaseModel):
+        """Arbitrary subset of settings fields for PUT /api/settings."""
+        provider: str | None = None
+        model: str | None = None
+        theme: str | None = None
+        accent: str | None = None
+        density: str | None = None
+        k_sections: int | None = None
+        char_budget: int | None = None
+        embed_model: str | None = None
+        keys: dict[str, str | None] | None = None
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -68,6 +80,7 @@ except ImportError:
     _AskBody = None  # type: ignore[assignment,misc]
     _CompareBody = None  # type: ignore[assignment,misc]
     _AddPaperBody = None  # type: ignore[assignment,misc]
+    _SettingsPatchBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -840,6 +853,46 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         return result
 
     # -----------------------------------------------------------------
+    # GET /api/settings
+    # -----------------------------------------------------------------
+    @app.get("/api/settings")
+    async def get_settings_endpoint() -> dict:
+        from research_companion.settings import get_settings
+        return get_settings()
+
+    # -----------------------------------------------------------------
+    # PUT /api/settings
+    # -----------------------------------------------------------------
+    @app.put("/api/settings")
+    async def put_settings_endpoint(body: _SettingsPatchBody) -> dict:
+        from research_companion.settings import SettingsError, update_settings
+
+        # Build a patch dict from only the explicitly provided (non-None) fields.
+        # Note: model=None is a valid value (means "remove model override"), so we
+        # use model_fields_set (pydantic v2) or __fields_set__ (pydantic v1) to
+        # distinguish "not provided" from "set to None".
+        try:
+            # Pydantic v2
+            provided = body.model_fields_set
+        except AttributeError:
+            # Pydantic v1
+            provided = body.__fields_set__  # type: ignore[attr-defined]
+
+        patch: dict = {}
+        for field in provided:
+            patch[field] = getattr(body, field)
+
+        if not patch:
+            # Nothing to update — return current settings
+            from research_companion.settings import get_settings
+            return get_settings()
+
+        try:
+            return update_settings(patch)
+        except SettingsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # -----------------------------------------------------------------
     # GET /api/events (SSE)
     # -----------------------------------------------------------------
     @app.get("/api/events")
@@ -1080,6 +1133,17 @@ def serve_lab(port: int = 8765, *, open_browser: bool = True) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1) from exc
+
+    # Load .env files before starting the server: cwd convention + store .env.
+    # Exception-safe: missing files are fine. (stdlib import first per ruff I001)
+    try:
+        import pathlib as _pathlib
+
+        from research_companion import settings as _settings
+        _settings.load_env_file(_pathlib.Path.cwd() / ".env")
+        _settings.load_env_file()
+    except Exception:  # noqa: BLE001
+        pass
 
     from research_companion.agents.bus import Bus
     from research_companion.agents.events import EventLog
