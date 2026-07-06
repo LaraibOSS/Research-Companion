@@ -202,6 +202,10 @@ let _onEdgeClick = null;
 // is a stable closure that delegates to this mutable predicate, plus refresh().
 let _activePredicate = () => true;
 
+// W4-F3: when non-null, this predicate REPLACES the computed
+// section/kind/draft filter entirely (draft-mode ego view).
+let _overridePredicate = null;
+
 /**
  * Rebuild the DataView filter predicate (section + kind only, NOT search).
  * Does NOT call network.setData — the Network observes the DataViews, whose
@@ -211,7 +215,9 @@ let _activePredicate = () => true;
 function _rebuildViews() {
   if (!_vis || !_nodesDS || !_edgesDS) return;
 
-  _activePredicate = makeFilterPredicate(_sectionId, _hiddenKinds, _draftPaperId);
+  _activePredicate = _overridePredicate
+    ? _overridePredicate
+    : makeFilterPredicate(_sectionId, _hiddenKinds, _draftPaperId);
 
   if (_nodesView && typeof _nodesView.refresh === 'function') {
     _nodesView.refresh();
@@ -542,6 +548,28 @@ export function getEdgesDataSet() {
  */
 export function setDraftPaperId(id) {
   _draftPaperId = id;
+  _rebuildViews();
+}
+
+/**
+ * Enable/disable the physics simulation (W4-F3 draft mode freezes layout).
+ * @param {boolean} enabled
+ */
+export function setPhysics(enabled) {
+  if (!_network) return;
+  _network.setOptions({ physics: { enabled: !!enabled } });
+}
+
+/**
+ * Install (or clear) an override filter predicate (W4-F3 draft mode).
+ * When non-null, _rebuildViews uses it INSTEAD of the computed
+ * section/kind/draft predicate; passing null restores the computed filter.
+ * Triggers a DataView refresh either way.
+ *
+ * @param {((node: object) => boolean)|null} fn
+ */
+export function setOverridePredicate(fn) {
+  _overridePredicate = typeof fn === 'function' ? fn : null;
   _rebuildViews();
 }
 

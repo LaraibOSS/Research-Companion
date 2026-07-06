@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -84,6 +84,8 @@ REQUIRED_STATIC_FILES = [
     "js/components/helpPanel.js",
     # W4-F2 additions
     "js/libraryHelpers.js",
+    # W4-F3 additions
+    "js/graph/draftLayout.js",
 ]
 
 
@@ -1434,3 +1436,70 @@ def test_lab_css_has_library_table_styles():
     css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
     for needle in (".lib-table", ".lib-view-toggle", ".lib-status-pill"):
         assert needle in css, f"lab.css missing W4-F2 style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# W4-F3: Draft-centric graph mode
+# ---------------------------------------------------------------------------
+
+def test_draft_layout_exports_pure_functions():
+    """js/graph/draftLayout.js must export the four pure draft-mode helpers."""
+    js = (STATIC_DIR / "js" / "graph" / "draftLayout.js").read_text(encoding="utf-8")
+    for name in ("buildDraftModel", "layoutDraftEgo",
+                 "makeDraftPredicate", "collectPaperEntities"):
+        assert f"export function {name}" in js, \
+            f"draftLayout.js must export {name}"
+
+
+def test_draft_layout_reuses_dominant_relation():
+    """draftLayout.js must import dominantRelation from libraryHelpers.js
+    (single source of truth — no duplicated stance logic)."""
+    js = (STATIC_DIR / "js" / "graph" / "draftLayout.js").read_text(encoding="utf-8")
+    assert "from '../libraryHelpers.js'" in js, \
+        "draftLayout.js must import from ../libraryHelpers.js"
+    assert "dominantRelation" in js, \
+        "draftLayout.js must reuse dominantRelation (not reimplement it)"
+
+
+def test_graph_js_has_mode_toggle():
+    """views/graph.js must render the segmented mode toggle and persist the
+    mode to localStorage 'rc.graphMode' (W4-F3)."""
+    graph_js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
+    assert "rc.graphMode" in graph_js, \
+        "graph.js must persist the mode under localStorage key 'rc.graphMode'"
+    assert "Draft" in graph_js, \
+        "graph.js mode toggle must have a Draft segment"
+    assert "graph-mode-toggle" in graph_js, \
+        "graph.js must render the .graph-mode-toggle element"
+    assert "_draftModeActive" in graph_js, \
+        "graph.js must guard live deltas with _draftModeActive (saved-view pattern)"
+
+
+def test_graphview_exports_set_physics_and_override():
+    """graph/graphview.js must export setPhysics and setOverridePredicate (W4-F3 additive)."""
+    js = (STATIC_DIR / "js" / "graph" / "graphview.js").read_text(encoding="utf-8")
+    assert "export function setPhysics" in js, \
+        "graphview.js must export setPhysics"
+    assert "export function setOverridePredicate" in js, \
+        "graphview.js must export setOverridePredicate"
+
+
+def test_lab_css_has_graph_mode_styles():
+    """lab.css must include the W4-F3 segmented mode-toggle styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".graph-mode-toggle", ".graph-mode-seg",
+                   ".graph-mode-toggle.disabled"):
+        assert needle in css, f"lab.css missing W4-F3 style: {needle}"
+
+
+def test_draft_layout_node_test_file_exists():
+    """tests/js/draftLayout.test.mjs must exist (W4-F3 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "draftLayout.test.mjs").exists(), \
+        "Missing tests/js/draftLayout.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_draft_layout_js_returns_200(lab_client):
+    """GET /static/js/graph/draftLayout.js must return 200 (W4-F3)."""
+    res = lab_client.get("/static/js/graph/draftLayout.js")
+    assert res.status_code == 200

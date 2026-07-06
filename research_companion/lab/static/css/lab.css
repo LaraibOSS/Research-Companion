@@ -3949,3 +3949,56 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 .lib-row-failed {
   border-left: 2px solid rgba(248, 81, 73, 0.4);
 }
+
+/* ---------------------------------------------------------------------------
+ * W4-F3: Draft-centric graph mode — segmented mode toggle
+ * --------------------------------------------------------------------------- */
+
+.graph-mode-toggle {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 3px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  box-shadow: var(--shadow-2);
+}
+
+.graph-mode-seg {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+  white-space: nowrap;
+}
+
+.graph-mode-seg:hover:not(.active):not(:disabled) {
+  color: var(--color-fg);
+}
+
+.graph-mode-seg.active {
+  background: rgba(88, 166, 255, 0.18);
+  color: var(--color-accent);
+}
+
+/* Disabled state — no draft yet ([data-tip] hint on the pill explains why) */
+.graph-mode-toggle.disabled {
+  opacity: 0.55;
+}
+
+.graph-mode-seg:disabled {
+  cursor: not-allowed;
+  color: var(--color-muted);
+}

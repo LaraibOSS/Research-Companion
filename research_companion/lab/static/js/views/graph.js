@@ -13,6 +13,9 @@ import * as api from '../api.js';
 import { escapeHtml } from '../format.js';
 import { nodeToVis, edgeToVis, KIND_COLORS } from '../graph/mapping.js';
 import * as graphEngine from '../graph/graphview.js';
+import {
+  buildDraftModel, layoutDraftEgo, makeDraftPredicate, collectPaperEntities,
+} from '../graph/draftLayout.js';
 import { onGraphDeltas } from '../sse.js';
 import { viewRowModel } from '../viewsHelpers.js';
 import { showToast } from '../components/toast.js';
@@ -49,6 +52,33 @@ let _viewChipEl = null;        // "Viewing: <name> — back to live" chip near L
 // Guard flag: while a saved view is active, suppress live graph_delta application.
 let _savedViewActive = false;
 
+// ---------------------------------------------------------------------------
+// Draft-mode state (W4-F3)
+// ---------------------------------------------------------------------------
+
+const MODE_STORAGE_KEY = 'rc.graphMode';
+
+let _mode = 'explore';                  // 'draft' | 'explore'
+let _modeToggleEl = null;               // floating segmented toggle
+// Guard flag: while draft mode is active, suppress live graph_delta
+// repositioning (same pattern as _savedViewActive).
+let _draftModeActive = false;
+let _draftSyntheticNodeIds = new Set(); // synthetic 'sec:' node ids (clean removal)
+let _draftSyntheticEdgeIds = new Set(); // synthetic alignment edge ids (clean removal)
+let _draftFixedNodeIds = [];            // real node ids we pinned on enter
+let _draftVisibleIds = new Set();       // draft + papers + sec: nodes
+let _expandedEntityIds = new Set();     // entity ids currently expanded
+let _expandedByPaper = new Map();       // paperId -> entity ids expanded for it
+let _sectorLabels = [];                 // [{text, relation, x, y}] drawn on canvas
+let _beforeDrawingHandler = null;       // registered on the network; off() on exit
+
+// Alignment edge colors per relation ('unaligned' papers get NO edges).
+const DRAFT_EDGE_COLORS = {
+  strengthens: '#3fb950',
+  challenges:  '#f85149',
+  alternative: '#d29922',
+};
+
 // Injectable search debounce scheduler (defaults to setTimeout; injectable for tests).
 let _searchScheduler = (fn, ms) => setTimeout(fn, ms);
 let _searchCanceller = (id) => clearTimeout(id);
@@ -70,8 +100,9 @@ export function _setSearchScheduler(scheduler, canceller) {
 
 _unsubGraphDeltas = onGraphDeltas((batch) => {
   if (!_mounted) return;
-  // While a saved view is active, live deltas must not repaint it.
-  if (_savedViewActive) return;
+  // While a saved view or the draft ego layout is active, live deltas must
+  // not repaint/reposition it (same guard pattern for both).
+  if (_savedViewActive || _draftModeActive) return;
   const { draftId } = store.getState();
   for (const delta of batch) {
     graphEngine.applyDelta(delta, draftId);
@@ -124,10 +155,19 @@ export function mount(_el) {
   // Delta live-growth goes through onGraphDeltas (registered at module init).
   const unsubSections = store.subscribe(['sections', 'papers'], _updateSectionList);
   const unsubViews = store.subscribe(['views'], _renderSavedViews);
-  _unsubscribers = [unsubJobs, unsubSections, unsubViews];
+  const unsubDraft = store.subscribe(['draft'], _renderModeToggle);
+  _unsubscribers = [unsubJobs, unsubSections, unsubViews, unsubDraft];
 
-  // Initial data load — always fetch FULL graph (section scoping is client-side via DataView)
-  _loadInitialGraph();
+  // Graph mode: persisted; default 'draft' when a draft exists (W4-F3)
+  _mode = _initialMode();
+  _renderModeToggle();
+
+  // Initial data load — always fetch FULL graph (section scoping is client-side via DataView).
+  // Draft mode is entered only AFTER the snapshot lands, otherwise loadSnapshot()
+  // would clobber the synthetic section nodes and pinned positions.
+  _loadInitialGraph().then(() => {
+    if (_mounted && _mode === 'draft') _enterDraftMode();
+  });
   _loadSections();
   _loadViews();
   _updateLiveBadge();
@@ -141,6 +181,11 @@ export function unmount() {
   if (!_mounted) return;
   _mounted = false;
 
+  // Leave the shared graph engine in live/explore state (physics on, no
+  // override predicate, no synthetic nodes). _mode stays persisted, so the
+  // next mount re-enters draft mode after the fresh snapshot loads.
+  if (_draftModeActive) _exitDraftMode({ reload: false });
+
   _hideCanvas();
 
   // Remove floating panels from canvas
@@ -150,6 +195,7 @@ export function unmount() {
     if (_detailPanel && _detailPanel.parentNode === canvas) canvas.removeChild(_detailPanel);
     if (_liveBadge && _liveBadge.parentNode === canvas) canvas.removeChild(_liveBadge);
     if (_viewChipEl && _viewChipEl.parentNode === canvas) canvas.removeChild(_viewChipEl);
+    if (_modeToggleEl && _modeToggleEl.parentNode === canvas) canvas.removeChild(_modeToggleEl);
   }
   _leftPanel = null;
   _detailPanel = null;
@@ -158,6 +204,7 @@ export function unmount() {
   _sectionListEl = null;
   _savedViewsEl = null;
   _viewChipEl = null;
+  _modeToggleEl = null;
 
   for (const unsub of _unsubscribers) unsub();
   _unsubscribers = [];
@@ -185,7 +232,14 @@ function _ensureGraphInit(canvas) {
 
   // Wire node/edge click callbacks
   graphEngine.onNodeClick((node) => {
-    if (node) _showNodeDetail(node);
+    if (!node) return;
+    // Synthetic section nodes have no real detail to show.
+    if (typeof node.id === 'string' && node.id.startsWith('sec:')) return;
+    // In draft mode, clicking a paper toggles its entity ring (W4-F3).
+    if (_draftModeActive && node.kind === 'paper' && node.id !== store.getState().draftId) {
+      _togglePaperEntities(node.id);
+    }
+    _showNodeDetail(node);
   });
   graphEngine.onEdgeClick((edge) => {
     if (edge) _showEdgeDetail(edge);
@@ -313,6 +367,302 @@ function _buildPanels(canvas) {
   _viewChipEl.className = 'graph-view-chip';
   _viewChipEl.style.display = 'none';
   canvas.appendChild(_viewChipEl);
+
+  // MODE TOGGLE — floating top-center segmented pill (W4-F3)
+  _modeToggleEl = document.createElement('div');
+  _modeToggleEl.className = 'graph-mode-toggle';
+  canvas.appendChild(_modeToggleEl);
+  _renderModeToggle();
+}
+
+// ---------------------------------------------------------------------------
+// Draft-centric graph mode (W4-F3)
+// ---------------------------------------------------------------------------
+
+function _initialMode() {
+  let saved = null;
+  try { saved = localStorage.getItem(MODE_STORAGE_KEY); } catch { /* private mode */ }
+  if (saved === 'draft' || saved === 'explore') {
+    // A persisted 'draft' preference only holds while a draft exists.
+    if (saved === 'draft' && !store.getState().draftId) return 'explore';
+    return saved;
+  }
+  return store.getState().draftId ? 'draft' : 'explore';
+}
+
+function _persistMode(mode) {
+  try { localStorage.setItem(MODE_STORAGE_KEY, mode); } catch { /* private mode */ }
+}
+
+function _renderModeToggle() {
+  if (!_modeToggleEl) return;
+  const { draftId } = store.getState();
+  const disabled = !draftId;
+
+  _modeToggleEl.classList.toggle('disabled', disabled);
+  if (disabled) {
+    _modeToggleEl.setAttribute('data-tip', 'Add a draft to unlock Draft mode');
+  } else {
+    _modeToggleEl.removeAttribute('data-tip');
+  }
+
+  _modeToggleEl.innerHTML = `
+    <button class="graph-mode-seg${_mode === 'draft' ? ' active' : ''}"
+            data-mode="draft" ${disabled ? 'disabled' : ''}>&#11089; Draft</button>
+    <button class="graph-mode-seg${_mode === 'explore' ? ' active' : ''}"
+            data-mode="explore">Explore</button>
+  `;
+
+  _modeToggleEl.querySelectorAll('.graph-mode-seg').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      _setMode(btn.dataset.mode);
+    });
+  });
+}
+
+function _setMode(mode) {
+  if (mode !== 'draft' && mode !== 'explore') return;
+  _mode = mode;
+  _persistMode(mode);
+  _renderModeToggle();
+  if (mode === 'draft') {
+    _enterDraftMode();
+  } else {
+    _exitDraftMode({ reload: true });
+  }
+}
+
+/** Draft-mode entry failed — toast and fall back to explore cleanly. */
+function _fallBackToExplore(message) {
+  if (message) showToast(message, 'error');
+  _mode = 'explore';
+  _persistMode('explore');
+  _renderModeToggle();
+}
+
+// In-flight guard: prevents a second enter (mount + toggle click racing)
+// from double-adding synthetic nodes while the fetches are pending.
+let _enteringDraft = false;
+
+async function _enterDraftMode() {
+  if (_draftModeActive || _enteringDraft) return;
+
+  const network = graphEngine.getNetwork();
+  const nodesDS = graphEngine.getNodesDataSet();
+  const edgesDS = graphEngine.getEdgesDataSet();
+  if (!network || !nodesDS || !edgesDS) return;
+
+  const { draftId, papers } = store.getState();
+  if (!draftId) {
+    _fallBackToExplore('Set a draft first to use Draft mode');
+    return;
+  }
+
+  _enteringDraft = true;
+  try {
+    await _enterDraftModeInner(network, nodesDS, edgesDS, papers);
+  } finally {
+    _enteringDraft = false;
+  }
+}
+
+async function _enterDraftModeInner(network, nodesDS, edgesDS, papers) {
+  let alignment, sections;
+  try {
+    [alignment, sections] = await Promise.all([api.getDraftAlignment(), api.getSections()]);
+  } catch (err) {
+    _fallBackToExplore(`Draft mode unavailable: ${err.message}`);
+    return;
+  }
+  if (!_mounted || _mode !== 'draft') return; // user navigated / toggled away meanwhile
+
+  const model = buildDraftModel(alignment, sections || [], papers);
+  if (!model.draftId || model.sections.length === 0) {
+    _fallBackToExplore('No draft sections yet — run alignment first');
+    return;
+  }
+
+  const { positions, sectorLabels } = layoutDraftEgo(model);
+  _draftModeActive = true;
+
+  // 1. Synthetic section nodes (muted boxes, fixed, no physics)
+  const secNodes = model.sections.map(s => {
+    const id = 'sec:' + s.id;
+    const pos = positions.get(id) || { x: 0, y: 0 };
+    _draftSyntheticNodeIds.add(id);
+    return {
+      id,
+      kind: 'section',
+      label: s.title || 'Section',
+      title: s.title || 'Section',
+      shape: 'box',
+      margin: 6,
+      color: {
+        background: 'rgba(110,118,129,0.12)',
+        border: 'rgba(110,118,129,0.45)',
+        highlight: { background: 'rgba(110,118,129,0.2)', border: 'rgba(139,148,158,0.6)' },
+      },
+      font: { color: '#9aa4b2', size: 11 },
+      x: pos.x, y: pos.y,
+      fixed: { x: true, y: true },
+      physics: false,
+    };
+  });
+
+  // 2. Synthetic alignment edges (paper -> sec:) — 'unaligned' papers get none
+  const alignEdges = [];
+  for (const p of model.papers) {
+    for (const e of p.edges) {
+      const color = DRAFT_EDGE_COLORS[e.relation];
+      if (!color) continue;
+      const id = `draftedge:${p.paperId}:${e.sectionId}:${e.relation}`;
+      if (_draftSyntheticEdgeIds.has(id)) continue;
+      _draftSyntheticEdgeIds.add(id);
+      alignEdges.push({
+        id,
+        from: p.paperId,
+        to: 'sec:' + e.sectionId,
+        relation: e.relation,
+        title: e.relation,
+        width: 1.5,
+        smooth: { enabled: true, type: 'curvedCW', roundness: 0.2 },
+        color: { color, highlight: color },
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+      });
+    }
+  }
+
+  nodesDS.add(secNodes);
+  if (alignEdges.length) edgesDS.add(alignEdges);
+
+  // 3. Pin the real draft/paper nodes at their layout coordinates
+  const nodeUpdates = [];
+  _draftFixedNodeIds = [];
+  for (const [nodeId, pos] of positions) {
+    if (_draftSyntheticNodeIds.has(nodeId)) continue;
+    if (!nodesDS.get(nodeId)) continue;
+    nodeUpdates.push({ id: nodeId, x: pos.x, y: pos.y, fixed: { x: true, y: true }, physics: false });
+    _draftFixedNodeIds.push(nodeId);
+  }
+  if (nodeUpdates.length) nodesDS.update(nodeUpdates);
+
+  // 4. Freeze physics + show only draft/papers/sections (entities hidden)
+  _draftVisibleIds = new Set([
+    model.draftId,
+    ...model.sections.map(s => 'sec:' + s.id),
+    ...model.papers.map(p => p.paperId),
+  ]);
+  _expandedEntityIds = new Set();
+  _expandedByPaper = new Map();
+  graphEngine.setPhysics(false);
+  graphEngine.setOverridePredicate(makeDraftPredicate(_draftVisibleIds, _expandedEntityIds));
+
+  // 5. Sector labels painted straight on the canvas (world coordinates).
+  //    FALLBACK if painting misbehaves in some browser: replace this handler
+  //    with plain vis nodes (shape:'text') at the same layout coords.
+  _sectorLabels = sectorLabels;
+  _beforeDrawingHandler = (ctx) => {
+    ctx.save();
+    ctx.font = '12px arial';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
+    ctx.fillStyle = 'rgba(139,148,158,0.75)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const lbl of _sectorLabels) {
+      ctx.fillText(String(lbl.text || '').toUpperCase(), lbl.x, lbl.y);
+    }
+    ctx.restore();
+  };
+  network.on('beforeDrawing', _beforeDrawingHandler);
+
+  network.fit();
+  _updateStats();
+}
+
+/**
+ * Exit draft mode — exact inverse of every _enterDraftMode mutation:
+ * synthetic nodes/edges removed, pinned nodes released, physics + computed
+ * filter restored, canvas painter unregistered, live snapshot reloaded.
+ */
+function _exitDraftMode({ reload = true } = {}) {
+  if (!_draftModeActive) return;
+  _draftModeActive = false;
+
+  const network = graphEngine.getNetwork();
+  const nodesDS = graphEngine.getNodesDataSet();
+  const edgesDS = graphEngine.getEdgesDataSet();
+
+  // 5'. Unregister the sector-label painter
+  if (network && _beforeDrawingHandler) network.off('beforeDrawing', _beforeDrawingHandler);
+  _beforeDrawingHandler = null;
+  _sectorLabels = [];
+
+  // 1'./2'. Remove synthetic section nodes + alignment edges
+  if (edgesDS && _draftSyntheticEdgeIds.size) edgesDS.remove([..._draftSyntheticEdgeIds]);
+  if (nodesDS && _draftSyntheticNodeIds.size) nodesDS.remove([..._draftSyntheticNodeIds]);
+  _draftSyntheticEdgeIds = new Set();
+  _draftSyntheticNodeIds = new Set();
+
+  // 3'. Release pinned real nodes (and any expanded entity nodes)
+  if (nodesDS) {
+    const releaseIds = [..._draftFixedNodeIds, ..._expandedEntityIds]
+      .filter(id => nodesDS.get(id));
+    if (releaseIds.length) {
+      nodesDS.update(releaseIds.map(id => ({ id, fixed: false, physics: true })));
+    }
+  }
+  _draftFixedNodeIds = [];
+  _draftVisibleIds = new Set();
+  _expandedEntityIds = new Set();
+  _expandedByPaper = new Map();
+
+  // 4'. Restore computed filter + physics
+  graphEngine.setOverridePredicate(null);
+  graphEngine.setPhysics(true);
+
+  if (reload) _loadInitialGraph();
+}
+
+/** Toggle the entity ring around a paper (draft mode only). */
+function _togglePaperEntities(paperId) {
+  const network = graphEngine.getNetwork();
+  const nodesDS = graphEngine.getNodesDataSet();
+  const edgesDS = graphEngine.getEdgesDataSet();
+  if (!network || !nodesDS || !edgesDS) return;
+
+  if (_expandedByPaper.has(paperId)) {
+    // Collapse: release + hide this paper's entities
+    const ids = _expandedByPaper.get(paperId);
+    _expandedByPaper.delete(paperId);
+    for (const id of ids) _expandedEntityIds.delete(id);
+    const present = ids.filter(id => nodesDS.get(id));
+    if (present.length) {
+      nodesDS.update(present.map(id => ({ id, fixed: false, physics: true })));
+    }
+  } else {
+    // Expand: deterministic small ring around the paper, fixed
+    const entityIds = collectPaperEntities(edgesDS.get(), paperId)
+      .filter(id => nodesDS.get(id))
+      .sort();
+    if (entityIds.length === 0) return;
+    const paperPos = (network.getPositions([paperId]) || {})[paperId] || { x: 0, y: 0 };
+    const ringRadius = 90;
+    nodesDS.update(entityIds.map((id, i) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * i) / entityIds.length;
+      return {
+        id,
+        x: paperPos.x + ringRadius * Math.cos(a),
+        y: paperPos.y + ringRadius * Math.sin(a),
+        fixed: { x: true, y: true },
+        physics: false,
+      };
+    }));
+    _expandedByPaper.set(paperId, entityIds);
+    for (const id of entityIds) _expandedEntityIds.add(id);
+  }
+
+  graphEngine.setOverridePredicate(makeDraftPredicate(_draftVisibleIds, _expandedEntityIds));
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +800,14 @@ async function _handlePin(viewId, rowEl) {
 async function _loadViewSnapshot(viewId) {
   try {
     const data = await api.getViewGraph(viewId);
+    // A saved view replaces the whole dataset — leave draft mode first
+    // (no reload: loadSnapshot below provides the data).
+    if (_draftModeActive) {
+      _mode = 'explore';
+      _persistMode('explore');
+      _exitDraftMode({ reload: false });
+      _renderModeToggle();
+    }
     const { draftId } = store.getState();
     graphEngine.loadSnapshot(data, draftId);
     _activeViewId = viewId;
