@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Callable, Sequence
+from collections.abc import Callable, Sequence
 
 from research_companion.embed import DEFAULT_EMBED_MODEL
 from research_companion.rank import BM25

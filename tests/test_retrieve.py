@@ -5,8 +5,6 @@ rank_units ordering must be identical to raw BM25 ordering (v0.2 behavior).
 """
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from research_companion import store
