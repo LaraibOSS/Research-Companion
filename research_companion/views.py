@@ -77,9 +77,8 @@ def _save_all(views: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Node/edge serialization — replicates the shape /api/graph uses
-# (lab_api.py get_graph handler).  T7 will unify both onto one shared
-# serialize_graph; keep this helper obviously equivalent.
+# Node/edge serialization — delegates to the shared serialize_graph in graph.py.
+# graph.py imports neither views nor lab_api, so this is cycle-free.
 # ---------------------------------------------------------------------------
 
 
@@ -90,69 +89,16 @@ def _serialize_graph(G: Any, node_ids: list[str]) -> tuple[list[dict], list[dict
     Edges are those both of whose endpoints are in the included set.
     missing_node_ids is sorted.
     """
+    from research_companion.graph import serialize_graph as _sg
+
     included = [nid for nid in node_ids if nid in G.nodes]
     missing = sorted(nid for nid in node_ids if nid not in G.nodes)
 
     # Induced subgraph preserves all edges between included nodes
     sub = G.subgraph(included)
 
-    nodes: list[dict] = []
-    for nid, data in sub.nodes(data=True):
-        kind = data.get("kind", "")
-        attrs: dict[str, Any] = {
-            k: v for k, v in data.items()
-            if k not in ("kind", "label", "strength_band", "strength_color")
-        }
-
-        # sections: for paper nodes use the store; for others derive from
-        # contains-edges (mirrors lab_api.py get_graph logic).
-        # In views we keep it simple: pass through stored sections attr or empty.
-        sections_val = data.get("sections")
-        if kind == "paper" and isinstance(sections_val, list):
-            sec_ids = [
-                s["id"] if isinstance(s, dict) else str(s)
-                for s in sections_val
-            ]
-        elif kind != "paper":
-            # Derive from contains-edges in the subgraph
-            sec_ids_set: set[str] = set()
-            for neighbor in sub.neighbors(nid):
-                edge_data = sub.edges[neighbor, nid]
-                if edge_data.get("relation") == "contains":
-                    sec_val = edge_data.get("section")
-                    if sec_val:
-                        sec_ids_set.add(sec_val)
-            sec_ids = sorted(sec_ids_set)
-        else:
-            sec_ids = []
-
-        # Strength for paper nodes
-        strength: dict | None = None
-        if kind == "paper":
-            band = data.get("strength_band")
-            color = data.get("strength_color")
-            if band or color:
-                strength = {"band": band or "", "color": color or ""}
-
-        nodes.append({
-            "id": nid,
-            "kind": kind,
-            "label": data.get("label", nid),
-            "sections": sec_ids,
-            "strength": strength,
-            "attrs": attrs,
-        })
-
-    edges: list[dict] = []
-    for u, v, edata in sub.edges(data=True):
-        edges.append({
-            "from": u,
-            "to": v,
-            "relation": edata.get("relation", ""),
-            "weight": edata.get("weight", 1),
-        })
-
-    return nodes, edges, missing
+    serialized = _sg(sub, seq=0)
+    return serialized["nodes"], serialized["edges"], missing
 
 
 # ---------------------------------------------------------------------------

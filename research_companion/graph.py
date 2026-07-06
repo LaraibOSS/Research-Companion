@@ -259,6 +259,83 @@ def _resolve_citation(ref: str, papers: list[PaperMetadata]) -> str | None:
 # Section subgraph helper
 # ---------------------------------------------------------------------------
 
+def serialize_graph(G: nx.Graph, *, seq: int = 0) -> dict:
+    """Serialize a NetworkX graph to the canonical node/edge wire format.
+
+    Returns::
+
+        {
+            "seq":   int,
+            "nodes": [{"id", "kind", "label", "sections", "strength", "attrs"}, ...],
+            "edges": [{"from", "to", "relation", "weight"}, ...],
+        }
+
+    This is the shared serializer used by GET /api/graph (lab_api) and
+    views.view_graph (views.py).  Moving it to graph.py avoids import cycles
+    (graph.py imports neither lab_api nor views; both can import graph freely).
+    """
+    from research_companion import store as _store
+
+    nodes = []
+    for nid, data in G.nodes(data=True):
+        kind = data.get("kind", "")
+        attrs = {k: v for k, v in data.items()
+                 if k not in ("kind", "label", "strength_band", "strength_color")}
+
+        # sections attr: paper nodes use the store; entity nodes derive from
+        # contains-edges in G.
+        if kind == "paper":
+            sections_payload = _store.load_sections(nid)
+            if sections_payload is not None:
+                sec_ids = [s["section_id"] for s in sections_payload.get("sections", [])]
+            else:
+                sec_ids = []
+        else:
+            sec_ids_set: set[str] = set()
+            for neighbor in G.neighbors(nid):
+                edge_data = G.edges[neighbor, nid]
+                if edge_data.get("relation") == "contains":
+                    sec_val = edge_data.get("section")
+                    if sec_val:
+                        sec_ids_set.add(sec_val)
+            sec_ids = sorted(sec_ids_set)
+
+        # strength attr for paper nodes
+        strength = None
+        if kind == "paper":
+            band = data.get("strength_band")
+            color = data.get("strength_color")
+            if band or color:
+                strength = {"band": band or "", "color": color or ""}
+            else:
+                sp = _store.load_strength(nid)
+                if sp is not None:
+                    strength = {
+                        "band": sp.get("band", ""),
+                        "color": sp.get("color", ""),
+                    }
+
+        nodes.append({
+            "id": nid,
+            "kind": kind,
+            "label": data.get("label", nid),
+            "sections": sec_ids,
+            "strength": strength,
+            "attrs": attrs,
+        })
+
+    edges = []
+    for u, v, edata in G.edges(data=True):
+        edges.append({
+            "from": u,
+            "to": v,
+            "relation": edata.get("relation", ""),
+            "weight": edata.get("weight", 1),
+        })
+
+    return {"seq": seq, "nodes": nodes, "edges": edges}
+
+
 def section_subgraph(G: nx.Graph, paper_id: str, section_id: str) -> nx.Graph:
     """Return a subgraph copy with the paper node + neighbours whose contains-edge
     from this paper carries section == section_id, plus all edges among included nodes.

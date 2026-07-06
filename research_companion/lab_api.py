@@ -74,6 +74,16 @@ try:
     class _RegenerateBody(_BaseModel):
         include_llm: bool = False
 
+    class _CreateViewBody(_BaseModel):
+        name: str = ""
+        source: dict = {}
+        node_ids: list[str] = []
+        pinned: bool = False
+
+    class _PatchViewBody(_BaseModel):
+        name: str | None = None
+        pinned: bool | None = None
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -85,6 +95,8 @@ except ImportError:
     _AddPaperBody = None  # type: ignore[assignment,misc]
     _SettingsPatchBody = None  # type: ignore[assignment,misc]
     _RegenerateBody = None  # type: ignore[assignment,misc]
+    _CreateViewBody = None  # type: ignore[assignment,misc]
+    _PatchViewBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -588,7 +600,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     @app.get("/api/graph")
     async def get_graph(section: str | None = None) -> dict:
         from research_companion import store
-        from research_companion.graph import load_graph, section_subgraph
+        from research_companion.graph import load_graph, section_subgraph, serialize_graph
 
         section_id = section
         G = load_graph()
@@ -600,68 +612,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                                     detail="?section filter requires a configured draft paper")
             G = section_subgraph(G, draft_id, section_id)
 
-        nodes = []
-        for nid, data in G.nodes(data=True):
-            kind = data.get("kind", "")
-            attrs = {k: v for k, v in data.items()
-                     if k not in ("kind", "label", "strength_band", "strength_color")}
-
-            # sections attr: for paper nodes = their section ids from the store;
-            # for entity nodes = sorted set of section ids on contains-edges from papers
-            if kind == "paper":
-                sections_payload = store.load_sections(nid)
-                if sections_payload is not None:
-                    sec_ids = [s["section_id"] for s in sections_payload.get("sections", [])]
-                else:
-                    sec_ids = []
-            else:
-                sec_ids_set = set()
-                for neighbor in G.neighbors(nid):
-                    edge_data = G.edges[neighbor, nid]
-                    if edge_data.get("relation") == "contains":
-                        sec_val = edge_data.get("section")
-                        if sec_val:
-                            sec_ids_set.add(sec_val)
-                sec_ids = sorted(sec_ids_set)
-
-            # Strength attr for paper nodes
-            strength = None
-            if kind == "paper":
-                band = data.get("strength_band")
-                color = data.get("strength_color")
-                if band or color:
-                    strength = {"band": band or "", "color": color or ""}
-                else:
-                    sp = store.load_strength(nid)
-                    if sp is not None:
-                        strength = {
-                            "band": sp.get("band", ""),
-                            "color": sp.get("color", ""),
-                        }
-
-            nodes.append({
-                "id": nid,
-                "kind": kind,
-                "label": data.get("label", nid),
-                "sections": sec_ids,
-                "strength": strength,
-                "attrs": attrs,
-            })
-
-        edges = []
-        for u, v, edata in G.edges(data=True):
-            edges.append({
-                "from": u,
-                "to": v,
-                "relation": edata.get("relation", ""),
-                "weight": edata.get("weight", 1),
-            })
-
-        return {
-            "seq": recorder.current_max_seq(),
-            "nodes": nodes,
-            "edges": edges,
-        }
+        return serialize_graph(G, seq=recorder.current_max_seq())
 
     # -----------------------------------------------------------------
     # POST /api/ingest
@@ -848,7 +799,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             "answer": result.answer,
             "citations": citations,
             "unverified_quotes": result.unverified_quotes,
-            "grounding": {"paper_ids": grounding_paper_ids},
+            "grounding": {
+                "paper_ids": grounding_paper_ids,
+                "node_ids": result.grounding_node_ids,
+            },
         }
 
     # -----------------------------------------------------------------
@@ -1028,6 +982,131 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 ))
 
         return updated
+
+    # -----------------------------------------------------------------
+    # GET /api/views
+    # -----------------------------------------------------------------
+    @app.get("/api/views")
+    async def list_views_endpoint() -> dict:
+        from research_companion.views import list_views
+
+        return {"views": await asyncio.to_thread(list_views)}
+
+    # -----------------------------------------------------------------
+    # POST /api/views
+    # -----------------------------------------------------------------
+    @app.post("/api/views", status_code=201)
+    async def create_view_endpoint(body: _CreateViewBody) -> dict:
+        from research_companion.views import ViewError, save_view
+
+        try:
+            return await asyncio.to_thread(
+                save_view,
+                body.name,
+                source=body.source,
+                node_ids=body.node_ids,
+                pinned=body.pinned,
+            )
+        except ViewError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # -----------------------------------------------------------------
+    # PATCH /api/views/{view_id}
+    # -----------------------------------------------------------------
+    @app.patch("/api/views/{view_id}")
+    async def update_view_endpoint(view_id: str, body: _PatchViewBody) -> dict:
+        from research_companion.views import ViewError, get_view, update_view
+
+        # Distinguish 404 (unknown) from 400 (validation) by checking existence first.
+        existing = await asyncio.to_thread(get_view, view_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=f"No view found with id {view_id!r}")
+
+        try:
+            # Extract only the explicitly provided fields (pydantic v2 / v1 compat)
+            try:
+                provided = body.model_fields_set
+            except AttributeError:
+                provided = body.__fields_set__  # type: ignore[attr-defined]
+
+            kwargs: dict = {}
+            if "name" in provided:
+                kwargs["name"] = body.name
+            if "pinned" in provided:
+                kwargs["pinned"] = body.pinned
+
+            return await asyncio.to_thread(update_view, view_id, **kwargs)
+        except ViewError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # -----------------------------------------------------------------
+    # DELETE /api/views/{view_id}
+    # -----------------------------------------------------------------
+    @app.delete("/api/views/{view_id}")
+    async def delete_view_endpoint(view_id: str) -> dict:
+        from research_companion.views import delete_view, get_view
+
+        existing = await asyncio.to_thread(get_view, view_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=f"No view found with id {view_id!r}")
+
+        removed = await asyncio.to_thread(delete_view, view_id)
+        return {"removed": removed}
+
+    # -----------------------------------------------------------------
+    # GET /api/views/{view_id}/graph
+    # -----------------------------------------------------------------
+    @app.get("/api/views/{view_id}/graph")
+    async def get_view_graph_endpoint(view_id: str) -> dict:
+        from research_companion.views import ViewError, view_graph
+
+        try:
+            return await asyncio.to_thread(view_graph, view_id)
+        except ViewError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # -----------------------------------------------------------------
+    # GET /api/temporal
+    # -----------------------------------------------------------------
+    @app.get("/api/temporal")
+    async def get_temporal() -> dict:
+        from research_companion.temporal import build_timeline
+
+        return await asyncio.to_thread(build_timeline)
+
+    # -----------------------------------------------------------------
+    # GET /api/search?q=...&k=6
+    # -----------------------------------------------------------------
+    @app.get("/api/search")
+    async def get_search(q: str | None = None, k: int = 6) -> dict:
+        from research_companion.qa import build_section_index
+        from research_companion.rank import tokenize
+        from research_companion.retrieve import rank_units
+
+        if not q or not q.strip():
+            raise HTTPException(status_code=400, detail="q is required and must not be empty")
+
+        q = q.strip()
+        units = await asyncio.to_thread(build_section_index)
+        q_tokens = tokenize(q)
+        ranked = await asyncio.to_thread(rank_units, q, q_tokens, units, k=k)
+
+        mode = ranked[0]["mode"] if ranked else "bm25"
+        results = [
+            {
+                "paper_id": r["unit"]["paper_id"],
+                "paper_title": r["unit"]["paper_title"],
+                "section_id": r["unit"]["section_id"],
+                "section_title": r["unit"]["section_title"],
+                "score": r["score"],
+                "bm25": r["bm25"],
+                "cosine": r["cosine"],
+                "snippet": r["unit"]["text"][:200],
+            }
+            for r in ranked
+        ]
+
+        return {"query": q, "mode": mode, "results": results}
 
     # -----------------------------------------------------------------
     # GET /api/events (SSE)

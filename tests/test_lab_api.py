@@ -1583,3 +1583,414 @@ class TestAlignSuggestionsHook:
         assert "SuggestionsUpdated" in event_kinds, (
             f"SuggestionsUpdated not published. Events: {event_kinds}"
         )
+
+
+# ---------------------------------------------------------------------------
+# W3-T7: serialize_graph — get_graph output unchanged
+# ---------------------------------------------------------------------------
+
+class TestSerializeGraphViaGetGraph:
+    """serialize_graph is exercised indirectly via GET /api/graph; existing
+    TestGraph tests gate correctness.  These tests confirm shape keys are
+    stable after the refactor."""
+
+    def test_graph_keys_present_after_refactor(self, isolated_papergraph_dir):
+        from research_companion import graph as _g
+        _make_paper(isolated_papergraph_dir, "arxiv:sg001", "SG Paper")
+        G = _g.build_graph()
+        _g.save_graph(G)
+        c = _make_client()
+        resp = c.get("/api/graph")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "seq" in data
+        assert "nodes" in data
+        assert "edges" in data
+
+    def test_node_keys_stable(self, isolated_papergraph_dir):
+        from research_companion import graph as _g
+        _make_paper(isolated_papergraph_dir, "arxiv:sg001", "SG Paper")
+        G = _g.build_graph()
+        _g.save_graph(G)
+        c = _make_client()
+        data = c.get("/api/graph").json()
+        for node in data["nodes"]:
+            assert "id" in node
+            assert "kind" in node
+            assert "label" in node
+            assert "sections" in node
+            assert "strength" in node
+            assert "attrs" in node
+
+    def test_edge_keys_stable(self, isolated_papergraph_dir):
+        from research_companion import graph as _g
+        _make_paper(isolated_papergraph_dir, "arxiv:sg001", "SG Paper A")
+        _make_paper(isolated_papergraph_dir, "arxiv:sg002", "SG Paper B")
+        G = _g.build_graph()
+        _g.save_graph(G)
+        c = _make_client()
+        data = c.get("/api/graph").json()
+        for edge in data["edges"]:
+            assert "from" in edge
+            assert "to" in edge
+            assert "relation" in edge
+            assert "weight" in edge
+
+
+# ---------------------------------------------------------------------------
+# W3-T7: GET /api/views — CRUD happy paths
+# ---------------------------------------------------------------------------
+
+class TestViewsCRUD:
+    def _create_view(self, c, name="My View", node_ids=None) -> dict:
+        body = {
+            "name": name,
+            "source": {"type": "ask", "query": "test"},
+            "node_ids": node_ids or ["n1", "n2"],
+            "pinned": False,
+        }
+        resp = c.post("/api/views", json=body)
+        assert resp.status_code == 201
+        return resp.json()
+
+    def test_list_views_empty(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/views")
+        assert resp.status_code == 200
+        assert resp.json() == {"views": []}
+
+    def test_create_view_happy(self, isolated_papergraph_dir):
+        c = _make_client()
+        view = self._create_view(c)
+        assert "view_id" in view
+        assert view["name"] == "My View"
+        assert view["pinned"] is False
+        assert "node_ids" in view
+        assert "source" in view
+
+    def test_list_views_after_create(self, isolated_papergraph_dir):
+        c = _make_client()
+        self._create_view(c, name="View A")
+        self._create_view(c, name="View B")
+        resp = c.get("/api/views")
+        assert resp.status_code == 200
+        views = resp.json()["views"]
+        assert len(views) == 2
+
+    def test_create_view_bad_source_type_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        body = {
+            "name": "Bad",
+            "source": {"type": "invalid_type"},
+            "node_ids": ["n1"],
+        }
+        resp = c.post("/api/views", json=body)
+        assert resp.status_code == 400
+
+    def test_create_view_empty_name_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        body = {
+            "name": "",
+            "source": {"type": "ask"},
+            "node_ids": ["n1"],
+        }
+        resp = c.post("/api/views", json=body)
+        assert resp.status_code == 400
+
+    def test_create_view_empty_node_ids_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        body = {
+            "name": "Valid",
+            "source": {"type": "ask"},
+            "node_ids": [],
+        }
+        resp = c.post("/api/views", json=body)
+        assert resp.status_code == 400
+
+    def test_patch_view_rename(self, isolated_papergraph_dir):
+        c = _make_client()
+        view = self._create_view(c)
+        view_id = view["view_id"]
+        resp = c.patch(f"/api/views/{view_id}", json={"name": "Renamed"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Renamed"
+
+    def test_patch_view_pin(self, isolated_papergraph_dir):
+        c = _make_client()
+        view = self._create_view(c)
+        view_id = view["view_id"]
+        resp = c.patch(f"/api/views/{view_id}", json={"pinned": True})
+        assert resp.status_code == 200
+        assert resp.json()["pinned"] is True
+
+    def test_patch_view_unknown_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.patch("/api/views/view_nonexistent", json={"name": "X"})
+        assert resp.status_code == 404
+
+    def test_patch_view_empty_name_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        view = self._create_view(c)
+        resp = c.patch(f"/api/views/{view['view_id']}", json={"name": ""})
+        assert resp.status_code == 400
+
+    def test_delete_view_happy(self, isolated_papergraph_dir):
+        c = _make_client()
+        view = self._create_view(c)
+        view_id = view["view_id"]
+        resp = c.delete(f"/api/views/{view_id}")
+        assert resp.status_code == 200
+        assert resp.json()["removed"] is True
+
+    def test_delete_view_unknown_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.delete("/api/views/view_nonexistent")
+        assert resp.status_code == 404
+
+    def test_get_view_graph_unknown_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/views/view_nonexistent/graph")
+        assert resp.status_code == 404
+
+    def test_get_view_graph_returns_shape(self, isolated_papergraph_dir):
+        from research_companion import graph as _g
+        _make_paper(isolated_papergraph_dir, "arxiv:vg001", "VG Paper")
+        G = _g.build_graph()
+        _g.save_graph(G)
+        # Get node IDs from the graph
+        node_ids = list(G.nodes())[:2] if len(G.nodes()) >= 1 else ["arxiv:vg001"]
+
+        c = _make_client()
+        body = {
+            "name": "VG View",
+            "source": {"type": "manual"},
+            "node_ids": node_ids,
+        }
+        view_resp = c.post("/api/views", json=body)
+        assert view_resp.status_code == 201
+        view_id = view_resp.json()["view_id"]
+
+        resp = c.get(f"/api/views/{view_id}/graph")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "nodes" in data
+        assert "edges" in data
+        assert "view" in data
+        assert "missing_node_ids" in data
+
+    def test_view_graph_and_api_graph_node_key_sets_match(self, isolated_papergraph_dir):
+        """Node dicts from /api/views/{id}/graph and /api/graph share the same key set."""
+        from research_companion import graph as _g
+        _make_paper(isolated_papergraph_dir, "arxiv:kg001", "KG Paper")
+        G = _g.build_graph()
+        _g.save_graph(G)
+        node_ids = list(G.nodes())
+
+        c = _make_client()
+        # Create view with all nodes
+        body = {
+            "name": "KG View",
+            "source": {"type": "manual"},
+            "node_ids": node_ids,
+        }
+        view_resp = c.post("/api/views", json=body)
+        view_id = view_resp.json()["view_id"]
+
+        view_graph_resp = c.get(f"/api/views/{view_id}/graph")
+        api_graph_resp = c.get("/api/graph")
+
+        view_nodes = view_graph_resp.json()["nodes"]
+        api_nodes = api_graph_resp.json()["nodes"]
+
+        # Both have at least one node and their key sets must match
+        if view_nodes and api_nodes:
+            assert set(view_nodes[0].keys()) == set(api_nodes[0].keys()), (
+                f"key sets differ: view={set(view_nodes[0].keys())}, "
+                f"api={set(api_nodes[0].keys())}"
+            )
+
+    def test_view_graph_and_api_graph_edge_key_sets_match(self, isolated_papergraph_dir):
+        """Edge dicts from /api/views/{id}/graph and /api/graph share the same key set."""
+        from research_companion import graph as _g
+        _make_paper(isolated_papergraph_dir, "arxiv:ke001", "KE Paper A")
+        _make_paper(isolated_papergraph_dir, "arxiv:ke002", "KE Paper B")
+        G = _g.build_graph()
+        _g.save_graph(G)
+        node_ids = list(G.nodes())
+
+        c = _make_client()
+        body = {
+            "name": "KE View",
+            "source": {"type": "manual"},
+            "node_ids": node_ids,
+        }
+        view_resp = c.post("/api/views", json=body)
+        view_id = view_resp.json()["view_id"]
+
+        view_graph_resp = c.get(f"/api/views/{view_id}/graph")
+        api_graph_resp = c.get("/api/graph")
+
+        view_edges = view_graph_resp.json()["edges"]
+        api_edges = api_graph_resp.json()["edges"]
+
+        if view_edges and api_edges:
+            assert set(view_edges[0].keys()) == set(api_edges[0].keys()), (
+                f"edge key sets differ: view={set(view_edges[0].keys())}, "
+                f"api={set(api_edges[0].keys())}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# W3-T7: GET /api/temporal
+# ---------------------------------------------------------------------------
+
+class TestTemporal:
+    def _make_graph_with_papers(self, papergraph_dir, paper_data: list[dict]) -> None:
+        """Create papers + a graph containing concept nodes linked to them."""
+        from research_companion import graph as _g
+
+        for pd in paper_data:
+            _make_paper(papergraph_dir, pd["paper_id"], pd["title"],
+                        year=pd["year"], write_extraction=True)
+
+        G = _g.build_graph()
+        _g.save_graph(G)
+
+    def test_temporal_shape_keys(self, isolated_papergraph_dir):
+        self._make_graph_with_papers(isolated_papergraph_dir, [
+            {"paper_id": "arxiv:t001", "title": "Paper 2020", "year": 2020},
+            {"paper_id": "arxiv:t002", "title": "Paper 2021", "year": 2021},
+        ])
+        c = _make_client()
+        resp = c.get("/api/temporal")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "years" in data
+        assert "papers_per_year" in data
+        assert "tracks" in data
+        assert "skipped_papers_without_year" in data
+        assert "truncated_tracks" in data
+
+    def test_temporal_two_papers(self, isolated_papergraph_dir):
+        self._make_graph_with_papers(isolated_papergraph_dir, [
+            {"paper_id": "arxiv:t003", "title": "Paper 2022", "year": 2022},
+            {"paper_id": "arxiv:t004", "title": "Paper 2023", "year": 2023},
+        ])
+        c = _make_client()
+        resp = c.get("/api/temporal")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data["years"], list)
+        assert isinstance(data["papers_per_year"], list)
+        assert isinstance(data["tracks"], list)
+        assert isinstance(data["skipped_papers_without_year"], int)
+        assert isinstance(data["truncated_tracks"], int)
+        # Both papers have years so none should be skipped
+        assert data["skipped_papers_without_year"] == 0
+
+    def test_temporal_papers_per_year_structure(self, isolated_papergraph_dir):
+        self._make_graph_with_papers(isolated_papergraph_dir, [
+            {"paper_id": "arxiv:t005", "title": "Paper A", "year": 2019},
+        ])
+        c = _make_client()
+        resp = c.get("/api/temporal")
+        data = resp.json()
+        for entry in data["papers_per_year"]:
+            assert "year" in entry
+            assert "count" in entry
+
+
+# ---------------------------------------------------------------------------
+# W3-T7: GET /api/search
+# ---------------------------------------------------------------------------
+
+class TestSearch:
+    def test_search_missing_q_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/search")
+        assert resp.status_code == 400
+
+    def test_search_empty_q_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/search?q=")
+        assert resp.status_code == 400
+
+    def test_search_result_shape(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:s001", "Knowledge Graph Paper")
+        c = _make_client()
+        resp = c.get("/api/search?q=knowledge+graph")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "query" in data
+        assert "mode" in data
+        assert "results" in data
+        assert data["query"] == "knowledge graph"
+
+    def test_search_result_item_shape(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:s002", "BM25 Retrieval Methods")
+        c = _make_client()
+        resp = c.get("/api/search?q=retrieval")
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        for item in results:
+            assert "paper_id" in item
+            assert "paper_title" in item
+            assert "section_id" in item
+            assert "section_title" in item
+            assert "score" in item
+            assert "bm25" in item
+            assert "cosine" in item
+            assert "snippet" in item
+
+    def test_search_k_honored(self, isolated_papergraph_dir):
+        for i in range(5):
+            _make_paper(isolated_papergraph_dir, f"arxiv:sk00{i}", f"Paper {i} Knowledge Graph BM25")
+        c = _make_client()
+        resp = c.get("/api/search?q=knowledge+graph&k=2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["results"]) <= 2
+
+    def test_search_bm25_mode(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:sb001", "BM25 Retrieval")
+        c = _make_client()
+        resp = c.get("/api/search?q=bm25")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["mode"] in ("bm25", "hybrid")
+
+    def test_search_snippet_max_200(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:ss001", "Long Snippet Paper")
+        c = _make_client()
+        resp = c.get("/api/search?q=snippet")
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        for item in results:
+            assert len(item["snippet"]) <= 200
+
+
+# ---------------------------------------------------------------------------
+# W3-T7: POST /api/ask — grounding node_ids
+# ---------------------------------------------------------------------------
+
+class TestAskGroundingNodeIds:
+    def test_ask_grounding_has_node_ids(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "My Paper")
+        c = _make_client(llm=_fake_qa_llm)
+        resp = c.post("/api/ask", json={"question": "What is this paper about?"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "grounding" in data
+        grounding = data["grounding"]
+        assert "node_ids" in grounding, "grounding.node_ids must be present"
+        assert isinstance(grounding["node_ids"], list), "node_ids must be a list"
+
+    def test_ask_grounding_paper_ids_still_present(self, isolated_papergraph_dir):
+        """Ensure paper_ids is still in grounding (backward compat)."""
+        _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "My Paper")
+        c = _make_client(llm=_fake_qa_llm)
+        resp = c.post("/api/ask", json={"question": "Tell me about methods."})
+        assert resp.status_code == 200
+        grounding = resp.json()["grounding"]
+        assert "paper_ids" in grounding
+        assert "node_ids" in grounding
