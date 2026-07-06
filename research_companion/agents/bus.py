@@ -13,6 +13,10 @@ class Bus:
         self._queues: list[asyncio.Queue] = []
         self._log = log
 
+    def set_log(self, log: EventLog | None) -> None:
+        """Repoint the persistent event log (workspace activation)."""
+        self._log = log
+
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
         self._queues.append(q)

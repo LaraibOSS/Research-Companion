@@ -96,6 +96,13 @@ try:
         message: str = ""
         conversation_id: str | None = None
 
+    class _WorkspaceCreateBody(_BaseModel):
+        name: str = ""
+
+    class _WorkspacePatchBody(_BaseModel):
+        name: str | None = None
+        archived: bool | None = None
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -110,6 +117,8 @@ except ImportError:
     _CreateViewBody = None  # type: ignore[assignment,misc]
     _PatchViewBody = None  # type: ignore[assignment,misc]
     _ConverseBody = None  # type: ignore[assignment,misc]
+    _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
+    _WorkspacePatchBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -192,6 +201,16 @@ class _SeqRecorder:
         self._seq += 1
         self._records.append((self._seq, event))
         return self._seq
+
+    def reset(self) -> None:
+        """Drop all recorded events and restart seq at 1 (workspace activation).
+
+        The SSE replay must not leak the previous workspace's events to the
+        client that reloads after switching researches.
+        """
+        self._records.clear()
+        self._seen_ids.clear()
+        self._seq = 0
 
     async def drain(self) -> None:
         """Continuously drain the Bus queue, assigning seq numbers (skipping pre-history).
@@ -1155,6 +1174,64 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             pass
 
         return updated
+
+    # -----------------------------------------------------------------
+    # Workspaces — one isolated research per workspace (W4-B4)
+    # -----------------------------------------------------------------
+    def _ws_http(exc: Exception):
+        status = getattr(exc, "status", 400)
+        return HTTPException(status_code=status, detail=str(exc))
+
+    @app.get("/api/workspaces")
+    async def get_workspaces() -> dict:
+        from research_companion import workspaces
+        return await asyncio.to_thread(workspaces.list_workspaces)
+
+    @app.post("/api/workspaces", status_code=201)
+    async def create_workspace_ep(body: _WorkspaceCreateBody) -> dict:
+        from research_companion import workspaces
+        try:
+            return await asyncio.to_thread(workspaces.create_workspace, body.name)
+        except workspaces.WorkspaceError as exc:
+            raise _ws_http(exc) from exc
+
+    @app.patch("/api/workspaces/{ws_id}")
+    async def patch_workspace_ep(ws_id: str, body: _WorkspacePatchBody) -> dict:
+        from research_companion import workspaces
+        try:
+            return await asyncio.to_thread(
+                workspaces.update_workspace, ws_id,
+                name=body.name, archived=body.archived)
+        except workspaces.WorkspaceError as exc:
+            raise _ws_http(exc) from exc
+
+    @app.post("/api/workspaces/{ws_id}/activate")
+    async def activate_workspace_ep(ws_id: str) -> dict:
+        from research_companion import store, workspaces
+        from research_companion.agents.events import EventLog, WorkspaceChanged
+
+        # Running pipelines write to the OLD workspace's paths — refuse to
+        # switch under them.
+        if any(j.get("status") == "running" for j in app.state.jobs.values()):
+            raise HTTPException(
+                status_code=409,
+                detail="A job is still running — wait for it to finish "
+                       "before switching research.")
+
+        try:
+            result = await asyncio.to_thread(workspaces.activate_workspace, ws_id)
+        except workspaces.WorkspaceError as exc:
+            raise _ws_http(exc) from exc
+
+        # Repoint the persistent event log (skip for test buses without one)
+        if bus._log is not None:
+            bus.set_log(EventLog(store.papergraph_dir() / "lab_events.jsonl"))
+        # The SSE stream must not replay the previous workspace's events
+        bus.history.clear()
+        app.state.recorder.reset()
+        await bus.publish(WorkspaceChanged(workspace_id=ws_id))
+
+        return {**result, "reload": True}
 
     # -----------------------------------------------------------------
     # GET /api/views

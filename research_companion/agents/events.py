@@ -32,6 +32,8 @@ _KIND = {
     "GapsUpdated": "gaps_updated",
     # Embed events (Task W3-T11)
     "EmbeddingsReady": "embeddings_ready",
+    # Workspace events (Task W4-B4)
+    "WorkspaceChanged": "workspace_changed",
 }
 
 
@@ -167,6 +169,11 @@ class GapsUpdated:
 class EmbeddingsReady:
     paper_id: str
     n_vectors: int
+
+
+@dataclass
+class WorkspaceChanged:
+    workspace_id: str
 
 
 def event_to_dict(event) -> dict[str, object]:
