@@ -159,6 +159,87 @@ def _verify_quote(quote: str, text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Shared helper functions (also used by converse.py)
+# ---------------------------------------------------------------------------
+
+def build_sources_block(
+    top_units: list[dict],
+    top_scores: list[float],
+    char_budget: int,
+) -> tuple[str, list[str]]:
+    """Build a numbered sources block for LLM prompt injection.
+
+    Returns:
+        (sources_block_str, offered_texts) where offered_texts is a list of
+        raw section text strings (used for quote verification).
+
+    Strategy: reserve all header lines (+ entities line) first; distribute
+    the REMAINING budget across text slices proportionally (floor 0 if needed).
+    Never hard-trim the joined block — all [S#] headers must always be present.
+    """
+    total_score = sum(top_scores)
+
+    # Build header strings (with optional entities line) per unit
+    header_strings: list[str] = []
+    for idx, unit in enumerate(top_units, 1):
+        header = f"[S{idx}] {unit['paper_title']} — §{unit['section_title']}"
+        entity_labels = unit.get("entity_labels", [])
+        if entity_labels:
+            header = header + "\n" + ", ".join(entity_labels)
+        header_strings.append(header)
+
+    # Compute chars consumed by headers + separators between parts ("\n\n")
+    # Each part is: header_string + "\n" + text_slice
+    # Joined by "\n\n", so separators add 2*(k-1) chars
+    k = len(top_units)
+    header_chars = sum(len(h) + 1 for h in header_strings)  # +1 for "\n" after each header
+    separator_chars = 2 * (k - 1)  # "\n\n" between parts
+    reserved = header_chars + separator_chars
+    text_budget = max(0, char_budget - reserved)
+
+    # Distribute text_budget proportionally across slices
+    sources_block_parts: list[str] = []
+    offered_texts: list[str] = []
+    for unit, score, header in zip(top_units, top_scores, header_strings, strict=False):
+        fraction = (score / total_score) if total_score > 0 else (1.0 / k)
+        allocated = int(text_budget * fraction)  # floor; may be 0
+        text_slice = unit["text"][:allocated]
+        sources_block_parts.append(f"{header}\n{text_slice}")
+        offered_texts.append(unit["text"])
+
+    sources_block = "\n\n".join(sources_block_parts)
+    return sources_block, offered_texts
+
+
+def parse_citations(answer_text: str, sources: list[QASource]) -> list[QASource]:
+    """Parse [S#] citation markers from answer_text and return cited QASource list."""
+    cited_indices: list[int] = []
+    for m in re.finditer(r"\[S(\d+)\]", answer_text):
+        n = int(m.group(1))
+        if 1 <= n <= len(sources):
+            idx = n - 1
+            if idx not in cited_indices:
+                cited_indices.append(idx)
+    return [sources[i] for i in sorted(cited_indices)]
+
+
+def extract_unverified_quotes(answer_text: str, offered_texts: list[str]) -> list[str]:
+    """Extract double-quoted spans >= 20 chars from answer_text not found in offered_texts.
+
+    Normalises smart quotes before scanning. Returns list of unverified spans.
+    """
+    answer_norm = answer_text.replace("“", '"').replace("”", '"')
+    quoted_spans = re.findall(r'"([^"]{20,})"', answer_norm)
+
+    unverified: list[str] = []
+    for span in quoted_spans:
+        found = any(_verify_quote(span, src_text) for src_text in offered_texts)
+        if not found:
+            unverified.append(span)
+    return unverified
+
+
+# ---------------------------------------------------------------------------
 # Main answer function
 # ---------------------------------------------------------------------------
 
@@ -264,40 +345,7 @@ def answer(
     top_scores = [r["score"] for r in ranked]
 
     # --- 3. Build sources_block with header-safe proportional budget trimming ----
-    # Strategy: reserve all header lines (+ entities line) first; distribute
-    # the REMAINING budget across text slices proportionally (floor 0 if needed).
-    # Never hard-trim the joined block — all [S#] headers must always be present.
-    total_score = sum(top_scores)
-
-    # Build header strings (with optional entities line) per unit
-    header_strings: list[str] = []
-    for idx, unit in enumerate(top_units, 1):
-        header = f"[S{idx}] {unit['paper_title']} — §{unit['section_title']}"
-        entity_labels = unit.get("entity_labels", [])
-        if entity_labels:
-            header = header + "\n" + ", ".join(entity_labels)
-        header_strings.append(header)
-
-    # Compute chars consumed by headers + separators between parts ("\n\n")
-    # Each part is: header_string + "\n" + text_slice
-    # Joined by "\n\n", so separators add 2*(k-1) chars
-    k = len(top_units)
-    header_chars = sum(len(h) + 1 for h in header_strings)  # +1 for "\n" after each header
-    separator_chars = 2 * (k - 1)  # "\n\n" between parts
-    reserved = header_chars + separator_chars
-    text_budget = max(0, char_budget - reserved)
-
-    # Distribute text_budget proportionally across slices
-    sources_block_parts: list[str] = []
-    for _idx, (unit, score, header) in enumerate(
-        zip(top_units, top_scores, header_strings, strict=False), 1
-    ):
-        fraction = (score / total_score) if total_score > 0 else (1.0 / k)
-        allocated = int(text_budget * fraction)  # floor; may be 0
-        text_slice = unit["text"][:allocated]
-        sources_block_parts.append(f"{header}\n{text_slice}")
-
-    sources_block = "\n\n".join(sources_block_parts)
+    sources_block, offered_texts = build_sources_block(top_units, top_scores, char_budget)
 
     # --- 4. Build sources list -------------------------------------------------
     sources: list[QASource] = [
@@ -320,29 +368,10 @@ def answer(
     raw_answer = llm(prompt)
 
     # --- 6. Parse [S#] citations -----------------------------------------------
-    cited_indices: list[int] = []
-    for m in re.finditer(r"\[S(\d+)\]", raw_answer):
-        n = int(m.group(1))
-        if 1 <= n <= len(sources):
-            idx = n - 1
-            if idx not in cited_indices:
-                cited_indices.append(idx)
-    cited = [sources[i] for i in sorted(cited_indices)]
+    cited = parse_citations(raw_answer, sources)
 
     # --- 7. Quote verification -------------------------------------------------
-    # Extract double-quoted spans >= 20 chars from the answer
-    # (normalise smart quotes first)
-    answer_norm = raw_answer.replace("“", '"').replace("”", '"')
-    quoted_spans = re.findall(r'"([^"]{20,})"', answer_norm)
-
-    # Collect all offered source texts
-    offered_texts = [u["text"] for u in top_units]
-
-    unverified_quotes: list[str] = []
-    for span in quoted_spans:
-        found = any(_verify_quote(span, src_text) for src_text in offered_texts)
-        if not found:
-            unverified_quotes.append(span)
+    unverified_quotes = extract_unverified_quotes(raw_answer, offered_texts)
 
     # --- 8. Log ----------------------------------------------------------------
     log_path = store.papergraph_dir() / "qa_log.jsonl"

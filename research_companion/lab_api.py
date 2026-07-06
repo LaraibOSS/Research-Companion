@@ -84,6 +84,11 @@ try:
         name: str | None = None
         pinned: bool | None = None
 
+    class _ConverseBody(_BaseModel):
+        context: dict = {}
+        message: str = ""
+        conversation_id: str | None = None
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -97,6 +102,7 @@ except ImportError:
     _RegenerateBody = None  # type: ignore[assignment,misc]
     _CreateViewBody = None  # type: ignore[assignment,misc]
     _PatchViewBody = None  # type: ignore[assignment,misc]
+    _ConverseBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -1183,6 +1189,61 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         ]
 
         return {"query": q, "mode": mode, "results": results}
+
+    # -----------------------------------------------------------------
+    # POST /api/converse
+    # -----------------------------------------------------------------
+    @app.post("/api/converse")
+    async def converse_endpoint(body: _ConverseBody) -> dict:
+        from research_companion.converse import ConverseError, converse
+
+        message = body.message.strip() if body.message else ""
+        context = body.context or {}
+        conversation_id = body.conversation_id
+
+        if not message:
+            raise HTTPException(status_code=400, detail="message required")
+
+        ctx_type = context.get("type", "")
+        if not ctx_type:
+            raise HTTPException(status_code=400, detail="context.type is required")
+
+        resolved_llm = app.state.llm
+        if resolved_llm is None:
+            resolved_llm = _resolve_llm(json_mode=False)
+
+        try:
+            result = await asyncio.to_thread(
+                converse,
+                message,
+                context=context,
+                conversation_id=conversation_id,
+                llm=resolved_llm,
+            )
+        except ConverseError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+        return {
+            "answer": result.answer,
+            "citations": result.citations,
+            "unverified_quotes": result.unverified_quotes,
+            "conversation_id": result.conversation_id,
+        }
+
+    # -----------------------------------------------------------------
+    # GET /api/conversations/{id}
+    # -----------------------------------------------------------------
+    @app.get("/api/conversations/{conversation_id}")
+    async def get_conversation(conversation_id: str) -> dict:
+        from research_companion.converse import load_conversation
+
+        data = await asyncio.to_thread(load_conversation, conversation_id)
+        if data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Conversation not found: {conversation_id!r}",
+            )
+        return data
 
     # -----------------------------------------------------------------
     # GET /api/events (SSE)

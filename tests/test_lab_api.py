@@ -2217,3 +2217,168 @@ class TestJourneyEndpoint:
         events = resp.json()["events"]
         if len(events) >= 2:
             assert events[0]["at"] >= events[1]["at"]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/converse + GET /api/conversations/{id}
+# ---------------------------------------------------------------------------
+
+def _fake_converse_llm(prompt: str) -> str:
+    """Fake LLM for converse tests: returns a prose answer with no citations."""
+    return "The analysis artifact looks reasonable. No issues found [S1]."
+
+
+class TestConverseEndpoint:
+    def _seed_review(self, isolated_papergraph_dir, paper_id: str = "arxiv:conv001") -> str:
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, paper_id, "Converse Paper")
+        store.save_review_report(paper_id, {
+            "lanes": {"structure": {"ok": True, "items": []}}
+        })
+        return paper_id
+
+    def test_happy_path_returns_answer(self, isolated_papergraph_dir):
+        paper_id = self._seed_review(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "What does the review say?",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "answer" in data
+        assert "citations" in data
+        assert "unverified_quotes" in data
+        assert "conversation_id" in data
+        assert data["conversation_id"].startswith("conv_")
+
+    def test_empty_message_returns_400(self, isolated_papergraph_dir):
+        paper_id = self._seed_review(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "",
+        })
+        assert resp.status_code == 400
+
+    def test_no_context_type_returns_400(self, isolated_papergraph_dir):
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {},
+            "message": "hello",
+        })
+        assert resp.status_code == 400
+
+    def test_unknown_context_type_returns_400(self, isolated_papergraph_dir):
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "bogus"},
+            "message": "hello",
+        })
+        assert resp.status_code == 400
+
+    def test_missing_artifact_returns_404(self, isolated_papergraph_dir):
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": "arxiv:nonexistent9999"},
+            "message": "What does the review say?",
+        })
+        assert resp.status_code == 404
+
+    def test_conversation_id_reuse(self, isolated_papergraph_dir):
+        paper_id = self._seed_review(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+
+        resp1 = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "First question.",
+        })
+        assert resp1.status_code == 200
+        conv_id = resp1.json()["conversation_id"]
+
+        resp2 = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "Follow-up question.",
+            "conversation_id": conv_id,
+        })
+        assert resp2.status_code == 200
+        assert resp2.json()["conversation_id"] == conv_id
+
+    def test_citations_shape(self, isolated_papergraph_dir):
+        paper_id = self._seed_review(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "Explain the review.",
+        })
+        assert resp.status_code == 200
+        citations = resp.json()["citations"]
+        # Each citation should have the expected fields
+        for cit in citations:
+            assert "n" in cit
+            assert "paper_id" in cit
+            assert "title" in cit
+            assert "section_id" in cit
+            assert "section_title" in cit
+            assert "cited" in cit
+
+    def test_app_state_llm_used(self, isolated_papergraph_dir):
+        """When app.state.llm is set, converse endpoint uses it."""
+        paper_id = self._seed_review(isolated_papergraph_dir)
+        calls = []
+
+        def tracking_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return "Tracked answer."
+
+        c = _make_client(llm=tracking_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "track this call",
+        })
+        assert resp.status_code == 200
+        assert len(calls) >= 1
+        assert resp.json()["answer"] == "Tracked answer."
+
+
+class TestGetConversationEndpoint:
+    def _seed_and_converse(self, isolated_papergraph_dir) -> str:
+        """Create a paper + review and run one converse turn; return conversation_id."""
+        from research_companion import store
+        paper_id = "arxiv:gc001"
+        _make_paper(isolated_papergraph_dir, paper_id, "GC Paper")
+        store.save_review_report(paper_id, {
+            "lanes": {"structure": {"ok": True, "items": []}}
+        })
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "seed question",
+        })
+        return resp.json()["conversation_id"]
+
+    def test_get_known_conversation(self, isolated_papergraph_dir):
+        conv_id = self._seed_and_converse(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.get(f"/api/conversations/{conv_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "meta" in data
+        assert "turns" in data
+        assert len(data["turns"]) == 2  # user + assistant
+
+    def test_get_unknown_conversation_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/conversations/conv_doesnotexist9999")
+        assert resp.status_code == 404
+
+    def test_conversation_meta_shape(self, isolated_papergraph_dir):
+        conv_id = self._seed_and_converse(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.get(f"/api/conversations/{conv_id}")
+        assert resp.status_code == 200
+        meta = resp.json()["meta"]
+        assert meta["conversation_id"] == conv_id
+        assert "context" in meta
+        assert "created_at" in meta
+        assert "prompt_sha256" in meta

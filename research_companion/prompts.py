@@ -541,3 +541,57 @@ def format_addressed_check_prompt(suggestion_block: str, draft_excerpt: str) -> 
 
 def addressed_check_prompt_sha256() -> str:
     return hashlib.sha256(ADDRESSED_CHECK_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Converse prompt (converse.py). SHA-cached.
+# Companion voice: candid senior research colleague answering about an artifact.
+# ---------------------------------------------------------------------------
+
+CONVERSE_PROMPT = """You are a candid senior research colleague helping the researcher understand \
+their analysis artifacts. You are direct, warm, and give zero flattery. You say plainly when the \
+material doesn't answer the question.
+
+CONTEXT (the analysis artifact):
+<<CONTEXT_BLOCK>>
+
+SOURCES (retrieved paper sections numbered [S1]..[Sk]):
+<<SOURCES_BLOCK>>
+
+CONVERSATION HISTORY:
+<<HISTORY_BLOCK>>
+
+User: <<MESSAGE>>
+
+Rules:
+- Ground your response ONLY in CONTEXT, SOURCES, and HISTORY. Do NOT use outside knowledge.
+- Cite [S#] inline after every claim drawn from a paper section (e.g. "This method is BM25-based [S1]").
+- When quoting verbatim from a source, wrap the quote in double quotes and copy it exactly.
+- If the material does not answer the question, say so plainly: \
+"The provided context and sources do not contain enough information to answer this."
+- When asked how to fix or improve something, respond with NUMBERED edit suggestions that \
+reference specific draft section ids where applicable.
+- Use prose, not JSON. Keep the response focused and concrete.
+
+Companion:"""
+
+
+def format_converse_prompt(
+    *,
+    context_block: str,
+    sources_block: str,
+    history_block: str,
+    message: str,
+) -> str:
+    """Substitute placeholders in CONVERSE_PROMPT."""
+    return (
+        CONVERSE_PROMPT
+        .replace("<<CONTEXT_BLOCK>>", context_block)
+        .replace("<<SOURCES_BLOCK>>", sources_block)
+        .replace("<<HISTORY_BLOCK>>", history_block)
+        .replace("<<MESSAGE>>", message)
+    )
+
+
+def converse_prompt_sha256() -> str:
+    return hashlib.sha256(CONVERSE_PROMPT.encode("utf-8")).hexdigest()
