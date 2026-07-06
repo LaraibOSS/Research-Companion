@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -86,6 +86,10 @@ REQUIRED_STATIC_FILES = [
     "js/libraryHelpers.js",
     # W4-F3 additions
     "js/graph/draftLayout.js",
+    # W4-F1 additions
+    "js/workspaceHelpers.js",
+    "js/views/researches.js",
+    "js/components/workspaceSwitcher.js",
 ]
 
 
@@ -1502,4 +1506,112 @@ def test_draft_layout_node_test_file_exists():
 def test_get_static_draft_layout_js_returns_200(lab_client):
     """GET /static/js/graph/draftLayout.js must return 200 (W4-F3)."""
     res = lab_client.get("/static/js/graph/draftLayout.js")
+    assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# W4-F1: Researches overview screen + topbar workspace switcher
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_workspace_endpoints():
+    """api.js must export getWorkspaces, createWorkspace, patchWorkspace, activateWorkspace (W4-F1)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for name in ("getWorkspaces", "createWorkspace", "patchWorkspace", "activateWorkspace"):
+        assert f"export const {name}" in api_js, f"api.js must export {name}"
+
+
+def test_main_js_registers_researches_route():
+    """main.js must register the '/researches' route and mount the workspace switcher (W4-F1)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "'/researches'" in main_js, "main.js must registerRoute('/researches', ...)"
+    assert "mountWorkspaceSwitcher" in main_js, "main.js must mount the workspace switcher"
+    assert "getWorkspaces" in main_js, "main.js boot must fetch workspaces (non-fatal)"
+
+
+def test_index_html_has_workspace_switcher():
+    """index.html must have the #workspace-switcher topbar button (W4-F1)."""
+    html = _index_text()
+    assert 'id="workspace-switcher"' in html, \
+        'index.html missing <button id="workspace-switcher">'
+    # Must sit between the title and the draft chip in the topbar
+    title_pos = html.find("topbar-title")
+    switcher_pos = html.find('id="workspace-switcher"')
+    chip_pos = html.find('id="draft-chip"')
+    assert title_pos < switcher_pos < chip_pos, \
+        "#workspace-switcher must be between .topbar-title and #draft-chip"
+
+
+def test_workspace_switcher_reloads_after_activate():
+    """workspaceSwitcher.js must reload the page after a successful activate (W4-F1)."""
+    js = (STATIC_DIR / "js" / "components" / "workspaceSwitcher.js").read_text(encoding="utf-8")
+    assert "activateWorkspace" in js, "workspaceSwitcher.js must call activateWorkspace"
+    assert "location.reload" in js, "workspaceSwitcher.js must reload after activate"
+
+
+def test_researches_view_escapes_names():
+    """views/researches.js must escapeHtml all workspace names / draft titles (W4-F1)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in js, "researches.js must use escapeHtml"
+    assert "escapeHtml(m.name)" in js, "researches.js must escapeHtml the workspace name"
+    assert "escapeHtml(m.draftTitle)" in js, "researches.js must escapeHtml the draft title"
+    assert "from '../format.js'" in js, \
+        "researches.js must import escapeHtml from format.js (no local duplicate)"
+
+
+def test_researches_view_reloads_after_activate():
+    """views/researches.js must activate + reload when opening another research (W4-F1)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "activateWorkspace" in js, "researches.js must call activateWorkspace"
+    assert "location.reload" in js, "researches.js must reload after activate"
+
+
+def test_workspace_switcher_escapes_names():
+    """workspaceSwitcher.js must escapeHtml workspace names in the button and menu (W4-F1)."""
+    js = (STATIC_DIR / "js" / "components" / "workspaceSwitcher.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in js, "workspaceSwitcher.js must use escapeHtml"
+    assert "from '../format.js'" in js, \
+        "workspaceSwitcher.js must import escapeHtml from format.js"
+
+
+def test_store_js_has_workspaces_field_and_setter():
+    """store.js must have workspaces field in _state and export setWorkspaces (W4-F1)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "workspaces:" in store_js, "store.js must have workspaces: field in _state"
+    assert "export function setWorkspaces" in store_js, \
+        "store.js must export setWorkspaces"
+
+
+def test_workspace_helpers_exports_three_functions():
+    """workspaceHelpers.js must export splitWorkspaces, validateWorkspaceName, workspaceCardModel."""
+    js = (STATIC_DIR / "js" / "workspaceHelpers.js").read_text(encoding="utf-8")
+    for name in ("splitWorkspaces", "validateWorkspaceName", "workspaceCardModel"):
+        assert f"export function {name}" in js, f"workspaceHelpers.js must export {name}"
+
+
+def test_lab_css_has_researches_styles():
+    """lab.css must include the W4-F1 researches/switcher styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".ws-grid", ".ws-card", ".ws-switcher", ".ws-menu",
+                   ".researches-view", ".ws-card-active", ".ws-card-stats",
+                   ".ws-archived", ".ws-create-row"):
+        assert needle in css, f"lab.css missing W4-F1 style: {needle}"
+
+
+def test_workspace_helpers_node_test_file_exists():
+    """tests/js/workspaceHelpers.test.mjs must exist (W4-F1 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "workspaceHelpers.test.mjs").exists(), \
+        "Missing tests/js/workspaceHelpers.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_researches_view_js_returns_200(lab_client):
+    """GET /static/js/views/researches.js must return 200 (W4-F1)."""
+    res = lab_client.get("/static/js/views/researches.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_workspace_switcher_js_returns_200(lab_client):
+    """GET /static/js/components/workspaceSwitcher.js must return 200 (W4-F1)."""
+    res = lab_client.get("/static/js/components/workspaceSwitcher.js")
     assert res.status_code == 200

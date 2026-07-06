@@ -32,7 +32,9 @@ import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
+import * as researchesView from './views/researches.js';
 import { openHelpPanel } from './components/helpPanel.js';
+import { mountWorkspaceSwitcher } from './components/workspaceSwitcher.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
@@ -46,6 +48,7 @@ registerRoute('/compare',     compareView);
 registerRoute('/ask',         askView);
 registerRoute('/settings',    settingsView);
 registerRoute('/suggestions', suggestionsView);
+registerRoute('/researches',  researchesView);
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -84,6 +87,12 @@ async function boot() {
   }).catch(err => {
     console.warn('[boot] failed to load suggestions:', err);
   });
+
+  // Initial workspaces fetch (non-fatal) + topbar switcher (W4-F1)
+  api.getWorkspaces()
+    .then(data => store.setWorkspaces(data))
+    .catch(() => {});
+  mountWorkspaceSwitcher(store, api);
 
   // Snapshot refresher: when alignment_ready fires the reducer marks
   // paper.alignmentFresh=false; we pick that up on 'papers' notify and

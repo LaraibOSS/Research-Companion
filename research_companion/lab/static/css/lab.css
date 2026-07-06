@@ -4002,3 +4002,270 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   cursor: not-allowed;
   color: var(--color-muted);
 }
+
+/* ---------------------------------------------------------------------------
+ * W4-F1: Researches overview screen + topbar workspace switcher
+ * --------------------------------------------------------------------------- */
+
+/* Topbar switcher button: active research name + chevron */
+.ws-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+
+.ws-switcher:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-accent);
+}
+
+.ws-switcher-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-switcher-chevron {
+  color: var(--color-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* Dropdown menu (fixed-positioned under the button, above the topbar) */
+.ws-menu {
+  position: fixed;
+  z-index: 400; /* topbar is 50; suggestions panel is 380 */
+  min-width: 220px;
+  max-width: 320px;
+  padding: 4px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.ws-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ws-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
+
+.ws-menu-item-active { color: var(--color-accent); font-weight: 600; }
+
+.ws-menu-check {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--color-accent);
+  font-size: 12px;
+}
+
+.ws-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--color-border);
+}
+
+/* Researches view */
+.researches-view {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.researches-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.researches-header p {
+  font-size: 13px;
+  margin-bottom: var(--space-4);
+}
+
+/* Inline create row */
+.ws-create-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: var(--space-4);
+}
+
+.ws-create-row input {
+  flex: 1;
+  max-width: 420px;
+  padding: 7px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  font-size: 13px;
+}
+
+.ws-create-row input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.ws-empty-hint {
+  font-size: 13px;
+  margin-bottom: var(--space-4);
+}
+
+/* Card grid */
+.ws-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.ws-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--space-4);
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast),
+              border-color var(--dur-fast);
+}
+
+.ws-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--color-accent);
+}
+
+.ws-card-active {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent), var(--shadow-1);
+}
+
+.ws-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ws-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-active-chip {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  background: rgba(88, 166, 255, 0.18);
+  border-radius: 99px;
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ws-card-draft {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Muted small stat row */
+.ws-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.ws-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.ws-card-actions-spacer { flex: 1; }
+
+.ws-icon-btn {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ws-icon-btn:hover {
+  border-color: var(--color-border);
+  color: var(--color-fg);
+}
+
+.ws-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Archived section */
+.ws-archived {
+  margin-top: var(--space-4);
+}
+
+.ws-archived summary {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: var(--space-4);
+}
+
+.ws-archived .ws-card {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.ws-archived .ws-card:hover {
+  transform: none;
+  box-shadow: var(--shadow-1);
+  border-color: var(--color-border);
+}

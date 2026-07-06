@@ -201,3 +201,21 @@ export const getGaps = () => get('/api/gaps');
  * POST /api/gaps/refresh — triggers gap re-analysis job
  */
 export const refreshGaps = () => post('/api/gaps/refresh');
+
+// ---------------------------------------------------------------------------
+// Workspace endpoints (W4-F1)
+// ---------------------------------------------------------------------------
+
+/** GET /api/workspaces — returns { active, workspaces: [{id, name, created_at, archived, stats}] } */
+export const getWorkspaces = () => get('/api/workspaces');
+
+/** POST /api/workspaces — body: { name }; 201 record (409 duplicate, 422 invalid) */
+export const createWorkspace = (name) => post('/api/workspaces', { name });
+
+/** PATCH /api/workspaces/{id} — body: { name?, archived? }; returns updated record */
+export const patchWorkspace = (id, body) =>
+  _fetch('PATCH', `/api/workspaces/${encodeURIComponent(id)}`, body);
+
+/** POST /api/workspaces/{id}/activate — returns { active, reload } (409 archived/job running) */
+export const activateWorkspace = (id) =>
+  post(`/api/workspaces/${encodeURIComponent(id)}/activate`);

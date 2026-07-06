@@ -38,6 +38,7 @@ const _state = {
   settings: {},
   views: [],
   journey: null,
+  workspaces: { list: [], activeId: null },
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -203,6 +204,20 @@ export function setSettings(settings) {
 export function setViews(views) {
   _state.views = Array.isArray(views) ? views : [];
   notify(['views']);
+}
+
+/**
+ * Set the workspaces snapshot (from GET /api/workspaces) and notify
+ * 'workspaces' subscribers (W4-F1, additive).
+ * @param {{ active?: string|null, workspaces?: Array }} data
+ */
+export function setWorkspaces(data) {
+  const d = data || {};
+  _state.workspaces = {
+    list: Array.isArray(d.workspaces) ? d.workspaces : [],
+    activeId: d.active || null,
+  };
+  notify(['workspaces']);
 }
 
 /**
