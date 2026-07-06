@@ -1128,3 +1128,10 @@ def test_get_static_timeline_layout_js_returns_200(lab_client):
     """GET /static/js/timeline/layout.js must return 200 (W3-F5)."""
     res = lab_client.get("/static/js/timeline/layout.js")
     assert res.status_code == 200
+
+
+def test_ask_js_has_local_render_answer_import():
+    """W3-F4 HIGH regression: a bare `export {X} from` creates no local binding;
+    ask.js must locally import renderAnswerHtml for its own render path."""
+    src = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "import { renderAnswerHtml } from '../answerHtml.js'" in src

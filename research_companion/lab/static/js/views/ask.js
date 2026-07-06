@@ -21,8 +21,11 @@ import { canSave } from '../viewsHelpers.js';
 // Extracted to js/answerHtml.js; re-exported here so existing imports still work.
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line import/no-cycle
-export { renderAnswerHtml } from '../answerHtml.js';
+// NOTE: a bare re-export does NOT create a local binding in ESM — the local
+// import below is required for _renderHistory()'s own use of the function.
+import { renderAnswerHtml } from '../answerHtml.js';
+
+export { renderAnswerHtml };
 
 // ---------------------------------------------------------------------------
 // View state (module-level; history is session-only, cleared on reload)
