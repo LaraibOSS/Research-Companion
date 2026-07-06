@@ -193,6 +193,11 @@ export function applyEvent(state, evt) {
       return ['journey'];
     }
 
+    // W3-F5: gaps analysis completed
+    case 'gaps_updated': {
+      return ['gaps'];
+    }
+
     default:
       return [];
   }

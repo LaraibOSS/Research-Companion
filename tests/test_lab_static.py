@@ -68,6 +68,7 @@ REQUIRED_STATIC_FILES = [
     "js/views/settings.js",
     "js/views/home.js",
     "js/views/timeline.js",
+    "js/timeline/layout.js",
     "js/components/drawer.js",
     "js/components/paperCard.js",
     "js/components/toast.js",
@@ -1042,4 +1043,88 @@ def test_get_static_cite_mini_card_js_returns_200(lab_client):
 def test_get_static_answer_html_js_returns_200(lab_client):
     """GET /static/js/answerHtml.js must return 200."""
     res = lab_client.get("/static/js/answerHtml.js")
+    assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# W3-F5: Timeline view
+# ---------------------------------------------------------------------------
+
+def test_timeline_layout_js_exists():
+    """js/timeline/layout.js must exist (W3-F5 pure geometry module)."""
+    assert (STATIC_DIR / "js" / "timeline" / "layout.js").exists(), \
+        "Missing js/timeline/layout.js"
+
+
+def test_timeline_view_not_stub():
+    """views/timeline.js must not be the F1 stub (must reference timeline/layout.js)."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "timeline/layout.js" in tl_js, \
+        "timeline.js must import from timeline/layout.js (not the stub)"
+    assert "stub-view" not in tl_js, "timeline.js must not be the F1 stub"
+
+
+def test_timeline_view_escapes_server_strings():
+    """views/timeline.js must use escapeHtml for server strings (statements, rationales)."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in tl_js, "timeline.js must use escapeHtml"
+
+
+def test_timeline_view_dispatches_rc_discuss():
+    """views/timeline.js must dispatch CustomEvent('rc:discuss') for gap Discuss button."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "rc:discuss" in tl_js, "timeline.js must dispatch rc:discuss CustomEvent"
+
+
+def test_timeline_view_dispatches_rc_open_paper():
+    """views/timeline.js must dispatch rc:open-paper for library drawer handoff."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "rc:open-paper" in tl_js, "timeline.js must dispatch rc:open-paper"
+    assert "__rcPendingPaper" in tl_js, "timeline.js must set window.__rcPendingPaper"
+
+
+def test_api_js_has_temporal_and_gaps_endpoints():
+    """api.js must export getTemporal, getGaps, refreshGaps (W3-F5)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for name in ("getTemporal", "getGaps", "refreshGaps"):
+        assert f"export const {name}" in api_js, f"api.js must export {name}"
+
+
+def test_store_js_has_gaps_setter():
+    """store.js must export setGaps (W3-F5 additive)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "export function setGaps" in store_js, "store.js must export setGaps"
+
+
+def test_reducer_handles_gaps_updated():
+    """reducer.js must handle gaps_updated event -> ['gaps'] (W3-F5 additive)."""
+    reducer_js = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "gaps_updated" in reducer_js, "reducer.js must handle gaps_updated event"
+
+
+def test_lab_css_has_timeline_styles():
+    """lab.css must include W3-F5 timeline styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".tl-root", ".tl-gap-diamond", ".tl-dot", ".tl-segment",
+                   ".tl-legend", ".tl-detail-panel"):
+        assert needle in css, f"lab.css missing W3-F5 style: {needle}"
+
+
+def test_timeline_layout_test_file_exists():
+    """tests/js/timelineLayout.test.mjs must exist (W3-F5 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "timelineLayout.test.mjs").exists(), \
+        "Missing tests/js/timelineLayout.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_timeline_view_js_returns_200(lab_client):
+    """GET /static/js/views/timeline.js must return 200 (W3-F5)."""
+    res = lab_client.get("/static/js/views/timeline.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_timeline_layout_js_returns_200(lab_client):
+    """GET /static/js/timeline/layout.js must return 200 (W3-F5)."""
+    res = lab_client.get("/static/js/timeline/layout.js")
     assert res.status_code == 200
