@@ -1149,6 +1149,19 @@ class TestModuleImport:
         assert hasattr(la, "create_lab_app")
         assert hasattr(la, "serve_lab")
 
+    def test_serve_lab_open_browser_wiring(self, isolated_papergraph_dir, monkeypatch):
+        """serve_lab(open_browser=True) must reach uvicorn.run without crashing —
+        router.on_startup is a list, not a decorator (regression)."""
+        import uvicorn
+
+        import research_companion.lab_api as la
+
+        ran = {}
+        monkeypatch.setattr(uvicorn, "run", lambda app, **kw: ran.update(app=app, **kw))
+        la.serve_lab(port=9999, open_browser=True)
+        assert ran["port"] == 9999
+        assert len(ran["app"].router.on_startup) >= 1
+
 
 # ---------------------------------------------------------------------------
 # GET /api/settings  +  PUT /api/settings

@@ -1570,8 +1570,10 @@ def serve_lab(port: int = 8765, *, open_browser: bool = True) -> None:
             await asyncio.sleep(1.0)
             webbrowser.open(f"http://127.0.0.1:{port}")
 
-        @app.router.on_startup
         async def _schedule_open():
             asyncio.create_task(_open_browser_task())
+
+        # Starlette's router.on_startup is a plain list, not a decorator
+        app.router.on_startup.append(_schedule_open)
 
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
