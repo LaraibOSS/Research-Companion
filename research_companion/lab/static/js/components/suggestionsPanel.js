@@ -10,37 +10,7 @@ import * as store from '../store.js';
 import * as api from '../api.js';
 import { showToast } from './toast.js';
 import { groupSuggestions, countOpen } from './suggestionHelpers.js';
-
-// ---------------------------------------------------------------------------
-// Escape helper (all model/server strings must pass through this)
-// ---------------------------------------------------------------------------
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// ---------------------------------------------------------------------------
-// Time-ago helper
-// ---------------------------------------------------------------------------
-
-function timeAgo(isoString) {
-  if (!isoString) return '';
-  const diff = Date.now() - new Date(isoString).getTime();
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
-}
+import { escapeHtml, timeAgo } from '../format.js';
 
 // ---------------------------------------------------------------------------
 // Panel state
@@ -53,6 +23,7 @@ let _groupMode = 'severity'; // 'severity'|'kind'|'section'
 let _statusFilter = 'open'; // 'open'|'addressed'|'dismissed'|'all'
 let _regenerating = false;
 let _unsubscribe = null;
+let _updating = false;      // guard: true while _fetchAndUpdate is in-flight
 
 // ---------------------------------------------------------------------------
 // Exported mount
@@ -65,6 +36,8 @@ let _unsubscribe = null;
  */
 export function mountSuggestionsPanel(storeRef = store, apiRef = api) {
   if (_panel) return; // already mounted
+
+  _apiRef = apiRef; // store for use by _render -> _bindEvents
 
   _panel = document.createElement('div');
   _panel.id = 'suggestions-panel';
@@ -82,9 +55,18 @@ export function mountSuggestionsPanel(storeRef = store, apiRef = api) {
     if (e.key === 'Escape' && _open) _close();
   });
 
-  // Subscribe to store suggestions topic
+  // Subscribe to store suggestions topic — handles both SSE-driven updates and
+  // direct setSuggestions calls (e.g. after dismiss).
   _unsubscribe = storeRef.subscribe('suggestions', () => {
     const { lastAddressedIds } = storeRef.getState();
+
+    // If the notify came from outside our own fetch (SSE counts-only push) and
+    // the panel is open, refetch the full list so the view stays fresh.
+    if (_open && !_updating) {
+      _fetchAndUpdate(storeRef, apiRef);
+      return; // _fetchAndUpdate will call _render after update
+    }
+
     _render(storeRef);
     if (Array.isArray(lastAddressedIds) && lastAddressedIds.length > 0) {
       _flashAddressed(lastAddressedIds);
@@ -93,11 +75,6 @@ export function mountSuggestionsPanel(storeRef = store, apiRef = api) {
         'info',
       );
     }
-  });
-
-  // Refetch on suggestions_updated SSE (sse.js dispatches this topic)
-  storeRef.subscribe('suggestions', () => {
-    // If panel is open, re-render already handled; if closed, counts updated by F1 bell
   });
 }
 
@@ -132,6 +109,7 @@ function _close() {
 // ---------------------------------------------------------------------------
 
 async function _fetchAndUpdate(storeRef, apiRef) {
+  _updating = true;
   try {
     const data = await apiRef.getSuggestions();
     if (data && Array.isArray(data.suggestions)) {
@@ -140,6 +118,18 @@ async function _fetchAndUpdate(storeRef, apiRef) {
   } catch (err) {
     showToast('Failed to load suggestions', 'error');
     console.error('[suggestionsPanel] fetch error', err);
+  } finally {
+    _updating = false;
+    // Render now that we have fresh data; also flash any newly addressed cards
+    _render(storeRef);
+    const { lastAddressedIds } = storeRef.getState();
+    if (Array.isArray(lastAddressedIds) && lastAddressedIds.length > 0) {
+      _flashAddressed(lastAddressedIds);
+      showToast(
+        `${lastAddressedIds.length} suggestion${lastAddressedIds.length === 1 ? '' : 's'} addressed`,
+        'info',
+      );
+    }
   }
 }
 
@@ -147,13 +137,16 @@ async function _fetchAndUpdate(storeRef, apiRef) {
 // Render
 // ---------------------------------------------------------------------------
 
+// apiRef is stored at mount time so _render can pass it to _bindEvents
+let _apiRef = api;
+
 function _render(storeRef) {
   if (!_panel) return;
   const { suggestions } = storeRef.getState();
   const list = Array.isArray(suggestions) ? suggestions : [];
   const openCount = countOpen(list);
   _panel.innerHTML = _buildHtml(list, openCount);
-  _bindEvents(list, storeRef);
+  _bindEvents(list, storeRef, _apiRef);
 }
 
 function _buildHtml(list, openCount) {
@@ -287,7 +280,7 @@ function _sourceLink(source) {
 // Event binding
 // ---------------------------------------------------------------------------
 
-function _bindEvents(list, storeRef) {
+function _bindEvents(list, storeRef, apiRef) {
   if (!_panel) return;
 
   // Close button
@@ -315,7 +308,7 @@ function _bindEvents(list, storeRef) {
     _regenerating = true;
     _render(storeRef);
     try {
-      const data = await api.regenerateSuggestions(false);
+      const data = await apiRef.regenerateSuggestions(false);
       if (data && Array.isArray(data.suggestions)) {
         storeRef.setSuggestions(data.suggestions);
       }
@@ -329,11 +322,15 @@ function _bindEvents(list, storeRef) {
     }
   });
 
-  // Detail "more" toggle
+  // Detail "more" toggle — safe lookup by iterating cards instead of CSS interpolation
   _panel.querySelectorAll('[data-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.toggle;
-      const detail = _panel.querySelector(`.suggestion-detail[data-id="${id}"]`);
+      // Safe lookup: iterate to avoid CSS-selector injection via id value
+      let detail = null;
+      _panel.querySelectorAll('.suggestion-detail').forEach(el => {
+        if (el.dataset.id === id) detail = el;
+      });
       if (!detail) return;
       const expanded = detail.classList.toggle('clamped');
       btn.textContent = expanded ? 'more' : 'less';
@@ -344,6 +341,9 @@ function _bindEvents(list, storeRef) {
   _panel.querySelectorAll('[data-source-type="paper"]').forEach(btn => {
     btn.addEventListener('click', () => {
       const paperId = btn.dataset.paperId;
+      // Stash as module-level handoff so library.js can open the drawer even if
+      // it hasn't mounted yet (event arrives before mount completes).
+      window.__rcPendingPaper = paperId;
       // Open library drawer — dispatch event that library view listens to
       window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperId } }));
       window.location.hash = '#/library';
@@ -364,16 +364,19 @@ function _bindEvents(list, storeRef) {
   _panel.querySelectorAll('.suggestion-dismiss').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
-      // Optimistic remove animation
-      const card = _panel.querySelector(`.suggestion-card[data-id="${id}"]`);
+      // Optimistic remove animation — safe lookup by iterating cards
+      let card = null;
+      _panel.querySelectorAll('.suggestion-card').forEach(el => {
+        if (el.dataset.id === id) card = el;
+      });
       if (card) {
         card.classList.add('suggestion-dismissing');
         await new Promise(r => setTimeout(r, 180));
       }
       try {
-        await api.dismissSuggestion(id);
+        await apiRef.dismissSuggestion(id);
         // Refetch to get updated list
-        const data = await api.getSuggestions();
+        const data = await apiRef.getSuggestions();
         if (data && Array.isArray(data.suggestions)) {
           storeRef.setSuggestions(data.suggestions);
         }

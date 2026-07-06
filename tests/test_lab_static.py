@@ -706,3 +706,118 @@ def test_get_static_suggestions_view_js_returns_200(lab_client):
     """GET /static/js/views/suggestions.js must return 200."""
     res = lab_client.get("/static/js/views/suggestions.js")
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# W3-F3 fix: rc:open-paper listener and pending-paper handoff
+# ---------------------------------------------------------------------------
+
+def test_library_js_listens_for_rc_open_paper():
+    """library.js mount() must add a window listener for rc:open-paper (W3-F3 fix HIGH-1)."""
+    lib_js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "rc:open-paper" in lib_js, (
+        "library.js must listen for 'rc:open-paper' CustomEvent to open drawer"
+    )
+    assert "addEventListener('rc:open-paper'" in lib_js or 'addEventListener("rc:open-paper"' in lib_js, (
+        "library.js must register a 'rc:open-paper' event listener"
+    )
+
+
+def test_library_js_removes_rc_open_paper_listener_on_unmount():
+    """library.js unmount() must remove the rc:open-paper listener (no leak)."""
+    lib_js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "removeEventListener('rc:open-paper'" in lib_js or 'removeEventListener("rc:open-paper"' in lib_js, (
+        "library.js unmount must call removeEventListener for 'rc:open-paper'"
+    )
+
+
+def test_library_js_checks_pending_paper_on_mount():
+    """library.js mount() must check window.__rcPendingPaper (arrive-before-mount race)."""
+    lib_js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "__rcPendingPaper" in lib_js, (
+        "library.js must handle window.__rcPendingPaper fallback for arrive-before-mount race"
+    )
+
+
+def test_suggestions_panel_sets_pending_paper():
+    """suggestionsPanel.js must set window.__rcPendingPaper before dispatching rc:open-paper."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "__rcPendingPaper" in js, (
+        "suggestionsPanel.js must set window.__rcPendingPaper as fallback handoff"
+    )
+
+
+def test_suggestions_view_sets_pending_paper():
+    """views/suggestions.js must set window.__rcPendingPaper before dispatching rc:open-paper."""
+    js = (STATIC_DIR / "js" / "views" / "suggestions.js").read_text(encoding="utf-8")
+    assert "__rcPendingPaper" in js, (
+        "suggestions.js must set window.__rcPendingPaper as fallback handoff"
+    )
+
+
+def test_suggestions_panel_uses_injected_api():
+    """suggestionsPanel.js _bindEvents must use apiRef (injected) not bare api module."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "apiRef.regenerateSuggestions" in js, (
+        "suggestionsPanel.js must call apiRef.regenerateSuggestions (injected)"
+    )
+    assert "apiRef.dismissSuggestion" in js, (
+        "suggestionsPanel.js must call apiRef.dismissSuggestion (injected)"
+    )
+    assert "apiRef.getSuggestions" in js, (
+        "suggestionsPanel.js must call apiRef.getSuggestions (injected)"
+    )
+
+
+def test_suggestions_view_uses_injected_api():
+    """views/suggestions.js _bindEvents must use apiRef (injected) not bare api module."""
+    js = (STATIC_DIR / "js" / "views" / "suggestions.js").read_text(encoding="utf-8")
+    assert "apiRef.regenerateSuggestions" in js, (
+        "suggestions.js must call apiRef.regenerateSuggestions (injected)"
+    )
+    assert "apiRef.dismissSuggestion" in js, (
+        "suggestions.js must call apiRef.dismissSuggestion (injected)"
+    )
+    assert "apiRef.getSuggestions" in js, (
+        "suggestions.js must call apiRef.getSuggestions (injected)"
+    )
+
+
+def test_suggestions_panel_imports_escape_from_format():
+    """suggestionsPanel.js must import escapeHtml from format.js (no local duplicate)."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "from '../format.js'" in js, (
+        "suggestionsPanel.js must import from format.js instead of defining local escapeHtml"
+    )
+    # Ensure no local function definition of escapeHtml
+    assert "function escapeHtml" not in js, (
+        "suggestionsPanel.js must not define a local escapeHtml (use format.js export)"
+    )
+
+
+def test_suggestions_view_imports_escape_from_format():
+    """views/suggestions.js must import escapeHtml from format.js (no local duplicate)."""
+    js = (STATIC_DIR / "js" / "views" / "suggestions.js").read_text(encoding="utf-8")
+    assert "from '../format.js'" in js, (
+        "suggestions.js must import from format.js instead of defining local escapeHtml"
+    )
+    assert "function escapeHtml" not in js, (
+        "suggestions.js must not define a local escapeHtml (use format.js export)"
+    )
+
+
+def test_suggestions_panel_no_dead_noop_subscription():
+    """suggestionsPanel.js must not contain the dead no-op second subscription."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    # The old dead no-op had a comment about "If panel is open, re-render already handled"
+    assert "re-render already handled; if closed, counts updated" not in js, (
+        "suggestionsPanel.js must not contain the dead no-op subscription comment"
+    )
+
+
+def test_suggestions_panel_has_updating_guard():
+    """suggestionsPanel.js must have _updating guard flag to prevent double-fetch loops."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "_updating" in js, (
+        "suggestionsPanel.js must use _updating flag to guard SSE-driven refetch"
+    )

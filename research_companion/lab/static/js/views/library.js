@@ -14,15 +14,38 @@ let _el = null;
 let _unsubscribe = null;
 let _filter = 'all';
 let _sort = 'added';
+let _openPaperHandler = null; // rc:open-paper listener (kept for unmount cleanup)
 
 export function mount(el) {
   _el = el;
   _render();
   _unsubscribe = store.subscribe('papers', () => _renderGrid());
+
+  // Listen for paper-source link clicks from the suggestions panel / view.
+  // The panel also sets window.__rcPendingPaper before dispatching the event
+  // as a fallback in case the event fires before this listener is registered.
+  _openPaperHandler = (e) => {
+    const paperId = e.detail && e.detail.paperId;
+    if (paperId) _openDrawer(paperId);
+  };
+  window.addEventListener('rc:open-paper', _openPaperHandler);
+
+  // Check the module-level handoff written by the panel before navigating —
+  // handles the arrive-before-mount race (hash change triggers mount after event).
+  if (window.__rcPendingPaper) {
+    const pendingId = window.__rcPendingPaper;
+    window.__rcPendingPaper = null;
+    // Defer until after first render so the papers grid is in the DOM
+    Promise.resolve().then(() => _openDrawer(pendingId));
+  }
 }
 
 export function unmount() {
   if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
+  if (_openPaperHandler) {
+    window.removeEventListener('rc:open-paper', _openPaperHandler);
+    _openPaperHandler = null;
+  }
   drawerClose();
   _el = null;
 }

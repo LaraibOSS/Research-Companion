@@ -10,32 +10,7 @@ import * as store from '../store.js';
 import * as api from '../api.js';
 import { showToast } from '../components/toast.js';
 import { groupSuggestions, countOpen } from '../components/suggestionHelpers.js';
-
-// ---------------------------------------------------------------------------
-// Escape helper
-// ---------------------------------------------------------------------------
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function timeAgo(isoString) {
-  if (!isoString) return '';
-  const diff = Date.now() - new Date(isoString).getTime();
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
+import { escapeHtml, timeAgo } from '../format.js';
 
 // ---------------------------------------------------------------------------
 // View state
@@ -95,7 +70,7 @@ function _render() {
   const list = Array.isArray(suggestions) ? suggestions : [];
   const openCount = countOpen(list);
   _el.innerHTML = _buildPageHtml(list, openCount);
-  _bindEvents(list);
+  _bindEvents(list, api);
 }
 
 function _buildPageHtml(list, openCount) {
@@ -225,7 +200,7 @@ function _sourceLink(source) {
 // Event binding
 // ---------------------------------------------------------------------------
 
-function _bindEvents(list) {
+function _bindEvents(list, apiRef) {
   if (!_el) return;
 
   // Group mode
@@ -250,7 +225,7 @@ function _bindEvents(list) {
     _regenerating = true;
     _render();
     try {
-      const data = await api.regenerateSuggestions(false);
+      const data = await apiRef.regenerateSuggestions(false);
       if (data && Array.isArray(data.suggestions)) {
         store.setSuggestions(data.suggestions);
       }
@@ -264,11 +239,15 @@ function _bindEvents(list) {
     }
   });
 
-  // Detail "more" toggle
+  // Detail "more" toggle — safe lookup by iterating elements instead of CSS interpolation
   _el.querySelectorAll('[data-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.toggle;
-      const detail = _el.querySelector(`.suggestion-detail[data-id="${id}"]`);
+      // Safe lookup: iterate to avoid CSS-selector injection via id value
+      let detail = null;
+      _el.querySelectorAll('.suggestion-detail').forEach(el => {
+        if (el.dataset.id === id) detail = el;
+      });
       if (!detail) return;
       const expanded = detail.classList.toggle('clamped');
       btn.textContent = expanded ? 'more' : 'less';
@@ -279,6 +258,9 @@ function _bindEvents(list) {
   _el.querySelectorAll('[data-source-type="paper"]').forEach(btn => {
     btn.addEventListener('click', () => {
       const paperId = btn.dataset.paperId;
+      // Stash as module-level handoff so library.js can open the drawer even if
+      // it hasn't mounted yet (event arrives before mount completes).
+      window.__rcPendingPaper = paperId;
       window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperId } }));
       window.location.hash = '#/library';
     });
@@ -298,14 +280,18 @@ function _bindEvents(list) {
   _el.querySelectorAll('.suggestion-dismiss').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
-      const card = _el.querySelector(`.suggestion-card[data-id="${id}"]`);
+      // Safe lookup: iterate to avoid CSS-selector injection via id value
+      let card = null;
+      _el.querySelectorAll('.suggestion-card').forEach(el => {
+        if (el.dataset.id === id) card = el;
+      });
       if (card) {
         card.classList.add('suggestion-dismissing');
         await new Promise(r => setTimeout(r, 180));
       }
       try {
-        await api.dismissSuggestion(id);
-        const data = await api.getSuggestions();
+        await apiRef.dismissSuggestion(id);
+        const data = await apiRef.getSuggestions();
         if (data && Array.isArray(data.suggestions)) {
           store.setSuggestions(data.suggestions);
         }
