@@ -80,3 +80,19 @@ gh issue create --title "Plagiarism / ethics-declaration checks" --label "phase-
 gh issue create --title "Novelty-accuracy benchmark" --label "phase-3,tier-3,quality" \
   --body "Human-labeled validation set; measure verdict precision/recall vs human reviewers."
 ```
+
+## Known issues carried past v0.3.0 (from the release review)
+
+- **settings.embed_model is persisted but not consumed** — retrieval and ingest use
+  the built-in default model. Changing it in config has no effect today; worse, an
+  embeddings.json written under a non-default model makes the ingest backfill skip
+  re-embedding while ranking silently falls back to BM25. Either wire the setting
+  through `qa`/`converse`/ingest or drop it from the Settings surface.
+- **Gap-relevance threshold means different things in BM25 vs hybrid mode** — the
+  0.35 prefilter compares against raw BM25 scores when degraded but min–max-fused
+  0–1 scores when an HF token is present (a singleton candidate normalizes to 0.5),
+  so toggling the token changes gap→suggestion gating semantics, not just recall.
+  Normalize the degraded score or use mode-specific thresholds.
+- **publish.yml re-runs hard-fail on existing PyPI files** — no `--skip-existing`;
+  the tag↔version consistency check prevents the common cause, but a re-run of a
+  successful job will fail at upload.

@@ -420,3 +420,16 @@ class TestProviderEnvDefault:
         monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
         update_settings({"provider": "anthropic"})
         assert get_settings()["provider"] == "anthropic"
+
+
+class TestNumericNullValidation:
+    """Explicit null for numeric knobs must be a 400-style SettingsError, not a
+    TypeError 500 (pydantic forwards explicit nulls via model_fields_set)."""
+
+    def test_k_sections_none_raises_settings_error(self, isolated_papergraph_dir):
+        with pytest.raises(settings.SettingsError):
+            settings.update_settings({"k_sections": None})
+
+    def test_char_budget_none_raises_settings_error(self, isolated_papergraph_dir):
+        with pytest.raises(settings.SettingsError):
+            settings.update_settings({"char_budget": None})

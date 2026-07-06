@@ -139,6 +139,20 @@ def record_draft_version(paper_id: str, *, now: datetime | None = None) -> dict 
         },
     })
     _save_journey(journey)
+
+    # A revision is a NEW content-hash paper_id; carry the suggestions store
+    # across or statuses (sticky dismissals, addressed history) are orphaned
+    # under the old id and auto-match has nothing to match against.
+    all_versions = journey["draft_versions"]
+    if len(all_versions) >= 2:
+        prev_id = all_versions[-2].get("paper_id")
+        if prev_id and prev_id != paper_id:
+            try:
+                from research_companion.suggestions import migrate_suggestions
+                migrate_suggestions(prev_id, paper_id)
+            except Exception:  # noqa: BLE001
+                pass
+
     return version_record
 
 

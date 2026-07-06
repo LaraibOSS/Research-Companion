@@ -312,12 +312,12 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
 
     if "k_sections" in regular_patch:
         v = regular_patch["k_sections"]
-        if not (1 <= v <= 20):
+        if not isinstance(v, int) or isinstance(v, bool) or not (1 <= v <= 20):
             raise SettingsError(f"k_sections must be between 1 and 20, got {v!r}")
 
     if "char_budget" in regular_patch:
         v = regular_patch["char_budget"]
-        if not (1000 <= v <= 50000):
+        if not isinstance(v, int) or isinstance(v, bool) or not (1000 <= v <= 50000):
             raise SettingsError(f"char_budget must be between 1000 and 50000, got {v!r}")
 
     # Validate keys patch (before writing anything)

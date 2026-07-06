@@ -472,6 +472,28 @@ def load_suggestions(draft_id: str) -> dict | None:
         return None
 
 
+def migrate_suggestions(old_draft_id: str, new_draft_id: str) -> dict | None:
+    """Carry the suggestions store across a draft revision.
+
+    A revised draft gets a new content-hash paper_id, but suggestion ids are
+    draft-independent — statuses (sticky dismissals, addressed history) must
+    survive the revision or revision tracking silently breaks. No-op when the
+    ids match, the old store is missing, or the new id already has a store
+    (never clobber). Returns the store now living under new_draft_id, if any.
+    """
+    if old_draft_id == new_draft_id:
+        return load_suggestions(new_draft_id)
+    existing = load_suggestions(new_draft_id)
+    if existing is not None:
+        return existing
+    payload = load_suggestions(old_draft_id)
+    if payload is None:
+        return None
+    payload["draft_paper_id"] = new_draft_id
+    save_suggestions(new_draft_id, payload)
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------

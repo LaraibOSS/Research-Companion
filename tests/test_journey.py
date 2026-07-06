@@ -1089,3 +1089,99 @@ class TestBackgroundAutoMatchEndToEnd:
         assert isinstance(ab["version"], int), (
             f"addressed_by.version must be an integer, got {ab['version']!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: suggestions store migration across draft revisions (release blocker)
+# ---------------------------------------------------------------------------
+
+class TestSuggestionsMigrationAcrossVersions:
+    """A revised draft has a NEW content-hash paper_id, but suggestions persist
+    under the old id. record_draft_version must carry the store across so that
+    statuses (sticky dismissals, addressed history) survive and auto-match has
+    something to match against."""
+
+    def _seed_suggestions(self, draft_id: str, sugs: list[dict]) -> None:
+        from research_companion.suggestions import save_suggestions
+        save_suggestions(draft_id, {
+            "version": 1,
+            "draft_paper_id": draft_id,
+            "draft_version": "",
+            "generated_at": "2024-01-01T00:00:00Z",
+            "suggestions": sugs,
+        })
+
+    def test_new_version_migrates_suggestions_store(self, isolated_papergraph_dir):
+        from research_companion.journey import record_draft_version
+        from research_companion.suggestions import load_suggestions
+
+        old_id, new_id = "local:rev_v1_aaa", "local:rev_v2_bbb"
+        _make_paper(isolated_papergraph_dir, old_id)
+        _make_paper(isolated_papergraph_dir, new_id)
+        self._seed_suggestions(old_id, [
+            {"id": "sug_keep_open", "kind": "evidence", "status": "open",
+             "title": "Back this claim", "source": {"type": "lane"}},
+            {"id": "sug_sticky_dismiss", "kind": "novelty", "status": "dismissed",
+             "title": "Rephrase claim 2", "source": {"type": "lane"}},
+        ])
+
+        record_draft_version(old_id)
+        record_draft_version(new_id)
+
+        migrated = load_suggestions(new_id)
+        assert migrated is not None, "suggestions store must follow the draft revision"
+        by_id = {s["id"]: s for s in migrated["suggestions"]}
+        assert by_id["sug_keep_open"]["status"] == "open"
+        assert by_id["sug_sticky_dismiss"]["status"] == "dismissed"
+
+    def test_migration_never_clobbers_existing_new_store(self, isolated_papergraph_dir):
+        from research_companion.journey import record_draft_version
+        from research_companion.suggestions import load_suggestions
+
+        old_id, new_id = "local:rev_v1_ccc", "local:rev_v2_ddd"
+        _make_paper(isolated_papergraph_dir, old_id)
+        _make_paper(isolated_papergraph_dir, new_id)
+        self._seed_suggestions(old_id, [
+            {"id": "sug_old", "kind": "evidence", "status": "open",
+             "title": "Old", "source": {"type": "lane"}}])
+        self._seed_suggestions(new_id, [
+            {"id": "sug_new", "kind": "evidence", "status": "open",
+             "title": "New", "source": {"type": "lane"}}])
+
+        record_draft_version(old_id)
+        record_draft_version(new_id)
+
+        kept = load_suggestions(new_id)
+        assert [s["id"] for s in kept["suggestions"]] == ["sug_new"]
+
+    def test_revision_flow_flips_carried_suggestion_to_addressed(self, isolated_papergraph_dir):
+        """The marquee flow: v2 discusses the suggested paper -> carried-over
+        suggestion auto-addresses on match."""
+        from research_companion.journey import match_open_suggestions, record_draft_version
+        from research_companion.suggestions import load_suggestions
+
+        cand = "arxiv:mig_cand01"
+        old_id, new_id = "local:mig_v1", "local:mig_v2"
+        _make_paper(isolated_papergraph_dir, cand, title="Deep Graph Neural Networks")
+        _make_paper(isolated_papergraph_dir, old_id, text="Introduction\nNothing yet.\n")
+        _make_paper(isolated_papergraph_dir, new_id, text=(
+            "Introduction\nWe present a method.\n\n"
+            "Related Work\nDeep Graph Neural Networks have been widely studied.\n\n"
+            "References\nAuthor et al. Deep Graph Neural Networks. 2023.\n"))
+        self._seed_suggestions(old_id, [
+            {"id": "sug_mig_rel01", "kind": "related_work", "severity": "medium",
+             "title": "Discuss Deep Graph Neural Networks",
+             "detail": "Consider discussing Deep Graph Neural Networks",
+             "section_id": None, "source": {"type": "paper", "paper_id": cand},
+             "status": "open", "created_at": "2024-01-01T00:00:00Z",
+             "addressed_at": None, "addressed_by": None}])
+
+        record_draft_version(old_id)
+        record_draft_version(new_id)
+        newly = match_open_suggestions(new_id)
+
+        assert [s["id"] for s in newly] == ["sug_mig_rel01"]
+        stored = load_suggestions(new_id)
+        s = next(x for x in stored["suggestions"] if x["id"] == "sug_mig_rel01")
+        assert s["status"] == "addressed"
+        assert s["addressed_by"]["by"] == "auto"
