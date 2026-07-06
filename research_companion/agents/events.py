@@ -30,6 +30,8 @@ _KIND = {
     "DraftVersionAdded": "draft_version_added",
     # Gaps events (Task W3-T9)
     "GapsUpdated": "gaps_updated",
+    # Embed events (Task W3-T11)
+    "EmbeddingsReady": "embeddings_ready",
 }
 
 
@@ -155,6 +157,16 @@ class DraftVersionAdded:
 class GapsUpdated:
     n_gaps: int
     n_open: int
+
+
+# ---------------------------------------------------------------------------
+# Embed events (Task W3-T11)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EmbeddingsReady:
+    paper_id: str
+    n_vectors: int
 
 
 def event_to_dict(event) -> dict[str, object]:

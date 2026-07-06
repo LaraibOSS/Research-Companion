@@ -13,6 +13,7 @@ import pytest
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import (
     AlignmentReady,
+    EmbeddingsReady,
     GraphDelta,
     IngestFailed,
     IngestProgress,
@@ -21,6 +22,7 @@ from research_companion.agents.events import (
     SectionExtracted,
     SectionTreeBuilt,
     StrengthUpdated,
+    SuggestionsUpdated,
     event_to_dict,
 )
 from research_companion.lab import IngestResult, ingest_folder, scan_pdfs
@@ -687,6 +689,282 @@ class TestAlignStrengthFailures:
 
 
 # ---------------------------------------------------------------------------
+# Embed stage (stage 7) tests
+# ---------------------------------------------------------------------------
+
+class TestEmbedStage:
+    """Stage 7: embed — non-fatal, publishes EmbeddingsReady or IngestFailed."""
+
+    def test_embed_happy_path_publishes_embeddings_ready(self, tmp_path, isolated_papergraph_dir):
+        """Embedder returning payload -> EmbeddingsReady with correct n_vectors."""
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, strength = _make_fakes(["local:aaa"])
+
+        def fake_embedder(paper_id):
+            return {
+                "embed_model": "test-model",
+                "vectors": {"s1": {"vector": [0.1, 0.2]}, "s2": {"vector": [0.3, 0.4]}},
+            }
+
+        bus = Bus()
+        asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=fake_embedder,
+                suggester=None,
+            )
+        )
+
+        embed_events = [e for e in bus.history if isinstance(e, EmbeddingsReady)]
+        assert len(embed_events) == 1
+        assert embed_events[0].paper_id == "local:aaa"
+        assert embed_events[0].n_vectors == 2
+
+    def test_embed_returns_none_no_event_no_failure(self, tmp_path, isolated_papergraph_dir):
+        """Embedder returning None (no HF token) -> no EmbeddingsReady, no IngestFailed."""
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        def fake_embedder(paper_id):
+            return None  # simulates missing HF_TOKEN
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=fake_embedder,
+                suggester=None,
+            )
+        )
+
+        embed_events = [e for e in bus.history if isinstance(e, EmbeddingsReady)]
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(embed_events) == 0
+        assert len(failed_events) == 0
+        assert len(result.added) == 1
+
+    def test_embed_raises_publishes_ingest_failed_file_still_succeeds(
+        self, tmp_path, isolated_papergraph_dir
+    ):
+        """Embedder raising -> IngestFailed(stage='embed') + paper still added."""
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        def bad_embedder(paper_id):
+            raise RuntimeError("embed kaboom")
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=bad_embedder,
+                suggester=None,
+            )
+        )
+
+        # Paper still added — non-fatal
+        assert len(result.added) == 1
+        assert len(result.failed) == 0
+
+        # IngestFailed with stage='embed' published
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(failed_events) == 1
+        assert failed_events[0].stage == "embed"
+        assert "kaboom" in failed_events[0].error
+        assert failed_events[0].paper_id == "local:aaa"
+
+        # Failure NOT recorded in store (non-fatal)
+        from research_companion import store as _store
+        assert not _store.list_failures()
+
+    def test_embedder_none_skips_embed_stage(self, tmp_path, isolated_papergraph_dir):
+        """embedder=None -> no EmbeddingsReady, no failure, file still succeeds."""
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=None,  # explicitly skip
+                suggester=None,
+            )
+        )
+
+        embed_events = [e for e in bus.history if isinstance(e, EmbeddingsReady)]
+        assert len(embed_events) == 0
+        assert len(result.added) == 1
+
+
+# ---------------------------------------------------------------------------
+# Suggestions auto-regen at end of ingest
+# ---------------------------------------------------------------------------
+
+class TestSuggestionsAutoRegen:
+    """Post-loop: SuggestionsUpdated published once per run when draft is configured."""
+
+    def test_suggestions_updated_published_when_draft_set(self, tmp_path, isolated_papergraph_dir):
+        """When draft is configured and suggester returns payload, SuggestionsUpdated published."""
+        from research_companion import store as _store
+
+        draft_id = "local:draft"
+        _store.set_draft_paper_id(draft_id)
+
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:candidate"])
+
+        def fake_suggester(*, draft_id):
+            return {
+                "draft_paper_id": draft_id,
+                "suggestions": [
+                    {"status": "open", "title": "Sug1"},
+                    {"status": "open", "title": "Sug2"},
+                    {"status": "addressed", "title": "Sug3"},
+                    {"status": "dismissed", "title": "Sug4"},
+                ],
+            }
+
+        bus = Bus()
+        asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=None,
+                suggester=fake_suggester,
+            )
+        )
+
+        sug_events = [e for e in bus.history if isinstance(e, SuggestionsUpdated)]
+        assert len(sug_events) == 1
+        assert sug_events[0].draft_paper_id == draft_id
+        assert sug_events[0].open == 2
+        assert sug_events[0].addressed == 1
+        assert sug_events[0].dismissed == 1
+
+    def test_suggestions_not_published_when_no_draft(self, tmp_path, isolated_papergraph_dir):
+        """No SuggestionsUpdated when no draft is configured."""
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:candidate"])
+
+        def fake_suggester(*, draft_id):
+            return {"draft_paper_id": draft_id, "suggestions": []}
+
+        bus = Bus()
+        asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=None,
+                suggester=fake_suggester,
+            )
+        )
+
+        sug_events = [e for e in bus.history if isinstance(e, SuggestionsUpdated)]
+        assert len(sug_events) == 0
+
+    def test_suggestions_published_once_even_for_multiple_papers(
+        self, tmp_path, isolated_papergraph_dir
+    ):
+        """SuggestionsUpdated is published exactly once after the loop, not per-paper."""
+        from research_companion import store as _store
+
+        draft_id = "local:draft"
+        _store.set_draft_paper_id(draft_id)
+
+        _make_pdf(tmp_path, "p1.pdf")
+        _make_pdf(tmp_path, "p2.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa", "local:bbb"])
+
+        call_count = [0]
+
+        def counting_suggester(*, draft_id):
+            call_count[0] += 1
+            return {"draft_paper_id": draft_id, "suggestions": []}
+
+        bus = Bus()
+        asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=None,
+                suggester=counting_suggester,
+            )
+        )
+
+        assert call_count[0] == 1
+        sug_events = [e for e in bus.history if isinstance(e, SuggestionsUpdated)]
+        assert len(sug_events) == 1
+
+    def test_suggester_error_is_non_fatal(self, tmp_path, isolated_papergraph_dir):
+        """Suggester raising -> run still completes, JobDone still published."""
+        from research_companion import store as _store
+
+        _store.set_draft_paper_id("local:draft")
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        def bad_suggester(*, draft_id):
+            raise RuntimeError("suggestions kaboom")
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+                embedder=None,
+                suggester=bad_suggester,
+            )
+        )
+
+        assert len(result.added) == 1
+        assert isinstance(bus.history[-1], JobDone)
+
+
+# ---------------------------------------------------------------------------
 # Event serialization round-trips
 # ---------------------------------------------------------------------------
 
@@ -778,6 +1056,22 @@ class TestEventSerialization:
         ev = JobDone()
         d = self._roundtrip(ev)
         assert d["job"] == "ingest"
+
+    def test_embeddings_ready(self):
+        ev = EmbeddingsReady(paper_id="local:abc", n_vectors=5)
+        d = self._roundtrip(ev)
+        assert d["event"] == "embeddings_ready"
+        assert d["paper_id"] == "local:abc"
+        assert d["n_vectors"] == 5
+
+    def test_suggestions_updated(self):
+        ev = SuggestionsUpdated(
+            draft_paper_id="local:draft", open=3, addressed=1, dismissed=0
+        )
+        d = self._roundtrip(ev)
+        assert d["event"] == "suggestions_updated"
+        assert d["draft_paper_id"] == "local:draft"
+        assert d["open"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -882,6 +1176,8 @@ class TestFixtureRegression:
                     sectioner=sectioner,
                     aligner=None,
                     strengther=strengther,
+                    embedder=None,   # keep fixture stable: no embed events
+                    suggester=None,  # keep fixture stable: no suggestions events
                 )
             )
         finally:
@@ -1104,6 +1400,8 @@ def _run_fixture_generation(tmp_path: Path, fixture_path: Path) -> None:
                 sectioner=sectioner,
                 aligner=None,
                 strengther=strengther,
+                embedder=None,   # keep fixture stable: no embed events
+                suggester=None,  # keep fixture stable: no suggestions events
             )
         )
     finally:

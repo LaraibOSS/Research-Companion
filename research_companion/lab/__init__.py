@@ -15,6 +15,7 @@ from pathlib import Path
 
 from research_companion.agents.events import (
     AlignmentReady,
+    EmbeddingsReady,
     GraphDelta,
     IngestFailed,
     IngestProgress,
@@ -23,6 +24,7 @@ from research_companion.agents.events import (
     SectionExtracted,
     SectionTreeBuilt,
     StrengthUpdated,
+    SuggestionsUpdated,
 )
 
 # Sentinel for "not provided" — distinguishes explicit None (skip) from unset (use default).
@@ -70,6 +72,15 @@ def _default_strengther():
         return None
 
 
+def _default_embedder():
+    """Return embed_paper_sections if importable, else None."""
+    try:
+        from research_companion.embed import embed_paper_sections
+        return embed_paper_sections
+    except ImportError:
+        return None
+
+
 def _build_llm_callable(provider: str, model: str | None) -> Callable[[str], str]:
     """Build a real LLM callable for the given provider/model (lazy import)."""
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
@@ -96,6 +107,7 @@ async def ingest_one(
     strengther,
     extractor,
     sectioner,
+    embedder=_UNSET,
 ) -> bool:
     """Run the full pipeline for a single paper (stages 2–7).
 
@@ -111,7 +123,8 @@ async def ingest_one(
       - GraphDelta                          (stage 4, under _GRAPH_LOCK)
       - AlignmentReady or IngestFailed      (stage 5, non-fatal)
       - StrengthUpdated or IngestFailed     (stage 6, non-fatal)
-      - clear_failure on success            (stage 7)
+      - EmbeddingsReady or IngestFailed     (stage 7, non-fatal)
+      - clear_failure on success            (stage 8)
     """
     from research_companion import graph as _graph
     from research_companion import store
@@ -247,7 +260,31 @@ async def ingest_one(
             ))
 
     # -----------------------------------------------------------------------
-    # Stage 7: clear failure, signal success
+    # Stage 7: embed (optional, non-fatal)
+    # -----------------------------------------------------------------------
+    _embedder_resolved = _default_embedder() if embedder is _UNSET else embedder
+    if _embedder_resolved is not None:
+        try:
+            embed_payload = await asyncio.to_thread(_embedder_resolved, paper_id)
+            if embed_payload is not None:
+                vectors = embed_payload.get("vectors", {})
+                await bus.publish(EmbeddingsReady(
+                    paper_id=paper_id,
+                    n_vectors=len(vectors),
+                ))
+            # else: no token / no-op — publish nothing, continue silently
+        except Exception as exc:
+            # Embed failures are non-fatal; publish IngestFailed but do NOT
+            # record_failure and do NOT count the file as failed.
+            await bus.publish(IngestFailed(
+                path=path_str,
+                stage="embed",
+                error=str(exc),
+                paper_id=paper_id,
+            ))
+
+    # -----------------------------------------------------------------------
+    # Stage 8: clear failure, signal success
     # -----------------------------------------------------------------------
     store.clear_failure(path_str)
     return True
@@ -262,6 +299,8 @@ async def ingest_folder(
     sectioner=None,
     aligner=_UNSET,
     strengther=_UNSET,
+    embedder=_UNSET,
+    suggester=_UNSET,
     provider: str = "anthropic",
     model: str | None = None,
     align: bool = True,
@@ -293,6 +332,18 @@ async def ingest_folder(
 
     # strengther: sentinel _UNSET -> try real default; None -> explicitly skip
     _strengther_resolved = _default_strengther() if strengther is _UNSET else strengther
+
+    # embedder: sentinel _UNSET -> try real default; None -> explicitly skip
+    _embedder_resolved = _default_embedder() if embedder is _UNSET else embedder
+
+    # suggester: sentinel _UNSET -> try real default; None -> explicitly skip
+    def _default_suggester():
+        try:
+            from research_companion.suggestions import generate_suggestions
+            return generate_suggestions
+        except ImportError:
+            return None
+    _suggester_resolved = _default_suggester() if suggester is _UNSET else suggester
 
     pdfs = scan_pdfs(Path(folder))
     total = len(pdfs)
@@ -353,12 +404,33 @@ async def ingest_folder(
             strengther=_strengther_resolved,
             extractor=extractor,
             sectioner=sectioner,
+            embedder=_embedder_resolved,
         )
 
         if ok:
             result.added.append(path_str)
         else:
             result.failed.append({"path": path_str, "stage": "pipeline", "error": "pipeline stage failed"})
+
+    # -----------------------------------------------------------------------
+    # Post-loop: suggestions auto-regen (once per ingest run, non-fatal)
+    # -----------------------------------------------------------------------
+    draft_id = store.get_draft_paper_id()
+    if draft_id is not None and _suggester_resolved is not None:
+        try:
+            updated_payload = await asyncio.to_thread(
+                _suggester_resolved,
+                draft_id=draft_id,
+            )
+            sugs = updated_payload.get("suggestions", [])
+            await bus.publish(SuggestionsUpdated(
+                draft_paper_id=draft_id,
+                open=sum(1 for s in sugs if s.get("status") == "open"),
+                addressed=sum(1 for s in sugs if s.get("status") == "addressed"),
+                dismissed=sum(1 for s in sugs if s.get("status") == "dismissed"),
+            ))
+        except Exception:
+            pass
 
     # Final progress and done signal
     await bus.publish(IngestProgress(done=total, total=total))
