@@ -30,6 +30,8 @@ const _state = {
   failures: {},
   graphSeq: 0,
   ingestLog: [],
+  suggestionCounts: { open: 0, by_severity: null },
+  settings: {},
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -139,4 +141,22 @@ export function resetFromSnapshot(snapshot) {
 export function setDraft(id) {
   _state.draftId = id;
   notify(['draft']);
+}
+
+/**
+ * Set suggestion counts and notify 'suggestions' subscribers.
+ * @param {{ open: number, by_severity?: object|null }} counts
+ */
+export function setSuggestionCounts(counts) {
+  _state.suggestionCounts = counts;
+  notify(['suggestions']);
+}
+
+/**
+ * Set settings from GET /api/settings and notify 'settings' subscribers.
+ * @param {object} settings
+ */
+export function setSettings(settings) {
+  _state.settings = settings;
+  notify(['settings']);
 }

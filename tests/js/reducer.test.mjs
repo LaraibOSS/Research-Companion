@@ -185,3 +185,39 @@ test('fixture replay: final state correct', () => {
   assert.ok(allTopics.has('jobs'), 'jobs topic should have been emitted');
   assert.ok(allTopics.has('papers'), 'papers topic should have been emitted');
 });
+
+// ---- W3-F1: suggestions_updated ----
+
+test('suggestions_updated sets open count', () => {
+  const state = makeState();
+  state.suggestionCounts = { open: 0, by_severity: null };
+  const topics = applyEvent(state, { event: 'suggestions_updated', open: 5 });
+  assert.equal(state.suggestionCounts.open, 5);
+  assert.ok(topics.includes('suggestions'));
+});
+
+test('suggestions_updated sets by_severity when present', () => {
+  const state = makeState();
+  state.suggestionCounts = { open: 0, by_severity: null };
+  const topics = applyEvent(state, {
+    event: 'suggestions_updated',
+    open: 3,
+    by_severity: { critical: 1, high: 2 },
+  });
+  assert.deepEqual(state.suggestionCounts.by_severity, { critical: 1, high: 2 });
+  assert.equal(state.suggestionCounts.open, 3);
+});
+
+test('suggestions_updated sets by_severity null when absent', () => {
+  const state = makeState();
+  state.suggestionCounts = { open: 2, by_severity: { critical: 1 } };
+  applyEvent(state, { event: 'suggestions_updated', open: 0 });
+  assert.strictEqual(state.suggestionCounts.by_severity, null);
+});
+
+test('unknown event kind still returns [] after suggestions_updated added', () => {
+  const state = makeState();
+  state.suggestionCounts = { open: 0, by_severity: null };
+  const topics = applyEvent(state, { event: 'completely_unknown', data: 'x' });
+  assert.deepEqual(topics, []);
+});

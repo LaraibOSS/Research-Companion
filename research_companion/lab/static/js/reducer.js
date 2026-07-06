@@ -182,6 +182,13 @@ export function applyEvent(state, evt) {
       return ['jobs', 'papers'];
     }
 
+    case 'suggestions_updated': {
+      if (!state.suggestionCounts) state.suggestionCounts = { open: 0, by_severity: null };
+      state.suggestionCounts.open = evt.open || 0;
+      state.suggestionCounts.by_severity = evt.by_severity || null;
+      return ['suggestions'];
+    }
+
     default:
       return [];
   }
