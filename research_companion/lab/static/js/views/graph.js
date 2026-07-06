@@ -564,6 +564,21 @@ async function _enterDraftModeInner(network, nodesDS, edgesDS, papers) {
   _sectorLabels = sectorLabels;
   _beforeDrawingHandler = (ctx) => {
     ctx.save();
+    // Gold halo behind the draft node (world origin) — makes the anchor of
+    // the ego layout unmistakable without mutating node styles.
+    const halo = ctx.createRadialGradient(0, 0, 20, 0, 0, 130);
+    halo.addColorStop(0, 'rgba(227,179,65,0.28)');
+    halo.addColorStop(1, 'rgba(227,179,65,0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, 130, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(227,179,65,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 92, 0, 2 * Math.PI);
+    ctx.stroke();
+
     ctx.font = '12px arial';
     if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
     ctx.fillStyle = 'rgba(139,148,158,0.75)';
