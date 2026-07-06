@@ -22,10 +22,11 @@ def _clean_provider_env(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestEnvFilePath:
-    def test_returns_path_under_papergraph_dir(self, isolated_papergraph_dir):
+    def test_returns_path_under_root_dir(self, isolated_root_dir):
+        # Keys are GLOBAL: .env lives at the root, shared by all workspaces
         p = settings.env_file_path()
-        assert p == isolated_papergraph_dir / ".env"
-        assert p.parent == isolated_papergraph_dir
+        assert p == isolated_root_dir / ".env"
+        assert p.parent == isolated_root_dir
 
 
 # ---------------------------------------------------------------------------
@@ -235,9 +236,7 @@ class TestGetSettings:
     def test_config_merge_overrides_defaults(self, isolated_papergraph_dir, monkeypatch):
         for env_var in settings.SECRET_KEYS.values():
             monkeypatch.delenv(env_var, raising=False)
-        cfg = store.load_config()
-        cfg["settings"] = {"theme": "light", "k_sections": 10}
-        store.save_config(cfg)
+        store.save_root_settings({"theme": "light", "k_sections": 10})
         result = settings.get_settings()
         assert result["theme"] == "light"
         assert result["k_sections"] == 10

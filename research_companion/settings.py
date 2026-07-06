@@ -61,9 +61,9 @@ class SettingsError(ValueError):
 # ---------------------------------------------------------------------------
 
 def env_file_path() -> Path:
-    """Return papergraph_dir()/.env."""
-    from research_companion.store import papergraph_dir
-    return papergraph_dir() / ".env"
+    """Return root_dir()/.env — API keys are GLOBAL across workspaces."""
+    from research_companion.store import root_dir
+    return root_dir() / ".env"
 
 
 # ---------------------------------------------------------------------------
@@ -210,17 +210,17 @@ def mask_secret(value: str) -> str:
 # ---------------------------------------------------------------------------
 
 def get_settings() -> dict:
-    """Return current settings merged from DEFAULTS <- env <- config.json["settings"].
+    """Return current settings merged from DEFAULTS <- env <- root settings.json.
 
+    Settings are GLOBAL (root-level) — they apply across all workspaces.
     provider/model honor RESEARCH_COMPANION_PROVIDER / RESEARCH_COMPANION_MODEL when
     the user has not saved an explicit choice — otherwise the UI reports the wrong
     active provider (and checks the wrong API key) on env-configured installs.
     Keys block shows presence/masking from os.environ.
     """
-    from research_companion.store import load_config
+    from research_companion.store import load_root_settings
 
-    cfg = load_config()
-    saved = cfg.get("settings", {}) if isinstance(cfg.get("settings"), dict) else {}
+    saved = load_root_settings()
 
     # Merge: DEFAULTS <- env <- saved
     result: dict[str, Any] = {}
@@ -274,7 +274,7 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
 
     Returns get_settings().
     """
-    from research_companion.store import load_config, save_config
+    from research_companion.store import load_root_settings, save_root_settings
 
     # Separate "keys" from regular fields
     keys_patch = patch.get("keys")
@@ -333,13 +333,11 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
 
     # --- All validation passed; now apply changes ---
 
-    # Apply regular fields to config.json
+    # Apply regular fields to the GLOBAL root settings.json
     if regular_patch:
-        cfg = load_config()
-        if not isinstance(cfg.get("settings"), dict):
-            cfg["settings"] = {}
-        cfg["settings"].update(regular_patch)
-        save_config(cfg)
+        s = load_root_settings()
+        s.update(regular_patch)
+        save_root_settings(s)
 
     # Mirror provider/model to os.environ
     if "provider" in regular_patch:

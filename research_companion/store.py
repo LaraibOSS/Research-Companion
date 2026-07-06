@@ -34,13 +34,210 @@ from pathlib import Path
 from typing import Any
 
 
-def papergraph_dir() -> Path:
-    """Root directory for research-companion state. Override with $RESEARCH_COMPANION_DIR."""
+def root_dir() -> Path:
+    """Root directory for research-companion state. Override with $RESEARCH_COMPANION_DIR.
+
+    The root holds GLOBAL state (.env secrets, settings.json, the workspace
+    registry); everything research-specific lives under workspaces/<id>/.
+    """
     custom = os.environ.get("RESEARCH_COMPANION_DIR")
     if custom:
         return Path(custom)
     home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or ".")
     return home / ".research-companion"
+
+
+# ---------------------------------------------------------------------------
+# Workspaces: registry, active-workspace resolution, legacy migration
+# ---------------------------------------------------------------------------
+
+_DEFAULT_WORKSPACE = "main"
+
+# Per-process caches: roots whose migration state has been verified, and the
+# (registry mtime_ns -> active id) resolution cache.
+_verified_roots: set[str] = set()
+_active_cache: dict[str, tuple[int, str]] = {}
+
+
+def _reset_workspace_caches() -> None:
+    """Invalidate per-process workspace caches (tests + in-process activation)."""
+    _verified_roots.clear()
+    _active_cache.clear()
+
+
+def workspaces_root() -> Path:
+    return root_dir() / "workspaces"
+
+
+def registry_path() -> Path:
+    return root_dir() / "workspaces.json"
+
+
+def _default_registry() -> dict:
+    return {
+        "version": 1,
+        "active": _DEFAULT_WORKSPACE,
+        "workspaces": [{
+            "id": _DEFAULT_WORKSPACE,
+            "name": "Main",
+            "created_at": "",
+            "archived": False,
+        }],
+    }
+
+
+def load_registry() -> dict:
+    """Load the workspace registry; synthesize the default when missing/corrupt."""
+    p = registry_path()
+    if not p.exists():
+        return _default_registry()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("workspaces"), list):
+            return _default_registry()
+        data.setdefault("version", 1)
+        data.setdefault("active", _DEFAULT_WORKSPACE)
+        return data
+    except (json.JSONDecodeError, OSError):
+        return _default_registry()
+
+
+def save_registry(reg: dict) -> None:
+    """Atomic write (tmp + os.replace); invalidates the resolution cache."""
+    p = registry_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, p)
+    _active_cache.pop(str(root_dir()), None)
+
+
+def _slugify_workspace(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return slug[:64]
+
+
+def active_workspace_id() -> str:
+    """$RESEARCH_COMPANION_WORKSPACE > registry active > "main".
+
+    Registry reads are cached keyed on the file's mtime_ns so external
+    `workspace use` invocations are picked up by long-lived processes.
+    """
+    env_ws = os.environ.get("RESEARCH_COMPANION_WORKSPACE", "").strip()
+    if env_ws:
+        return _slugify_workspace(env_ws) or _DEFAULT_WORKSPACE
+
+    root_key = str(root_dir())
+    p = registry_path()
+    try:
+        mtime = p.stat().st_mtime_ns
+    except OSError:
+        return _DEFAULT_WORKSPACE
+    cached = _active_cache.get(root_key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    active = str(load_registry().get("active") or _DEFAULT_WORKSPACE)
+    _active_cache[root_key] = (mtime, active)
+    return active
+
+
+# Per-workspace artifacts moved by the legacy migration, papers/ LAST so the
+# migration predicate stays true until everything else is across.
+_MIGRATE_ENTRIES = (
+    "graph.json", "graph.html", "failed.json", "gap_resolution.json",
+    "saved_views.json", "journey.json", "qa_log.jsonl", "lab_events.jsonl",
+    "reviews", "suggestions", "conversations", "runs", "papers",
+)
+
+
+def _needs_migration(root: Path) -> bool:
+    if registry_path().exists():
+        return False
+    return any((root / entry).exists() for entry in ("papers", "graph.json", "config.json"))
+
+
+def _migrate_legacy_store(root: Path) -> None:
+    """Move a pre-0.4 store (artifacts at root) into workspaces/main/.
+
+    Crash-safe: every step skips if already done; the trigger predicate stays
+    true while any legacy artifact remains, so an interrupted run resumes on
+    the next resolution. The registry write is the completion marker (and a
+    crash after all moves but before the write self-heals: load_registry
+    synthesizes the default). `.env` never moves.
+    """
+    ws = root / "workspaces" / _DEFAULT_WORKSPACE
+    ws.mkdir(parents=True, exist_ok=True)
+
+    # Split config.json: settings -> root/settings.json, remainder -> workspace
+    legacy_cfg = root / "config.json"
+    if legacy_cfg.exists():
+        try:
+            cfg = json.loads(legacy_cfg.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            cfg = {}
+        if isinstance(cfg, dict):
+            settings = cfg.pop("settings", None)
+            if isinstance(settings, dict) and settings and not (root / "settings.json").exists():
+                save_root_settings(settings)
+            (ws / "config.json").write_text(
+                json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        legacy_cfg.unlink()
+
+    for entry in _MIGRATE_ENTRIES:
+        src = root / entry
+        dst = ws / entry
+        if not src.exists() or dst.exists():
+            continue
+        os.rename(src, dst)
+
+    from datetime import datetime, timezone
+    reg = _default_registry()
+    reg["workspaces"][0]["created_at"] = (
+        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    save_registry(reg)
+
+
+def _ensure_root_ready(root: Path) -> None:
+    key = str(root)
+    if key in _verified_roots:
+        return
+    if _needs_migration(root):
+        _migrate_legacy_store(root)
+    _verified_roots.add(key)
+
+
+def papergraph_dir() -> Path:
+    """Directory of the ACTIVE workspace — all research state lives here."""
+    root = root_dir()
+    _ensure_root_ready(root)
+    return workspaces_root() / active_workspace_id()
+
+
+# ---------------------------------------------------------------------------
+# Global (root-level) settings
+# ---------------------------------------------------------------------------
+
+def root_settings_path() -> Path:
+    return root_dir() / "settings.json"
+
+
+def load_root_settings() -> dict:
+    p = root_settings_path()
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_root_settings(settings: dict) -> None:
+    p = root_settings_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, p)
 
 
 def papers_dir() -> Path:

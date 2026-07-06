@@ -375,11 +375,13 @@ def test_save_config_and_record_failure_create_root_dir(tmp_path, monkeypatch):
     assert not fresh_root.exists()
 
     monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(fresh_root))
+    store._reset_workspace_caches()
 
     # save_config should succeed despite root not existing
     store.save_config({"a": 1})
     assert fresh_root.exists()
-    config_file = fresh_root / "config.json"
+    # 0.4: per-workspace config lives under workspaces/<active>/
+    config_file = store.papergraph_dir() / "config.json"
     assert config_file.exists()
     assert store.load_config() == {"a": 1}
 
@@ -389,9 +391,10 @@ def test_save_config_and_record_failure_create_root_dir(tmp_path, monkeypatch):
     assert not fresh_root.exists()
 
     # record_failure should also succeed and create root
+    store._reset_workspace_caches()
     store.record_failure("k", {"stage": "add", "error": "x"})
     assert fresh_root.exists()
-    failed_file = fresh_root / "failed.json"
+    failed_file = store.papergraph_dir() / "failed.json"
     assert failed_file.exists()
     failures = store.list_failures()
     assert "k" in failures

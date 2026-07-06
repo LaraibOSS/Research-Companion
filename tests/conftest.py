@@ -10,12 +10,30 @@ import pytest
 def isolated_papergraph_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Force every test to use a fresh research-companion dir under tmp_path.
 
-    Autouse so no test can accidentally write to the user's real ~/.research-companion/.
+    Autouse so no test can accidentally write to the user's real
+    ~/.research-companion/. Returns the ACTIVE WORKSPACE directory
+    (root/workspaces/main) — the place papers/, graph.json, config.json etc.
+    live — so the ~400 existing usages keep working unchanged after the
+    0.4 workspaces feature.
     """
-    p = tmp_path / "research-companion"
-    p.mkdir()
-    monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(p))
-    return p
+    from research_companion import store
+
+    root = tmp_path / "research-companion"
+    root.mkdir()
+    monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(root))
+    monkeypatch.delenv("RESEARCH_COMPANION_WORKSPACE", raising=False)
+    store._reset_workspace_caches()
+    ws = store.papergraph_dir()
+    ws.mkdir(parents=True, exist_ok=True)
+    yield ws
+    store._reset_workspace_caches()
+
+
+@pytest.fixture
+def isolated_root_dir(isolated_papergraph_dir: Path) -> Path:
+    """The GLOBAL root (holds .env, settings.json, workspaces.json)."""
+    from research_companion import store
+    return store.root_dir()
 
 
 @pytest.fixture
