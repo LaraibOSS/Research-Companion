@@ -263,7 +263,9 @@ function _sugsHtml(openSugs, totalOpen) {
   const rows = openSugs.map(s => {
     const sevColor = `var(--sev-${escapeHtml(s.severity || 'low')})`;
     // Source label disambiguates same-titled suggestions targeting different sections
-    const srcLabel = (s.source && s.source.label) ? s.source.label : '';
+    // (older payloads carry only section_id, no label)
+    const src = s.source || {};
+    const srcLabel = src.label || (src.section_id ? `§${src.section_id}` : '');
     const srcHtml = srcLabel
       ? `<span class="home-sug-src muted">${escapeHtml(srcLabel)}</span>`
       : '';
