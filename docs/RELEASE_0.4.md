@@ -13,7 +13,10 @@ segregated per project. API keys and appearance settings stay global. Your
 existing library migrates automatically into the first workspace on upgrade —
 the migration is atomic, idempotent, and resumable; nothing is re-ingested and
 your `.env` is never touched. CLI: `research-companion workspace
-list|create|use` (or set `RESEARCH_COMPANION_WORKSPACE` per invocation).
+list|create|use` (or set `RESEARCH_COMPANION_WORKSPACE` per invocation —
+note this resolves to the named workspace directory even if it was never
+created through the registry, so data written under an ad-hoc name won't
+appear in the Researches screen until you create a workspace with that name).
 
 ### Researches screen + quick switcher (W4-F1)
 A new landing surface lists every research as a card — name, draft title,
