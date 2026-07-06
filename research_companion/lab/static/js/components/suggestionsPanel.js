@@ -240,7 +240,7 @@ function _renderCard(s) {
       ${addressedRibbon}
       <div class="suggestion-card-top">
         <span class="suggestion-sev-dot" style="background:${sevColor}" title="${escapeHtml(s.severity)}"${tip('severity')}></span>
-        <span class="suggestion-kind-chip"${tip('band')}>${escapeHtml(s.kind || '')}</span>
+        <span class="suggestion-kind-chip">${escapeHtml(s.kind || '')}</span>
         <span class="suggestion-time-ago">${escapeHtml(timeAgo(s.created_at))}</span>
       </div>
       <div class="suggestion-title">${escapeHtml(s.title)}</div>

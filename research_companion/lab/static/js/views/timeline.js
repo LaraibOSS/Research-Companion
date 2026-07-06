@@ -264,7 +264,7 @@ function _skeletonHtml() {
           <span class="tl-legend-item"${tip('gap')}>
             <span class="tl-diamond tl-diamond-addressed"></span> Addressed
           </span>
-          <span class="tl-legend-item"${tip('severity')}>
+          <span class="tl-legend-item">
             <span class="tl-diamond tl-diamond-draft"></span> Your draft ★
           </span>
         </div>
