@@ -35,6 +35,10 @@ python examples/demo_lab_offline.py      # zero-key, zero-network demo
 
 Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the subgraph for the matching sections is used, which cuts token cost and improves precision over whole-paper retrieval.
 
+## What's new in 0.4
+
+One researcher, many researches: every project now gets its own isolated **workspace** (papers, graph, draft, suggestions — fully segregated; keys and theme stay global), navigated from a premium **Researches** overview screen and a top-bar switcher. The library gains a **list view** with live status (queued / processing / ingested / failed) and each paper's relation to your draft. The knowledge graph gains a deterministic **Draft view** — your draft at the center, sections as an inner ring, papers arranged in sectors by whether they strengthen, challenge, or offer alternatives to your work. Existing stores migrate automatically and losslessly. See the [Release Notes](docs/RELEASE_0.4.md).
+
 ## What's new in 0.3
 
 Research Companion 0.3 adds five major features to the Research Lab: a guided research journey with a home view showing your discovery timeline, a suggestions engine that recommends papers to read with revision tracking, a converse panel for floating-chat conversations about specific papers, a temporal timeline view with gap analysis to find uncovered research areas, and saved views to preserve and restore your graph snapshots. 0.3.1 adds direct PDF upload: drag your draft into the Lab and mark it as your draft in one step. See the [Release Notes](docs/RELEASE_0.3.md) for details.
@@ -309,9 +313,9 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 
 - **v0.1** — CLI, arXiv + DOI + Semantic Scholar + local PDFs, graph viz, chat with citations, search, export (markdown/obsidian/csv/json), cost estimation.
 - **v0.2** — Research Lab UI (live graph, SSE, section-wise subgraphs, draft alignment, evidence-strength colours, Ask, Compare, folder ingest).
-- **v0.3 (current)** — True-companion release: guided home/journey with next-best-action, suggestions engine with revision tracking, talk-to-the-analysis converse panel, temporal timeline + gap analysis, hybrid semantic search (HF Inference API with exact BM25 fallback), saved subgraphs, in-UI settings/keys, themes, PyPI packaging.
-- **v0.4** — MCP server so Claude desktop can query research-companion directly; multi-corpus support (one user, many topic graphs); live arXiv watch (`research-companion watch cs.CL --since today`).
-- **v0.5** — Hosted cloud version for non-technical users.
+- **v0.3** — True-companion release: guided home/journey with next-best-action, suggestions engine with revision tracking, talk-to-the-analysis converse panel, temporal timeline + gap analysis, hybrid semantic search (HF Inference API with exact BM25 fallback), saved subgraphs, in-UI settings/keys, themes, PyPI packaging; 0.3.1 added direct PDF upload with a draft-first flow.
+- **v0.4 (current)** — Organized research: isolated workspaces per research with lossless migration, Researches overview + switcher, library list view with live status and draft relations, deterministic draft-centric graph mode.
+- **v0.5** — MCP server so Claude desktop can query research-companion directly; live arXiv watch (`research-companion watch cs.CL --since today`); hosted cloud version for non-technical users.
 
 ## Contributing
 
