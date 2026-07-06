@@ -1,67 +1,95 @@
-# Research Companion — Demo Video Script (~2:20)
+# Research Companion — Demo Video Script (~2:40)
 
 Target: EMNLP 2026 System Demonstrations. Screen recording of the Research Lab
 (`research-companion lab serve`) + one terminal. Record at 1440x900 or 1920x1080,
 dark theme, browser at 100% zoom. Speak plainly; every claim shown on screen must be
 real output.
 
+Four beats: **zero-to-companion → it tells you what to do → it knows the history →
+it's yours.**
+
 ## Setup before recording
 - Fresh store (`RESEARCH_COMPANION_DIR` pointed at a clean dir) with your draft PDF ready
   and a folder of ~10 related PDFs (include one corrupt/scanned PDF for the failure beat).
-- `.env` with your provider key; `pip install -e ".[server]"` done.
+- No `.env` yet — Beat 1 enters the API key through the Settings UI on camera (use a
+  throwaway key and keep the field masked; the UI never echoes it back).
+- `pip install research-companion` done (or `-e ".[server]"` from a checkout).
 - Terminal one-liner ready: `research-companion lab serve`.
 
 ---
 
-## Beat 1 — "Drop your research into the lab" (0:00–0:55)
+## Beat 1 — "Zero to companion" (0:00–0:45)
 
-Action: launch `lab serve`; browser opens to the empty Library ("Drop your research
-into the lab"). Add the draft PDF via "+ Add papers", click the card -> **Set as draft**
-(★ badge appears). Click **Ingest folder...**, pick the folder, Start ingest — immediately
-switch to the **Graph view**: nodes bloom outward paper by paper, the LIVE badge pulses,
-counters tick (nodes/edges/papers), the progress dock shows `4/10 · extracting`. The corrupt
-PDF fails -> red toast; cut to Library: red failed card with the reason -> click **Retry**
-(it fails again honestly — leave it red; that is the point).
+Action: `pip install research-companion` in the terminal, then `research-companion lab
+serve`; the browser opens on **Home**, which greets you with the 4-step onboarding:
+*Connect a model → Add your draft → Ingest a folder → Meet your suggestions*. Follow it:
+open **Settings** from the onboarding card, paste the API key (masked ****xxxx), no
+restart. Back on Home, add the draft PDF, then **Ingest folder...** — cut to the
+**Graph view**: nodes bloom paper by paper, LIVE badge pulsing, counters ticking. The
+corrupt PDF fails → red toast, honest failure card with one-click Retry.
 
-> "This is Research Companion's Research Lab. Point it at the folder where your papers
-> already live. A team of agents fetches, splits each paper into its sections, extracts
-> concepts, methods, datasets, claims, and results — and you watch your knowledge graph
-> grow in real time. When a PDF can't be parsed, the Lab tells you exactly which one and
-> why, with one-click retry — no silent failures."
+> "One pip install and the Lab walks you in: connect a model, add your draft, point it
+> at the folder where your papers already live. Agents split every paper into sections,
+> extract claims, methods and results, and you watch your knowledge graph grow live.
+> When a PDF can't be parsed it tells you which one and why — no silent failures."
 
-## Beat 2 — "Verdicts on your draft" (0:55–1:40)
+## Beat 2 — "It tells you what to do next" (0:45–1:30)
 
-Action: Library settles into strength colors (strong/moderate/unscored). Open the **Draft
-view**: the draft's section tree on the left with stance chips; select a section with
-alignments; scroll an alignment card: stance banner, relevance meter, rationale, evidence
-quote with **✓ verified** badge; point at an **unverified** badge on another card. Click
-"view in graph" -> the section's subgraph filters instantly.
+Action: Home has become a dashboard: hero with the draft title, severity donut, paper
+count, and the **Do this next** card. The **Open Suggestions** list shows concrete,
+sectioned advice (§-labels visible). Click the bell → the suggestions panel docks right:
+severity-grouped cards, each with a rationale and paper/Discuss/Dismiss. Click
+**Discuss** on one → the Companion panel opens with that suggestion as context; ask
+*"which of these related papers matters most for my related work?"* — a grounded answer
+renders with [n] citation chips and, if present, the unverified-quote warning. Then
+paste a revised draft (POST a v2 via the Draft view): the journey timeline records
+**v2**, and watch suggestions flip to **Addressed** — the hero counter updates to
+"N/M Addressed".
 
-> "Set one paper as your draft, and every paper you add gets a verdict: which of YOUR
-> sections it strengthens, challenges, or offers an alternative to — with evidence quoted
-> from the source paper and verified verbatim against its text. When a quote can't be
-> found, the Lab shows it anyway and says so. Cards are color-coded by an explainable
-> strength score — every signal visible, nothing hidden."
+> "The Companion reads your draft against the literature and tells you what to do
+> about it: discuss this paper as an alternative, back this claim, fix this citation —
+> each tied to a section of YOUR draft. Don't agree? Talk to it. Every answer is
+> grounded and cited, and any quote it can't verify verbatim is flagged. When you
+> revise, it notices what you incorporated and marks it addressed — your revision
+> history becomes a journey it tracks with you."
 
-## Beat 3 — "Ask the lab" (1:40–2:20)
+## Beat 3 — "It knows the history" (1:30–2:10)
 
-Action: **Ask view**. Type a real question about the corpus, scope "Whole lab" (or a
-draft section). The grounded answer renders with [n] citation chips; hover one (mini-card),
-click through to the paper. Show the grounding strip ("Grounded in 6 sources across 2
-papers") and — if present — the unverified-quote warning panel. Quick cut: **Compare** two
-papers -> shared/unique entity columns + results table. End frame: full graph, stats line.
+Action: **Timeline view**. Concept/method/dataset strands per year; toggle the **Gap
+overlay** — amber diamonds mark limitations papers left open, the blue diamond is your
+draft. Click an open gap → detail panel with the verified evidence quote from the
+source paper's limitations section + **Discuss** button. Point at a gap your draft
+addresses (glowing/green). Quick cut: **Ask** with hybrid semantic search on (HF token
+in Settings), grounding strip "Grounded in 6 sources across 2 papers" → **Save this
+subgraph**, reopen it from the Graph view's Saved section.
 
-> "Ask anything. Answers come only from your library — retrieved section by section for
-> token efficiency, cited so you can check, and any quotation the model can't back up
-> verbatim is flagged. Everything you saw is one pip install, MIT-licensed, with 868 tests
-> and a zero-key offline demo. Research Companion: a research assistant you can verify."
+> "The Lab also knows where the field has been: how concepts evolved year over year,
+> and which gaps each paper admitted in its own limitations — quoted and verified. Gaps
+> your draft addresses light up; open ones become suggestions. Every question you ask
+> can be saved as a living subgraph of your library."
+
+## Beat 4 — "It's yours" (2:10–2:40)
+
+Action: **Settings**: flip dark → light theme, switch the accent, show masked keys and
+the retrieval knobs. Open **Help** (?) — glossary table, five core flows. End frame:
+full graph + stats line, then the repo/PyPI line on screen:
+`pip install research-companion`.
+
+> "Everything runs local: your papers, your graph, your keys — in a plain folder you
+> own. Themes, accents, retrieval budgets: yours to tune. It degrades honestly too —
+> no embeddings token, and search falls back to pure BM25; no LLM key, and the graph,
+> timeline and search still work. MIT-licensed, 1,500+ tests, one pip install.
+> Research Companion: a research companion you can verify."
 
 ---
 
 ## Recording checklist
-- [ ] LIVE badge + growing graph clearly visible in Beat 1 (this is the money shot)
+- [ ] Onboarding stepper + in-UI key entry (masked) shown in Beat 1
+- [ ] LIVE badge + growing graph clearly visible in Beat 1 (money shot #1)
 - [ ] One real failure card + Retry shown
-- [ ] One ✓ verified AND one unverified evidence badge shown in Beat 2
-- [ ] Citation chip hover + click shown in Beat 3
-- [ ] No API keys or personal paths visible on screen
+- [ ] Suggestion → Discuss → grounded cited answer chain shown in Beat 2 (money shot #2)
+- [ ] A suggestion flipping open → Addressed after the v2 draft (money shot #3)
+- [ ] Gap diamond click → verified evidence quote shown in Beat 3
+- [ ] Theme flip + Help panel shown in Beat 4
+- [ ] No real API keys or personal paths visible on screen
 - [ ] Replace [LINK] in paper/main.tex abstract footnote with the uploaded video URL

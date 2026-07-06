@@ -308,9 +308,10 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 ## Roadmap
 
 - **v0.1** — CLI, arXiv + DOI + Semantic Scholar + local PDFs, graph viz, chat with citations, search, export (markdown/obsidian/csv/json), cost estimation.
-- **v0.2 (current)** — Research Lab UI (live graph, SSE, section-wise subgraphs, draft alignment, evidence-strength colours, Ask, Compare, folder ingest).
-- **v0.3** — MCP server so Claude desktop can query research-companion directly; multi-corpus support (one user, many topic graphs); live arXiv watch (`research-companion watch cs.CL --since today`).
-- **v0.4** — Hosted cloud version for non-technical users.
+- **v0.2** — Research Lab UI (live graph, SSE, section-wise subgraphs, draft alignment, evidence-strength colours, Ask, Compare, folder ingest).
+- **v0.3 (current)** — True-companion release: guided home/journey with next-best-action, suggestions engine with revision tracking, talk-to-the-analysis converse panel, temporal timeline + gap analysis, hybrid semantic search (HF Inference API with exact BM25 fallback), saved subgraphs, in-UI settings/keys, themes, PyPI packaging.
+- **v0.4** — MCP server so Claude desktop can query research-companion directly; multi-corpus support (one user, many topic graphs); live arXiv watch (`research-companion watch cs.CL --since today`).
+- **v0.5** — Hosted cloud version for non-technical users.
 
 ## Contributing
 
@@ -318,12 +319,16 @@ PRs welcome. Issues even more welcome. The codebase is intentionally small (MIT-
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q   # 700+ Python tests
+python -m pytest -q   # 1,250+ Python tests
 node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs \
   tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs \
   tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs \
   tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs \
-  tests/js/askcompare.test.mjs   # 164 JS tests
+  tests/js/askcompare.test.mjs tests/js/converse.test.mjs \
+  tests/js/glossary.test.mjs tests/js/home.test.mjs \
+  tests/js/settingsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs \
+  tests/js/theme.test.mjs tests/js/timelineLayout.test.mjs \
+  tests/js/viewsHelpers.test.mjs   # 322 JS tests
 ```
 
 ## Acknowledgements
