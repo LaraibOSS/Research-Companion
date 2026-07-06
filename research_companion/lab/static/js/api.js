@@ -108,3 +108,22 @@ export const getSettings = () => get('/api/settings');
 
 /** PUT /api/settings — partial update; returns updated settings */
 export const putSettings = (patch) => _fetch('PUT', '/api/settings', patch);
+
+// ---------------------------------------------------------------------------
+// Saved-views endpoints (W3-F6)
+// ---------------------------------------------------------------------------
+
+/** GET /api/views — returns { views: [{view_id, name, created_at, source, node_ids, pinned}] } */
+export const getViews = () => get('/api/views');
+
+/** POST /api/views — body: { name, source?, node_ids? }; returns 201 with view object */
+export const createView = (body) => post('/api/views', body);
+
+/** PATCH /api/views/{id} — body: { name?, pinned? }; returns updated view */
+export const patchView = (id, body) => _fetch('PATCH', `/api/views/${encodeURIComponent(id)}`, body);
+
+/** DELETE /api/views/{id} — returns { removed: true } */
+export const deleteView = (id) => del(`/api/views/${encodeURIComponent(id)}`);
+
+/** GET /api/views/{id}/graph — returns serialize_graph shape + { view, missing_node_ids } */
+export const getViewGraph = (id) => get(`/api/views/${encodeURIComponent(id)}/graph`);

@@ -13,6 +13,8 @@ import * as store from '../store.js';
 import { escapeHtml, authorsLine } from '../format.js';
 import { open as drawerOpen } from '../components/drawer.js';
 import { showToast } from '../components/toast.js';
+import { openSaveViewModal } from '../components/saveViewModal.js';
+import { canSave } from '../viewsHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Pure: renderAnswerHtml (exported for node --test)
@@ -237,11 +239,20 @@ function _renderHistory() {
         : citations.map(c => c.paper_id)),
     );
     const nSources = citations.length;
+    const nodeIds = (res.grounding && Array.isArray(res.grounding.node_ids))
+      ? res.grounding.node_ids
+      : [];
+    const hasSaveable = canSave(res.grounding);
     const groundingHtml = nSources > 0 ? `
       <div class="ask-grounding muted">
         Grounded in ${nSources} source${nSources !== 1 ? 's' : ''}
         across ${paperIds.size} paper${paperIds.size !== 1 ? 's' : ''}
         &mdash; <a href="#/library" class="ask-library-link">view in library</a>
+      </div>` : '';
+    const saveSubgraphHtml = hasSaveable ? `
+      <div class="ask-save-subgraph">
+        <button class="btn btn-secondary btn-sm ask-save-subgraph-btn"
+                data-entry="${idx}">Save this subgraph</button>
       </div>` : '';
 
     const unverifiedHtml = unverified.length > 0 ? `
@@ -269,6 +280,7 @@ function _renderHistory() {
         <div class="ask-answer-card${muted ? ' ask-answer-muted' : ''}">
           <div class="ask-answer-body">${renderAnswerHtml(res.answer, citations)}</div>
           ${groundingHtml}
+          ${saveSubgraphHtml}
           ${unverifiedHtml}
         </div>
       </div>
@@ -324,6 +336,23 @@ function _hideMiniCard() {
 }
 
 function _onHistoryClick(e) {
+  // "Save this subgraph" button
+  const saveBtn = e.target.closest('.ask-save-subgraph-btn');
+  if (saveBtn) {
+    const entryIdx = Number(saveBtn.dataset.entry);
+    const entry = _history[entryIdx];
+    if (entry) {
+      const nodeIds = (entry.res.grounding && Array.isArray(entry.res.grounding.node_ids))
+        ? entry.res.grounding.node_ids
+        : [];
+      openSaveViewModal({
+        question: entry.question,
+        nodeIds,
+      });
+    }
+    return;
+  }
+
   const hit = _citationFor(e.target);
   if (!hit) return;
   _hideMiniCard();

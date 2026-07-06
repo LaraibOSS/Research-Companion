@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -74,6 +74,8 @@ REQUIRED_STATIC_FILES = [
     "js/components/ingestModal.js",
     "js/components/ingestHelpers.js",
     "js/components/progressDock.js",
+    "js/components/saveViewModal.js",
+    "js/viewsHelpers.js",
     "vendor/vis-network.min.js",
 ]
 
@@ -504,3 +506,104 @@ def test_lab_css_nav_rail_spans_banner_row():
     assert "grid-row: 1 / 4;" in css, (
         "lab.css must set nav-rail grid-row: 1 / 4 to span all three rows when banner is visible"
     )
+
+
+# ---------------------------------------------------------------------------
+# W3-F6: Saved-views UI
+# ---------------------------------------------------------------------------
+
+def test_views_helpers_js_exists():
+    """js/viewsHelpers.js must exist (W3-F6 pure helpers)."""
+    assert (STATIC_DIR / "js" / "viewsHelpers.js").exists(), \
+        "Missing js/viewsHelpers.js"
+
+
+def test_views_helpers_exports_three_functions():
+    """viewsHelpers.js must export truncateName, viewRowModel, canSave."""
+    js = (STATIC_DIR / "js" / "viewsHelpers.js").read_text(encoding="utf-8")
+    assert "export function truncateName" in js, "viewsHelpers.js must export truncateName"
+    assert "export function viewRowModel" in js, "viewsHelpers.js must export viewRowModel"
+    assert "export function canSave" in js, "viewsHelpers.js must export canSave"
+
+
+def test_save_view_modal_js_exists():
+    """js/components/saveViewModal.js must exist (W3-F6)."""
+    assert (STATIC_DIR / "js" / "components" / "saveViewModal.js").exists(), \
+        "Missing js/components/saveViewModal.js"
+
+
+def test_save_view_modal_exports_open_close():
+    """saveViewModal.js must export openSaveViewModal and closeSaveViewModal."""
+    js = (STATIC_DIR / "js" / "components" / "saveViewModal.js").read_text(encoding="utf-8")
+    assert "export function openSaveViewModal" in js, \
+        "saveViewModal.js must export openSaveViewModal"
+    assert "export function closeSaveViewModal" in js, \
+        "saveViewModal.js must export closeSaveViewModal"
+    assert "escapeHtml" in js, "saveViewModal.js must escape view names (user input)"
+
+
+def test_api_js_has_views_endpoints():
+    """api.js must export getViews, createView, patchView, deleteView, getViewGraph (W3-F6)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for name in ("getViews", "createView", "patchView", "deleteView", "getViewGraph"):
+        assert f"export const {name}" in api_js, f"api.js must export {name}"
+
+
+def test_store_js_has_views_field_and_setter():
+    """store.js must have a views field in _state and export setViews (W3-F6)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "views:" in store_js, "store.js must have views: field in _state"
+    assert "export function setViews" in store_js, "store.js must export setViews"
+
+
+def test_graph_js_has_saved_views_section():
+    """graph.js must contain the saved-views section markup hook (W3-F6)."""
+    graph_js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
+    assert "graph-saved-views-list" in graph_js, \
+        "graph.js must render the #graph-saved-views-list container"
+    assert "Saved Views" in graph_js, \
+        "graph.js must include 'Saved Views' section label"
+    assert "_savedViewActive" in graph_js, \
+        "graph.js must have _savedViewActive guard flag"
+
+
+def test_graph_js_guard_flag_on_delta_handler():
+    """graph.js onGraphDeltas handler must check _savedViewActive guard (W3-F6)."""
+    graph_js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
+    assert "_savedViewActive" in graph_js, \
+        "graph.js must use _savedViewActive to guard live delta application"
+
+
+def test_ask_js_references_save_view_modal():
+    """ask.js must import saveViewModal for the post-Ask save affordance (W3-F6)."""
+    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "saveViewModal" in ask_js, "ask.js must reference saveViewModal"
+    assert "canSave" in ask_js, "ask.js must import canSave from viewsHelpers"
+
+
+def test_lab_css_has_saved_views_styles():
+    """lab.css must include W3-F6 saved-views styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".graph-saved-views-list", ".graph-views-row", ".graph-view-chip",
+                   ".ask-save-subgraph", ".save-view-modal"):
+        assert needle in css, f"lab.css missing W3-F6 style: {needle}"
+
+
+def test_viewshelpers_node_test_file_exists():
+    """tests/js/viewsHelpers.test.mjs must exist (W3-F6 pure-function tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "viewsHelpers.test.mjs").exists(), \
+        "Missing tests/js/viewsHelpers.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_save_view_modal_js_returns_200(lab_client):
+    """GET /static/js/components/saveViewModal.js must return 200."""
+    res = lab_client.get("/static/js/components/saveViewModal.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_views_helpers_js_returns_200(lab_client):
+    """GET /static/js/viewsHelpers.js must return 200."""
+    res = lab_client.get("/static/js/viewsHelpers.js")
+    assert res.status_code == 200

@@ -14,6 +14,8 @@ import { escapeHtml } from '../format.js';
 import { nodeToVis, edgeToVis, KIND_COLORS } from '../graph/mapping.js';
 import * as graphEngine from '../graph/graphview.js';
 import { onGraphDeltas } from '../sse.js';
+import { viewRowModel } from '../viewsHelpers.js';
+import { showToast } from '../components/toast.js';
 
 // Inject mapping into the engine (avoids circular deps)
 graphEngine.setMapping({ nodeToVis, edgeToVis });
@@ -34,6 +36,17 @@ let _unsubscribers = [];
 let _searchDebounceTimer = null;
 let _sectionsCache = [];
 let _unsubGraphDeltas = null;
+
+// ---------------------------------------------------------------------------
+// Saved-views state (W3-F6)
+// ---------------------------------------------------------------------------
+
+let _activeViewId = null;      // currently-loaded saved view (null = live mode)
+let _savedViewsEl = null;      // container for the saved-views rows
+let _viewChipEl = null;        // "Viewing: <name> — back to live" chip near LIVE badge
+
+// Guard flag: while a saved view is active, suppress live graph_delta application.
+let _savedViewActive = false;
 
 // Injectable search debounce scheduler (defaults to setTimeout; injectable for tests).
 let _searchScheduler = (fn, ms) => setTimeout(fn, ms);
@@ -56,6 +69,8 @@ export function _setSearchScheduler(scheduler, canceller) {
 
 _unsubGraphDeltas = onGraphDeltas((batch) => {
   if (!_mounted) return;
+  // While a saved view is active, live deltas must not repaint it.
+  if (_savedViewActive) return;
   const { draftId } = store.getState();
   for (const delta of batch) {
     graphEngine.applyDelta(delta, draftId);
@@ -98,11 +113,13 @@ export function mount(_el) {
   // 'graph' topic is now only used for counter/stat updates from non-delta paths.
   // Delta live-growth goes through onGraphDeltas (registered at module init).
   const unsubSections = store.subscribe(['sections', 'papers'], _updateSectionList);
-  _unsubscribers = [unsubJobs, unsubSections];
+  const unsubViews = store.subscribe(['views'], _renderSavedViews);
+  _unsubscribers = [unsubJobs, unsubSections, unsubViews];
 
   // Initial data load — always fetch FULL graph (section scoping is client-side via DataView)
   _loadInitialGraph();
   _loadSections();
+  _loadViews();
   _updateLiveBadge();
   _readUrlSection();
 }
@@ -122,12 +139,15 @@ export function unmount() {
     if (_leftPanel && _leftPanel.parentNode === canvas) canvas.removeChild(_leftPanel);
     if (_detailPanel && _detailPanel.parentNode === canvas) canvas.removeChild(_detailPanel);
     if (_liveBadge && _liveBadge.parentNode === canvas) canvas.removeChild(_liveBadge);
+    if (_viewChipEl && _viewChipEl.parentNode === canvas) canvas.removeChild(_viewChipEl);
   }
   _leftPanel = null;
   _detailPanel = null;
   _liveBadge = null;
   _statsEl = null;
   _sectionListEl = null;
+  _savedViewsEl = null;
+  _viewChipEl = null;
 
   for (const unsub of _unsubscribers) unsub();
   _unsubscribers = [];
@@ -192,6 +212,16 @@ async function _loadSections() {
   }
 }
 
+async function _loadViews() {
+  try {
+    const data = await api.getViews();
+    store.setViews((data && data.views) || []);
+  } catch (err) {
+    // Views endpoint may not be available — fail silently
+    store.setViews([]);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handle store changes
 // ---------------------------------------------------------------------------
@@ -209,6 +239,10 @@ function _buildPanels(canvas) {
   _leftPanel = document.createElement('div');
   _leftPanel.className = 'graph-left-panel';
   _leftPanel.innerHTML = `
+    <div class="graph-panel-section" id="graph-saved-views-section">
+      <div class="graph-panel-label">Saved Views</div>
+      <div id="graph-saved-views-list" class="graph-saved-views-list"></div>
+    </div>
     <div class="graph-panel-section">
       <div class="graph-panel-label">Sections</div>
       <div id="graph-section-list" class="graph-section-list"></div>
@@ -227,6 +261,7 @@ function _buildPanels(canvas) {
   canvas.appendChild(_leftPanel);
 
   _sectionListEl = _leftPanel.querySelector('#graph-section-list');
+  _savedViewsEl = _leftPanel.querySelector('#graph-saved-views-list');
   _statsEl = _leftPanel.querySelector('#graph-stats');
 
   // Render legend
@@ -262,6 +297,12 @@ function _buildPanels(canvas) {
   _liveBadge.innerHTML = '<span class="graph-live-dot"></span> LIVE';
   _liveBadge.style.display = 'none';
   canvas.appendChild(_liveBadge);
+
+  // VIEW CHIP (shown when a saved view is active)
+  _viewChipEl = document.createElement('div');
+  _viewChipEl.className = 'graph-view-chip';
+  _viewChipEl.style.display = 'none';
+  canvas.appendChild(_viewChipEl);
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +351,10 @@ function _renderSectionList() {
         : '#/graph';
       window.location.hash = hash.replace(/^#/, '');
       _renderSectionList();
+      // Clicking "Full graph" also restores live mode if a saved view is active
+      if (!secId && _savedViewActive) {
+        _restoreLive();
+      }
     });
   });
 }
@@ -322,6 +367,149 @@ function _updateSectionList() {
   }
   _renderSectionList();
   _updateStats();
+}
+
+// ---------------------------------------------------------------------------
+// Saved views section (W3-F6)
+// ---------------------------------------------------------------------------
+
+function _renderSavedViews() {
+  if (!_savedViewsEl) return;
+  const { views } = store.getState();
+  const rows = viewRowModel(views || [], _activeViewId);
+
+  if (rows.length === 0) {
+    _savedViewsEl.innerHTML =
+      `<div class="graph-views-empty muted">No saved views yet — save one from Ask.</div>`;
+    return;
+  }
+
+  _savedViewsEl.innerHTML = rows.map(row => {
+    const label = escapeHtml(row.label);
+    const id = escapeHtml(row.id);
+    const pinTitle = row.pinned ? 'Unpin' : 'Pin';
+    const pinClass = row.pinned ? 'graph-views-pin-btn pinned' : 'graph-views-pin-btn';
+    return `
+      <div class="graph-views-row${row.active ? ' active' : ''}" data-view-id="${id}">
+        <button class="${pinClass}" data-action="pin" title="${pinTitle}" aria-label="${pinTitle}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 18 18"
+               fill="${row.pinned ? 'currentColor' : 'none'}"
+               stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L6 8l-4 1 5 5 1-4 6-6-2-2z"/>
+            <line x1="3" y1="15" x2="7" y2="11"/>
+          </svg>
+        </button>
+        <span class="graph-views-name" data-action="load">${label}</span>
+        <span class="graph-views-count muted">${escapeHtml(String(row.count))}</span>
+        <button class="graph-views-delete-btn" data-action="delete" title="Delete view" aria-label="Delete view">&times;</button>
+      </div>
+    `;
+  }).join('');
+
+  // Wire events
+  _savedViewsEl.querySelectorAll('.graph-views-row').forEach(rowEl => {
+    const viewId = rowEl.dataset.viewId;
+
+    rowEl.addEventListener('click', (e) => {
+      const action = e.target.closest('[data-action]');
+      if (!action) return;
+
+      switch (action.dataset.action) {
+        case 'pin': _handlePin(viewId, rowEl); break;
+        case 'load': _loadViewSnapshot(viewId); break;
+        case 'delete': _startDeleteConfirm(rowEl, viewId); break;
+      }
+    });
+  });
+}
+
+async function _handlePin(viewId, rowEl) {
+  const { views } = store.getState();
+  const view = (views || []).find(v => v.view_id === viewId);
+  if (!view) return;
+  const newPinned = !view.pinned;
+  try {
+    await api.patchView(viewId, { pinned: newPinned });
+    await _loadViews();
+  } catch (err) {
+    showToast(`Could not update pin: ${err.message}`, 'error');
+  }
+}
+
+async function _loadViewSnapshot(viewId) {
+  try {
+    const data = await api.getViewGraph(viewId);
+    const { draftId } = store.getState();
+    graphEngine.loadSnapshot(data, draftId);
+    _activeViewId = viewId;
+    _savedViewActive = true;
+    _renderSavedViews();
+    _updateViewChip(data.view);
+    if (data.missing_node_ids && data.missing_node_ids.length > 0) {
+      const n = data.missing_node_ids.length;
+      showToast(`${n} saved node${n !== 1 ? 's' : ''} no longer exist in the graph`, 'error');
+    }
+    _updateStats();
+  } catch (err) {
+    showToast(`Could not load view: ${err.message}`, 'error');
+  }
+}
+
+function _restoreLive() {
+  _activeViewId = null;
+  _savedViewActive = false;
+  _renderSavedViews();
+  _updateViewChip(null);
+  // Reload the full live graph
+  _loadInitialGraph();
+}
+
+function _updateViewChip(view) {
+  if (!_viewChipEl) return;
+  if (!view) {
+    _viewChipEl.style.display = 'none';
+    _viewChipEl.innerHTML = '';
+    return;
+  }
+  const name = escapeHtml(view.name || 'Saved view');
+  _viewChipEl.innerHTML =
+    `Viewing: <strong>${name}</strong> &mdash; <span class="graph-view-chip-live">back to live</span>`;
+  _viewChipEl.style.display = 'flex';
+
+  // Wire "back to live" click
+  const liveLink = _viewChipEl.querySelector('.graph-view-chip-live');
+  if (liveLink) {
+    liveLink.addEventListener('click', _restoreLive);
+  }
+}
+
+function _startDeleteConfirm(rowEl, viewId) {
+  // Swap row content to inline "Delete? yes / no" (no confirm())
+  rowEl.innerHTML = `
+    <span class="graph-views-delete-prompt muted">Delete?</span>
+    <button class="btn btn-danger btn-sm graph-views-confirm-yes">yes</button>
+    <button class="btn btn-secondary btn-sm graph-views-confirm-no">no</button>
+  `;
+
+  rowEl.querySelector('.graph-views-confirm-no').addEventListener('click', () => {
+    _renderSavedViews();
+  });
+
+  rowEl.querySelector('.graph-views-confirm-yes').addEventListener('click', async () => {
+    try {
+      await api.deleteView(viewId);
+      // If deleting the active view, restore live mode
+      if (_activeViewId === viewId) {
+        _restoreLive();
+        return;
+      }
+      await _loadViews();
+    } catch (err) {
+      showToast(`Could not delete view: ${err.message}`, 'error');
+      _renderSavedViews();
+    }
+  });
 }
 
 function _readUrlSection() {

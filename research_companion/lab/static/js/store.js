@@ -12,6 +12,7 @@
  *   failures:   {}
  *   graphSeq:   number
  *   ingestLog:  Array<{ok, label, path?, stage?, error?, paperId, seq}>
+ *   views:      Array<{view_id, name, created_at, source, node_ids, pinned}>
  */
 
 import { applyEvent as _applyEvent } from './reducer.js';
@@ -32,6 +33,7 @@ const _state = {
   ingestLog: [],
   suggestionCounts: { open: 0, by_severity: null },
   settings: {},
+  views: [],
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -159,4 +161,13 @@ export function setSuggestionCounts(counts) {
 export function setSettings(settings) {
   _state.settings = settings;
   notify(['settings']);
+}
+
+/**
+ * Set the saved-views list and notify 'views' subscribers.
+ * @param {Array} views
+ */
+export function setViews(views) {
+  _state.views = Array.isArray(views) ? views : [];
+  notify(['views']);
 }
