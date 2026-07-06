@@ -35,6 +35,14 @@ python examples/demo_lab_offline.py      # zero-key, zero-network demo
 
 Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the subgraph for the matching sections is used, which cuts token cost and improves precision over whole-paper retrieval.
 
+## What's new in 0.3
+
+Research Companion 0.3 adds five major features to the Research Lab: a guided research journey with a home view showing your discovery timeline, a suggestions engine that recommends papers to read with revision tracking, a converse panel for floating-chat conversations about specific papers, a temporal timeline view with gap analysis to find uncovered research areas, and saved views to preserve and restore your graph snapshots. See the [Release Notes](docs/RELEASE_0.3.md) for details.
+
+## Configuration & Security
+
+API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `HF_TOKEN` for semantic search) should be stored in a local `.env` file with permissions 0600 and never committed to version control. You can manage all keys and settings directly from the Settings page in the Research Lab. The `HF_TOKEN` is optional and enables hybrid semantic search; if unset, BM25 (lexical) fallback is used.
+
 ## Why this exists
 
 Reading 50 papers to get up to speed on a research field takes weeks. Existing tools fall into two camps and neither does what researchers actually want:

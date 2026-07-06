@@ -1135,3 +1135,62 @@ def test_ask_js_has_local_render_answer_import():
     ask.js must locally import renderAnswerHtml for its own render path."""
     src = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
     assert "import { renderAnswerHtml } from '../answerHtml.js'" in src
+
+
+# ---------------------------------------------------------------------------
+# W3-F5 blocker fixes (commit f48bc4d review)
+# ---------------------------------------------------------------------------
+
+def test_timeline_view_uses_relx_coordinate_helper():
+    """timeline.js must define _relX and apply it to every rendered x so that
+    canvas-inner positions are relative to the scrollable strip (not full-width).
+    This fixes the rightmost-years clipping bug (CRITICAL-1)."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "_relX" in tl_js, (
+        "timeline.js must define _relX helper to subtract labelWidth from layout x coords"
+    )
+    # The inner-width must be totalW - labelWidth (not totalW)
+    assert "totalW - OPTS.labelWidth" in tl_js or "innerW" in tl_js, (
+        "timeline.js canvas-inner width must be totalW - labelWidth (innerW)"
+    )
+
+
+def test_timeline_view_subscribes_to_gaps_topic():
+    """timeline.js mount() must subscribe to the 'gaps' store topic and refetch
+    api.getGaps() so gaps_updated SSE events trigger a re-render (HIGH-2)."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "'gaps'" in tl_js, (
+        "timeline.js must subscribe to the 'gaps' store topic"
+    )
+    assert "api.getGaps()" in tl_js, (
+        "timeline.js gaps subscriber must call api.getGaps() to refetch"
+    )
+
+
+def test_timeline_view_year_header_outside_canvas_inner():
+    """timeline.js must render the year header strip OUTSIDE tl-canvas-inner so
+    that it can be scroll-synced without fighting overflow (MEDIUM-3).
+    The year header must NOT use position:sticky inline style."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    assert "tl-year-strip" in tl_js, (
+        "timeline.js must use a .tl-year-strip sibling element outside tl-canvas-inner"
+    )
+    # The old position:sticky should be gone from the year header
+    assert "position:sticky" not in tl_js, (
+        "timeline.js year header must not use position:sticky (replaced by scroll-sync)"
+    )
+    # The scroll sync must be wired
+    assert "scrollLeft" in tl_js, (
+        "timeline.js must sync yearStrip.scrollLeft to canvasWrap.scrollLeft"
+    )
+
+
+def test_timeline_view_requeries_canvas_wrap_after_render():
+    """timeline.js _render() must re-query .tl-canvas-wrap after innerHTML rebuild
+    so the click-outside-close listener is wired to the live DOM node (LOW-4)."""
+    tl_js = (STATIC_DIR / "js" / "views" / "timeline.js").read_text(encoding="utf-8")
+    # _render must contain a querySelector for tl-canvas-wrap (not only on mount)
+    render_section = tl_js[tl_js.find("function _render()"):]
+    assert ".tl-canvas-wrap" in render_section, (
+        "timeline.js _render() must re-query .tl-canvas-wrap after innerHTML rebuild"
+    )

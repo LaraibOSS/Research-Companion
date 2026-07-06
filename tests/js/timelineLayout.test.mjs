@@ -344,3 +344,39 @@ test('total width = labelWidth + years.length * yearWidth', () => {
   const { width } = layoutTimeline(temporal, null, opts);
   assert.equal(width, opts.labelWidth + 3 * opts.yearWidth);
 });
+
+// ---------------------------------------------------------------------------
+// Tests: relX — view-side coordinate offset (canvas-inner uses full-width coords
+// minus labelWidth; last year dot must fit inside innerW)
+// ---------------------------------------------------------------------------
+
+test('relX: 3 years labelWidth=180 yearWidth=140 — last year rendered x fits inside innerW', () => {
+  // Hand-math:
+  //   totalW = 180 + 3*140 = 600
+  //   innerW = totalW - labelWidth = 600 - 180 = 420
+  //   last year (2022) x = 180 + 2*140 + 70 = 180 + 280 + 70 = 530  (full-width)
+  //   relX(530) = 530 - 180 = 350
+  //   dot half-width = 5px (10px diameter)
+  //   rendered right edge = 350 + 5 = 355 <= innerW (420) — fits
+  const opts = { yearWidth: 140, laneHeight: 56, labelWidth: 180 };
+  const temporal = makeTemporal({ years: [2020, 2021, 2022] });
+  const { width, yearTicks } = layoutTimeline(temporal, null, opts);
+
+  const innerW = width - opts.labelWidth;
+  assert.equal(innerW, 420, 'innerW should be 420');
+
+  const lastTick = yearTicks[yearTicks.length - 1];
+  assert.equal(lastTick.year, 2022, 'last tick year should be 2022');
+  assert.equal(lastTick.x, 530, 'last tick full-width x should be 530');
+
+  // Simulate the view's relX helper
+  const renderedX = lastTick.x - opts.labelWidth;
+  assert.equal(renderedX, 350, 'renderedX (relX) for 2022 should be 350');
+
+  // Rendered right edge (dot half-width = 5) must not overflow innerW
+  const dotHalfWidth = 5;
+  assert.ok(
+    renderedX + dotHalfWidth <= innerW,
+    `last dot right edge (${renderedX + dotHalfWidth}) must fit within innerW (${innerW})`
+  );
+});

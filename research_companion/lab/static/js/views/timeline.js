@@ -62,6 +62,16 @@ export function mount(el) {
   // Subscribe to store changes for paper titles
   _unsubs.push(store.subscribe(['papers'], _render));
 
+  // Subscribe to gaps_updated SSE events — refetch and re-render
+  _unsubs.push(store.subscribe(['gaps'], async () => {
+    try {
+      _gaps = await api.getGaps();
+    } catch (err) {
+      console.warn('[timeline] gaps refetch failed:', err);
+    }
+    _render();
+  }));
+
   // Lazy fetch both data sources
   _fetchAll();
 }
@@ -127,6 +137,10 @@ function _render() {
 
   _el.querySelector('.tl-body').innerHTML = _buildCanvasHtml(layout, titleMap, gapIndex);
 
+  // Re-query DOM references after innerHTML rebuild (Fix LOW-4)
+  _canvasWrap = _el.querySelector('.tl-canvas-wrap');
+  _detailPanel = _el.querySelector('.tl-detail-panel');
+
   // Wire toolbar chips
   _wireToolbar();
 
@@ -148,6 +162,18 @@ function _render() {
     _canvasWrap.addEventListener('click', (e) => {
       if (!e.target.closest('.tl-gap-diamond') && !e.target.closest('.tl-detail-panel')) {
         _closeDetail();
+      }
+    });
+  }
+
+  // Sync sticky year header scroll + label vertical offset (Fix MEDIUM-3)
+  const yearStrip = _el.querySelector('.tl-year-strip');
+  const labelsCol  = _el.querySelector('.tl-labels-col');
+  if (_canvasWrap && yearStrip) {
+    _canvasWrap.addEventListener('scroll', () => {
+      yearStrip.scrollLeft = _canvasWrap.scrollLeft;
+      if (labelsCol) {
+        labelsCol.style.transform = `translateY(-${_canvasWrap.scrollTop}px)`;
       }
     });
   }
@@ -257,13 +283,26 @@ function _skeletonHtml() {
     </div>`;
 }
 
-function _buildCanvasHtml(layout, titleMap, gapIndex) {
-  const totalW = layout.width;
+/**
+ * Convert layout x (full-width coordinate, includes labelWidth) to
+ * canvas-inner x (relative to the scrollable content, excludes labelWidth).
+ * @param {number} x
+ * @returns {number}
+ */
+function _relX(x) {
+  return x - OPTS.labelWidth;
+}
 
-  // ---- Year header ----
+function _buildCanvasHtml(layout, titleMap, gapIndex) {
+  const totalW   = layout.width;
+  const innerW   = totalW - OPTS.labelWidth;   // width of the scrollable strip
+
+  // ---- Year header (lives OUTSIDE canvas-inner as a sibling strip) ----
   let yearCells = '';
   for (const tick of layout.yearTicks) {
-    yearCells += `<div class="tl-year-cell" style="left:${tick.x - OPTS.yearWidth / 2}px;width:${OPTS.yearWidth}px">${escapeHtml(String(tick.year))}</div>`;
+    // relX converts full-width coord -> inner coord; cell centred at tick
+    const cellLeft = _relX(tick.x) - OPTS.yearWidth / 2;
+    yearCells += `<div class="tl-year-cell" style="left:${cellLeft}px;width:${OPTS.yearWidth}px">${escapeHtml(String(tick.year))}</div>`;
   }
 
   // ---- Gap lane ----
@@ -277,7 +316,7 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
     else if (m.status === 'addressed') cls += ' tl-diamond-addressed';
     else if (m.status === 'partially') cls += ' tl-diamond-partial';
     else cls += ' tl-diamond-open';
-    gapDiamonds += `<div class="${cls}" data-gap-id="${escapeHtml(m.gap_id)}" style="left:${m.x}px;top:${layout.gapLane.y}px" title="${escapeHtml(tooltipText)}"></div>`;
+    gapDiamonds += `<div class="${cls}" data-gap-id="${escapeHtml(m.gap_id)}" style="left:${_relX(m.x)}px;top:${layout.gapLane.y}px" title="${escapeHtml(tooltipText)}"></div>`;
   }
 
   // ---- Track lanes ----
@@ -288,7 +327,7 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
     for (const pt of lane.points) {
       const color = KIND_COLORS[lane.kind] || '#7d8590';
       const title = escapeHtml(titleMap.get(pt.paper_id) || pt.paper_id);
-      dots += `<div class="tl-dot" data-paper-id="${escapeHtml(pt.paper_id)}" style="left:${pt.x}px;top:${lane.y}px;background:${color}" title="${title}"></div>`;
+      dots += `<div class="tl-dot" data-paper-id="${escapeHtml(pt.paper_id)}" style="left:${_relX(pt.x)}px;top:${lane.y}px;background:${color}" title="${title}"></div>`;
     }
 
     // Segments
@@ -296,7 +335,7 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
     for (const seg of lane.segments) {
       const color  = KIND_COLORS[lane.kind] || '#7d8590';
       const segW   = seg.x2 - seg.x1;
-      segs += `<div class="tl-segment" style="left:${seg.x1}px;top:${seg.y}px;width:${segW}px;background:${color}"></div>`;
+      segs += `<div class="tl-segment" style="left:${_relX(seg.x1)}px;top:${seg.y}px;width:${segW}px;background:${color}"></div>`;
     }
 
     laneRows += `
@@ -308,7 +347,7 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
   // ---- Density row ----
   let densityTicks = '';
   for (const d of layout.paperDensity) {
-    densityTicks += `<div class="tl-density-tick" style="left:${d.x}px">
+    densityTicks += `<div class="tl-density-tick" style="left:${_relX(d.x)}px">
       <span class="tl-density-count">${escapeHtml(String(d.count))}</span>
     </div>`;
   }
@@ -325,22 +364,28 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
     ? layout.lanes[layout.lanes.length - 1].y + OPTS.laneHeight
     : OPTS.laneHeight * 2;
 
+  // Year strip is a SIBLING of tl-canvas-wrap (not inside), so it can be synced
+  // via scrollLeft without fighting the overflow container (Fix MEDIUM-3).
   return `
     <div class="tl-canvas-outer">
       <div class="tl-labels-col" style="width:${OPTS.labelWidth}px;height:${canvasHeight}px">
         ${labels}
       </div>
-      <div class="tl-canvas-wrap" style="overflow-x:auto;flex:1">
-        <div class="tl-canvas-inner" style="position:relative;width:${totalW - OPTS.labelWidth}px;min-height:${canvasHeight}px">
-          <div class="tl-year-header" style="position:sticky;top:0;width:${totalW - OPTS.labelWidth}px;height:32px;z-index:2">
+      <div class="tl-canvas-right" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+        <div class="tl-year-strip" style="overflow:hidden;flex-shrink:0;height:32px;position:relative">
+          <div class="tl-year-header" style="width:${innerW}px;height:32px;position:relative">
             ${yearCells}
           </div>
-          <div class="tl-gap-row" style="position:relative;height:${OPTS.laneHeight}px">
-            ${gapDiamonds}
-          </div>
-          ${laneRows}
-          <div class="tl-density-row" style="position:relative;height:32px">
-            ${densityTicks}
+        </div>
+        <div class="tl-canvas-wrap" style="overflow-x:auto;overflow-y:auto;flex:1">
+          <div class="tl-canvas-inner" style="position:relative;width:${innerW}px;min-height:${canvasHeight}px">
+            <div class="tl-gap-row" style="position:relative;height:${OPTS.laneHeight}px">
+              ${gapDiamonds}
+            </div>
+            ${laneRows}
+            <div class="tl-density-row" style="position:relative;height:32px">
+              ${densityTicks}
+            </div>
           </div>
         </div>
       </div>
