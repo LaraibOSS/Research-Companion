@@ -18,45 +18,11 @@ import { canSave } from '../viewsHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Pure: renderAnswerHtml (exported for node --test)
+// Extracted to js/answerHtml.js; re-exported here so existing imports still work.
 // ---------------------------------------------------------------------------
 
-/**
- * Render an LLM answer as minimal markdown-lite HTML.
- *
- * SECURITY: the whole answer is passed through escapeHtml FIRST, so no
- * markup from the model (e.g. a <script> tag) can ever survive; all tags
- * below are constructed from the escaped text.
- *
- * Supports: paragraphs on blank lines, **bold**, `code` spans, "- " lists,
- * and [S#]/[#] citation tags -> <sup class="cite" data-n="#">[#]</sup>.
- *
- * @param {string|null} answer
- * @param {Array<{n:number}>} [citations]  — reserved; chips are resolved
- *   against the citations list at event time in the view
- * @returns {string} safe HTML
- */
-export function renderAnswerHtml(answer, citations = []) {
-  const escaped = escapeHtml(answer == null ? '' : String(answer));
-
-  const inline = (s) => s
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[S?(\d+)\]/g, '<sup class="cite" data-n="$1">[$1]</sup>');
-
-  const blocks = escaped
-    .split(/\n[ \t]*\n/)
-    .map(b => b.trim())
-    .filter(Boolean);
-
-  return blocks.map(block => {
-    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-    if (lines.length > 0 && lines.every(l => l.startsWith('- '))) {
-      const items = lines.map(l => `<li>${inline(l.slice(2).trim())}</li>`).join('');
-      return `<ul>${items}</ul>`;
-    }
-    return `<p>${inline(lines.join('<br>'))}</p>`;
-  }).join('');
-}
+// eslint-disable-next-line import/no-cycle
+export { renderAnswerHtml } from '../answerHtml.js';
 
 // ---------------------------------------------------------------------------
 // View state (module-level; history is session-only, cleared on reload)

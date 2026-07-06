@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -291,10 +291,14 @@ def test_index_html_has_dock_mount_point():
 
 
 def test_ask_view_not_stub():
-    """views/ask.js must not be the F1 stub (must export renderAnswerHtml)."""
+    """views/ask.js must not be the F1 stub (must export renderAnswerHtml — either
+    as a definition or as a re-export from answerHtml.js after W3-F4 extraction)."""
     ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
-    assert "export function renderAnswerHtml" in ask_js, \
-        "ask.js must export renderAnswerHtml"
+    # Accept both the original definition form and the W3-F4 re-export form
+    assert ("export function renderAnswerHtml" in ask_js or
+            "export { renderAnswerHtml }" in ask_js or
+            "export {renderAnswerHtml}" in ask_js), \
+        "ask.js must export renderAnswerHtml (definition or re-export)"
     assert "escapeHtml" in ask_js, "ask.js must escape LLM output"
     assert "stub-view" not in ask_js, "ask.js must not be the stub"
 
@@ -310,10 +314,16 @@ def test_compare_view_not_stub():
 
 
 def test_ask_view_escapes_before_markup():
-    """renderAnswerHtml must call escapeHtml before any tag construction
-    (structural check: escapeHtml applied to the raw answer)."""
+    """renderAnswerHtml must call escapeHtml before any tag construction.
+    After W3-F4 extraction the canonical location is answerHtml.js; ask.js
+    may re-export, so we check either file."""
     ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
-    assert re.search(r"escapeHtml\(\s*answer", ask_js), \
+    answer_html_js_path = STATIC_DIR / "js" / "answerHtml.js"
+    if answer_html_js_path.exists():
+        combined = ask_js + answer_html_js_path.read_text(encoding="utf-8")
+    else:
+        combined = ask_js
+    assert re.search(r"escapeHtml\(\s*answer", combined), \
         "renderAnswerHtml must pass the raw answer through escapeHtml FIRST"
 
 
@@ -905,3 +915,131 @@ def test_journey_helpers_exports_three_functions():
     assert "export function mergeJourney" in js, "journeyHelpers.js must export mergeJourney"
     assert "export function sparklinePath" in js, "journeyHelpers.js must export sparklinePath"
     assert "export function severityDonut" in js, "journeyHelpers.js must export severityDonut"
+
+
+# ---------------------------------------------------------------------------
+# W3-F4: Converse UI tests
+# ---------------------------------------------------------------------------
+
+def test_answer_html_js_exists():
+    """js/answerHtml.js must exist (W3-F4 shared renderer)."""
+    assert (STATIC_DIR / "js" / "answerHtml.js").exists(), \
+        "Missing js/answerHtml.js"
+
+
+def test_answer_html_js_exports_render_answer_html():
+    """answerHtml.js must export renderAnswerHtml with escapeHtml-first security."""
+    js = (STATIC_DIR / "js" / "answerHtml.js").read_text(encoding="utf-8")
+    assert "export function renderAnswerHtml" in js, \
+        "answerHtml.js must export renderAnswerHtml"
+    assert re.search(r"escapeHtml\(\s*answer", js), \
+        "answerHtml.js renderAnswerHtml must pass answer through escapeHtml FIRST"
+
+
+def test_cite_mini_card_js_exists():
+    """js/components/citeMiniCard.js must exist (W3-F4 shared cite handlers)."""
+    assert (STATIC_DIR / "js" / "components" / "citeMiniCard.js").exists(), \
+        "Missing js/components/citeMiniCard.js"
+
+
+def test_cite_mini_card_exports_attach_cite_handlers():
+    """citeMiniCard.js must export attachCiteHandlers."""
+    js = (STATIC_DIR / "js" / "components" / "citeMiniCard.js").read_text(encoding="utf-8")
+    assert "export function attachCiteHandlers" in js, \
+        "citeMiniCard.js must export attachCiteHandlers"
+    assert "escapeHtml" in js, "citeMiniCard.js must escapeHtml citation fields"
+
+
+def test_converse_panel_js_exists():
+    """js/components/conversePanel.js must exist (W3-F4 FAB + panel)."""
+    assert (STATIC_DIR / "js" / "components" / "conversePanel.js").exists(), \
+        "Missing js/components/conversePanel.js"
+
+
+def test_converse_panel_exports_mount_and_pure_helpers():
+    """conversePanel.js must export mountConversePanel, deriveContext, nextThreadState."""
+    js = (STATIC_DIR / "js" / "components" / "conversePanel.js").read_text(encoding="utf-8")
+    assert "export function mountConversePanel" in js, \
+        "conversePanel.js must export mountConversePanel"
+    assert "export function deriveContext" in js, \
+        "conversePanel.js must export deriveContext"
+    assert "export function nextThreadState" in js, \
+        "conversePanel.js must export nextThreadState"
+    assert "export function threadKey" in js, \
+        "conversePanel.js must export threadKey"
+
+
+def test_converse_panel_escapes_user_text():
+    """conversePanel.js must escapeHtml user-entered text in bubbles."""
+    js = (STATIC_DIR / "js" / "components" / "conversePanel.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in js, "conversePanel.js must use escapeHtml"
+
+
+def test_ask_js_re_exports_from_answer_html():
+    """ask.js must re-export renderAnswerHtml from answerHtml.js (W3-F4 extraction)."""
+    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "answerHtml.js" in ask_js, \
+        "ask.js must reference answerHtml.js (re-export after W3-F4 extraction)"
+
+
+def test_api_js_has_converse_endpoints():
+    """api.js must export converse and getConversation (W3-F4)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "export const converse" in api_js, "api.js must export converse"
+    assert "export const getConversation" in api_js, "api.js must export getConversation"
+
+
+def test_store_js_has_conversations_field():
+    """store.js must reference conversations Map (W3-F4 thread store)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "conversations" in store_js, \
+        "store.js must reference conversations (W3-F4 thread store)"
+
+
+def test_main_js_mounts_converse_panel():
+    """main.js must import and mount conversePanel (W3-F4)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "conversePanel" in main_js, "main.js must reference conversePanel"
+    assert "mountConversePanel" in main_js, "main.js must call mountConversePanel"
+
+
+def test_lab_css_has_converse_styles():
+    """lab.css must include W3-F4 converse panel styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".converse-fab", ".converse-panel", ".converse-bubble",
+                   ".converse-header", ".converse-shimmer"):
+        assert needle in css, f"lab.css missing W3-F4 style: {needle}"
+
+
+def test_lab_css_dock_right_offset():
+    """lab.css must set #dock right:76px so dock and FAB never overlap (W3-F4)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert "right: 76px" in css, \
+        "lab.css must set right:76px on #dock to avoid FAB overlap"
+
+
+def test_converse_node_test_file_exists():
+    """tests/js/converse.test.mjs must exist (W3-F4 pure-function tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "converse.test.mjs").exists(), \
+        "Missing tests/js/converse.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_converse_panel_js_returns_200(lab_client):
+    """GET /static/js/components/conversePanel.js must return 200."""
+    res = lab_client.get("/static/js/components/conversePanel.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_cite_mini_card_js_returns_200(lab_client):
+    """GET /static/js/components/citeMiniCard.js must return 200."""
+    res = lab_client.get("/static/js/components/citeMiniCard.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_answer_html_js_returns_200(lab_client):
+    """GET /static/js/answerHtml.js must return 200."""
+    res = lab_client.get("/static/js/answerHtml.js")
+    assert res.status_code == 200

@@ -165,3 +165,23 @@ export const converse = (body) => post('/api/converse', body);
  */
 export const getConversation = (id) =>
   get(`/api/conversations/${encodeURIComponent(id)}`);
+
+// ---------------------------------------------------------------------------
+// Temporal + Gaps endpoints (W3-F5)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/temporal — returns { years, papers_per_year, tracks,
+ *   skipped_papers_without_year, truncated_tracks }
+ */
+export const getTemporal = () => get('/api/temporal');
+
+/**
+ * GET /api/gaps — returns { papers, draft_addresses, stale }
+ */
+export const getGaps = () => get('/api/gaps');
+
+/**
+ * POST /api/gaps/refresh — triggers gap re-analysis job
+ */
+export const refreshGaps = () => post('/api/gaps/refresh');

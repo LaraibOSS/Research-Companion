@@ -232,3 +232,21 @@ if (!_state.conversations) {
 export function getConversations() {
   return _state.conversations;
 }
+
+// ---------------------------------------------------------------------------
+// Gaps state (W3-F5)
+// ---------------------------------------------------------------------------
+
+// Add gaps field if not present (additive; no reshape of existing state)
+if (!('gaps' in _state)) {
+  _state.gaps = null;
+}
+
+/**
+ * Set gaps overview data and notify 'gaps' subscribers.
+ * @param {object|null} data — GET /api/gaps response shape
+ */
+export function setGaps(data) {
+  _state.gaps = data || null;
+  notify(['gaps']);
+}
