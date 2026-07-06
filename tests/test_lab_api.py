@@ -1385,6 +1385,83 @@ class TestGetSuggestions:
         # Dismissed one should not be included
         assert all(s["id"] != sug_id for s in data["suggestions"])
 
+    def test_counts_present_in_response(self, isolated_papergraph_dir):
+        """GET /api/suggestions always includes counts with open/addressed/dismissed keys."""
+        from research_companion import store
+        from research_companion.suggestions import generate_suggestions
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        report = {
+            "paper_id": "local:draft0001",
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 1, "suspect": 0},
+                        "references": [{"title": "Count Ref", "status": "unverified"}],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+        generate_suggestions(draft_id="local:draft0001", report=report, alignments=[])
+        c = _make_client()
+        resp = c.get("/api/suggestions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "counts" in data, f"missing 'counts' in response: {list(data.keys())}"
+        counts = data["counts"]
+        assert "open" in counts
+        assert "addressed" in counts
+        assert "dismissed" in counts
+
+    def test_counts_reflect_all_suggestions_even_with_filter(self, isolated_papergraph_dir):
+        """counts must reflect ALL suggestions regardless of ?status filter."""
+        from research_companion import store
+        from research_companion.suggestions import dismiss_suggestion, generate_suggestions
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        report = {
+            "paper_id": "local:draft0001",
+            "title": "Draft Paper",
+            "lanes": {
+                "citation": {
+                    "ok": True,
+                    "error": "",
+                    "data": {
+                        "counts": {"verified": 0, "unverified": 2, "suspect": 0},
+                        "references": [
+                            {"title": "CA Ref", "status": "unverified"},
+                            {"title": "CB Ref", "status": "unverified"},
+                        ],
+                    },
+                }
+            },
+            "generated_by": "research-companion",
+        }
+        result = generate_suggestions(draft_id="local:draft0001", report=report, alignments=[])
+        sug_id = result["suggestions"][0]["id"]
+        dismiss_suggestion(sug_id)
+        c = _make_client()
+        resp = c.get("/api/suggestions?status=open")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "counts" in data
+        counts = data["counts"]
+        # Even though we're filtering for open only, counts must reflect total
+        assert counts["dismissed"] == 1, f"expected dismissed=1, got {counts}"
+        assert counts["open"] == 1, f"expected open=1, got {counts}"
+
+    def test_counts_present_when_no_draft(self, isolated_papergraph_dir):
+        """counts must be present even when no draft is configured."""
+        c = _make_client()
+        resp = c.get("/api/suggestions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "counts" in data
+
 
 # ---------------------------------------------------------------------------
 # W3-T6: POST /api/suggestions/regenerate
@@ -1444,6 +1521,55 @@ class TestRegenerateSuggestions:
         assert resp.status_code == 200
         data = resp.json()
         assert all(s["kind"] != "structure" for s in data["suggestions"])
+
+    def test_regenerate_publishes_suggestions_updated_event(self, isolated_papergraph_dir):
+        """POST /api/suggestions/regenerate must publish SuggestionsUpdated to the bus."""
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        store.save_review_report("local:draft0001", self._report())
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        with TestClient(app) as c:
+            resp = c.post("/api/suggestions/regenerate", json={})
+        assert resp.status_code == 200
+
+        event_kinds = [type(e).__name__ for e in bus.history]
+        assert "SuggestionsUpdated" in event_kinds, (
+            f"SuggestionsUpdated not published. Events: {event_kinds}"
+        )
+
+    def test_regenerate_include_llm_true_with_none_llm_calls_resolve_llm(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """When include_llm=True and app.state.llm is None, _resolve_llm is attempted."""
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "local:draft0001", "Draft Paper")
+        store.set_draft_paper_id("local:draft0001")
+        store.save_review_report("local:draft0001", self._report())
+
+        resolve_called = [False]
+
+        def fake_resolve_llm(*, json_mode=True):
+            resolve_called[0] = True
+            # Return a simple fake LLM
+            def fake_llm(prompt: str) -> str:
+                import json as _json
+                return _json.dumps({"suggestions": []})
+            return fake_llm
+
+        import research_companion.lab_api as _la
+        monkeypatch.setattr(_la, "_resolve_llm", fake_resolve_llm)
+
+        # Build app with llm=None
+        bus = Bus()
+        app = create_lab_app(bus, llm=None)
+        with TestClient(app) as c:
+            resp = c.post("/api/suggestions/regenerate", json={"include_llm": True})
+        assert resp.status_code == 200
+        assert resolve_called[0], "_resolve_llm was not called when include_llm=True and llm=None"
 
 
 # ---------------------------------------------------------------------------

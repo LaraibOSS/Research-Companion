@@ -220,6 +220,14 @@ def _apply_alignment_rules(alignments: list[dict], now_str: str) -> list[dict]:
     sugs = []
     for alignment in alignments:
         candidate_id = alignment.get("candidate_paper_id", "")
+        # Resolve display label: prefer paper title over bare id
+        try:
+            from research_companion.store import PaperMetadata as _PM
+            _meta = _PM.load(candidate_id)
+            paper_label = _meta.title if _meta is not None else candidate_id
+        except Exception:
+            paper_label = candidate_id
+
         for sec in alignment.get("sections", []):
             section_id = sec.get("section_id")
             section_title = sec.get("section_title", "")
@@ -237,9 +245,9 @@ def _apply_alignment_rules(alignments: list[dict], now_str: str) -> list[dict]:
                 sugs.append(_sug(
                     kind="evidence",
                     severity=sev,
-                    source_key=f"{candidate_id}:{section_id}",
-                    title=f"Challenged claim in '{section_title}' by {candidate_id}",
-                    detail=rationale or f"Section '{section_title}' is challenged by {candidate_id}. Review and address.",
+                    source_key=f"{candidate_id}:{section_id}:{relation}",
+                    title=f"Strengthen §{section_title} against challenge from {paper_label}",
+                    detail=rationale or f"Section '{section_title}' is challenged by {paper_label}. Review and address.",
                     section_id=section_id,
                     source={"type": "paper", "paper_id": candidate_id, "section_id": section_id},
                     now_str=now_str,
@@ -249,8 +257,8 @@ def _apply_alignment_rules(alignments: list[dict], now_str: str) -> list[dict]:
                     sugs.append(_sug(
                         kind="related_work",
                         severity="medium",
-                        source_key=f"{candidate_id}:{section_id}",
-                        title=f"Alternative approach in {candidate_id}",
+                        source_key=f"{candidate_id}:{section_id}:{relation}",
+                        title=f"Discuss {paper_label} as an alternative in related work",
                         detail=rationale or f"Section '{section_title}' presents an alternative approach. Discuss similarities and differences.",
                         section_id=section_id,
                         source={"type": "paper", "paper_id": candidate_id, "section_id": section_id},
@@ -471,8 +479,8 @@ def load_suggestions(draft_id: str) -> dict | None:
 def generate_suggestions(
     *,
     draft_id: str,
-    report: dict,
-    alignments: list[dict],
+    report: dict | None = None,
+    alignments: list[dict] | None = None,
     gaps: list[dict] | None = None,
     llm: Callable[[str], str] | None = None,
     include_llm: bool = False,
@@ -481,6 +489,25 @@ def generate_suggestions(
     """Generate, merge, persist, and return the full suggestions payload."""
     now_dt = now or datetime.now(timezone.utc)
     now_str = now_dt.isoformat().replace("+00:00", "Z")
+
+    # Fallback: load report from store when not explicitly provided
+    if report is None:
+        from research_companion.store import load_review_report
+        report = load_review_report(draft_id)
+        if report is None:
+            report = {"paper_id": draft_id, "lanes": {}}
+
+    # Fallback: load alignments from store for all non-draft papers
+    if alignments is None:
+        from research_companion import store as _store
+        papers = _store.list_papers()
+        alignments = []
+        for p in papers:
+            if p.paper_id == draft_id:
+                continue
+            al = _store.load_alignment(p.paper_id, draft_paper_id=draft_id)
+            if al is not None:
+                alignments.append(al)
 
     # Collect raw suggestions from all lanes
     raw: list[dict] = []
@@ -494,11 +521,14 @@ def generate_suggestions(
     # Dedup evidence by source_key
     fresh = _dedup_evidence(raw)
 
-    # LLM structure pass (optional)
+    # LLM structure pass (optional) — record sha when it runs
+    from research_companion.prompts import suggest_structure_prompt_sha256 as _struct_sha
+    struct_sha: str | None = None
     if include_llm and llm is not None:
         open_sugs = _strip_internal(fresh)
         struct_sugs = _apply_structure_pass(open_sugs, report, llm, now_str)
         fresh.extend(struct_sugs)
+        struct_sha = _struct_sha()
 
     # Load previous and merge
     previous_payload = load_suggestions(draft_id)
@@ -518,6 +548,7 @@ def generate_suggestions(
         "draft_version": report.get("draft_version", ""),
         "generated_at": now_str,
         "suggestions": final_sugs,
+        "structure_prompt_sha256": struct_sha,
     }
 
     save_suggestions(draft_id, payload)

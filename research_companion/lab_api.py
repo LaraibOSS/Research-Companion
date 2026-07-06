@@ -889,19 +889,26 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         from research_companion import store
         from research_companion.suggestions import load_suggestions
 
+        _empty_counts = {"open": 0, "addressed": 0, "dismissed": 0}
+
         draft_id = store.get_draft_paper_id()
         if draft_id is None:
-            return {"draft_paper_id": None, "suggestions": []}
+            return {"draft_paper_id": None, "suggestions": [], "counts": _empty_counts}
 
         payload = await asyncio.to_thread(load_suggestions, draft_id)
         if payload is None:
-            return {"draft_paper_id": draft_id, "suggestions": []}
+            return {"draft_paper_id": draft_id, "suggestions": [], "counts": _empty_counts}
 
-        sugs = payload.get("suggestions", [])
-        if status is not None:
-            sugs = [s for s in sugs if s.get("status") == status]
+        sugs_all = payload.get("suggestions", [])
+        counts = {
+            "open": sum(1 for s in sugs_all if s.get("status") == "open"),
+            "addressed": sum(1 for s in sugs_all if s.get("status") == "addressed"),
+            "dismissed": sum(1 for s in sugs_all if s.get("status") == "dismissed"),
+        }
 
-        return {"draft_paper_id": draft_id, "suggestions": sugs}
+        sugs = [s for s in sugs_all if s.get("status") == status] if status is not None else sugs_all
+
+        return {"draft_paper_id": draft_id, "suggestions": sugs, "counts": counts}
 
     # -----------------------------------------------------------------
     # POST /api/suggestions/regenerate
@@ -929,7 +936,15 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             if al is not None:
                 alignments.append(al)
 
-        resolved_llm = app.state.llm if body.include_llm else None
+        if body.include_llm:
+            resolved_llm = app.state.llm
+            if resolved_llm is None:
+                try:
+                    resolved_llm = _resolve_llm(json_mode=True)
+                except Exception:
+                    resolved_llm = None
+        else:
+            resolved_llm = None
 
         payload = await asyncio.to_thread(
             generate_suggestions,
@@ -971,7 +986,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         draft_id = store.get_draft_paper_id()
         if draft_id is not None:
-            payload = load_suggestions(draft_id)
+            payload = await asyncio.to_thread(load_suggestions, draft_id)
             if payload is not None:
                 sugs = payload.get("suggestions", [])
                 await bus.publish(SuggestionsUpdated(

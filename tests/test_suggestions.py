@@ -360,6 +360,68 @@ class TestAlignmentRules:
         sugs = [s for s in result["suggestions"] if s["kind"] == "evidence"]
         assert sugs[0]["section_id"] == "s5"
 
+    def test_challenges_title_matches_spec_template(self):
+        """Title must be 'Strengthen §<section_title> against challenge from <label>'."""
+        from research_companion.suggestions import generate_suggestions
+        alignment = _alignment(candidate_paper_id="local:cand0099", sections=[
+            {"section_id": "s2", "section_title": "Methods", "relation": "challenges",
+             "relevance": 0.7, "rationale": "Contradicts.", "evidence": []},
+        ])
+        result = generate_suggestions(
+            draft_id="local:draft0001", report=_report(), alignments=[alignment]
+        )
+        sugs = [s for s in result["suggestions"] if s["kind"] == "evidence"
+                and s["section_id"] == "s2"]
+        assert len(sugs) == 1
+        title = sugs[0]["title"]
+        assert title.startswith("Strengthen §"), f"title={title!r}"
+        assert "Methods" in title
+        assert "challenge from" in title
+
+    def test_alternative_title_matches_spec_template(self):
+        """Title must be 'Discuss <label> as an alternative in related work'."""
+        from research_companion.suggestions import generate_suggestions
+        alignment = _alignment(candidate_paper_id="local:cand0088", sections=[
+            {"section_id": "s4", "section_title": "Related Work", "relation": "alternative",
+             "relevance": 0.6, "rationale": "Alternative view.", "evidence": []},
+        ])
+        result = generate_suggestions(
+            draft_id="local:draft0001", report=_report(), alignments=[alignment]
+        )
+        sugs = [s for s in result["suggestions"] if s["kind"] == "related_work"]
+        assert len(sugs) == 1
+        title = sugs[0]["title"]
+        assert title.startswith("Discuss "), f"title={title!r}"
+        assert title.endswith("as an alternative in related work"), f"title={title!r}"
+
+    def test_alignment_title_uses_paper_title_when_metadata_loadable(self):
+        """When paper metadata is available, title uses the paper's title, not the id."""
+        from research_companion import store
+        from research_companion.suggestions import generate_suggestions
+
+        paper_id = "local:cand_with_meta"
+        meta = store.PaperMetadata(
+            paper_id=paper_id,
+            title="The Important Paper",
+            authors=["Author A"],
+            added_at="2024-01-01T00:00:00Z",
+        )
+        meta.save()
+
+        alignment = _alignment(candidate_paper_id=paper_id, sections=[
+            {"section_id": "s2", "section_title": "Discussion", "relation": "challenges",
+             "relevance": 0.7, "rationale": "Contradicts.", "evidence": []},
+        ])
+        result = generate_suggestions(
+            draft_id="local:draft0001", report=_report(), alignments=[alignment]
+        )
+        sugs = [s for s in result["suggestions"] if s["kind"] == "evidence"
+                and s["section_id"] == "s2"]
+        assert len(sugs) == 1
+        title = sugs[0]["title"]
+        # Should use "The Important Paper" as the label, not the paper_id
+        assert "The Important Paper" in title, f"expected paper title in: {title!r}"
+
 
 # ---------------------------------------------------------------------------
 # 6. Gaps rules
@@ -459,6 +521,13 @@ class TestIdStability:
         sid = _make_sug_id("citation", "source_key_here", "Some Title")
         assert sid.startswith("sug_")
         assert len(sid) == len("sug_") + 12
+
+    def test_alignment_source_key_includes_relation(self):
+        """source_key with relation differs from source_key without relation."""
+        from research_companion.suggestions import _make_sug_id
+        id_with = _make_sug_id("evidence", "local:cand0001:s2:challenges", "Some Title")
+        id_without = _make_sug_id("evidence", "local:cand0001:s2", "Some Title")
+        assert id_with != id_without
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +656,26 @@ class TestStructurePass:
         )
         assert call_count[0] == 0
 
+    def test_structure_sha_recorded_when_llm_runs(self):
+        """When LLM structure pass runs, structure_prompt_sha256 is set in payload."""
+        from research_companion.suggestions import generate_suggestions
+        result = generate_suggestions(
+            draft_id="local:draft0001", report=_report(), alignments=[],
+            llm=self._fake_llm_5_proposals, include_llm=True,
+        )
+        sha = result.get("structure_prompt_sha256")
+        assert sha is not None, "structure_prompt_sha256 must be set when LLM runs"
+        assert isinstance(sha, str) and len(sha) == 64  # sha256 hex digest
+
+    def test_structure_sha_null_when_llm_not_run(self):
+        """When include_llm=False, structure_prompt_sha256 is None."""
+        from research_companion.suggestions import generate_suggestions
+        result = generate_suggestions(
+            draft_id="local:draft0001", report=_report(), alignments=[],
+            include_llm=False,
+        )
+        assert result.get("structure_prompt_sha256") is None
+
 
 # ---------------------------------------------------------------------------
 # 11. Payload shape and persistence
@@ -627,6 +716,55 @@ class TestPayloadShape:
         assert loaded is not None
         assert loaded["version"] == 1
         assert len(loaded["suggestions"]) == len(result["suggestions"])
+
+    def test_generate_fallback_loads_report_from_store(self):
+        """When report=None, generate_suggestions loads from store and uses it."""
+        from research_companion import store
+        from research_companion.suggestions import generate_suggestions
+
+        draft_id = "local:fallback_draft"
+        stored_report = _report(citation_refs=[{"title": "Stored Ref", "status": "unverified"}])
+        stored_report["paper_id"] = draft_id
+        store.save_review_report(draft_id, stored_report)
+
+        result = generate_suggestions(draft_id=draft_id, report=None, alignments=[])
+        assert result["draft_paper_id"] == draft_id
+        sugs = result["suggestions"]
+        assert any(s["kind"] == "citation" and "Stored Ref" in s["title"] for s in sugs), (
+            f"expected citation from stored report; got titles: {[s['title'] for s in sugs]}"
+        )
+
+    def test_generate_fallback_loads_alignments_from_store(self):
+        """When alignments=None, generate_suggestions loads from store for all papers."""
+        from research_companion import store
+        from research_companion.suggestions import generate_suggestions
+
+        draft_id = "local:fallback_draft2"
+        cand_id = "local:cand_fallback"
+
+        cand_meta = store.PaperMetadata(
+            paper_id=cand_id,
+            title="Fallback Candidate",
+            authors=["Auth"],
+            added_at="2024-01-01T00:00:00Z",
+        )
+        cand_meta.save()
+
+        alignment = _alignment(candidate_paper_id=cand_id, sections=[
+            {"section_id": "s1", "section_title": "Introduction", "relation": "alternative",
+             "relevance": 0.6, "rationale": "Alt.", "evidence": []},
+        ])
+        alignment["draft_paper_id"] = draft_id
+        store.save_alignment(cand_id, alignment)
+
+        stored_report = _report()
+        stored_report["paper_id"] = draft_id
+
+        result = generate_suggestions(draft_id=draft_id, report=stored_report, alignments=None)
+        sugs = result["suggestions"]
+        assert any(s["kind"] == "related_work" for s in sugs), (
+            f"expected related_work from stored alignment; kinds: {[s['kind'] for s in sugs]}"
+        )
 
 
 # ---------------------------------------------------------------------------
