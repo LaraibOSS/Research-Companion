@@ -1,10 +1,14 @@
 /**
  * main.js — Boot script for the Research Lab SPA.
  *
- * 1. Fetch /api/lab and /api/papers snapshots -> populate store
- * 2. Connect SSE
- * 3. Start hash router
- * 4. Wire top bar: draft chip, connection pill
+ * 1. Apply theme from localStorage (synchronous pre-paint already done
+ *    by the inline script; here we also fetch /api/settings and let the
+ *    server value win).
+ * 2. Fetch /api/lab, /api/papers, /api/settings snapshots -> populate store
+ * 3. Connect SSE
+ * 4. Start hash router
+ * 5. Wire top bar: draft chip, connection pill, suggestions bell, no-key banner
+ * W3-F1.
  */
 
 import * as store from './store.js';
@@ -17,19 +21,26 @@ import * as graphView from './views/graph.js';
 import * as draftView from './views/draft.js';
 import * as compareView from './views/compare.js';
 import * as askView from './views/ask.js';
+import * as homeView from './views/home.js';
+import * as timelineView from './views/timeline.js';
+import * as settingsView from './views/settings.js';
 import { initGraph, setMapping } from './graph/graphview.js';
 import { nodeToVis, edgeToVis } from './graph/mapping.js';
 import { openModal } from './components/ingestModal.js';
 import { mountDock } from './components/progressDock.js';
+import { themeVars, applyTheme } from './theme.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
 // ---------------------------------------------------------------------------
-registerRoute('/library', libraryView);
-registerRoute('/graph',   graphView);
-registerRoute('/draft',   draftView);
-registerRoute('/compare', compareView);
-registerRoute('/ask',     askView);
+registerRoute('/home',     homeView);
+registerRoute('/library',  libraryView);
+registerRoute('/graph',    graphView);
+registerRoute('/draft',    draftView);
+registerRoute('/timeline', timelineView);
+registerRoute('/compare',  compareView);
+registerRoute('/ask',      askView);
+registerRoute('/settings', settingsView);
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -42,10 +53,20 @@ async function boot() {
     initGraph(graphCanvas, vis);
   }
 
-  // Fetch snapshots
+  // Fetch snapshots (including settings)
   try {
-    const [lab, papers] = await Promise.all([api.getLab(), api.getPapers()]);
+    const [lab, papers, settings] = await Promise.all([
+      api.getLab(),
+      api.getPapers(),
+      api.getSettings().catch(() => null),
+    ]);
     store.resetFromSnapshot({ lab, papers });
+    if (settings) {
+      store.setSettings(settings);
+      // Server theme wins — override localStorage
+      const t = themeVars(settings);
+      applyTheme(t);
+    }
   } catch (err) {
     console.warn('[boot] failed to load snapshots:', err);
   }
@@ -123,7 +144,7 @@ async function boot() {
   store.subscribe('connection', updateConnectionPill);
   updateConnectionPill();
 
-  // Draft chip in top bar — clicking navigates to the Draft view (F4 polish)
+  // Draft chip in top bar — clicking navigates to the Draft view
   const draftChipEl = document.getElementById('draft-chip');
   if (draftChipEl) {
     draftChipEl.addEventListener('click', () => {
@@ -148,9 +169,117 @@ async function boot() {
   store.subscribe(['draft', 'papers'], updateDraftChip);
   updateDraftChip();
 
+  // Suggestions bell
+  const bellBtn = document.getElementById('topbar-bell');
+  const bellBadge = document.getElementById('bell-badge');
+
+  if (bellBtn) {
+    bellBtn.addEventListener('click', () => {
+      // F3 can set window.__suggestionsBellClick OR listen for the CustomEvent
+      if (typeof window.__suggestionsBellClick === 'function') {
+        window.__suggestionsBellClick();
+      }
+      window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
+    });
+  }
+
+  function updateBell() {
+    if (!bellBadge) return;
+    const { suggestionCounts } = store.getState();
+    const open = (suggestionCounts && suggestionCounts.open) || 0;
+    if (open === 0) {
+      bellBadge.classList.remove('visible');
+      bellBadge.textContent = '';
+      return;
+    }
+    bellBadge.textContent = open > 99 ? '99+' : String(open);
+    bellBadge.classList.add('visible');
+
+    // Color: highest severity present in by_severity
+    const sev = (suggestionCounts && suggestionCounts.by_severity) || null;
+    let color = 'var(--sev-low)';
+    if (sev) {
+      if (sev.critical) color = 'var(--sev-critical)';
+      else if (sev.high) color = 'var(--sev-high)';
+      else if (sev.medium) color = 'var(--sev-medium)';
+    }
+    bellBadge.style.background = color;
+  }
+  store.subscribe('suggestions', updateBell);
+  updateBell();
+
+  // No-key amber banner
+  const noKeyBanner = document.getElementById('no-key-banner');
+  const noKeyLink = document.getElementById('no-key-link');
+  if (noKeyLink) {
+    noKeyLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.hash = '#/settings';
+    });
+  }
+
+  function updateNoKeyBanner() {
+    if (!noKeyBanner) return;
+    const { settings } = store.getState();
+    if (!settings || !settings.keys) {
+      noKeyBanner.classList.remove('visible');
+      return;
+    }
+    const provider = settings.provider || 'anthropic';
+    const keyName = provider === 'openai' ? 'openai_api_key' : 'anthropic_api_key';
+    const keySet = settings.keys[keyName] && settings.keys[keyName].set;
+    noKeyBanner.classList.toggle('visible', !keySet);
+  }
+  store.subscribe('settings', updateNoKeyBanner);
+  updateNoKeyBanner();
+
+  // Help button (minimal drawer)
+  const helpBtn = document.getElementById('topbar-help');
+  if (helpBtn) {
+    helpBtn.addEventListener('click', () => {
+      _showHelpDrawer();
+    });
+  }
+
   // Start router
   const viewEl = document.getElementById('view');
   startRouter(viewEl);
+}
+
+// ---------------------------------------------------------------------------
+// Minimal Help drawer (F7 builds the full version)
+// ---------------------------------------------------------------------------
+function _showHelpDrawer() {
+  const existing = document.getElementById('help-drawer-overlay');
+  if (existing) { existing.remove(); return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'help-drawer-overlay';
+  overlay.className = 'drawer-overlay open';
+
+  const drawer = document.createElement('div');
+  drawer.className = 'drawer open';
+  drawer.innerHTML = `
+    <button class="drawer-close" id="help-close" aria-label="Close help">&times;</button>
+    <div class="drawer-content">
+      <div class="drawer-header">
+        <h2 class="drawer-title">Help &amp; Documentation</h2>
+      </div>
+      <p style="font-size:14px;line-height:1.6;color:var(--color-fg-dim)">
+        Research Companion Lab helps you analyse papers, compare findings, and draft with evidence.
+        Full documentation is available in the PDF guide and on GitHub.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+        <a href="/static/guide.pdf" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">PDF User Guide &#8599;</a>
+        <a href="https://github.com" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">GitHub &#8599;</a>
+      </div>
+    </div>`;
+  overlay.appendChild(drawer);
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.getElementById('help-close').addEventListener('click', close);
 }
 
 boot();
