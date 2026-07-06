@@ -494,6 +494,32 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
 
         await asyncio.to_thread(store.set_draft_paper_id, paper_id)
+
+        # Journey: record new draft version; spawn background suggestion matching
+        if paper_id is not None:
+            try:
+                from research_companion.agents.events import DraftVersionAdded
+                from research_companion.journey import match_open_suggestions, record_draft_version
+
+                ver = await asyncio.to_thread(record_draft_version, paper_id)
+                if ver is not None:
+                    await bus.publish(DraftVersionAdded(
+                        paper_id=paper_id,
+                        version=ver["version"],
+                    ))
+
+                    async def _bg_match():
+                        with suppress(Exception):
+                            await asyncio.to_thread(
+                                match_open_suggestions,
+                                paper_id,
+                                llm=app.state.llm,
+                            )
+
+                    asyncio.create_task(_bg_match())
+            except Exception:  # noqa: BLE001
+                pass
+
         return {"draft_paper_id": paper_id}
 
     # -----------------------------------------------------------------
@@ -755,6 +781,18 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except Exception:
             pass
 
+        # Journey: log alignment_run event (non-fatal)
+        try:
+            from research_companion.journey import log_event as _log_journey_event
+            _verdict = payload.get("verdict", "")
+            await asyncio.to_thread(
+                _log_journey_event,
+                "alignment_run",
+                {"paper_id": paper_id, "verdict": _verdict},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
         return payload
 
     # -----------------------------------------------------------------
@@ -996,6 +1034,20 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     dismissed=sum(1 for s in sugs if s.get("status") == "dismissed"),
                 ))
 
+        # Journey: log suggestion_dismissed event (non-fatal)
+        try:
+            from research_companion.journey import log_event as _log_journey_event
+            await asyncio.to_thread(
+                _log_journey_event,
+                "suggestion_dismissed",
+                {
+                    "suggestion_id": sug_id,
+                    "suggestion_title": updated.get("title", ""),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
         return updated
 
     # -----------------------------------------------------------------
@@ -1088,6 +1140,15 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         from research_companion.temporal import build_timeline
 
         return await asyncio.to_thread(build_timeline)
+
+    # -----------------------------------------------------------------
+    # GET /api/journey
+    # -----------------------------------------------------------------
+    @app.get("/api/journey")
+    async def get_journey() -> dict:
+        from research_companion.journey import journey_summary
+
+        return await asyncio.to_thread(journey_summary)
 
     # -----------------------------------------------------------------
     # GET /api/search?q=...&k=6

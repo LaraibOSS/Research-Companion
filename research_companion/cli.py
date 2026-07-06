@@ -684,6 +684,14 @@ def _cmd_review(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001
         pass  # Non-fatal: don't break review output if persistence fails
 
+    # Journey: log review_run event
+    try:
+        from research_companion.journey import log_event
+        lanes_ok = {name: r.ok for name, r in results.items()}
+        log_event("review_run", {"paper_id": args.paper_id, "lanes_ok": lanes_ok})
+    except Exception:  # noqa: BLE001
+        pass
+
     if args.report:
         from research_companion.report import build_report_json, render_report_html
         from research_companion.store import PaperMetadata
@@ -977,6 +985,19 @@ def _cmd_set_draft(args: argparse.Namespace) -> int:
 
     set_draft_paper_id(paper_id)
     print(f"research-companion: draft set to {paper_id}  \"{meta.title}\"")
+
+    # Journey: record new draft version and run deterministic suggestion matching
+    try:
+        import contextlib
+
+        from research_companion.journey import match_open_suggestions, record_draft_version
+        ver = record_draft_version(paper_id)
+        if ver is not None:
+            with contextlib.suppress(Exception):
+                match_open_suggestions(paper_id, llm=None)
+    except Exception:  # noqa: BLE001
+        pass
+
     return 0
 
 

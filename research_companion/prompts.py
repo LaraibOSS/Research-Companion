@@ -501,3 +501,43 @@ def format_suggest_structure_prompt(*, section_outline: str, open_suggestions: s
 
 def suggest_structure_prompt_sha256() -> str:
     return hashlib.sha256(SUGGEST_STRUCTURE_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Addressed-check prompt (journey.py). SHA-cached.
+# Used to confirm whether a draft revision has addressed a suggestion.
+# STRICT: only mark addressed when evidence quote verifies verbatim.
+# ---------------------------------------------------------------------------
+
+ADDRESSED_CHECK_PROMPT = """You are a research writing auditor. Determine whether a specific
+suggestion has been addressed in the new draft excerpt below.
+
+Suggestion:
+<<SUGGESTION_BLOCK>>
+
+New draft excerpt (top-3 most relevant sections):
+<<DRAFT_EXCERPT>>
+
+Rules:
+- Only mark addressed=true if there is CLEAR, SPECIFIC evidence in the excerpt.
+- The evidence field MUST be a verbatim quote copied exactly from the excerpt above.
+- If you are uncertain, err on the side of addressed=false.
+- Do NOT paraphrase or invent evidence. If no direct quote supports addressing, use addressed=false.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{"addressed": false, "evidence": "verbatim quote from the excerpt, or empty string if not addressed"}
+
+JSON output:"""
+
+
+def format_addressed_check_prompt(suggestion_block: str, draft_excerpt: str) -> str:
+    """Substitute placeholders in ADDRESSED_CHECK_PROMPT."""
+    return (
+        ADDRESSED_CHECK_PROMPT
+        .replace("<<SUGGESTION_BLOCK>>", suggestion_block)
+        .replace("<<DRAFT_EXCERPT>>", draft_excerpt)
+    )
+
+
+def addressed_check_prompt_sha256() -> str:
+    return hashlib.sha256(ADDRESSED_CHECK_PROMPT.encode("utf-8")).hexdigest()

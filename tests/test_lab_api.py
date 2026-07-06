@@ -2120,3 +2120,100 @@ class TestAskGroundingNodeIds:
         grounding = resp.json()["grounding"]
         assert "paper_ids" in grounding
         assert "node_ids" in grounding
+
+
+# ---------------------------------------------------------------------------
+# W3-T8: GET /api/journey
+# ---------------------------------------------------------------------------
+
+class TestJourneyEndpoint:
+    def test_get_journey_shape(self, isolated_papergraph_dir):
+        """GET /api/journey returns required shape keys."""
+        c = _make_client()
+        resp = c.get("/api/journey")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "versions" in data
+        assert "events" in data
+        assert "counts_over_time" in data
+        assert "current" in data
+        assert "open" in data["current"]
+        assert "addressed" in data["current"]
+        assert "dismissed" in data["current"]
+
+    def test_get_journey_empty_on_fresh_store(self, isolated_papergraph_dir):
+        """No versions recorded yet."""
+        c = _make_client()
+        resp = c.get("/api/journey")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["versions"] == []
+        assert data["counts_over_time"] == []
+
+    def test_post_draft_records_version_and_publishes_event(self, isolated_papergraph_dir):
+        """POST /api/draft with a new paper_id records a version and publishes DraftVersionAdded."""
+        _make_paper(isolated_papergraph_dir, "local:jtest001", "Journey Test Paper")
+
+        bus = Bus()
+        app = create_lab_app(bus)
+
+        import time
+        with TestClient(app) as c:
+            resp = c.post("/api/draft", json={"paper_id": "local:jtest001"})
+            assert resp.status_code == 200
+
+            # Allow background task to complete
+            for _ in range(30):
+                event_kinds = [type(e).__name__ for e in bus.history]
+                if "DraftVersionAdded" in event_kinds:
+                    break
+                time.sleep(0.05)
+
+        event_kinds = [type(e).__name__ for e in bus.history]
+        assert "DraftVersionAdded" in event_kinds, (
+            f"DraftVersionAdded not published. Events: {event_kinds}"
+        )
+
+        # Check journey recorded the version
+        from research_companion.journey import load_journey
+        j = load_journey()
+        assert len(j["draft_versions"]) == 1
+        assert j["draft_versions"][0]["paper_id"] == "local:jtest001"
+
+    def test_post_draft_same_paper_no_duplicate_event(self, isolated_papergraph_dir):
+        """Setting the same paper_id twice does NOT record a second version."""
+        _make_paper(isolated_papergraph_dir, "local:jtest002", "Journey Test Paper 2")
+
+        import time
+        bus = Bus()
+        app = create_lab_app(bus)
+        with TestClient(app) as c:
+            c.post("/api/draft", json={"paper_id": "local:jtest002"})
+            time.sleep(0.1)
+            c.post("/api/draft", json={"paper_id": "local:jtest002"})
+            time.sleep(0.1)
+
+        from research_companion.journey import load_journey
+        j = load_journey()
+        # Only one version recorded
+        assert len(j["draft_versions"]) == 1
+
+    def test_journey_events_newest_first(self, isolated_papergraph_dir):
+        """Events in GET /api/journey response are returned newest first."""
+        _make_paper(isolated_papergraph_dir, "local:jtest003", "Journey Paper 3")
+        _make_paper(isolated_papergraph_dir, "local:jtest004", "Journey Paper 4")
+
+        import time
+        bus = Bus()
+        app = create_lab_app(bus)
+        with TestClient(app) as c:
+            c.post("/api/draft", json={"paper_id": "local:jtest003"})
+            time.sleep(0.05)
+            c.post("/api/draft", json={"paper_id": "local:jtest004"})
+            time.sleep(0.05)
+            resp = c.get("/api/journey")
+
+        assert resp.status_code == 200
+        events = resp.json()["events"]
+        if len(events) >= 2:
+            assert events[0]["at"] >= events[1]["at"]
