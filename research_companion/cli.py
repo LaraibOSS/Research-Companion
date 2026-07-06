@@ -1395,6 +1395,55 @@ def _cmd_lab_failures(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_workspace(args: argparse.Namespace) -> int:
+    from research_companion import workspaces
+
+    if args.ws_cmd == "list":
+        listing = workspaces.list_workspaces()
+        active = listing["active"]
+        print("research-companion workspaces:")
+        for w in listing["workspaces"]:
+            marker = "*" if w["id"] == active else " "
+            arch = "  [archived]" if w.get("archived") else ""
+            papers = w.get("stats", {}).get("papers", 0)
+            print(f"  {marker} {w['id']:<24} {w['name']:<32} {papers} papers{arch}")
+        return 0
+
+    if args.ws_cmd == "create":
+        try:
+            rec = workspaces.create_workspace(args.name)
+        except workspaces.WorkspaceError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"created workspace: {rec['id']}  ({rec['name']})")
+        return 0
+
+    if args.ws_cmd == "use":
+        target = args.workspace
+        listing = workspaces.list_workspaces(with_stats=False)
+        known = {w["id"] for w in listing["workspaces"]}
+        ws_id = target if target in known else None
+        if ws_id is None:
+            try:
+                candidate = workspaces.slugify(target)
+            except workspaces.WorkspaceError:
+                candidate = None
+            if candidate in known:
+                ws_id = candidate
+        if ws_id is None:
+            print(f"error: unknown workspace: {target!r}", file=sys.stderr)
+            return 1
+        try:
+            workspaces.activate_workspace(ws_id)
+        except workspaces.WorkspaceError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"active workspace: {ws_id}")
+        return 0
+
+    return 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="research-companion",
@@ -1581,6 +1630,20 @@ def _build_parser() -> argparse.ArgumentParser:
     plab_serve.set_defaults(func=_cmd_lab_serve)
 
     plab.set_defaults(func=lambda args: plab.print_help() or 0)
+
+    pws = sub.add_parser(
+        "workspace",
+        help="Manage research workspaces (isolated stores per research)",
+        epilog="The active workspace can also be overridden per-invocation "
+               "with the RESEARCH_COMPANION_WORKSPACE environment variable.",
+    )
+    ws_sub = pws.add_subparsers(dest="ws_cmd", required=True)
+    ws_sub.add_parser("list", help="List workspaces (* marks the active one)")
+    pws_create = ws_sub.add_parser("create", help="Create a new workspace")
+    pws_create.add_argument("name", help="Display name (id is a slug of it)")
+    pws_use = ws_sub.add_parser("use", help="Switch the active workspace")
+    pws_use.add_argument("workspace", help="Workspace id or name")
+    pws.set_defaults(func=_cmd_workspace)
 
     return p
 
