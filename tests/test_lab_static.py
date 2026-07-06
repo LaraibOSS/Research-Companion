@@ -461,3 +461,46 @@ def test_graph_js_section_row_uses_section_id():
     assert not bad_uses, (
         f"graph.js must not use sec.id in section-row renderer; found {len(bad_uses)} occurrence(s)"
     )
+
+
+# ---------------------------------------------------------------------------
+# W3-F1: Frontend shell fixes
+# ---------------------------------------------------------------------------
+
+def test_router_js_has_no_library_fallback_string():
+    """router.js must fallback to '/home', not '/library' (W3-F1 fix #1)."""
+    js = (STATIC_DIR / "js" / "router.js").read_text(encoding="utf-8")
+    # Confirm the fallback is /home
+    assert "routePart || '/home'" in js, (
+        "router.js fallback must be '/home', not '/library'"
+    )
+    # Make sure '/library' is not used as a fallback in _parseHash
+    import re as _re
+    fallback_lines = _re.findall(r"const route = routePart \|\| '[^']+';", js)
+    assert len(fallback_lines) == 1, "Expected one fallback assignment in _parseHash"
+    assert "'/home'" in fallback_lines[0], "router.js fallback must use '/home'"
+
+
+def test_settings_js_escapes_numeric_attributes():
+    """settings.js must wrap numeric attributes with escapeHtml (W3-F1 fix #2)."""
+    js = (STATIC_DIR / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+    # Check k_sections escaping
+    assert "escapeHtml(String(s.k_sections || 6))" in js, (
+        "settings.js must escapeHtml-wrap the k_sections numeric attribute"
+    )
+    # Check char_budget escaping
+    assert "escapeHtml(String(s.char_budget || 8000))" in js, (
+        "settings.js must escapeHtml-wrap the char_budget numeric attribute"
+    )
+
+
+def test_lab_css_nav_rail_spans_banner_row():
+    """lab.css must extend nav-rail to grid-row 1/4 when banner is visible (W3-F1 fix #3)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    # Check that the :has() rule extends nav-rail grid-row
+    assert ".app:has(#no-key-banner.visible) .nav-rail {" in css, (
+        "lab.css must have the .app:has() selector for nav-rail when banner is visible"
+    )
+    assert "grid-row: 1 / 4;" in css, (
+        "lab.css must set nav-rail grid-row: 1 / 4 to span all three rows when banner is visible"
+    )

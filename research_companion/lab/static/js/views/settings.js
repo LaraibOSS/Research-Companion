@@ -165,13 +165,13 @@ function _render(s) {
     <div class="settings-retrieval-row">
       <div class="settings-field">
         <label class="settings-label">Sections retrieved (k_sections)</label>
-        <input type="number" class="settings-input" id="s-k-sections" value="${s.k_sections || 6}" min="1" max="20">
+        <input type="number" class="settings-input" id="s-k-sections" value="${escapeHtml(String(s.k_sections || 6))}" min="1" max="20">
         <span class="settings-hint">Default: 6 &nbsp;&middot;&nbsp; Range: 1–20</span>
       </div>
       <button class="settings-reset-link" id="reset-k" title="Reset to default">Reset</button>
       <div class="settings-field">
         <label class="settings-label">Character budget (char_budget)</label>
-        <input type="number" class="settings-input" id="s-char-budget" value="${s.char_budget || 8000}" min="1000" max="50000">
+        <input type="number" class="settings-input" id="s-char-budget" value="${escapeHtml(String(s.char_budget || 8000))}" min="1000" max="50000">
         <span class="settings-hint">Default: 8000 &nbsp;&middot;&nbsp; Range: 1000–50000</span>
       </div>
       <button class="settings-reset-link" id="reset-budget" title="Reset to default">Reset</button>

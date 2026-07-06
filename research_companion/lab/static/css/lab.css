@@ -1862,6 +1862,9 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 .app:has(#no-key-banner.visible) #view {
   grid-row: 3;
 }
+.app:has(#no-key-banner.visible) .nav-rail {
+  grid-row: 1 / 4;
+}
 
 /* ---------------------------------------------------------------------------
  * Nav spacer — pushes Help+Settings to bottom

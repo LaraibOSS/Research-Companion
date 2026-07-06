@@ -31,7 +31,7 @@ function _parseHash() {
   const hash = window.location.hash || '#/home';
   const withoutHash = hash.slice(1); // remove leading '#'
   const [routePart, queryPart] = withoutHash.split('?');
-  const route = routePart || '/library';
+  const route = routePart || '/home';
   const params = {};
   if (queryPart) {
     for (const pair of queryPart.split('&')) {
