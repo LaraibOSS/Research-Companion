@@ -71,6 +71,9 @@ try:
         embed_model: str | None = None
         keys: dict[str, str | None] | None = None
 
+    class _RegenerateBody(_BaseModel):
+        include_llm: bool = False
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -81,6 +84,7 @@ except ImportError:
     _CompareBody = None  # type: ignore[assignment,misc]
     _AddPaperBody = None  # type: ignore[assignment,misc]
     _SettingsPatchBody = None  # type: ignore[assignment,misc]
+    _RegenerateBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -769,6 +773,37 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except AlignmentError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        try:
+            from research_companion.agents.events import SuggestionsUpdated
+            from research_companion.suggestions import generate_suggestions
+
+            report = store.load_review_report(draft_id)
+            if report is not None:
+                papers = store.list_papers()
+                alignments = []
+                for meta in papers:
+                    if meta.paper_id == draft_id:
+                        continue
+                    al = store.load_alignment(meta.paper_id, draft_paper_id=draft_id)
+                    if al is not None:
+                        alignments.append(al)
+
+                updated_payload = await asyncio.to_thread(
+                    generate_suggestions,
+                    draft_id=draft_id,
+                    report=report,
+                    alignments=alignments,
+                )
+                sugs = updated_payload.get("suggestions", [])
+                await bus.publish(SuggestionsUpdated(
+                    draft_paper_id=draft_id,
+                    open=sum(1 for s in sugs if s.get("status") == "open"),
+                    addressed=sum(1 for s in sugs if s.get("status") == "addressed"),
+                    dismissed=sum(1 for s in sugs if s.get("status") == "dismissed"),
+                ))
+        except Exception:
+            pass
+
         return payload
 
     # -----------------------------------------------------------------
@@ -891,6 +926,108 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             return update_settings(patch)
         except SettingsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # -----------------------------------------------------------------
+    # GET /api/suggestions[?status=]
+    # -----------------------------------------------------------------
+    @app.get("/api/suggestions")
+    async def get_suggestions(status: str | None = None) -> dict:
+        from research_companion import store
+        from research_companion.suggestions import load_suggestions
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            return {"draft_paper_id": None, "suggestions": []}
+
+        payload = await asyncio.to_thread(load_suggestions, draft_id)
+        if payload is None:
+            return {"draft_paper_id": draft_id, "suggestions": []}
+
+        sugs = payload.get("suggestions", [])
+        if status is not None:
+            sugs = [s for s in sugs if s.get("status") == status]
+
+        return {"draft_paper_id": draft_id, "suggestions": sugs}
+
+    # -----------------------------------------------------------------
+    # POST /api/suggestions/regenerate
+    # -----------------------------------------------------------------
+    @app.post("/api/suggestions/regenerate")
+    async def regenerate_suggestions(body: _RegenerateBody) -> dict:
+        from research_companion import store
+        from research_companion.agents.events import SuggestionsUpdated
+        from research_companion.suggestions import generate_suggestions
+
+        draft_id = store.get_draft_paper_id()
+        if not draft_id:
+            raise HTTPException(status_code=400, detail="No draft configured.")
+
+        report = store.load_review_report(draft_id)
+        if report is None:
+            raise HTTPException(status_code=400, detail="No review report found for draft.")
+
+        papers = store.list_papers()
+        alignments = []
+        for meta in papers:
+            if meta.paper_id == draft_id:
+                continue
+            al = store.load_alignment(meta.paper_id, draft_paper_id=draft_id)
+            if al is not None:
+                alignments.append(al)
+
+        resolved_llm = app.state.llm if body.include_llm else None
+
+        payload = await asyncio.to_thread(
+            generate_suggestions,
+            draft_id=draft_id,
+            report=report,
+            alignments=alignments,
+            llm=resolved_llm,
+            include_llm=body.include_llm,
+        )
+
+        sugs = payload.get("suggestions", [])
+        counts = {
+            "open": sum(1 for s in sugs if s.get("status") == "open"),
+            "addressed": sum(1 for s in sugs if s.get("status") == "addressed"),
+            "dismissed": sum(1 for s in sugs if s.get("status") == "dismissed"),
+        }
+        await bus.publish(SuggestionsUpdated(
+            draft_paper_id=draft_id,
+            open=counts["open"],
+            addressed=counts["addressed"],
+            dismissed=counts["dismissed"],
+        ))
+
+        return payload
+
+    # -----------------------------------------------------------------
+    # POST /api/suggestions/{sug_id}/dismiss
+    # -----------------------------------------------------------------
+    @app.post("/api/suggestions/{sug_id}/dismiss")
+    async def dismiss_suggestion_endpoint(sug_id: str) -> dict:
+        from research_companion import store
+        from research_companion.agents.events import SuggestionsUpdated
+        from research_companion.suggestions import dismiss_suggestion, load_suggestions
+
+        try:
+            updated = await asyncio.to_thread(dismiss_suggestion, sug_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"Suggestion not found: {sug_id!r}") from exc
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is not None:
+            payload = load_suggestions(draft_id)
+            if payload is not None:
+                sugs = payload.get("suggestions", [])
+                await bus.publish(SuggestionsUpdated(
+                    draft_paper_id=draft_id,
+                    open=sum(1 for s in sugs if s.get("status") == "open"),
+                    addressed=sum(1 for s in sugs if s.get("status") == "addressed"),
+                    dismissed=sum(1 for s in sugs if s.get("status") == "dismissed"),
+                ))
+
+        return updated
 
     # -----------------------------------------------------------------
     # GET /api/events (SSE)

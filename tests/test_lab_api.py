@@ -1505,7 +1505,6 @@ class TestAlignSuggestionsHook:
 
     def test_align_hook_publishes_suggestions_updated_event(self, isolated_papergraph_dir):
         from research_companion import store
-        from research_companion.alignment import build_alignment_payload
         from research_companion.suggestions import generate_suggestions
 
         draft_id = "local:draft0001"
@@ -1576,7 +1575,6 @@ class TestAlignSuggestionsHook:
         event_kinds = []
         loop = asyncio.new_event_loop()
         try:
-            q = bus.subscribe()
             snapshot = list(bus.history)
             event_kinds = [type(e).__name__ for e in snapshot]
         finally:
