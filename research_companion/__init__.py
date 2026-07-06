@@ -12,7 +12,13 @@ CLI:
 """
 from __future__ import annotations
 
-__version__ = "0.1.0"
+# Single source of truth is pyproject.toml; read the installed metadata so
+# `research-companion --version` can never drift from the released version.
+try:
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("research-companion")
+except Exception:  # uninstalled source tree
+    __version__ = "0.3.0"
 
 
 def __getattr__(name: str):

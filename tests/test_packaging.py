@@ -101,6 +101,15 @@ def test_pyproject_version_is_0_3_0():
     )
 
 
+def test_dunder_version_matches_pyproject():
+    """`research-companion --version` reads research_companion.__version__ — it must
+    never drift from pyproject (release bug: 0.3.0 wheel reported 0.1.0)."""
+    import research_companion
+
+    data = _load_pyproject()
+    assert research_companion.__version__ == data["project"]["version"]
+
+
 def test_pyproject_has_required_classifiers():
     """pyproject.toml must contain the required classifiers for 0.2 Beta release."""
     data = _load_pyproject()
