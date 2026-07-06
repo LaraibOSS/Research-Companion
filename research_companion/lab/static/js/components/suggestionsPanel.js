@@ -11,6 +11,7 @@ import * as api from '../api.js';
 import { showToast } from './toast.js';
 import { groupSuggestions, countOpen } from './suggestionHelpers.js';
 import { escapeHtml, timeAgo } from '../format.js';
+import { tip } from '../glossary.js';
 
 // ---------------------------------------------------------------------------
 // Panel state
@@ -238,8 +239,8 @@ function _renderCard(s) {
     <div class="suggestion-card${isAddressed ? ' suggestion-addressed' : ''}" data-id="${escapeHtml(s.id)}" data-sev="${escapeHtml(s.severity)}">
       ${addressedRibbon}
       <div class="suggestion-card-top">
-        <span class="suggestion-sev-dot" style="background:${sevColor}" title="${escapeHtml(s.severity)}"></span>
-        <span class="suggestion-kind-chip">${escapeHtml(s.kind || '')}</span>
+        <span class="suggestion-sev-dot" style="background:${sevColor}" title="${escapeHtml(s.severity)}"${tip('severity')}></span>
+        <span class="suggestion-kind-chip"${tip('band')}>${escapeHtml(s.kind || '')}</span>
         <span class="suggestion-time-ago">${escapeHtml(timeAgo(s.created_at))}</span>
       </div>
       <div class="suggestion-title">${escapeHtml(s.title)}</div>

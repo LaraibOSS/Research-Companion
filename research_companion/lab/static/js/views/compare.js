@@ -102,7 +102,7 @@ export function mount(el) {
   _el = el;
   _render();
   const banner = explainerBanner('compare',
-    'Compare two papers side-by-side: overlapping concepts, methods, datasets, and metric results.');
+    'Two papers, side by side: shared ground and unique contributions.');
   if (banner) el.prepend(banner);
 }
 
@@ -228,6 +228,16 @@ function _setPending(on) {
   if (btn) {
     btn.disabled = on;
     btn.textContent = on ? 'Comparing...' : 'Compare';
+  }
+  const resultEl = _el.querySelector('#cmp-result');
+  if (resultEl && on) {
+    resultEl.innerHTML = `
+      <div class="compare-skeleton">
+        <div class="skeleton-line" style="width:90%"></div>
+        <div class="skeleton-line" style="width:75%"></div>
+        <div class="skeleton-line" style="width:82%"></div>
+      </div>
+    `;
   }
 }
 

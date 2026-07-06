@@ -1318,3 +1318,27 @@ def test_get_static_help_panel_js_returns_200(lab_client):
     """GET /static/js/components/helpPanel.js must return 200 (W3-F7)."""
     res = lab_client.get("/static/js/components/helpPanel.js")
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# W3-F7 drift-guard: glossary tip() wired into badge components
+# ---------------------------------------------------------------------------
+
+def test_paper_card_imports_tip_from_glossary():
+    """paperCard.js must import tip from glossary.js and call tip() for data-tip attributes (F7 drift-guard)."""
+    js = (STATIC_DIR / "js" / "components" / "paperCard.js").read_text(encoding="utf-8")
+    assert "from '../glossary.js'" in js, \
+        "paperCard.js must import from glossary.js"
+    # tip() is interpolated into template literals: ${tip('...')} -> data-tip="..." at runtime
+    assert "tip(" in js, \
+        "paperCard.js must call tip() to inject data-tip attributes into HTML templates"
+
+
+def test_suggestions_panel_imports_tip_from_glossary():
+    """suggestionsPanel.js must import tip from glossary.js and call tip() for data-tip attributes (F7 drift-guard)."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "from '../glossary.js'" in js, \
+        "suggestionsPanel.js must import from glossary.js"
+    # tip() is interpolated into template literals: ${tip('...')} -> data-tip="..." at runtime
+    assert "tip(" in js, \
+        "suggestionsPanel.js must call tip() to inject data-tip attributes into HTML templates"

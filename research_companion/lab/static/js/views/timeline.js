@@ -19,6 +19,7 @@ import { KIND_COLORS } from '../graph/mapping.js';
 import { layoutTimeline } from '../timeline/layout.js';
 import { showToast }      from '../components/toast.js';
 import { explainerBanner } from '../components/explainer.js';
+import { tip } from '../glossary.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -254,16 +255,16 @@ function _skeletonHtml() {
           </span>
         </div>
         <div class="tl-legend">
-          <span class="tl-legend-item">
+          <span class="tl-legend-item"${tip('gap')}>
             <span class="tl-diamond tl-diamond-open"></span> Open gap
           </span>
-          <span class="tl-legend-item">
+          <span class="tl-legend-item"${tip('gap')}>
             <span class="tl-diamond tl-diamond-partial"></span> Partial
           </span>
-          <span class="tl-legend-item">
+          <span class="tl-legend-item"${tip('gap')}>
             <span class="tl-diamond tl-diamond-addressed"></span> Addressed
           </span>
-          <span class="tl-legend-item">
+          <span class="tl-legend-item"${tip('severity')}>
             <span class="tl-diamond tl-diamond-draft"></span> Your draft ★
           </span>
         </div>

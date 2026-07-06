@@ -16,6 +16,7 @@ import { openSaveViewModal } from '../components/saveViewModal.js';
 import { canSave } from '../viewsHelpers.js';
 import { attachCiteHandlers } from '../components/citeMiniCard.js';
 import { explainerBanner } from '../components/explainer.js';
+import { tip } from '../glossary.js';
 
 // ---------------------------------------------------------------------------
 // Pure: renderAnswerHtml (exported for node --test)
@@ -204,6 +205,16 @@ function _renderHistory() {
   // Tear down previous cite handlers before rebuilding HTML
   if (_citeCleanup) { _citeCleanup(); _citeCleanup = null; }
 
+  if (_history.length === 0) {
+    hist.innerHTML = `
+      <div class="ask-empty-state muted">
+        <span class="ask-empty-icon">&#x1F4AC;</span>
+        Answers appear here &mdash; try asking about the papers you ingested.
+      </div>
+    `;
+    return;
+  }
+
   hist.innerHTML = _history.map((entry, idx) => {
     const { question, scopeLabel, res } = entry;
     const citations = res.citations || [];
@@ -219,7 +230,7 @@ function _renderHistory() {
     const nSources = citations.length;
     const hasSaveable = canSave(res.grounding);
     const groundingHtml = nSources > 0 ? `
-      <div class="ask-grounding muted">
+      <div class="ask-grounding muted"${tip('grounded')}>
         Grounded in ${nSources} source${nSources !== 1 ? 's' : ''}
         across ${paperIds.size} paper${paperIds.size !== 1 ? 's' : ''}
         &mdash; <a href="#/library" class="ask-library-link">view in library</a>

@@ -19,6 +19,7 @@ import { themeVars, applyTheme } from '../theme.js';
 import { buildSettingsPatch, validateSettings } from '../settingsHelpers.js';
 import { showToast } from '../components/toast.js';
 import { escapeHtml } from '../format.js';
+import { tip } from '../glossary.js';
 
 let _el = null;
 let _settings = null; // last loaded settings snapshot
@@ -108,7 +109,7 @@ function _render(s) {
       <label class="settings-label">Hugging Face token</label>
       <input type="password" class="settings-input" id="s-hf-token" autocomplete="new-password"
         placeholder="${hfInfo.set ? 'Saved: ' + escapeHtml(hfInfo.masked || '****') + ' — type to replace' : 'hf_…'}">
-      <span class="settings-hint">Optional. Enables hybrid semantic search; without it, keyword search (BM25) is used.</span>
+      <span class="settings-hint"${tip('hybrid')}>Optional. Enables hybrid semantic search; without it, keyword search (BM25) is used.</span>
     </div>
     <div class="settings-section-actions">
       <button class="btn btn-accent btn-sm" id="save-search">Save</button>

@@ -15,6 +15,7 @@ import { open as drawerOpen } from '../components/drawer.js';
 import { showToast } from '../components/toast.js';
 import { stanceIcon, strengthColor, escapeHtml, authorsLine } from '../format.js';
 import { explainerBanner } from '../components/explainer.js';
+import { tip } from '../glossary.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
@@ -69,6 +70,24 @@ async function _render() {
   if (!draftId) {
     _renderNoDraft(papers);
     return;
+  }
+
+  // Show skeleton while loading alignment
+  if (!_alignment) {
+    _el.innerHTML = `
+      <div class="draft-layout">
+        <div class="draft-section-list">
+          <div class="skeleton-line" style="width:80%;margin:12px 16px"></div>
+          <div class="skeleton-line" style="width:65%;margin:8px 16px"></div>
+          <div class="skeleton-line" style="width:72%;margin:8px 16px"></div>
+        </div>
+        <div class="draft-detail">
+          <div class="skeleton-line" style="width:60%;margin:16px 0"></div>
+          <div class="skeleton-line" style="width:90%;margin:8px 0"></div>
+          <div class="skeleton-line" style="width:75%;margin:8px 0"></div>
+        </div>
+      </div>
+    `;
   }
 
   // Load / refresh alignment
@@ -289,8 +308,8 @@ function _renderAlignCard(a, relation, sectionId) {
 
   const evidenceHtml = (a.evidence || []).map(ev => {
     const verifiedBadge = ev.verified
-      ? `<span class="badge badge-ok">&#10003; verified</span>${ev.match ? `<span class="muted ev-match">${escapeHtml(ev.match)}</span>` : ''}`
-      : `<span class="badge badge-warn">unverified</span>`;
+      ? `<span class="badge badge-ok"${tip('verified')}>&#10003; verified</span>${ev.match ? `<span class="muted ev-match">${escapeHtml(ev.match)}</span>` : ''}`
+      : `<span class="badge badge-warn"${tip('unverified')}>unverified</span>`;
     return `
       <blockquote class="evidence-quote draft-evidence">
         <p>${escapeHtml(ev.quote || '')}</p>
@@ -301,7 +320,7 @@ function _renderAlignCard(a, relation, sectionId) {
 
   return `
     <div class="draft-align-card" style="border-left:3px solid ${escapeHtml(color)}">
-      <div class="draft-stance-banner" style="color:${escapeHtml(color)}">
+      <div class="draft-stance-banner" style="color:${escapeHtml(color)}"${tip(relation)}>
         <span class="draft-stance-icon">${escapeHtml(icon)}</span>
         <span class="draft-stance-word">${escapeHtml(relation)}</span>
       </div>

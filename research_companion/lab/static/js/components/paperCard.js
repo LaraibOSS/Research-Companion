@@ -3,6 +3,7 @@
  */
 
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
+import { tip } from '../glossary.js';
 
 /**
  * Render a paper card element.
@@ -41,9 +42,9 @@ export function renderPaperCard(paper) {
   const challenges = sc.challenges || 0;
   const alternative = sc.alternative || 0;
   const stanceHtml = [
-    strengthens > 0 ? `<span class="stance-chip stance-strengthens">▲${strengthens}</span>` : '',
-    challenges > 0  ? `<span class="stance-chip stance-challenges">⚡${challenges}</span>` : '',
-    alternative > 0 ? `<span class="stance-chip stance-alternative">◆${alternative}</span>` : '',
+    strengthens > 0 ? `<span class="stance-chip stance-strengthens"${tip('strengthens')}>▲${strengthens}</span>` : '',
+    challenges > 0  ? `<span class="stance-chip stance-challenges"${tip('challenges')}>⚡${challenges}</span>` : '',
+    alternative > 0 ? `<span class="stance-chip stance-alternative"${tip('alternative')}>◆${alternative}</span>` : '',
   ].filter(Boolean).join('');
 
   const bandLabel = paper.strength ? paper.strength.band : (paper.status === 'processing' ? 'processing' : 'unscored');
@@ -55,7 +56,7 @@ export function renderPaperCard(paper) {
       <div class="paper-badges">
         ${badges.join('')}
         ${stanceHtml}
-        <span class="strength-badge" style="color:${borderColor}">${escapeHtml(bandLabel)}</span>
+        <span class="strength-badge" style="color:${borderColor}"${tip('strength')}>${escapeHtml(bandLabel)}</span>
       </div>
       ${paper.status === 'failed' && paper.failure_reason
         ? `<div class="failure-reason muted">${escapeHtml(paper.failure_reason)}</div>
