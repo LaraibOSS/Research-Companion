@@ -127,3 +127,21 @@ export const deleteView = (id) => del(`/api/views/${encodeURIComponent(id)}`);
 
 /** GET /api/views/{id}/graph — returns serialize_graph shape + { view, missing_node_ids } */
 export const getViewGraph = (id) => get(`/api/views/${encodeURIComponent(id)}/graph`);
+
+// ---------------------------------------------------------------------------
+// Suggestions endpoints (W3-F3)
+// ---------------------------------------------------------------------------
+
+/** GET /api/suggestions[?status=] — returns { draft_paper_id, suggestions, counts } */
+export const getSuggestions = (status) => {
+  const url = status ? `/api/suggestions?status=${encodeURIComponent(status)}` : '/api/suggestions';
+  return get(url);
+};
+
+/** POST /api/suggestions/{id}/dismiss */
+export const dismissSuggestion = (id) =>
+  post(`/api/suggestions/${encodeURIComponent(id)}/dismiss`);
+
+/** POST /api/suggestions/regenerate — body: { include_llm } */
+export const regenerateSuggestions = (includeLlm = false) =>
+  post('/api/suggestions/regenerate', { include_llm: includeLlm });

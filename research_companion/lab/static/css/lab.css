@@ -2234,3 +2234,321 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 .save-view-count {
   font-size: 12px;
 }
+
+/* ---------------------------------------------------------------------------
+ * W3-F3: Suggestions panel — global docked panel
+ * --------------------------------------------------------------------------- */
+
+.suggestions-panel {
+  position: fixed;
+  top: var(--topbar-h);
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  background: var(--color-panel);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-3);
+  z-index: 380;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform var(--dur-panel) var(--ease-panel);
+  overflow: hidden;
+}
+
+.suggestions-panel.open {
+  transform: translateX(0);
+}
+
+/* Header */
+.suggestions-header {
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.suggestions-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.suggestions-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-fg);
+  flex: 1;
+}
+
+.suggestions-open-count {
+  font-size: var(--text-sm);
+  color: var(--color-fg-dim);
+  background: rgba(88,166,255,0.12);
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.suggestions-close {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Segmented control */
+.suggestions-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.suggestions-group-seg {
+  display: flex;
+  gap: 2px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.suggestions-seg-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-dim);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.suggestions-seg-btn.active {
+  background: var(--color-panel);
+  color: var(--color-fg);
+}
+
+.suggestions-seg-btn:hover:not(.active) {
+  color: var(--color-fg);
+}
+
+/* Status chips row */
+.suggestions-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Actions row (Regenerate) */
+.suggestions-actions-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Body */
+.suggestions-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Groups */
+.suggestions-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.suggestions-group-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 2px;
+}
+
+/* Empty state */
+.suggestions-empty {
+  text-align: center;
+  color: var(--color-fg-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-6) var(--space-4);
+}
+
+/* Card */
+.suggestion-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition: border-color 0.15s, opacity 0.18s;
+  position: relative;
+  overflow: hidden;
+}
+
+.suggestion-card:hover {
+  border-color: var(--color-accent);
+}
+
+.suggestion-card.suggestion-addressed {
+  opacity: 0.75;
+}
+
+.suggestion-card.suggestion-dismissing {
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.18s, transform 0.18s;
+}
+
+.suggestion-card.suggestion-flash-green {
+  background: rgba(63,185,80,0.12);
+  border-color: var(--color-ok);
+  transition: background 0.4s, border-color 0.4s;
+}
+
+/* Addressed ribbon */
+.suggestion-addressed-ribbon {
+  font-size: var(--text-xs);
+  color: var(--color-ok);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.suggestion-check {
+  font-size: 10px;
+}
+
+.suggestion-addressed-note {
+  color: var(--color-fg-dim);
+}
+
+/* Card top row */
+.suggestion-card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.suggestion-sev-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.suggestion-kind-chip {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-fg-dim);
+  background: rgba(255,255,255,0.06);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: capitalize;
+}
+
+.suggestion-time-ago {
+  font-size: var(--text-xs);
+  color: var(--color-fg-dim);
+  margin-left: auto;
+}
+
+/* Title */
+.suggestion-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-fg);
+  line-height: 1.4;
+}
+
+/* Detail */
+.suggestion-detail-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestion-detail {
+  font-size: var(--text-sm);
+  color: var(--color-fg-dim);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.suggestion-detail.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.suggestion-more-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: 0;
+}
+
+.suggestion-more-btn:hover {
+  text-decoration: underline;
+}
+
+/* Actions */
+.suggestion-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.suggestion-source-link {
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * W3-F3: Suggestions full-page view
+ * --------------------------------------------------------------------------- */
+
+.suggestions-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 900px;
+}
+
+.suggestions-page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.suggestions-page-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-fg);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.suggestions-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}

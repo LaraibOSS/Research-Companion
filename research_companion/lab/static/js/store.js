@@ -16,6 +16,7 @@
  */
 
 import { applyEvent as _applyEvent } from './reducer.js';
+import { diffStatuses, countOpen, highestOpenSeverity } from './components/suggestionHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -32,6 +33,8 @@ const _state = {
   graphSeq: 0,
   ingestLog: [],
   suggestionCounts: { open: 0, by_severity: null },
+  suggestions: [],
+  lastAddressedIds: [],
   settings: {},
   views: [],
 };
@@ -151,6 +154,35 @@ export function setDraft(id) {
  */
 export function setSuggestionCounts(counts) {
   _state.suggestionCounts = counts;
+  notify(['suggestions']);
+}
+
+/**
+ * Set the full suggestions list. Diffs vs previous to track addressed IDs.
+ * Also recomputes suggestionCounts from the list (keeps in sync with F1 bell).
+ * Notifies ['suggestions'].
+ * @param {Array} list
+ */
+export function setSuggestions(list) {
+  const prev = _state.suggestions;
+  const next = Array.isArray(list) ? list : [];
+  const { addressed } = diffStatuses(prev, next);
+  _state.lastAddressedIds = addressed;
+  _state.suggestions = next;
+
+  // Recompute counts from list
+  const open = countOpen(next);
+  const bySeverity = {};
+  for (const s of next) {
+    if (s.status === 'open') {
+      bySeverity[s.severity] = (bySeverity[s.severity] || 0) + 1;
+    }
+  }
+  _state.suggestionCounts = {
+    open,
+    by_severity: Object.keys(bySeverity).length > 0 ? bySeverity : null,
+  };
+
   notify(['suggestions']);
 }
 

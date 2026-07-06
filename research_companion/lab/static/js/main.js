@@ -28,19 +28,22 @@ import { initGraph, setMapping } from './graph/graphview.js';
 import { nodeToVis, edgeToVis } from './graph/mapping.js';
 import { openModal } from './components/ingestModal.js';
 import { mountDock } from './components/progressDock.js';
+import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { themeVars, applyTheme } from './theme.js';
+import * as suggestionsView from './views/suggestions.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
 // ---------------------------------------------------------------------------
-registerRoute('/home',     homeView);
-registerRoute('/library',  libraryView);
-registerRoute('/graph',    graphView);
-registerRoute('/draft',    draftView);
-registerRoute('/timeline', timelineView);
-registerRoute('/compare',  compareView);
-registerRoute('/ask',      askView);
-registerRoute('/settings', settingsView);
+registerRoute('/home',        homeView);
+registerRoute('/library',     libraryView);
+registerRoute('/graph',       graphView);
+registerRoute('/draft',       draftView);
+registerRoute('/timeline',    timelineView);
+registerRoute('/compare',     compareView);
+registerRoute('/ask',         askView);
+registerRoute('/settings',    settingsView);
+registerRoute('/suggestions', suggestionsView);
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -70,6 +73,15 @@ async function boot() {
   } catch (err) {
     console.warn('[boot] failed to load snapshots:', err);
   }
+
+  // Initial suggestions fetch (non-fatal)
+  api.getSuggestions().then(data => {
+    if (data && Array.isArray(data.suggestions)) {
+      store.setSuggestions(data.suggestions);
+    }
+  }).catch(err => {
+    console.warn('[boot] failed to load suggestions:', err);
+  });
 
   // Snapshot refresher: when alignment_ready fires the reducer marks
   // paper.alignmentFresh=false; we pick that up on 'papers' notify and
@@ -130,6 +142,9 @@ async function boot() {
   if (dockEl) {
     mountDock(dockEl, store, api);
   }
+
+  // Mount the global suggestions panel (F3) once at boot
+  mountSuggestionsPanel(store, api);
 
   // Connection pill
   function updateConnectionPill() {

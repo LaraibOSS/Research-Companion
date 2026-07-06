@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -606,4 +606,103 @@ def test_get_static_save_view_modal_js_returns_200(lab_client):
 def test_get_static_views_helpers_js_returns_200(lab_client):
     """GET /static/js/viewsHelpers.js must return 200."""
     res = lab_client.get("/static/js/viewsHelpers.js")
+    assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# W3-F3: Suggestions panel
+# ---------------------------------------------------------------------------
+
+def test_suggestion_helpers_js_exists():
+    """js/components/suggestionHelpers.js must exist (W3-F3 pure helpers)."""
+    assert (STATIC_DIR / "js" / "components" / "suggestionHelpers.js").exists(), \
+        "Missing js/components/suggestionHelpers.js"
+
+
+def test_suggestions_panel_js_exists():
+    """js/components/suggestionsPanel.js must exist (W3-F3 panel)."""
+    assert (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").exists(), \
+        "Missing js/components/suggestionsPanel.js"
+
+
+def test_suggestions_view_js_exists():
+    """js/views/suggestions.js must exist (W3-F3 full route)."""
+    assert (STATIC_DIR / "js" / "views" / "suggestions.js").exists(), \
+        "Missing js/views/suggestions.js"
+
+
+def test_main_js_imports_suggestions_panel():
+    """main.js must import suggestionsPanel (W3-F3)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "suggestionsPanel" in main_js, "main.js must reference suggestionsPanel"
+
+
+def test_suggestions_panel_escapes_title_and_detail():
+    """suggestionsPanel.js must call escapeHtml on title and detail."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in js, "suggestionsPanel.js must use escapeHtml"
+    assert "escapeHtml(s.title)" in js, "suggestionsPanel.js must escapeHtml(s.title)"
+    assert "escapeHtml(s.detail)" in js, "suggestionsPanel.js must escapeHtml(s.detail)"
+
+
+def test_suggestions_view_escapes_title_and_detail():
+    """views/suggestions.js must call escapeHtml on title and detail."""
+    js = (STATIC_DIR / "js" / "views" / "suggestions.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in js, "suggestions.js must use escapeHtml"
+    assert "escapeHtml(s.title)" in js, "suggestions.js must escapeHtml(s.title)"
+    assert "escapeHtml(s.detail)" in js, "suggestions.js must escapeHtml(s.detail)"
+
+
+def test_store_js_has_suggestions_field_and_setter():
+    """store.js must have suggestions field in _state and export setSuggestions (W3-F3)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "suggestions:" in store_js, "store.js must have suggestions: field in _state"
+    assert "export function setSuggestions" in store_js, "store.js must export setSuggestions"
+
+
+def test_api_js_has_suggestions_endpoints():
+    """api.js must export getSuggestions, dismissSuggestion, regenerateSuggestions (W3-F3)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for name in ("getSuggestions", "dismissSuggestion", "regenerateSuggestions"):
+        assert f"export const {name}" in api_js, f"api.js must export {name}"
+
+
+def test_suggestions_panel_dispatches_rc_discuss():
+    """suggestionsPanel.js must dispatch CustomEvent('rc:discuss') for Discuss button."""
+    js = (STATIC_DIR / "js" / "components" / "suggestionsPanel.js").read_text(encoding="utf-8")
+    assert "rc:discuss" in js, "suggestionsPanel.js must dispatch rc:discuss CustomEvent"
+
+
+def test_lab_css_has_suggestions_panel_styles():
+    """lab.css must include W3-F3 suggestions panel styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".suggestions-panel", ".suggestion-card", ".suggestion-sev-dot",
+                   ".suggestion-title", ".suggestion-detail"):
+        assert needle in css, f"lab.css missing W3-F3 style: {needle}"
+
+
+def test_suggestion_helpers_test_file_exists():
+    """tests/js/suggestionHelpers.test.mjs must exist (W3-F3 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "suggestionHelpers.test.mjs").exists(), \
+        "Missing tests/js/suggestionHelpers.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_suggestions_panel_js_returns_200(lab_client):
+    """GET /static/js/components/suggestionsPanel.js must return 200."""
+    res = lab_client.get("/static/js/components/suggestionsPanel.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_suggestion_helpers_js_returns_200(lab_client):
+    """GET /static/js/components/suggestionHelpers.js must return 200."""
+    res = lab_client.get("/static/js/components/suggestionHelpers.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_suggestions_view_js_returns_200(lab_client):
+    """GET /static/js/views/suggestions.js must return 200."""
+    res = lab_client.get("/static/js/views/suggestions.js")
     assert res.status_code == 200
