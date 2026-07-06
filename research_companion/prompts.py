@@ -595,3 +595,97 @@ def format_converse_prompt(
 
 def converse_prompt_sha256() -> str:
     return hashlib.sha256(CONVERSE_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Gap extraction prompt (gaps.py). SHA-cached.
+# Extracts self-declared limitations/future work gaps from paper sections.
+# Returns STRICT JSON {"gaps": [...]} — max 5 gaps per paper.
+# ---------------------------------------------------------------------------
+
+GAP_PROMPT = """You are extracting research gaps declared by the authors of a paper.
+
+The text below contains the paper's Limitations, Future Work, Discussion, or Conclusion sections.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "gaps": [
+    {
+      "statement": "<=1 sentence, the authors' own words distilled",
+      "kind": "limitation|future_work",
+      "evidence_quote": "verbatim span from the text"
+    }
+  ]
+}
+
+Rules:
+- Up to 5 gaps total. Only gaps the AUTHORS themselves declare.
+- statement is at most 1 sentence, capturing the essence in the authors' own words.
+- kind is "limitation" for things the paper cannot do, "future_work" for what should be done next.
+- evidence_quote MUST be copied verbatim from the text below.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+Paper title: <<TITLE>>
+
+Gap sections text:
+<<GAP_SECTIONS_TEXT>>
+
+JSON output:"""
+
+
+def format_gap_prompt(*, title: str, gap_sections_text: str) -> str:
+    """Substitute placeholders in GAP_PROMPT."""
+    return (
+        GAP_PROMPT
+        .replace("<<TITLE>>", title)
+        .replace("<<GAP_SECTIONS_TEXT>>", gap_sections_text)
+    )
+
+
+def gap_prompt_sha256() -> str:
+    return hashlib.sha256(GAP_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Gap resolution prompt (gaps.py). SHA-cached.
+# Assesses whether a gap is addressed by later papers or the draft.
+# ---------------------------------------------------------------------------
+
+GAP_RESOLUTION_PROMPT = """You are determining whether a research gap has been addressed by later work.
+
+Research gap:
+<<GAP_STATEMENT>>
+
+Candidate excerpts from later papers (each tagged [paper_id]):
+<<CANDIDATE_EXCERPTS>>
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "status": "addressed|partially|open",
+  "resolved_by": "<paper_id or null>",
+  "rationale": "1-2 sentences",
+  "evidence_quote": "verbatim from the excerpts"
+}
+
+Rules:
+- status "addressed" only if the gap is clearly and directly resolved.
+- status "partially" if there is relevant progress but the gap is not fully resolved.
+- status "open" if none of the excerpts address the gap.
+- resolved_by is the paper_id of the most relevant resolving paper, or null.
+- evidence_quote MUST be copied verbatim from the excerpts above. If no direct quote, use "".
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_gap_resolution_prompt(*, gap_statement: str, candidate_excerpts: str) -> str:
+    """Substitute placeholders in GAP_RESOLUTION_PROMPT."""
+    return (
+        GAP_RESOLUTION_PROMPT
+        .replace("<<GAP_STATEMENT>>", gap_statement)
+        .replace("<<CANDIDATE_EXCERPTS>>", candidate_excerpts)
+    )
+
+
+def gap_resolution_prompt_sha256() -> str:
+    return hashlib.sha256(GAP_RESOLUTION_PROMPT.encode("utf-8")).hexdigest()

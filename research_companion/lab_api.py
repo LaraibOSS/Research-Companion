@@ -1139,6 +1139,63 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     # -----------------------------------------------------------------
+    # GET /api/gaps
+    # -----------------------------------------------------------------
+    @app.get("/api/gaps")
+    async def get_gaps() -> dict:
+        from research_companion.gaps import gaps_overview
+
+        return await asyncio.to_thread(gaps_overview)
+
+    # -----------------------------------------------------------------
+    # POST /api/gaps/refresh  -> 202 {"job_id"}
+    # -----------------------------------------------------------------
+    @app.post("/api/gaps/refresh", status_code=202)
+    async def refresh_gaps() -> dict:
+        from research_companion.agents.events import GapsUpdated
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "gaps"}
+
+        async def _run_gaps():
+            try:
+                from research_companion.gaps import (
+                    extract_all_gaps,
+                    gaps_overview,
+                    resolve_gaps,
+                )
+
+                resolved_llm = app.state.llm
+                if resolved_llm is None:
+                    resolved_llm = _resolve_llm(json_mode=True)
+
+                await asyncio.to_thread(extract_all_gaps, llm=resolved_llm)
+                await asyncio.to_thread(resolve_gaps, llm=resolved_llm)
+
+                overview = await asyncio.to_thread(gaps_overview)
+                n_gaps = sum(
+                    len(p.get("gaps", [])) for p in overview.get("papers", [])
+                )
+                n_open = sum(
+                    1
+                    for p in overview.get("papers", [])
+                    for g in p.get("gaps", [])
+                    if g.get("resolution", {}).get("status") == "open"
+                )
+                await bus.publish(GapsUpdated(n_gaps=n_gaps, n_open=n_open))
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "gaps"}
+            except Exception as exc:  # noqa: BLE001
+                app.state.jobs[job_id] = {
+                    "status": "failed",
+                    "detail": str(exc),
+                    "kind": "gaps",
+                }
+
+        asyncio.create_task(_run_gaps())
+        return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
     # GET /api/temporal
     # -----------------------------------------------------------------
     @app.get("/api/temporal")

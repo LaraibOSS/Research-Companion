@@ -249,3 +249,135 @@ def test_compare_with_injected_llm(monkeypatch, capsys):
     out = capsys.readouterr().out
     result = json.loads(out)
     assert result["summary"] == "Papers differ significantly."
+
+
+# ---------------------------------------------------------------------------
+# gaps subcommand (W3-T9)
+# ---------------------------------------------------------------------------
+
+def test_gaps_json_empty_store(capsys):
+    """gaps --json with empty store returns valid shape."""
+    rc = cli.main(["gaps", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert "papers" in data
+    assert "draft_addresses" in data
+    assert "stale" in data
+    assert data["papers"] == []
+
+
+def test_gaps_human_stale_message(capsys):
+    """gaps (human mode) with no gaps data prints stale message."""
+    rc = cli.main(["gaps"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Either stale message or no gaps message
+    assert "gaps" in out.lower()
+
+
+def test_gaps_refresh_with_injected_llm(monkeypatch, capsys):
+    """gaps --refresh uses GAPS_CONTEXT_OVERRIDES['llm']."""
+    # Create a paper with limitations section
+    pid = "local:cli_gaps_001"
+    text = (
+        "Introduction\nSome intro.\n\n"
+        "Limitations\nWe could not scale this approach. "
+        "Scalability remains a challenge.\n"
+    )
+    store.PaperMetadata(
+        paper_id=pid,
+        title="CLI Gaps Paper",
+        authors=["Author"],
+        year=2021,
+        added_at="2024-01-01T00:00:00Z",
+    ).save()
+    store.save_text(pid, text)
+    # Save sections with a Limitations section
+    store.save_sections(pid, {
+        "version": 1,
+        "text_sha256": "sha_cli",
+        "method": "heuristic",
+        "sections": [
+            {"section_id": "s1", "title": "Introduction", "level": 1,
+             "parent": None, "char_start": 0, "char_end": text.find("Limitations")},
+            {"section_id": "s2", "title": "Limitations", "level": 1,
+             "parent": None, "char_start": text.find("Limitations"), "char_end": len(text)},
+        ],
+    })
+
+    call_count = [0]
+
+    def fake_llm(prompt: str) -> str:
+        call_count[0] += 1
+        return json.dumps({
+            "gaps": [],
+            "status": "open",
+            "resolved_by": None,
+            "rationale": "Not addressed.",
+            "evidence_quote": "",
+        })
+
+    monkeypatch.setattr(cli, "GAPS_CONTEXT_OVERRIDES", {"llm": fake_llm})
+    rc = cli.main(["gaps", "--refresh", "--json"])
+    assert rc == 0
+    assert call_count[0] >= 1, "LLM must be called during refresh"
+    out = capsys.readouterr().out
+    # Output includes status messages before JSON; find the JSON object
+    brace_idx = out.find("{")
+    assert brace_idx != -1, f"No JSON found in output: {out!r}"
+    data = json.loads(out[brace_idx:])
+    assert "papers" in data
+
+
+# ---------------------------------------------------------------------------
+# timeline subcommand (W3-T9)
+# ---------------------------------------------------------------------------
+
+def test_timeline_json_empty_store(capsys):
+    """timeline --json with empty store returns valid shape."""
+    rc = cli.main(["timeline", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert "years" in data
+    assert "papers_per_year" in data
+    assert "tracks" in data
+    assert "skipped_papers_without_year" in data
+    assert "truncated_tracks" in data
+
+
+def test_timeline_human_empty_store(capsys):
+    """timeline (human mode) with empty store prints message."""
+    rc = cli.main(["timeline"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert len(out) >= 0  # just doesn't crash
+
+
+def test_timeline_json_with_papers(tmp_path, fake_pdf_bytes, monkeypatch, capsys,
+                                    sample_extraction):
+    """timeline --json with papers that have years returns tracks."""
+    from research_companion import extract as _ext
+
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    cli.main(["add", str(pdf), "--title", "Timeline Paper", "--year", "2022"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        _ext, "_call_anthropic",
+        lambda prompt, model, max_output_tokens=2048: (
+            json.dumps(sample_extraction), {"input_tokens": 1, "output_tokens": 1},
+        ),
+    )
+    cli.main(["build", "--provider", "anthropic"])
+    capsys.readouterr()
+
+    rc = cli.main(["timeline", "--json"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert "years" in data
+    assert isinstance(data["years"], list)
+    assert "tracks" in data

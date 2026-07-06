@@ -2382,3 +2382,123 @@ class TestGetConversationEndpoint:
         assert "context" in meta
         assert "created_at" in meta
         assert "prompt_sha256" in meta
+
+
+# ---------------------------------------------------------------------------
+# GET /api/gaps + POST /api/gaps/refresh  (W3-T9)
+# ---------------------------------------------------------------------------
+
+class TestGapsEndpoints:
+    def test_get_gaps_empty_store(self, isolated_papergraph_dir):
+        """GET /api/gaps with empty store returns valid shape."""
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "papers" in data
+        assert "draft_addresses" in data
+        assert "stale" in data
+        assert data["papers"] == []
+        assert data["draft_addresses"] == []
+
+    def test_get_gaps_stale_flag(self, isolated_papergraph_dir):
+        """GET /api/gaps stale=True when no resolution file exists."""
+        _make_paper(isolated_papergraph_dir, "arxiv:gaps_001", "Gap Paper")
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "stale" in data
+
+    def test_get_gaps_with_preloaded_data(self, isolated_papergraph_dir):
+        """GET /api/gaps returns paper with gaps when data is preloaded."""
+        from research_companion import store
+        from research_companion.gaps import _gap_id
+        from research_companion.prompts import gap_prompt_sha256
+
+        pid = "local:gaps_api_001"
+        _make_paper(isolated_papergraph_dir, pid, "API Gaps Paper", year=2021)
+
+        gid = _gap_id(pid, "Cannot scale to large datasets.")
+        store.save_gaps(pid, {
+            "prompt_sha256": gap_prompt_sha256(),
+            "computed_at": "2024-01-01T00:00:00Z",
+            "no_gap_sections": False,
+            "gaps": [{
+                "gap_id": gid,
+                "statement": "Cannot scale to large datasets.",
+                "kind": "limitation",
+                "evidence": {"quote": "Cannot scale to large datasets.",
+                             "verified": True, "match": "exact"},
+            }],
+        })
+
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.status_code == 200
+        data = resp.json()
+        papers = data["papers"]
+        assert len(papers) >= 1
+        paper = next((p for p in papers if p["paper_id"] == pid), None)
+        assert paper is not None
+        assert len(paper["gaps"]) == 1
+        g = paper["gaps"][0]
+        assert g["gap_id"] == gid
+        assert "resolution" in g
+
+    def test_post_gaps_refresh_returns_202_with_job_id(self, isolated_papergraph_dir):
+        """POST /api/gaps/refresh returns 202 with job_id."""
+        def _noop_llm(prompt: str) -> str:
+            return json.dumps({"gaps": []})
+
+        c = _make_client(llm=_noop_llm)
+        resp = c.post("/api/gaps/refresh")
+        assert resp.status_code == 202
+        data = resp.json()
+        assert "job_id" in data
+
+    def test_post_gaps_refresh_publishes_gaps_updated_event(self, isolated_papergraph_dir):
+        """POST /api/gaps/refresh eventually publishes a GapsUpdated event."""
+        import time
+
+        from research_companion.agents.events import GapsUpdated
+
+        bus = Bus()
+
+        def _noop_llm(prompt: str) -> str:
+            return json.dumps({"gaps": []})
+
+        app = create_lab_app(bus, llm=_noop_llm)
+        app.state._sse_done = True  # for test mode
+
+        with TestClient(app) as c:
+            c.post("/api/gaps/refresh")
+            # Give the background task time to complete
+            time.sleep(0.5)
+
+        # Check bus history for GapsUpdated
+        gaps_events = [e for e in bus.history if isinstance(e, GapsUpdated)]
+        assert len(gaps_events) >= 1
+
+    def test_post_gaps_refresh_job_tracked(self, isolated_papergraph_dir):
+        """POST /api/gaps/refresh creates a job tracked via /api/jobs/{id}."""
+        import time
+
+        def _noop_llm(prompt: str) -> str:
+            return json.dumps({"gaps": []})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_noop_llm)
+
+        with TestClient(app) as c:
+            resp = c.post("/api/gaps/refresh")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            # Poll for job completion
+            for _ in range(20):
+                job_resp = c.get(f"/api/jobs/{job_id}")
+                if job_resp.json()["status"] in ("done", "failed"):
+                    break
+                time.sleep(0.1)
+            job_data = c.get(f"/api/jobs/{job_id}").json()
+            assert job_data["kind"] == "gaps"

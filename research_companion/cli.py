@@ -1183,6 +1183,127 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     return 0
 
 
+# Test seam for gaps command: tests monkeypatch this to inject LLM.
+# Key "llm": callable(prompt: str) -> str
+GAPS_CONTEXT_OVERRIDES: dict = {}
+
+
+def _cmd_gaps(args: argparse.Namespace) -> int:
+    """Show research gaps extracted from corpus papers."""
+    from research_companion.gaps import extract_all_gaps, gaps_overview, resolve_gaps
+
+    do_refresh = getattr(args, "refresh", False)
+
+    if do_refresh:
+        # Resolve LLM
+        llm = GAPS_CONTEXT_OVERRIDES.get("llm")
+        if llm is None:
+            import os
+
+            from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+            provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
+            model = os.environ.get("RESEARCH_COMPANION_MODEL")
+            resolved_model = resolve_model(provider, model)
+
+            def _real_llm(prompt: str) -> str:
+                if provider == "openai":
+                    text, _usage = _call_openai(prompt, model=resolved_model, json_mode=True)
+                else:
+                    text, _usage = _call_anthropic(prompt, model=resolved_model)
+                return text
+
+            llm = _real_llm
+
+        print("research-companion: extracting gaps...")
+        extract_all_gaps(llm=llm)
+        print("research-companion: resolving gaps...")
+        resolve_gaps(llm=llm)
+
+    overview = gaps_overview()
+
+    if getattr(args, "json", False):
+        print(json.dumps(overview, indent=2, ensure_ascii=False))
+        return 0
+
+    papers = overview.get("papers", [])
+    draft_addresses = set(overview.get("draft_addresses", []))
+    stale = overview.get("stale", True)
+
+    if stale:
+        print("research-companion: gaps data is stale. Run `research-companion gaps --refresh` to update.")
+
+    if not papers:
+        print("research-companion: no gaps found. Run `research-companion gaps --refresh` to extract.")
+        return 0
+
+    total_gaps = sum(len(p.get("gaps", [])) for p in papers)
+    print(f"\nresearch-companion: {total_gaps} gap(s) across {len(papers)} paper(s)\n")
+
+    _STATUS_GLYPH = {
+        "addressed": "[+]",
+        "partially": "[~]",
+        "open": "[ ]",
+    }
+
+    for paper in papers:
+        title = paper.get("title", paper.get("paper_id", "?"))
+        year = paper.get("year") or "?"
+        print(f"  {title} ({year})")
+        for gap in paper.get("gaps", []):
+            gid = gap["gap_id"]
+            stmt = gap.get("statement", "")[:80]
+            kind = gap.get("kind", "?")
+            res = gap.get("resolution", {})
+            status = res.get("status", "open")
+            glyph = _STATUS_GLYPH.get(status, "[ ]")
+            draft_mark = " [DRAFT]" if gid in draft_addresses else ""
+            print(f"    {glyph} [{kind}] {stmt}{draft_mark}")
+        print()
+
+    return 0
+
+
+def _cmd_timeline(args: argparse.Namespace) -> int:
+    """Print the research timeline (temporal overview)."""
+    from research_companion.temporal import build_timeline
+
+    timeline = build_timeline()
+
+    if getattr(args, "json", False):
+        print(json.dumps(timeline, indent=2, ensure_ascii=False))
+        return 0
+
+    years = timeline.get("years", [])
+    papers_per_year = timeline.get("papers_per_year", [])
+    tracks = timeline.get("tracks", [])
+
+    if not years:
+        print("research-companion: no temporal data. Add papers with years first.")
+        return 0
+
+    print(f"\nresearch-companion: timeline  {min(years)}-{max(years)}\n")
+    print(f"  {'Year':<6} {'Papers':>6}")
+    print(f"  {'-'*6} {'-'*6}")
+    ppy_map = {p["year"]: p["count"] for p in papers_per_year}
+    for yr in years:
+        print(f"  {yr:<6} {ppy_map.get(yr, 0):>6}")
+
+    if tracks:
+        print(f"\n  {len(tracks)} track(s):")
+        for t in tracks[:20]:
+            apps = len(t.get("appearances", []))
+            print(f"    [{t['kind']}] {t['label']}  first:{t['first_seen']}  appearances:{apps}")
+        if len(tracks) > 20:
+            print(f"    ... ({len(tracks) - 20} more)")
+
+    truncated = timeline.get("truncated_tracks", 0)
+    if truncated:
+        print(f"\n  (truncated {truncated} additional track(s))")
+    print()
+    return 0
+
+
 # Test seam: tests monkeypatch this to inject ingest_folder for CLI tests.
 LAB_INGEST_OVERRIDES: dict = {}
 
@@ -1425,6 +1546,16 @@ def _build_parser() -> argparse.ArgumentParser:
     pcmp.set_defaults(func=_cmd_compare)
 
     # Lab subcommand group (serve added by Task 9)
+    pgaps = sub.add_parser("gaps", help="Show research gaps from corpus papers vs your draft")
+    pgaps.add_argument("--refresh", action="store_true",
+                       help="Re-extract and re-resolve gaps before displaying")
+    pgaps.add_argument("--json", action="store_true", help="JSON output")
+    pgaps.set_defaults(func=_cmd_gaps)
+
+    ptl = sub.add_parser("timeline", help="Show the research timeline (temporal overview)")
+    ptl.add_argument("--json", action="store_true", help="JSON output")
+    ptl.set_defaults(func=_cmd_timeline)
+
     plab = sub.add_parser("lab", help="Research Lab commands (folder ingestion, failures)")
     lab_sub = plab.add_subparsers(dest="lab_cmd", required=True)
 

@@ -28,6 +28,8 @@ _KIND = {
     "SuggestionsUpdated": "suggestions_updated",
     # Journey events (Task W3-T8)
     "DraftVersionAdded": "draft_version_added",
+    # Gaps events (Task W3-T9)
+    "GapsUpdated": "gaps_updated",
 }
 
 
@@ -147,6 +149,12 @@ class SuggestionsUpdated:
 class DraftVersionAdded:
     paper_id: str
     version: int
+
+
+@dataclass
+class GapsUpdated:
+    n_gaps: int
+    n_open: int
 
 
 def event_to_dict(event) -> dict[str, object]:

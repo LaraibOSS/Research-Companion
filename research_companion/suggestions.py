@@ -509,6 +509,14 @@ def generate_suggestions(
             if al is not None:
                 alignments.append(al)
 
+    # Fallback: load gaps from gaps engine when not explicitly provided
+    if gaps is None:
+        try:
+            from research_companion.gaps import gaps_for_suggestions as _gaps_for_suggestions
+            gaps = _gaps_for_suggestions()
+        except Exception:  # noqa: BLE001
+            gaps = None
+
     # Collect raw suggestions from all lanes
     raw: list[dict] = []
     raw.extend(_apply_citation_rules(report, now_str))

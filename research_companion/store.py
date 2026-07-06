@@ -422,3 +422,70 @@ def load_review_report(paper_id: str) -> dict | None:
         return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Gap persistence (gaps.py / gaps engine)
+# ---------------------------------------------------------------------------
+
+
+def save_gaps(paper_id: str, payload: dict, *, prompt_sha: str | None = None) -> Path:
+    """Save gaps JSON to papers/<dir>/gaps.json.
+
+    The payload is expected to include "prompt_sha256" already, but *prompt_sha*
+    can be provided as a convenience to set/override it before writing.
+    """
+    if prompt_sha is not None:
+        payload = dict(payload)
+        payload["prompt_sha256"] = prompt_sha
+    p = paper_dir(paper_id) / "gaps.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_gaps(paper_id: str, *, prompt_sha: str | None = None) -> dict | None:
+    """Load gaps from papers/<dir>/gaps.json.
+
+    Returns None if file missing, JSON unparseable, or if prompt_sha given and
+    payload["prompt_sha256"] does not match (stale cache).
+    """
+    p = paper_dir(paper_id) / "gaps.json"
+    if not p.exists():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    if prompt_sha is not None and payload.get("prompt_sha256") != prompt_sha:
+        return None
+
+    return payload
+
+
+def gap_resolution_path() -> Path:
+    """Return papergraph_dir()/gap_resolution.json."""
+    return papergraph_dir() / "gap_resolution.json"
+
+
+def save_gap_resolution(payload: dict) -> Path:
+    """Save store-level gap resolution to gap_resolution.json."""
+    p = gap_resolution_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_gap_resolution() -> dict | None:
+    """Load gap_resolution.json. Returns None if missing or unparseable."""
+    p = gap_resolution_path()
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
