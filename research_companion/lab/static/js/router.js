@@ -28,7 +28,7 @@ export function registerRoute(route, handler) {
  * e.g. '#/compare?a=123' -> { route: '/compare', params: { a: '123' } }
  */
 function _parseHash() {
-  const hash = window.location.hash || '#/library';
+  const hash = window.location.hash || '#/home';
   const withoutHash = hash.slice(1); // remove leading '#'
   const [routePart, queryPart] = withoutHash.split('?');
   const route = routePart || '/library';
@@ -70,7 +70,7 @@ function _render() {
   });
 
   // Mount new view
-  const handler = _registry.get(route) || _registry.get('/library');
+  const handler = _registry.get(route) || _registry.get('/home');
   _currentRoute = route;
   if (handler && typeof handler.mount === 'function' && _viewEl) {
     try { handler.mount(_viewEl); } catch (e) { console.error('[router] mount error', e); }

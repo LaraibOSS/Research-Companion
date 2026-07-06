@@ -1791,3 +1791,253 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   border-top: 1px solid var(--color-border);
   font-size: 13px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Suggestions Bell (W3-F1)
+ * --------------------------------------------------------------------------- */
+.bell-btn {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.bell-btn:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--color-fg);
+}
+
+.bell-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 99px;
+  background: var(--sev-low);
+  color: #0d1117;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+  display: none;
+}
+.bell-badge.visible { display: block; }
+
+/* ---------------------------------------------------------------------------
+ * No-key amber banner (W3-F1)
+ * --------------------------------------------------------------------------- */
+#no-key-banner {
+  display: none;
+  grid-row: 2;
+  grid-column: 2;
+  background: rgba(210,153,34,0.12);
+  border-bottom: 1px solid rgba(210,153,34,0.4);
+  color: var(--color-warn);
+  font-size: 13px;
+  padding: 7px 16px;
+  text-align: center;
+  z-index: 45;
+}
+#no-key-banner a {
+  color: var(--color-warn);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#no-key-banner.visible { display: block; }
+
+/* When banner is visible, main view must shift down — add extra row */
+.app:has(#no-key-banner.visible) {
+  grid-template-rows: var(--topbar-h) auto 1fr;
+}
+.app:has(#no-key-banner.visible) #view {
+  grid-row: 3;
+}
+
+/* ---------------------------------------------------------------------------
+ * Nav spacer — pushes Help+Settings to bottom
+ * --------------------------------------------------------------------------- */
+.nav-spacer { flex: 1; }
+
+/* ---------------------------------------------------------------------------
+ * Settings view (W3-F1)
+ * --------------------------------------------------------------------------- */
+.settings-view {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding-bottom: var(--space-6);
+}
+
+.settings-view h1 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-fg);
+}
+
+.settings-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-card-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-fg);
+  margin: 0 0 var(--space-2) 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-fg-dim);
+}
+
+.settings-input,
+.settings-select {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  padding: 7px 10px;
+  font-size: var(--text-base);
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--dur-fast);
+  width: 100%;
+}
+.settings-input:focus,
+.settings-select:focus { border-color: var(--color-accent); }
+.settings-input::placeholder { color: var(--color-muted); }
+
+.settings-hint {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.settings-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+/* Theme cards */
+.settings-theme-cards {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.settings-theme-card {
+  flex: 1;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: border-color var(--dur-fast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: transparent;
+  color: var(--color-fg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.settings-theme-card:hover { border-color: var(--color-accent); }
+.settings-theme-card.selected { border-color: var(--color-accent); background: rgba(88,166,255,0.06); }
+
+.settings-theme-swatches {
+  display: flex;
+  gap: 4px;
+}
+.settings-theme-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Accent swatches */
+.settings-accent-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.settings-accent-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), transform var(--dur-fast);
+}
+.settings-accent-swatch:hover { transform: scale(1.1); }
+.settings-accent-swatch.selected { border-color: var(--color-fg); }
+
+/* Density toggle */
+.settings-density-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.settings-density-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-fg-dim);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--dur-fast);
+}
+.settings-density-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.settings-density-btn.selected {
+  background: rgba(88,166,255,0.12);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Retrieval inputs */
+.settings-retrieval-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+.settings-retrieval-row .settings-field { flex: 1; }
+.settings-reset-link {
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 22px;
+}
