@@ -36,6 +36,19 @@ def test_event_to_dict_rejects_unknown_type():
         events.event_to_dict(object())
 
 
+def test_suggestions_updated_event_roundtrip():
+    from research_companion.agents.events import SuggestionsUpdated, event_to_dict
+    e = SuggestionsUpdated(draft_paper_id="local:d001", open=3, addressed=1, dismissed=0)
+    d = event_to_dict(e)
+    assert d["event"] == "suggestions_updated"
+    assert d["draft_paper_id"] == "local:d001"
+    assert d["open"] == 3
+    assert d["addressed"] == 1
+    assert d["dismissed"] == 0
+    import json
+    json.dumps(d)
+
+
 def test_event_log_appends_jsonl(tmp_path):
     log = events.EventLog(tmp_path / "run.jsonl")
     log.append(events.AgentStarted(agent="ingest"))

@@ -25,6 +25,7 @@ _KIND = {
     "IngestFailed": "ingest_failed",
     "IngestProgress": "ingest_progress",
     "JobDone": "job_done",
+    "SuggestionsUpdated": "suggestions_updated",
 }
 
 
@@ -126,6 +127,14 @@ class IngestProgress:
 @dataclass
 class JobDone:
     job: str = "ingest"
+
+
+@dataclass
+class SuggestionsUpdated:
+    draft_paper_id: str
+    open: int
+    addressed: int
+    dismissed: int
 
 
 def event_to_dict(event) -> dict[str, object]:
