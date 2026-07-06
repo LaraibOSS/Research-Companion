@@ -29,6 +29,7 @@ import { nodeToVis, edgeToVis } from './graph/mapping.js';
 import { openModal } from './components/ingestModal.js';
 import { mountDock } from './components/progressDock.js';
 import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
+import { mountConversePanel } from './components/conversePanel.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
 
@@ -146,6 +147,9 @@ async function boot() {
   // Mount the global suggestions panel (F3) once at boot
   mountSuggestionsPanel(store, api);
 
+  // Mount the global companion converse panel (F4) once at boot
+  mountConversePanel(api);
+
   // Connection pill
   function updateConnectionPill() {
     const pill = document.getElementById('connection-pill');
@@ -197,6 +201,11 @@ async function boot() {
       window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
     });
   }
+
+  // Ack tour step when suggestions panel opened
+  window.addEventListener('rc:toggle-suggestions', () => {
+    localStorage.setItem('rc.tourMetSuggestions', '1');
+  });
 
   function updateBell() {
     if (!bellBadge) return;

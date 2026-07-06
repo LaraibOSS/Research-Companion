@@ -37,6 +37,7 @@ const _state = {
   lastAddressedIds: [],
   settings: {},
   views: [],
+  journey: null,
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -202,4 +203,32 @@ export function setSettings(settings) {
 export function setViews(views) {
   _state.views = Array.isArray(views) ? views : [];
   notify(['views']);
+}
+
+/**
+ * Set journey data and notify 'journey' subscribers.
+ * @param {object} data
+ */
+export function setJourney(data) {
+  _state.journey = data;
+  notify(['journey']);
+}
+
+// ---------------------------------------------------------------------------
+// Converse conversations (W3-F4)
+// ---------------------------------------------------------------------------
+
+// conversations: Map<threadKey, { conversationId, messages, threadState }>
+// Managed entirely by conversePanel.js; store just provides the container.
+// Exposed here so other modules could inspect thread history if needed.
+if (!_state.conversations) {
+  _state.conversations = new Map();
+}
+
+/**
+ * Get the conversations Map (session-only; not persisted).
+ * @returns {Map}
+ */
+export function getConversations() {
+  return _state.conversations;
 }

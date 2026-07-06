@@ -189,6 +189,10 @@ export function applyEvent(state, evt) {
       return ['suggestions'];
     }
 
+    case 'draft_version_added': {
+      return ['journey'];
+    }
+
     default:
       return [];
   }

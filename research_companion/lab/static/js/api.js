@@ -145,3 +145,23 @@ export const dismissSuggestion = (id) =>
 /** POST /api/suggestions/regenerate — body: { include_llm } */
 export const regenerateSuggestions = (includeLlm = false) =>
   post('/api/suggestions/regenerate', { include_llm: includeLlm });
+
+/** GET /api/journey — returns { versions, events, counts_over_time, current } */
+export const getJourney = () => get('/api/journey');
+
+// ---------------------------------------------------------------------------
+// Converse endpoints (W3-F4)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/converse — body: { context, message, conversation_id? }
+ * Returns { answer, citations, unverified_quotes, conversation_id }
+ */
+export const converse = (body) => post('/api/converse', body);
+
+/**
+ * GET /api/conversations/{id} — returns { meta, turns }
+ * 404 for unknown conversation.
+ */
+export const getConversation = (id) =>
+  get(`/api/conversations/${encodeURIComponent(id)}`);

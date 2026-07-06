@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -821,3 +821,87 @@ def test_suggestions_panel_has_updating_guard():
     assert "_updating" in js, (
         "suggestionsPanel.js must use _updating flag to guard SSE-driven refetch"
     )
+
+
+# ---------------------------------------------------------------------------
+# W3-F2: Home view
+# ---------------------------------------------------------------------------
+
+def test_home_view_not_stub():
+    """views/home.js must not be the F1 stub (must reference nextAction.js)."""
+    home_js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "nextAction" in home_js, "home.js must reference nextAction.js"
+    assert "stub-view" not in home_js, "home.js must not be the stub"
+
+
+def test_next_action_js_exists():
+    """js/nextAction.js must exist (W3-F2 pure helper)."""
+    assert (STATIC_DIR / "js" / "nextAction.js").exists(), \
+        "Missing js/nextAction.js"
+
+
+def test_journey_helpers_js_exists():
+    """js/journeyHelpers.js must exist (W3-F2 pure helper)."""
+    assert (STATIC_DIR / "js" / "journeyHelpers.js").exists(), \
+        "Missing js/journeyHelpers.js"
+
+
+def test_onboarding_js_exists():
+    """js/components/onboarding.js must exist (W3-F2 onboarding component)."""
+    assert (STATIC_DIR / "js" / "components" / "onboarding.js").exists(), \
+        "Missing js/components/onboarding.js"
+
+
+def test_api_js_has_get_journey():
+    """api.js must export getJourney (W3-F2)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "getJourney" in api_js, "api.js must export getJourney"
+
+
+def test_store_js_has_journey_field_and_setter():
+    """store.js must have journey field in _state and export setJourney (W3-F2)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "journey:" in store_js, "store.js must have journey: field in _state"
+    assert "export function setJourney" in store_js, "store.js must export setJourney"
+
+
+def test_reducer_handles_draft_version_added():
+    """reducer.js must handle draft_version_added event -> ['journey'] (W3-F2)."""
+    reducer_js = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "draft_version_added" in reducer_js, \
+        "reducer.js must handle draft_version_added event"
+
+
+def test_home_test_file_exists():
+    """tests/js/home.test.mjs must exist (W3-F2 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "home.test.mjs").exists(), \
+        "Missing tests/js/home.test.mjs"
+
+
+def test_lab_css_has_home_view_styles():
+    """lab.css must include W3-F2 home view styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".home-view", ".home-hero", ".home-nba-strip", ".home-nba-card",
+                   ".home-journey-list", ".home-onboarding"):
+        assert needle in css, f"lab.css missing W3-F2 style: {needle}"
+
+
+def test_home_view_escapes_server_strings():
+    """home.js must use escapeHtml for server strings (titles, event details)."""
+    home_js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in home_js, "home.js must use escapeHtml"
+
+
+def test_next_action_js_exports_select_next_actions():
+    """nextAction.js must export selectNextActions."""
+    js = (STATIC_DIR / "js" / "nextAction.js").read_text(encoding="utf-8")
+    assert "export function selectNextActions" in js, \
+        "nextAction.js must export selectNextActions"
+
+
+def test_journey_helpers_exports_three_functions():
+    """journeyHelpers.js must export mergeJourney, sparklinePath, severityDonut."""
+    js = (STATIC_DIR / "js" / "journeyHelpers.js").read_text(encoding="utf-8")
+    assert "export function mergeJourney" in js, "journeyHelpers.js must export mergeJourney"
+    assert "export function sparklinePath" in js, "journeyHelpers.js must export sparklinePath"
+    assert "export function severityDonut" in js, "journeyHelpers.js must export severityDonut"
