@@ -102,3 +102,9 @@ export const ask = (question, sectionId) =>
 /** POST /api/compare — body: { paper_a, paper_b } */
 export const compare = (paperA, paperB) =>
   post('/api/compare', { paper_a: paperA, paper_b: paperB });
+
+/** GET /api/settings — returns settings with keys block (masked) */
+export const getSettings = () => get('/api/settings');
+
+/** PUT /api/settings — partial update; returns updated settings */
+export const putSettings = (patch) => _fetch('PUT', '/api/settings', patch);
