@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from research_companion import store
 from research_companion.prompts import format_qa_prompt
-from research_companion.rank import BM25, tokenize
+from research_companion.rank import tokenize
 from research_companion.sections import Section, group_extraction_by_section, is_boilerplate
 
 # ---------------------------------------------------------------------------
@@ -36,6 +36,7 @@ class QAAnswer:
     cited: list[QASource]        # subset actually cited as [S#] in the answer text
     unverified_quotes: list[str] # "double-quoted" spans (>= 20 chars) in answer not found verbatim
     input_chars: int             # size of prompt actually sent (proxy for tokens)
+    grounding_node_ids: list[str] = field(default_factory=list)  # graph nodes behind cited sources
 
 
 # ---------------------------------------------------------------------------
@@ -170,20 +171,25 @@ def answer(
     question: str,
     *,
     llm=None,
-    k_sections: int = 6,
-    char_budget: int = 8000,
+    k_sections: int | None = None,
+    char_budget: int | None = None,
     section_id: str | None = None,
     paper_ids: list[str] | None = None,
     provider: str | None = None,
     model: str | None = None,
+    embed_query=None,
+    backfill=None,
 ) -> QAAnswer:
-    """Answer *question* using BM25-retrieved paper sections.
+    """Answer *question* using hybrid (BM25 + optional embedding) retrieval.
 
     Args:
         question:   The research question or claim.
         llm:        Callable(prompt: str) -> str. If None, a real LLM provider is wired.
-        k_sections: How many top sections to pass as context.
-        char_budget: Max total chars for the sources_block.
+        k_sections: How many top sections to pass as context (None -> settings default).
+        char_budget: Max total chars for the sources_block (None -> settings default).
+        embed_query: Callable(str) -> vector for hybrid ranking; None -> auto (HF token).
+        backfill:   Callable(paper_id) embedding backfiller; None -> real; only invoked
+                    when hybrid retrieval is possible.
         section_id: If set, scope query context to the configured draft's section with this id.
                     The draft's own units are excluded from retrieval.
                     Extra query tokens come from that draft section's BM25 tokens.
@@ -192,6 +198,19 @@ def answer(
                     RESEARCH_COMPANION_PROVIDER (falling back to "anthropic").
         model:      Model override when llm is None; defaults from RESEARCH_COMPANION_MODEL.
     """
+    # --- 0. Resolve retrieval knobs from settings when unspecified ---------------
+    if k_sections is None or char_budget is None:
+        try:
+            from research_companion.settings import get_settings
+
+            _s = get_settings()
+        except Exception:
+            _s = {}
+        if k_sections is None:
+            k_sections = int(_s.get("k_sections", 6))
+        if char_budget is None:
+            char_budget = int(_s.get("char_budget", 8000))
+
     # --- 1. Build index & determine query tokens --------------------------------
     all_units = build_section_index(paper_ids)
 
@@ -214,23 +233,35 @@ def answer(
     if not retrieval_units:
         return QAAnswer(_NO_MATERIAL_MSG, [], [], [], 0)
 
-    # --- 2. BM25 scoring -------------------------------------------------------
-    corpus = [u["tokens"] for u in retrieval_units]
-    bm = BM25(corpus)
-    raw_scores = bm.score(q_tokens)
+    # --- 2. Hybrid ranking (BM25 + optional embeddings) --------------------------
+    # Lazy embedding backfill for papers missing vectors — only when hybrid is
+    # even possible (an embed_query is provided or an HF token is configured).
+    import os as _os
 
-    # Pair each unit with its score, filter zero-score units
-    scored = [(score, i) for i, score in enumerate(raw_scores) if score > 0.0]
+    from research_companion.retrieve import rank_units
 
-    if not scored:
+    if embed_query is not None or _os.environ.get("HF_TOKEN"):
+        if backfill is None:
+            from research_companion.embed import embed_paper_sections as backfill  # type: ignore[assignment]
+        seen: set[str] = set()
+        for u in retrieval_units:
+            pid = u.get("paper_id", "")
+            if pid in seen:
+                continue
+            seen.add(pid)
+            if store.load_embeddings(pid) is None:
+                try:
+                    backfill(pid)
+                except Exception:
+                    continue
+
+    ranked = rank_units(question, q_tokens, retrieval_units,
+                        k=k_sections, embed_query=embed_query)
+    if not ranked:
         return QAAnswer(_NO_MATERIAL_MSG, [], [], [], 0)
 
-    # Top-k by score (ties: stable index order via sort stability)
-    scored.sort(key=lambda t: (-t[0], t[1]))
-    top_k = scored[:k_sections]
-
-    top_units = [retrieval_units[i] for _, i in top_k]
-    top_scores = [s for s, _ in top_k]
+    top_units = [r["unit"] for r in ranked]
+    top_scores = [r["score"] for r in ranked]
 
     # --- 3. Build sources_block with header-safe proportional budget trimming ----
     # Strategy: reserve all header lines (+ entities line) first; distribute
@@ -326,13 +357,41 @@ def answer(
     with open(log_path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
+    # --- 9. Grounding node ids (cited papers + their section-matched entities) --
+    grounding_node_ids = _grounding_node_ids(cited)
+
     return QAAnswer(
         answer=raw_answer,
         sources=sources,
         cited=cited,
         unverified_quotes=unverified_quotes,
         input_chars=input_chars,
+        grounding_node_ids=grounding_node_ids,
     )
+
+
+def _grounding_node_ids(cited: list[QASource]) -> list[str]:
+    """Graph node ids behind the cited sources: each cited paper node plus entity
+    nodes connected to it via a `contains` edge tagged with the cited section id.
+    Any failure -> empty list; never raises."""
+    if not cited:
+        return []
+    try:
+        from research_companion.graph import load_graph
+
+        g = load_graph()
+        wanted = {(s.paper_id, s.section_id) for s in cited}
+        node_ids: set[str] = set()
+        for paper_id, section_id in wanted:
+            if paper_id not in g:
+                continue
+            node_ids.add(paper_id)
+            for _, nbr, data in g.edges(paper_id, data=True):
+                if data.get("relation") == "contains" and data.get("section") == section_id:
+                    node_ids.add(nbr)
+        return sorted(node_ids)
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------

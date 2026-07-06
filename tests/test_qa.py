@@ -602,3 +602,93 @@ class TestProviderEnvResolution:
         assert with_json["response_format"] == {"type": "json_object"}
         assert "response_format" not in without
         assert without["model"] == "m" and without["temperature"] == 0.0
+
+
+class TestHybridIntegration:
+    """T5: qa.answer integrates retrieve.rank_units; settings defaults; backfill;
+    grounding_node_ids."""
+
+    def _corpus(self):
+        _make_paper(
+            "arxiv:h1", "Hybrid One",
+            "Graph retrieval methods are effective for multi-hop questions. " * 6,
+            sections=[{"section_id": "s1", "title": "Intro", "level": 1,
+                       "parent": None, "char_start": 0, "char_end": 300}],
+            extraction={"concepts": [{"name": "graph retrieval", "section": "s1"}],
+                        "methods": [], "datasets": [], "claims": [],
+                        "results": [], "related_work": []},
+        )
+        _make_paper(
+            "arxiv:h2", "Hybrid Two",
+            "Completely unrelated biology text about proteins and cells. " * 6,
+            sections=[{"section_id": "s1", "title": "Body", "level": 1,
+                       "parent": None, "char_start": 0, "char_end": 300}],
+            extraction={"concepts": [], "methods": [], "datasets": [],
+                        "claims": [], "results": [], "related_work": []},
+        )
+
+    def test_degradation_no_token_identical_sources(self, monkeypatch):
+        """No HF token + no embed_query => same sources as pure BM25 path."""
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        self._corpus()
+        from research_companion.qa import answer
+
+        res = answer("graph retrieval questions", llm=lambda p: "ok [S1]",
+                     k_sections=6, char_budget=8000)
+        assert [s.paper_id for s in res.sources] == ["arxiv:h1"]
+
+    def test_settings_defaults_honored(self, monkeypatch):
+        self._corpus()
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        import research_companion.qa as qa_mod
+
+        called = {}
+
+        def fake_get_settings():
+            called["yes"] = True
+            return {"k_sections": 1, "char_budget": 2000}
+
+        import research_companion.settings as settings_mod
+        monkeypatch.setattr(settings_mod, "get_settings", fake_get_settings)
+        res = qa_mod.answer("graph retrieval", llm=lambda p: "ok")
+        assert called.get("yes")
+        assert len(res.sources) <= 1
+
+    def test_backfill_called_only_for_missing(self, monkeypatch):
+        self._corpus()
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        store.save_embeddings("arxiv:h1", {
+            "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "vectors": {"s1": {"text_sha256": "x", "vector": [1.0]}}})
+        from research_companion.qa import answer
+
+        backfilled = []
+        res = answer("graph retrieval", llm=lambda p: "ok",
+                     embed_query=lambda q: [1.0],
+                     backfill=lambda pid: backfilled.append(pid),
+                     k_sections=6, char_budget=8000)
+        assert "arxiv:h2" in backfilled and "arxiv:h1" not in backfilled
+        assert res.answer == "ok"
+
+    def test_grounding_node_ids(self, monkeypatch):
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        self._corpus()
+        # Build + save a real graph so contains edges carry section attrs
+        from research_companion.graph import build_graph, save_graph
+        save_graph(build_graph())
+        from research_companion.qa import answer
+
+        res = answer("graph retrieval questions", llm=lambda p: "cited [S1]",
+                     k_sections=6, char_budget=8000)
+        assert "arxiv:h1" in res.grounding_node_ids
+        assert any(n.startswith("concept:") for n in res.grounding_node_ids), \
+            res.grounding_node_ids
+        assert "arxiv:h2" not in res.grounding_node_ids
+
+    def test_grounding_empty_on_no_citation(self, monkeypatch):
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        self._corpus()
+        from research_companion.qa import answer
+
+        res = answer("graph retrieval", llm=lambda p: "no citation markers here")
+        assert res.grounding_node_ids == []
