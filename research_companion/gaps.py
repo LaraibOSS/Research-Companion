@@ -319,7 +319,8 @@ def resolve_gaps(
                     continue
                 c_year = paper_year.get(cid)
                 if p_year is None or c_year is None:
-                    # If either year is unknown, include as candidate
+                    # Papers with unknown years are conservatively included as candidates
+                    # to prevent silent exclusion when publication metadata is incomplete
                     candidates.add(cid)
                 elif c_year > p_year or c_year == p_year:
                     candidates.add(cid)
