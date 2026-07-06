@@ -1,5 +1,5 @@
 /**
- * views/library.js — Library view: card grid, filters, drawer details.
+ * views/library.js — Library view: card grid + list toggle, filters, drawer details.
  */
 
 import * as api from '../api.js';
@@ -7,14 +7,20 @@ import * as store from '../store.js';
 import { renderPaperCard } from '../components/paperCard.js';
 import { open as drawerOpen, close as drawerClose } from '../components/drawer.js';
 import { showToast } from '../components/toast.js';
-import { strengthColor, stanceIcon, escapeHtml, authorsLine } from '../format.js';
+import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
+import { buildRows, sortRows } from '../libraryHelpers.js';
 
 let _el = null;
 let _unsubscribe = null;
 let _filter = 'all';
 let _sort = 'added';
 let _openPaperHandler = null; // rc:open-paper listener (kept for unmount cleanup)
+
+// List-view state
+let _viewMode   = localStorage.getItem('rc.libraryView') || 'grid'; // 'grid' | 'list'
+let _listCol    = 'added';
+let _listDir    = 'desc';
 
 export function mount(el) {
   _el = el;
@@ -63,6 +69,12 @@ function _render() {
                placeholder="arXiv ID, URL, or PDF path..." autocomplete="off">
         <button id="lib-add-btn" class="btn btn-accent">Add</button>
         <button id="lib-ingest-btn" class="btn btn-secondary">Ingest folder...</button>
+        <div class="lib-view-toggle" role="group" aria-label="View mode">
+          <button class="lib-view-btn${_viewMode === 'grid' ? ' lib-view-btn-active' : ''}"
+                  id="lib-view-grid" title="Grid view" aria-pressed="${_viewMode === 'grid'}">⊞</button>
+          <button class="lib-view-btn${_viewMode === 'list' ? ' lib-view-btn-active' : ''}"
+                  id="lib-view-list" title="List view" aria-pressed="${_viewMode === 'list'}">☰</button>
+        </div>
       </div>
       <div class="filter-chips" id="lib-filters">
         <button class="chip chip-active" data-filter="all">All</button>
@@ -98,6 +110,18 @@ function _render() {
   _el.querySelector('#lib-sort').addEventListener('change', (e) => {
     _sort = e.target.value;
     _renderGrid();
+  });
+
+  // Wire view toggle buttons
+  _el.querySelector('#lib-view-grid').addEventListener('click', () => {
+    _viewMode = 'grid';
+    localStorage.setItem('rc.libraryView', 'grid');
+    _render();
+  });
+  _el.querySelector('#lib-view-list').addEventListener('click', () => {
+    _viewMode = 'list';
+    localStorage.setItem('rc.libraryView', 'list');
+    _render();
   });
 
   // Wire add button
@@ -155,24 +179,8 @@ function _renderGrid() {
     });
   }
 
-  // Sort
-  papers.sort((a, b) => {
-    if (_sort === 'strength') {
-      const ORDER = { strong: 0, moderate: 1, weak: 2, unscored: 3, failed: 4 };
-      const aBand = a.strength ? a.strength.band : 'unscored';
-      const bBand = b.strength ? b.strength.band : 'unscored';
-      return (ORDER[aBand] ?? 99) - (ORDER[bBand] ?? 99);
-    }
-    if (_sort === 'title') {
-      return (a.title || '').localeCompare(b.title || '');
-    }
-    // default: added order (Map insertion order preserved)
-    return 0;
-  });
-
-  grid.innerHTML = '';
-
   if (papers.length === 0) {
+    grid.className = 'paper-grid';
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">📚</div>
@@ -192,6 +200,37 @@ function _renderGrid() {
     });
     return;
   }
+
+  if (_viewMode === 'list') {
+    _renderList(grid, papers, state.draftId);
+  } else {
+    _renderGridCards(grid, papers);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Grid cards (original view)
+// ---------------------------------------------------------------------------
+
+function _renderGridCards(grid, papers) {
+  grid.className = 'paper-grid';
+
+  // Sort
+  papers.sort((a, b) => {
+    if (_sort === 'strength') {
+      const ORDER = { strong: 0, moderate: 1, weak: 2, unscored: 3, failed: 4 };
+      const aBand = a.strength ? a.strength.band : 'unscored';
+      const bBand = b.strength ? b.strength.band : 'unscored';
+      return (ORDER[aBand] ?? 99) - (ORDER[bBand] ?? 99);
+    }
+    if (_sort === 'title') {
+      return (a.title || '').localeCompare(b.title || '');
+    }
+    // default: added order (Map insertion order preserved)
+    return 0;
+  });
+
+  grid.innerHTML = '';
 
   for (const paper of papers) {
     const card = renderPaperCard(paper);
@@ -238,6 +277,113 @@ function _renderGrid() {
 
     grid.appendChild(card);
   }
+}
+
+// ---------------------------------------------------------------------------
+// List table view
+// ---------------------------------------------------------------------------
+
+const _LIST_COLS = [
+  { key: 'title',    label: 'Title' },
+  { key: 'year',     label: 'Year' },
+  { key: 'status',   label: 'Status' },
+  { key: 'strength', label: 'Strength' },
+  { key: 'relation', label: 'Relation' },
+  { key: 'added',    label: 'Added' },
+];
+
+const STANCE_ICONS = { strengthens: '▲', challenges: '⚡', alternative: '◆' };
+
+function _statusPillHtml(status) {
+  const cls = `lib-status-pill lib-status-pill-${escapeHtml(status)}`;
+  return `<span class="${cls}">${escapeHtml(status)}</span>`;
+}
+
+function _renderList(grid, papers, draftId) {
+  grid.className = 'lib-table-wrap';
+
+  const rows = sortRows(buildRows(papers, draftId), _listCol, _listDir);
+
+  const headerCells = _LIST_COLS.map(({ key, label }) => {
+    const isActive = key === _listCol;
+    const arrow = isActive ? ((_listDir === 'asc') ? ' ▲' : ' ▼') : '';
+    return `<th class="lib-th${isActive ? ' lib-th-active' : ''}" data-col="${escapeHtml(key)}" role="columnheader" aria-sort="${isActive ? (_listDir === 'asc' ? 'ascending' : 'descending') : 'none'}">${escapeHtml(label)}${arrow}</th>`;
+  }).join('');
+
+  const rowsHtml = rows.map(row => {
+    const draftBadge = row.isDraft ? '<span class="badge badge-draft">★ DRAFT</span> ' : '';
+    const strengthTxt = row.strengthBand
+      ? escapeHtml(row.strengthBand) + (row.strengthScore != null ? ` (${row.strengthScore.toFixed(2)})` : '')
+      : '<span class="muted">—</span>';
+    const relationIcon = row.relation ? (STANCE_ICONS[row.relation] || '') : '';
+    const relationTxt  = row.relation
+      ? `${escapeHtml(relationIcon)} ${escapeHtml(row.relation)}`
+      : '<span class="muted">—</span>';
+    const addedTxt = row.addedAt ? escapeHtml(timeAgo(row.addedAt)) : '<span class="muted">—</span>';
+    const yearTxt  = row.year ? escapeHtml(String(row.year)) : '<span class="muted">—</span>';
+
+    // Failure indicator
+    const failureAttr  = row.failureReason ? ` title="${escapeHtml(row.failureReason)}"` : '';
+    const retryBtnHtml = row.status === 'failed'
+      ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
+      : '';
+
+    return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${retryBtnHtml}</td>
+      <td class="lib-td lib-td-year">${yearTxt}</td>
+      <td class="lib-td lib-td-status">${_statusPillHtml(row.status)}</td>
+      <td class="lib-td lib-td-strength">${strengthTxt}</td>
+      <td class="lib-td lib-td-relation">${relationTxt}</td>
+      <td class="lib-td lib-td-added">${addedTxt}</td>
+    </tr>`;
+  }).join('');
+
+  grid.innerHTML = `
+    <table class="lib-table" role="grid">
+      <thead>
+        <tr>${headerCells}</tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
+
+  // Wire sortable headers
+  grid.querySelectorAll('.lib-th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (col === _listCol) {
+        _listDir = _listDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _listCol = col;
+        _listDir = 'asc';
+      }
+      _renderGrid();
+    });
+  });
+
+  // Wire row clicks -> drawer
+  grid.querySelectorAll('.lib-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      _openDrawer(row.dataset.paperId);
+    });
+  });
+
+  // Wire retry buttons in list
+  grid.querySelectorAll('.lib-retry-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.paperId;
+      try {
+        const res = await api.retryPaper(pid);
+        showToast(`Retrying — job ${res.job_id}`, 'info');
+      } catch (err) {
+        showToast(`Retry failed: ${err.message}`, 'error');
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -82,6 +82,8 @@ REQUIRED_STATIC_FILES = [
     "js/glossary.js",
     "js/components/explainer.js",
     "js/components/helpPanel.js",
+    # W4-F2 additions
+    "js/libraryHelpers.js",
 ]
 
 
@@ -1394,3 +1396,41 @@ def test_lab_css_has_upload_styles():
     css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
     assert ".ingest-dropzone" in css
     assert ".ingest-dropzone.dragover" in css
+
+
+# ---------------------------------------------------------------------------
+# W4-F2: Library list view + status/relation columns
+# ---------------------------------------------------------------------------
+
+def test_library_helpers_exports_four_functions():
+    """js/libraryHelpers.js must export deriveStatus, dominantRelation, buildRows, sortRows."""
+    js = (STATIC_DIR / "js" / "libraryHelpers.js").read_text(encoding="utf-8")
+    assert "export function deriveStatus" in js, \
+        "libraryHelpers.js must export deriveStatus"
+    assert "export function dominantRelation" in js, \
+        "libraryHelpers.js must export dominantRelation"
+    assert "export function buildRows" in js, \
+        "libraryHelpers.js must export buildRows"
+    assert "export function sortRows" in js, \
+        "libraryHelpers.js must export sortRows"
+
+
+def test_library_js_has_view_toggle():
+    """library.js must persist view mode to localStorage 'rc.libraryView'."""
+    lib_js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "rc.libraryView" in lib_js, \
+        "library.js must use localStorage key 'rc.libraryView' for view mode"
+
+
+def test_library_js_imports_library_helpers():
+    """library.js must import from libraryHelpers.js."""
+    lib_js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "libraryHelpers.js" in lib_js, \
+        "library.js must import from libraryHelpers.js"
+
+
+def test_lab_css_has_library_table_styles():
+    """lab.css must include W4-F2 library table styles: .lib-table, .lib-view-toggle, .lib-status-pill."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".lib-table", ".lib-view-toggle", ".lib-status-pill"):
+        assert needle in css, f"lab.css missing W4-F2 style: {needle}"
