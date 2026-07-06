@@ -46,6 +46,102 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * Design tokens — W3-F1
+ * --------------------------------------------------------------------------- */
+
+/* Spacing scale */
+:root {
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+/* Typography scale */
+:root {
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 13px;
+  --text-md:   14px;
+  --text-lg:   16px;
+  --text-xl:   20px;
+  --text-hero: 28px;
+}
+
+/* Shadows */
+:root {
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-2: 0 4px 16px rgba(0,0,0,0.4);
+  --shadow-3: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* Motion */
+:root {
+  --ease-panel:  cubic-bezier(0.2,0.8,0.2,1);
+  --dur-fast:    120ms;
+  --dur-med:     200ms;
+  --dur-panel:   240ms;
+}
+
+/* Severity colors */
+:root {
+  --sev-critical: #f85149;
+  --sev-high:     #f0883e;
+  --sev-medium:   #d29922;
+  --sev-low:      #58a6ff;
+}
+
+/* ---------------------------------------------------------------------------
+ * Light theme
+ * --------------------------------------------------------------------------- */
+[data-theme="light"] {
+  --color-bg:     #ffffff;
+  --color-panel:  #f6f8fa;
+  --color-border: #d0d7de;
+  --color-fg:     #1f2328;
+  --color-muted:  #656d76;
+  --color-fg-dim: #656d76;
+}
+
+/* Graph canvas stays dark in light theme — node palette tuned for dark */
+[data-theme="light"] #graph-canvas {
+  background: #0d1117;
+}
+
+/* ---------------------------------------------------------------------------
+ * Accent variants
+ * --------------------------------------------------------------------------- */
+[data-accent="teal"] {
+  --color-accent: #3fb6a8;
+}
+[data-accent="teal"] .btn-accent:hover,
+[data-accent="teal"] .nav-btn.active {
+  --color-accent: #52cfc0;
+}
+[data-accent="violet"] {
+  --color-accent: #a78bfa;
+}
+[data-accent="violet"] .btn-accent:hover,
+[data-accent="violet"] .nav-btn.active {
+  --color-accent: #c4b5fd;
+}
+
+/* ---------------------------------------------------------------------------
+ * Compact density
+ * --------------------------------------------------------------------------- */
+[data-density="compact"] {
+  font-size: 13px;
+  --space-1:  3px;
+  --space-2:  6px;
+  --space-3:  9px;
+  --space-4: 12px;
+  --space-5: 18px;
+  --space-6: 24px;
+}
+
+/* ---------------------------------------------------------------------------
  * Reset / Base
  * --------------------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
