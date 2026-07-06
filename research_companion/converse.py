@@ -66,17 +66,54 @@ class ConverseError(ValueError):
 # Context builders
 # ---------------------------------------------------------------------------
 
+def _project_overview_block(paper_id: str | None) -> tuple[str, list[str]]:
+    """Fallback context when no review report exists: what's in the lab right now."""
+    lines: list[str] = [
+        "No review report exists yet"
+        + (f" for paper {paper_id!r}" if paper_id else "")
+        + " — here is a project overview instead.",
+    ]
+
+    draft_id = store.get_draft_paper_id()
+    papers = store.list_papers()
+    if draft_id:
+        draft_title = next((p.title for p in papers if p.paper_id == draft_id), draft_id)
+        lines.append(f"Draft under revision: {draft_title}")
+    if papers:
+        lines.append(f"Library: {len(papers)} paper(s):")
+        for p in papers[:25]:
+            year = f" ({p.year})" if p.year else ""
+            marker = " [draft]" if p.paper_id == draft_id else ""
+            lines.append(f"  - {p.title}{year}{marker}")
+    else:
+        lines.append("Library: empty — no papers ingested yet.")
+
+    if draft_id:
+        from research_companion.suggestions import load_suggestions
+        payload = load_suggestions(draft_id)
+        if payload:
+            items = payload.get("suggestions", [])
+            open_n = sum(1 for s in items if s.get("status") == "open")
+            addressed_n = sum(1 for s in items if s.get("status") == "addressed")
+            lines.append(
+                f"Suggestions: {open_n} open, {addressed_n} addressed."
+            )
+
+    rendered = "\n".join(lines)
+    return rendered, [rendered]
+
+
 def _context_block_review(context: dict) -> tuple[str, list[str]]:
     """Build context block from a review report."""
     paper_id = context.get("id") or store.get_draft_paper_id()
     if paper_id is None:
-        raise ConverseError("No paper id for review context and no draft configured.", status=404)
+        return _project_overview_block(None)
 
     report = store.load_review_report(paper_id)
     if report is None:
-        raise ConverseError(
-            f"No review report found for paper {paper_id!r}.", status=404
-        )
+        # "review" is the FAB's default context — a missing report must not kill
+        # the chat. Degrade to a project overview so the companion can still talk.
+        return _project_overview_block(paper_id)
 
     lines: list[str] = [f"Review Report for paper: {paper_id}"]
     lanes = report.get("lanes", {})

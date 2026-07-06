@@ -2282,11 +2282,23 @@ class TestConverseEndpoint:
         })
         assert resp.status_code == 400
 
-    def test_missing_artifact_returns_404(self, isolated_papergraph_dir):
+    def test_missing_review_report_falls_back_to_overview(self, isolated_papergraph_dir):
+        # "review" is the default companion context: a missing report degrades to a
+        # project overview instead of 404 so the chat always works out of the box.
         c = _make_client(llm=_fake_converse_llm)
         resp = c.post("/api/converse", json={
             "context": {"type": "review", "id": "arxiv:nonexistent9999"},
             "message": "What does the review say?",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["answer"]
+
+    def test_missing_alignment_returns_404(self, isolated_papergraph_dir):
+        # Explicit-artifact contexts still 404 when the artifact is absent.
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "alignment", "id": "arxiv:nonexistent9999"},
+            "message": "How does this align?",
         })
         assert resp.status_code == 404
 

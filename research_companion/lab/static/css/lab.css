@@ -3136,28 +3136,6 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   overflow: hidden;
 }
 
-/* Explainer banner */
-.tl-explainer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--color-fg-dim);
-  border-bottom: 1px solid var(--color-border);
-  background: rgba(88,166,255,0.06);
-}
-.tl-explainer-dismiss {
-  background: none;
-  border: none;
-  color: var(--color-fg-dim);
-  cursor: pointer;
-  font-size: var(--text-lg);
-  line-height: 1;
-  padding: 0 var(--space-1);
-}
-.tl-explainer-dismiss:hover { color: var(--color-fg); }
-
 /* Toolbar */
 .tl-toolbar {
   display: flex;

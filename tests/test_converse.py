@@ -100,12 +100,24 @@ class TestContextBuilderReview:
         assert "Missing related work" in rendered
         assert len(texts) >= 1
 
-    def test_review_missing_raises_404(self):
-        from research_companion.converse import ConverseError, _context_block_review
+    def test_review_missing_falls_back_to_project_overview(self):
+        # The FAB's default context is "review" — a missing report must NOT 404,
+        # or the companion chat is dead out of the box. It degrades to an overview.
+        from research_companion.converse import _context_block_review
 
-        with pytest.raises(ConverseError) as exc_info:
-            _context_block_review({"type": "review", "id": "arxiv:nonexistent99"})
-        assert exc_info.value.status == 404
+        _make_paper("arxiv:lib001", "Library Paper One", "text one")
+        _make_paper("arxiv:lib002", "Library Paper Two", "text two")
+        rendered, texts = _context_block_review({"type": "review", "id": "arxiv:nonexistent99"})
+        assert "Library Paper One" in rendered
+        assert "Library Paper Two" in rendered
+        assert "review report" in rendered.lower()  # says why it's an overview
+        assert len(texts) >= 1
+
+    def test_review_missing_no_papers_still_renders(self):
+        from research_companion.converse import _context_block_review
+
+        rendered, _texts = _context_block_review({"type": "review", "id": "arxiv:nonexistent99"})
+        assert rendered.strip()  # never empty, never raises
 
 
 class TestContextBuilderAlignment:

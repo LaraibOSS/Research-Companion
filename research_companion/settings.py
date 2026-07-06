@@ -210,8 +210,11 @@ def mask_secret(value: str) -> str:
 # ---------------------------------------------------------------------------
 
 def get_settings() -> dict:
-    """Return current settings merged from DEFAULTS <- config.json["settings"].
+    """Return current settings merged from DEFAULTS <- env <- config.json["settings"].
 
+    provider/model honor RESEARCH_COMPANION_PROVIDER / RESEARCH_COMPANION_MODEL when
+    the user has not saved an explicit choice — otherwise the UI reports the wrong
+    active provider (and checks the wrong API key) on env-configured installs.
     Keys block shows presence/masking from os.environ.
     """
     from research_companion.store import load_config
@@ -219,10 +222,18 @@ def get_settings() -> dict:
     cfg = load_config()
     saved = cfg.get("settings", {}) if isinstance(cfg.get("settings"), dict) else {}
 
-    # Merge: DEFAULTS <- saved
+    # Merge: DEFAULTS <- env <- saved
     result: dict[str, Any] = {}
     for key, default in DEFAULTS.items():
         result[key] = saved.get(key, default)
+    if "provider" not in saved:
+        env_provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "").strip().lower()
+        if env_provider in _VALID_PROVIDERS:
+            result["provider"] = env_provider
+    if "model" not in saved:
+        env_model = os.environ.get("RESEARCH_COMPANION_MODEL", "").strip()
+        if env_model:
+            result["model"] = env_model
 
     # Build keys block
     keys_block: dict[str, dict] = {}

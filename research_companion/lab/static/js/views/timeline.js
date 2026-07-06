@@ -58,15 +58,6 @@ export function mount(el) {
   _detailPanel = el.querySelector('.tl-detail-panel');
   _canvasWrap  = el.querySelector('.tl-canvas-wrap');
 
-  // Dismiss explainer
-  const dismissBtn = el.querySelector('.tl-explainer-dismiss');
-  if (dismissBtn) {
-    dismissBtn.addEventListener('click', () => {
-      const banner = el.querySelector('.tl-explainer');
-      if (banner) banner.style.display = 'none';
-    });
-  }
-
   // Subscribe to store changes for paper titles
   _unsubs.push(store.subscribe(['papers'], _render));
 
@@ -249,10 +240,6 @@ function _applyKindFilter() {
 function _skeletonHtml() {
   return `
     <div class="tl-root">
-      <div class="tl-explainer">
-        <span>How the field evolved — diamonds are gaps papers left open.</span>
-        <button class="tl-explainer-dismiss" title="Dismiss">×</button>
-      </div>
       <div class="tl-toolbar">
         <div class="tl-filter-chips">
           <span class="tl-chips-label muted">Show:</span>

@@ -262,10 +262,16 @@ function _sugsHtml(openSugs, totalOpen) {
 
   const rows = openSugs.map(s => {
     const sevColor = `var(--sev-${escapeHtml(s.severity || 'low')})`;
+    // Source label disambiguates same-titled suggestions targeting different sections
+    const srcLabel = (s.source && s.source.label) ? s.source.label : '';
+    const srcHtml = srcLabel
+      ? `<span class="home-sug-src muted">${escapeHtml(srcLabel)}</span>`
+      : '';
     return `
       <div class="home-sug-row">
         <span class="home-sug-dot" style="background:${sevColor}"></span>
         <span class="home-sug-title">${escapeHtml(s.title || '')}</span>
+        ${srcHtml}
         <span class="home-sug-kind">${escapeHtml(s.kind || '')}</span>
       </div>`;
   }).join('');

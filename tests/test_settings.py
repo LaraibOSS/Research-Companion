@@ -8,6 +8,15 @@ import pytest
 
 from research_companion import settings, store
 
+
+@pytest.fixture(autouse=True)
+def _clean_provider_env(monkeypatch):
+    """update_settings mirrors provider/model into os.environ process-wide, so
+    earlier tests in a full run leak into env-aware get_settings — scrub first."""
+    monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+    monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # env_file_path
 # ---------------------------------------------------------------------------
@@ -392,3 +401,22 @@ class TestReviewReportStore:
         rpath.parent.mkdir(parents=True, exist_ok=True)
         rpath.write_text("not valid json {{{", encoding="utf-8")
         assert store.load_review_report(paper_id) is None
+
+
+class TestProviderEnvDefault:
+    """Wrap-up fix: get_settings must reflect RESEARCH_COMPANION_PROVIDER/MODEL env
+    when config.json carries no explicit setting (otherwise the UI checks the wrong key)."""
+
+    def test_provider_defaults_from_env(self, monkeypatch):
+        from research_companion.settings import get_settings
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+        monkeypatch.setenv("RESEARCH_COMPANION_MODEL", "gpt-4o-2024-11-20")
+        s = get_settings()
+        assert s["provider"] == "openai"
+        assert s["model"] == "gpt-4o-2024-11-20"
+
+    def test_config_overrides_env(self, monkeypatch):
+        from research_companion.settings import get_settings, update_settings
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+        update_settings({"provider": "anthropic"})
+        assert get_settings()["provider"] == "anthropic"
