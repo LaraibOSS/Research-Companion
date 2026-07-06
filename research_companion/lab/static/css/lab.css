@@ -3113,8 +3113,7 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   font-size: 0.9em;
 }
 
-/* Dock offset when FAB present — doc: .dock { right: 76px } */
-.dock { right: 76px; }
+/* Dock offset when FAB present: the #dock rule above sets right:76px */
 
 /* W3-F2: onboarding bell pulse — draws the eye to the suggestions bell */
 .bell-btn.bell-pulse {
@@ -3574,4 +3573,189 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 
 .tl-refresh-gaps-btn {
   margin-left: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * W3-F7: [data-tip] glossary tooltips
+ * --------------------------------------------------------------------------- */
+
+[data-tip] {
+  position: relative;
+  cursor: default;
+}
+
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  white-space: normal;
+  max-width: 260px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+  z-index: 900;
+  text-align: left;
+}
+
+[data-tip]:hover::after {
+  opacity: 1;
+}
+
+[data-tip-pos="right"]::after {
+  left: calc(100% + 6px);
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+/* ---------------------------------------------------------------------------
+ * W3-F7: Explainer banners
+ * --------------------------------------------------------------------------- */
+
+.rc-explainer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: rgba(88, 166, 255, 0.08);
+  border-bottom: 1px solid rgba(88, 166, 255, 0.2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-dim);
+  flex-shrink: 0;
+}
+
+.rc-explainer-icon {
+  color: var(--color-accent);
+  font-size: var(--text-base);
+  flex-shrink: 0;
+}
+
+.rc-explainer-text {
+  flex: 1;
+}
+
+.rc-explainer-close {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: var(--text-lg);
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.rc-explainer-close:hover {
+  color: var(--color-fg);
+}
+
+/* ---------------------------------------------------------------------------
+ * W3-F7: Help panel styles
+ * --------------------------------------------------------------------------- */
+
+.help-section {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.help-section:last-child {
+  border-bottom: none;
+}
+
+.help-section-title {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.help-body {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-fg-dim);
+}
+
+.help-flows {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  color: var(--color-fg-dim);
+}
+
+.help-glossary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  overflow-x: auto;
+  display: block;
+}
+
+.help-glossary-table th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.help-glossary-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  color: var(--color-fg-dim);
+  vertical-align: top;
+}
+
+.help-glossary-term {
+  font-family: monospace;
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * W3-F7: Micro polish — focus-visible, card hover lift, bell badge scale-pop
+ * --------------------------------------------------------------------------- */
+
+/* Global :focus-visible outline */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Card hover lift */
+.paper-card,
+.suggestion-card {
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.paper-card:hover,
+.suggestion-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+}
+
+/* Bell badge scale-pop on change */
+#bell-badge {
+  transition: transform var(--dur-fast);
+}
+
+#bell-badge.badge-pop {
+  animation: badge-pop 0.25s ease-out;
+}
+
+@keyframes badge-pop {
+  0%   { transform: scale(0.6); }
+  60%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
 }

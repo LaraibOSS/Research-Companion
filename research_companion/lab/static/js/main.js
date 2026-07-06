@@ -32,6 +32,7 @@ import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
+import { openHelpPanel } from './components/helpPanel.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
@@ -257,53 +258,15 @@ async function boot() {
   store.subscribe('settings', updateNoKeyBanner);
   updateNoKeyBanner();
 
-  // Help button (minimal drawer)
+  // Help button — full help panel (W3-F7)
   const helpBtn = document.getElementById('topbar-help');
   if (helpBtn) {
-    helpBtn.addEventListener('click', () => {
-      _showHelpDrawer();
-    });
+    helpBtn.addEventListener('click', () => openHelpPanel());
   }
 
   // Start router
   const viewEl = document.getElementById('view');
   startRouter(viewEl);
-}
-
-// ---------------------------------------------------------------------------
-// Minimal Help drawer (F7 builds the full version)
-// ---------------------------------------------------------------------------
-function _showHelpDrawer() {
-  const existing = document.getElementById('help-drawer-overlay');
-  if (existing) { existing.remove(); return; }
-
-  const overlay = document.createElement('div');
-  overlay.id = 'help-drawer-overlay';
-  overlay.className = 'drawer-overlay open';
-
-  const drawer = document.createElement('div');
-  drawer.className = 'drawer open';
-  drawer.innerHTML = `
-    <button class="drawer-close" id="help-close" aria-label="Close help">&times;</button>
-    <div class="drawer-content">
-      <div class="drawer-header">
-        <h2 class="drawer-title">Help &amp; Documentation</h2>
-      </div>
-      <p style="font-size:14px;line-height:1.6;color:var(--color-fg-dim)">
-        Research Companion Lab helps you analyse papers, compare findings, and draft with evidence.
-        Full documentation is available in the PDF guide and on GitHub.
-      </p>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-        <a href="/static/guide.pdf" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">PDF User Guide &#8599;</a>
-        <a href="https://github.com" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">GitHub &#8599;</a>
-      </div>
-    </div>`;
-  overlay.appendChild(drawer);
-  document.body.appendChild(overlay);
-
-  const close = () => overlay.remove();
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.getElementById('help-close').addEventListener('click', close);
 }
 
 boot();

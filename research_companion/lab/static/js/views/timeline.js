@@ -18,6 +18,7 @@ import { escapeHtml } from '../format.js';
 import { KIND_COLORS } from '../graph/mapping.js';
 import { layoutTimeline } from '../timeline/layout.js';
 import { showToast }      from '../components/toast.js';
+import { explainerBanner } from '../components/explainer.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -45,7 +46,14 @@ export function mount(el) {
   _showGaps    = true;
   _selectedGap = null;
 
+  // Explainer banner (shown once until dismissed, via component)
+  const banner = explainerBanner(
+    'timeline',
+    'How the field evolved — diamonds are gaps papers left open.',
+  );
+
   el.innerHTML = _skeletonHtml();
+  if (banner) el.prepend(banner);
 
   _detailPanel = el.querySelector('.tl-detail-panel');
   _canvasWrap  = el.querySelector('.tl-canvas-wrap');

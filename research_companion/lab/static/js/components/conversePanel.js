@@ -13,6 +13,7 @@
 import { escapeHtml } from '../format.js';
 import { renderAnswerHtml, renderUnverifiedHtml } from '../answerHtml.js';
 import { attachCiteHandlers } from './citeMiniCard.js';
+import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
 // Pure: deriveContext(route, opts) — node-tested
@@ -452,6 +453,8 @@ async function _doSend(text, thread) {
 
     thread.conversationId = res.conversation_id;
     thread.threadState = nextThreadState(thread.threadState, 'success');
+    // Mirror thread into store so getConversations() stays in sync (write-through)
+    store.getConversations().set(_key(), thread);
 
     const citations = res.citations || [];
     const html = renderAnswerHtml(res.answer, citations);

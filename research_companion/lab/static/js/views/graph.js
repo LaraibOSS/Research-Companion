@@ -16,6 +16,7 @@ import * as graphEngine from '../graph/graphview.js';
 import { onGraphDeltas } from '../sse.js';
 import { viewRowModel } from '../viewsHelpers.js';
 import { showToast } from '../components/toast.js';
+import { explainerBanner } from '../components/explainer.js';
 
 // Inject mapping into the engine (avoids circular deps)
 graphEngine.setMapping({ nodeToVis, edgeToVis });
@@ -107,6 +108,15 @@ export function mount(_el) {
 
   // Build floating panels
   _buildPanels(canvas);
+
+  // Explainer banner — appended to the view container (_el)
+  if (_el) {
+    const banner = explainerBanner(
+      'graph',
+      'Every paper becomes claims, methods and results — click anything to inspect it.',
+    );
+    if (banner) _el.prepend(banner);
+  }
 
   // Subscribe to store
   const unsubJobs = store.subscribe(['jobs'], _updateLiveBadge);

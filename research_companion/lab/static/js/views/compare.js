@@ -16,6 +16,7 @@ import * as store from '../store.js';
 import { escapeHtml } from '../format.js';
 import { showToast } from '../components/toast.js';
 import { KIND_COLORS } from '../graph/mapping.js';
+import { explainerBanner } from '../components/explainer.js';
 
 // ---------------------------------------------------------------------------
 // Pure: resolvePaperInput (exported for node --test)
@@ -100,6 +101,9 @@ const KIND_ORDER = [
 export function mount(el) {
   _el = el;
   _render();
+  const banner = explainerBanner('compare',
+    'Compare two papers side-by-side: overlapping concepts, methods, datasets, and metric results.');
+  if (banner) el.prepend(banner);
 }
 
 export function unmount() {

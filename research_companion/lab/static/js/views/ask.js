@@ -4,17 +4,18 @@
  * Centered column: question textarea + scope select + Ask button.
  * Answers rendered as markdown-lite via the pure renderAnswerHtml()
  * (node-tested; escapeHtml FIRST — LLM output never reaches innerHTML raw).
- * Citation chips: hover -> mini-card, click -> library drawer.
+ * Citation chips: hover -> mini-card, click -> library drawer (via citeMiniCard).
  * Session history kept in-memory only (cleared on reload).
  */
 
 import * as api from '../api.js';
 import * as store from '../store.js';
-import { escapeHtml, authorsLine } from '../format.js';
-import { open as drawerOpen } from '../components/drawer.js';
+import { escapeHtml } from '../format.js';
 import { showToast } from '../components/toast.js';
 import { openSaveViewModal } from '../components/saveViewModal.js';
 import { canSave } from '../viewsHelpers.js';
+import { attachCiteHandlers } from '../components/citeMiniCard.js';
+import { explainerBanner } from '../components/explainer.js';
 
 // ---------------------------------------------------------------------------
 // Pure: renderAnswerHtml (exported for node --test)
@@ -34,7 +35,7 @@ export { renderAnswerHtml };
 let _el = null;
 let _pending = false;
 let _history = [];       // [{ question, scopeLabel, res }] newest first
-let _miniCard = null;    // floating citation mini-card element
+let _citeCleanup = null; // cleanup fn from attachCiteHandlers
 
 // ---------------------------------------------------------------------------
 // Mount / Unmount
@@ -47,7 +48,7 @@ export function mount(el) {
 }
 
 export function unmount() {
-  _hideMiniCard();
+  if (_citeCleanup) { _citeCleanup(); _citeCleanup = null; }
   _el = null;
 }
 
@@ -57,6 +58,13 @@ export function unmount() {
 
 function _render() {
   if (!_el) return;
+
+  // Explainer banner (dismissable, persisted)
+  const banner = explainerBanner(
+    'ask',
+    'Answers are grounded: every claim cites a section you ingested.',
+  );
+
   _el.innerHTML = `
     <div class="ask-col">
       <div class="ask-form">
@@ -81,6 +89,8 @@ function _render() {
     </div>
   `;
 
+  if (banner) _el.insertBefore(banner, _el.firstChild);
+
   const input = _el.querySelector('#ask-input');
   const btn = _el.querySelector('#ask-btn');
 
@@ -97,13 +107,9 @@ function _render() {
     input.style.height = Math.min(input.scrollHeight, 240) + 'px';
   });
 
-  // Citation chip interactions (delegated on the history container)
+  // "Save this subgraph" button click (delegated — citeMiniCard handles cite clicks)
   const hist = _el.querySelector('#ask-history');
-  hist.addEventListener('mouseover', _onCiteHover);
-  hist.addEventListener('mouseout', (e) => {
-    if (e.target.closest && e.target.closest('.cite')) _hideMiniCard();
-  });
-  hist.addEventListener('click', _onHistoryClick);
+  hist.addEventListener('click', _onSaveSubgraphClick);
 
   _renderHistory();
   _setPending(_pending);
@@ -195,6 +201,9 @@ function _renderHistory() {
   const hist = _el.querySelector('#ask-history');
   if (!hist) return;
 
+  // Tear down previous cite handlers before rebuilding HTML
+  if (_citeCleanup) { _citeCleanup(); _citeCleanup = null; }
+
   hist.innerHTML = _history.map((entry, idx) => {
     const { question, scopeLabel, res } = entry;
     const citations = res.citations || [];
@@ -208,9 +217,6 @@ function _renderHistory() {
         : citations.map(c => c.paper_id)),
     );
     const nSources = citations.length;
-    const nodeIds = (res.grounding && Array.isArray(res.grounding.node_ids))
-      ? res.grounding.node_ids
-      : [];
     const hasSaveable = canSave(res.grounding);
     const groundingHtml = nSources > 0 ? `
       <div class="ask-grounding muted">
@@ -255,103 +261,34 @@ function _renderHistory() {
       </div>
     `;
   }).join('');
-}
 
-// ---------------------------------------------------------------------------
-// Citation chip: hover mini-card + click -> library drawer
-// ---------------------------------------------------------------------------
-
-function _citationFor(target) {
-  const chip = target.closest && target.closest('.cite');
-  if (!chip) return null;
-  const entryEl = chip.closest('.ask-entry');
-  if (!entryEl) return null;
-  const entry = _history[Number(entryEl.dataset.entry)];
-  if (!entry) return null;
-  const n = Number(chip.dataset.n);
-  const citation = (entry.res.citations || []).find(c => c.n === n) || null;
-  return citation ? { chip, citation } : null;
-}
-
-function _onCiteHover(e) {
-  const hit = _citationFor(e.target);
-  if (!hit) return;
-  const { chip, citation } = hit;
-
-  if (!_miniCard) {
-    _miniCard = document.createElement('div');
-    _miniCard.className = 'cite-minicard';
-    document.body.appendChild(_miniCard);
-  }
-  _miniCard.innerHTML = `
-    <div class="cite-minicard-title">${escapeHtml(citation.title || citation.paper_id || '')}</div>
-    ${citation.section_title
-      ? `<div class="cite-minicard-section muted">&sect; ${escapeHtml(citation.section_title)}</div>`
-      : ''}
-    ${citation.cited
-      ? '<span class="badge badge-ok">cited</span>'
-      : '<span class="badge badge-warn">retrieved</span>'}
-  `;
-  const rect = chip.getBoundingClientRect();
-  _miniCard.style.display = 'block';
-  const cardW = 280;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - cardW - 8));
-  _miniCard.style.left = `${left}px`;
-  _miniCard.style.top = `${rect.bottom + 6}px`;
-}
-
-function _hideMiniCard() {
-  if (_miniCard) _miniCard.style.display = 'none';
-}
-
-function _onHistoryClick(e) {
-  // "Save this subgraph" button
-  const saveBtn = e.target.closest('.ask-save-subgraph-btn');
-  if (saveBtn) {
-    const entryIdx = Number(saveBtn.dataset.entry);
-    const entry = _history[entryIdx];
-    if (entry) {
-      const nodeIds = (entry.res.grounding && Array.isArray(entry.res.grounding.node_ids))
-        ? entry.res.grounding.node_ids
-        : [];
-      openSaveViewModal({
-        question: entry.question,
-        nodeIds,
-      });
+  // Wire citation chip hover/click via shared citeMiniCard component
+  _citeCleanup = attachCiteHandlers(hist, (n) => {
+    // Find the citation across all history entries
+    for (const entry of _history) {
+      const found = (entry.res.citations || []).find(c => c.n === n);
+      if (found) return found;
     }
-    return;
-  }
-
-  const hit = _citationFor(e.target);
-  if (!hit) return;
-  _hideMiniCard();
-  _openPaperDrawer(hit.citation.paper_id, hit.citation.title);
+    return null;
+  });
 }
 
-function _openPaperDrawer(paperId, fallbackTitle) {
-  const { papers } = store.getState();
-  const paper = papers.get(paperId);
-  const title = paper ? paper.title : (fallbackTitle || paperId);
-  const html = `
-    <div class="drawer-header">
-      <h2 class="drawer-title">${escapeHtml(title || 'Untitled')}</h2>
-      ${paper
-        ? `<div class="muted">${escapeHtml(authorsLine(paper.authors || [], paper.year))}</div>`
-        : ''}
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-section-title">Paper ID</div>
-      <div>${escapeHtml(paperId || '')}</div>
-    </div>
-    <div class="drawer-section drawer-actions">
-      <button class="btn btn-secondary btn-full" id="ask-drawer-library">Open library</button>
-    </div>
-  `;
-  drawerOpen(html);
-  const btn = document.getElementById('ask-drawer-library');
-  if (btn) {
-    btn.addEventListener('click', () => {
-      window.location.hash = '#/library';
+// ---------------------------------------------------------------------------
+// "Save this subgraph" button click handler (cite clicks handled by citeMiniCard)
+// ---------------------------------------------------------------------------
+
+function _onSaveSubgraphClick(e) {
+  const saveBtn = e.target.closest('.ask-save-subgraph-btn');
+  if (!saveBtn) return;
+  const entryIdx = Number(saveBtn.dataset.entry);
+  const entry = _history[entryIdx];
+  if (entry) {
+    const nodeIds = (entry.res.grounding && Array.isArray(entry.res.grounding.node_ids))
+      ? entry.res.grounding.node_ids
+      : [];
+    openSaveViewModal({
+      question: entry.question,
+      nodeIds,
     });
   }
 }

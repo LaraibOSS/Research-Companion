@@ -16,6 +16,7 @@ import { mergeJourney, sparklinePath, severityDonut } from '../journeyHelpers.js
 import { onboardingStep, renderOnboarding } from '../components/onboarding.js';
 import { openModal } from '../components/ingestModal.js';
 import { escapeHtml, timeAgo } from '../format.js';
+import { explainerBanner } from '../components/explainer.js';
 
 let _el = null;
 let _unsub = null;
@@ -31,6 +32,12 @@ export function mount(el) {
     .then(data => store.setJourney(data))
     .catch(err => console.warn('[home] journey fetch failed', err));
   _render();
+  // Explainer banner (shown once until dismissed)
+  const banner = explainerBanner(
+    'home',
+    'Your research journey at a glance — start with the suggested next action.',
+  );
+  if (banner && el) el.prepend(banner);
 }
 
 export function unmount() {

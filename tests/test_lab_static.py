@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -78,6 +78,10 @@ REQUIRED_STATIC_FILES = [
     "js/components/saveViewModal.js",
     "js/viewsHelpers.js",
     "vendor/vis-network.min.js",
+    # W3-F7 additions
+    "js/glossary.js",
+    "js/components/explainer.js",
+    "js/components/helpPanel.js",
 ]
 
 
@@ -1194,3 +1198,123 @@ def test_timeline_view_requeries_canvas_wrap_after_render():
     assert ".tl-canvas-wrap" in render_section, (
         "timeline.js _render() must re-query .tl-canvas-wrap after innerHTML rebuild"
     )
+
+
+# ---------------------------------------------------------------------------
+# W3-F7: Self-explanatory layer + premium polish
+# ---------------------------------------------------------------------------
+
+def test_glossary_js_exists():
+    """js/glossary.js must exist (W3-F7 pure glossary)."""
+    assert (STATIC_DIR / "js" / "glossary.js").exists(), \
+        "Missing js/glossary.js"
+
+
+def test_glossary_js_exports_tip_and_glossary():
+    """glossary.js must export tip() and GLOSSARY."""
+    js = (STATIC_DIR / "js" / "glossary.js").read_text(encoding="utf-8")
+    assert "export function tip" in js, "glossary.js must export tip()"
+    assert "export const GLOSSARY" in js, "glossary.js must export GLOSSARY"
+
+
+def test_explainer_js_exists():
+    """js/components/explainer.js must exist (W3-F7)."""
+    assert (STATIC_DIR / "js" / "components" / "explainer.js").exists(), \
+        "Missing js/components/explainer.js"
+
+
+def test_explainer_js_exports_explainer_banner():
+    """explainer.js must export explainerBanner."""
+    js = (STATIC_DIR / "js" / "components" / "explainer.js").read_text(encoding="utf-8")
+    assert "export function explainerBanner" in js, \
+        "explainer.js must export explainerBanner"
+
+
+def test_help_panel_js_exists():
+    """js/components/helpPanel.js must exist (W3-F7)."""
+    assert (STATIC_DIR / "js" / "components" / "helpPanel.js").exists(), \
+        "Missing js/components/helpPanel.js"
+
+
+def test_help_panel_imports_glossary():
+    """helpPanel.js must import from glossary.js (single source of truth for glossary table)."""
+    js = (STATIC_DIR / "js" / "components" / "helpPanel.js").read_text(encoding="utf-8")
+    assert "glossary.js" in js, "helpPanel.js must import from glossary.js"
+
+
+def test_lab_css_has_data_tip_rule():
+    """lab.css must include [data-tip] tooltip CSS (W3-F7)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert "[data-tip]" in css, "lab.css must have [data-tip] CSS rule"
+    assert "attr(data-tip)" in css, "lab.css [data-tip]::after must use content: attr(data-tip)"
+    assert '[data-tip-pos="right"]' in css or "[data-tip-pos='right']" in css, \
+        'lab.css must have [data-tip-pos="right"] variant'
+
+
+def test_ask_js_imports_cite_mini_card():
+    """ask.js must use attachCiteHandlers from citeMiniCard.js (F4 leftover)."""
+    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "attachCiteHandlers" in ask_js, \
+        "ask.js must import/use attachCiteHandlers from citeMiniCard"
+    assert "citeMiniCard" in ask_js, \
+        "ask.js must reference citeMiniCard module"
+
+
+def test_lab_css_no_dead_dock_class():
+    """lab.css must not contain the dead .dock { right: 76px } class rule (F4 leftover).
+    The real rule is on #dock."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    import re as _re
+    dead_rules = _re.findall(r'\.dock\s*\{\s*right:\s*76px', css)
+    assert not dead_rules, \
+        "lab.css must not contain dead .dock { right: 76px } class rule (use #dock)"
+
+
+def test_converse_panel_mirrors_to_store():
+    """conversePanel.js must mirror threads into store.getConversations() (F4 leftover)."""
+    js = (STATIC_DIR / "js" / "components" / "conversePanel.js").read_text(encoding="utf-8")
+    assert "getConversations" in js, \
+        "conversePanel.js must call store.getConversations() for write-through"
+
+
+def test_each_view_has_explainer_call():
+    """home, graph, draft, timeline, ask, compare views must import/call explainerBanner (W3-F7)."""
+    views_to_check = ['home', 'graph', 'draft', 'timeline', 'ask', 'compare']
+    for view_name in views_to_check:
+        js = (STATIC_DIR / "js" / "views" / f"{view_name}.js").read_text(encoding="utf-8")
+        assert "explainerBanner" in js, \
+            f"views/{view_name}.js must call explainerBanner (W3-F7)"
+
+
+def test_main_js_imports_help_panel():
+    """main.js must import openHelpPanel from helpPanel.js (W3-F7)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "helpPanel" in main_js, "main.js must reference helpPanel.js"
+    assert "openHelpPanel" in main_js, "main.js must call openHelpPanel"
+
+
+def test_glossary_node_test_file_exists():
+    """tests/js/glossary.test.mjs must exist (W3-F7 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "glossary.test.mjs").exists(), \
+        "Missing tests/js/glossary.test.mjs"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_glossary_js_returns_200(lab_client):
+    """GET /static/js/glossary.js must return 200 (W3-F7)."""
+    res = lab_client.get("/static/js/glossary.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_explainer_js_returns_200(lab_client):
+    """GET /static/js/components/explainer.js must return 200 (W3-F7)."""
+    res = lab_client.get("/static/js/components/explainer.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_help_panel_js_returns_200(lab_client):
+    """GET /static/js/components/helpPanel.js must return 200 (W3-F7)."""
+    res = lab_client.get("/static/js/components/helpPanel.js")
+    assert res.status_code == 200

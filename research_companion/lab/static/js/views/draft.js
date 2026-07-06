@@ -14,6 +14,7 @@ import * as store from '../store.js';
 import { open as drawerOpen } from '../components/drawer.js';
 import { showToast } from '../components/toast.js';
 import { stanceIcon, strengthColor, escapeHtml, authorsLine } from '../format.js';
+import { explainerBanner } from '../components/explainer.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
@@ -41,6 +42,12 @@ export function mount(el) {
   _el = el;
   _unsub = store.subscribe(['papers', 'alignment'], () => _render());
   _render();
+  // Explainer banner (shown once until dismissed)
+  const banner = explainerBanner(
+    'draft',
+    'How each section of your draft aligns with the literature.',
+  );
+  if (banner && el) el.prepend(banner);
 }
 
 export function unmount() {
