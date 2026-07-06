@@ -62,7 +62,7 @@ class TestBm25OnlyDegradation:
         got_order = [units.index(r["unit"]) for r in ranked]
         assert got_order == expected_order
         # scores are the raw BM25 values in bm25-only mode
-        for r, idx in zip(ranked, got_order):
+        for r, idx in zip(ranked, got_order, strict=True):
             assert r["score"] == pytest.approx(raw[idx])
 
     def test_zero_score_units_excluded(self, monkeypatch):
