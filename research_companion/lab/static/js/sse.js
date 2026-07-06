@@ -156,6 +156,13 @@ function _connectSSEImpl(store, onResync, EventSourceImpl, scheduler, canceller)
       let evt;
       try { evt = JSON.parse(e.data); } catch { return; }
 
+      // Another tab switched the active research: this tab's whole store
+      // belongs to the old workspace — a full reload is the only safe move.
+      if (evt && evt.event === 'workspace_changed') {
+        window.location.reload();
+        return;
+      }
+
       gate(evt, (validEvt) => {
         if (validEvt.event === 'graph_delta') {
           // Coalesce graph_delta events; flush delivers to store.notify + onGraphDeltas listeners

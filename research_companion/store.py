@@ -86,8 +86,20 @@ def _default_registry() -> dict:
     }
 
 
+# Reentrancy flag: _migrate_legacy_store itself calls save_registry/
+# save_root_settings — those must not re-trigger migration.
+_migrating = False
+
+
 def load_registry() -> dict:
-    """Load the workspace registry; synthesize the default when missing/corrupt."""
+    """Load the workspace registry; synthesize the default when missing/corrupt.
+
+    Ensures legacy migration has run FIRST: writing the registry before a
+    pre-0.4 store migrates would make _needs_migration() False forever and
+    orphan the library (final-review Critical).
+    """
+    if not _migrating:
+        _ensure_root_ready(root_dir())
     p = registry_path()
     if not p.exists():
         return _default_registry()
@@ -103,7 +115,13 @@ def load_registry() -> dict:
 
 
 def save_registry(reg: dict) -> None:
-    """Atomic write (tmp + os.replace); invalidates the resolution cache."""
+    """Atomic write (tmp + os.replace); invalidates the resolution cache.
+
+    Runs legacy migration first (see load_registry) — the registry file
+    doubles as the migration-done marker.
+    """
+    if not _migrating:
+        _ensure_root_ready(root_dir())
     p = registry_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
@@ -171,16 +189,23 @@ def _migrate_legacy_store(root: Path) -> None:
     # Split config.json: settings -> root/settings.json, remainder -> workspace
     legacy_cfg = root / "config.json"
     if legacy_cfg.exists():
+        cfg = None
         try:
             cfg = json.loads(legacy_cfg.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            cfg = {}
+            cfg = None
         if isinstance(cfg, dict):
             settings = cfg.pop("settings", None)
             if isinstance(settings, dict) and settings and not (root / "settings.json").exists():
                 save_root_settings(settings)
             (ws / "config.json").write_text(
                 json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        else:
+            # Corrupt / non-dict config: preserve the original bytes for hand
+            # recovery instead of silently destroying them.
+            import contextlib
+            with contextlib.suppress(OSError):
+                (ws / "config.json.bak").write_bytes(legacy_cfg.read_bytes())
         legacy_cfg.unlink()
 
     for entry in _MIGRATE_ENTRIES:
@@ -198,11 +223,16 @@ def _migrate_legacy_store(root: Path) -> None:
 
 
 def _ensure_root_ready(root: Path) -> None:
+    global _migrating
     key = str(root)
     if key in _verified_roots:
         return
     if _needs_migration(root):
-        _migrate_legacy_store(root)
+        _migrating = True
+        try:
+            _migrate_legacy_store(root)
+        finally:
+            _migrating = False
     _verified_roots.add(key)
 
 

@@ -1615,3 +1615,16 @@ def test_get_static_workspace_switcher_js_returns_200(lab_client):
     """GET /static/js/components/workspaceSwitcher.js must return 200 (W4-F1)."""
     res = lab_client.get("/static/js/components/workspaceSwitcher.js")
     assert res.status_code == 200
+
+
+def test_sse_reloads_on_workspace_changed():
+    """A second tab must fully reload when another tab switches research —
+    its whole store belongs to the old workspace (v0.4 final-review fix)."""
+    js = (STATIC_DIR / "js" / "sse.js").read_text(encoding="utf-8")
+    assert "workspace_changed" in js
+    assert "location.reload" in js
+
+
+def test_graph_draft_mode_exits_saved_view_first():
+    js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
+    assert "_restoreLive()" in js.split("function _setMode")[1].split("function ")[0]

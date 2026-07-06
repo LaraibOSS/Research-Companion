@@ -427,6 +427,9 @@ function _setMode(mode) {
   _persistMode(mode);
   _renderModeToggle();
   if (mode === 'draft') {
+    // A loaded saved view must not underlie the ego layout (and its chip
+    // would otherwise keep suppressing live deltas after exit).
+    if (_savedViewActive) _restoreLive();
     _enterDraftMode();
   } else {
     _exitDraftMode({ reload: true });

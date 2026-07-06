@@ -186,3 +186,42 @@ class TestRootSettings:
     def test_corrupt_root_settings_returns_empty(self, fresh_root):
         (fresh_root / "settings.json").write_text("nope", encoding="utf-8")
         assert store.load_root_settings() == {}
+
+
+class TestMigrationTriggersBeforeRegistryOps:
+    """CRITICAL (final review): if the FIRST 0.4 command on a legacy store is a
+    workspace operation, the registry write must not precede migration — that
+    would make _needs_migration() False forever and orphan the library."""
+
+    def test_workspace_create_first_migrates_legacy_store(self, fresh_root):
+        from research_companion import workspaces
+        _build_legacy_store(fresh_root)
+        workspaces.create_workspace("Brand New")
+        # Legacy artifacts must have been migrated, not orphaned
+        assert (fresh_root / "workspaces" / "main" / "papers" / "arxiv__1").exists()
+        assert not (fresh_root / "papers").exists()
+        ids = [w["id"] for w in store.load_registry()["workspaces"]]
+        assert "main" in ids and "brand-new" in ids
+
+    def test_workspace_list_first_migrates_and_counts(self, fresh_root):
+        from research_companion import workspaces
+        _build_legacy_store(fresh_root)
+        listing = workspaces.list_workspaces()
+        main = next(w for w in listing["workspaces"] if w["id"] == "main")
+        assert main["stats"]["papers"] == 2
+
+    def test_direct_save_registry_first_migrates(self, fresh_root):
+        _build_legacy_store(fresh_root)
+        reg = store.load_registry()
+        store.save_registry(reg)
+        assert (fresh_root / "workspaces" / "main" / "papers" / "arxiv__1").exists()
+        assert not (fresh_root / "papers").exists()
+
+    def test_corrupt_config_preserved_as_bak(self, fresh_root):
+        (fresh_root / "papers").mkdir()
+        (fresh_root / "config.json").write_text("{not valid json", encoding="utf-8")
+        store.papergraph_dir()
+        # Original bytes preserved for hand recovery
+        bak = fresh_root / "workspaces" / "main" / "config.json.bak"
+        assert bak.exists()
+        assert bak.read_text(encoding="utf-8") == "{not valid json"
