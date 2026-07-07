@@ -290,6 +290,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     app.state.ingest_override = None
     app.state.add_paper_override = None
     app.state.upload_override = None
+    app.state.citations_resolver_override = None
     app.state.retry_override = None
 
     # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
@@ -432,6 +433,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             try:
                 await coro
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
+                _schedule_coverage_refresh()
             except Exception as exc:
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
 
@@ -511,6 +513,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             try:
                 await coro
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
+                _schedule_coverage_refresh()
             except Exception as exc:
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
 
@@ -556,6 +559,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 # clear_failure only on success — failure entry kept/updated on error
                 store.clear_failure(matched_key)
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry"}
+                _schedule_coverage_refresh()
             except Exception as exc:
                 # Do NOT clear_failure — keep the failure record so the user can see it
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry"}
@@ -582,6 +586,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except Exception:
             pass  # Non-fatal; graph rebuild failure doesn't undo removal
 
+        _schedule_coverage_refresh()
         return {"removed": True}
 
     # -----------------------------------------------------------------
@@ -595,6 +600,27 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/draft
     # -----------------------------------------------------------------
+    async def _recompute_coverage_bg() -> None:
+        """Refresh citation coverage after library/draft changes (non-fatal)."""
+        with suppress(Exception):
+            from research_companion import store
+            from research_companion.agents.events import CitationCoverageUpdated
+            from research_companion.citations_coverage import compute_coverage
+
+            draft_id = store.get_draft_paper_id()
+            if draft_id is None:
+                return
+            payload = await asyncio.to_thread(compute_coverage, draft_id)
+            if payload.get("source") == "none":
+                return
+            await bus.publish(CitationCoverageUpdated(
+                draft_paper_id=draft_id, **payload["counts"]))
+
+    def _schedule_coverage_refresh() -> None:
+        with suppress(Exception):
+            asyncio.get_running_loop()
+            asyncio.create_task(_recompute_coverage_bg())
+
     async def _apply_draft(paper_id: str | None) -> None:
         """Set the draft + journey record + suggestion auto-match.
 
@@ -630,6 +656,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     asyncio.create_task(_bg_match())
             except Exception:  # noqa: BLE001
                 pass
+
+        _schedule_coverage_refresh()
 
     @app.post("/api/draft")
     async def set_draft(body: _DraftBody) -> dict:
@@ -680,6 +708,72 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             })
 
         return result
+
+    # -----------------------------------------------------------------
+    # Citation coverage — the draft's bibliography vs the library (W5-C2)
+    # -----------------------------------------------------------------
+    @app.get("/api/draft/citations")
+    async def get_draft_citations() -> dict:
+        from research_companion import store
+        from research_companion.citations_coverage import (
+            compute_coverage,
+            empty_coverage,
+            is_stale,
+            load_coverage,
+        )
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            return empty_coverage(None)
+
+        payload = await asyncio.to_thread(load_coverage)
+        if await asyncio.to_thread(is_stale, payload, draft_id):
+            payload = await asyncio.to_thread(compute_coverage, draft_id)
+        return payload
+
+    @app.post("/api/draft/citations/resolve", status_code=202)
+    async def resolve_draft_citations() -> dict:
+        from research_companion import store
+        from research_companion.agents.events import CitationCoverageUpdated
+        from research_companion.citations_coverage import (
+            compute_coverage,
+            is_stale,
+            load_coverage,
+            resolve_missing,
+        )
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            raise HTTPException(status_code=400, detail="No draft configured.")
+        if any(j.get("status") == "running" and j.get("kind") == "citations"
+               for j in app.state.jobs.values()):
+            raise HTTPException(
+                status_code=409,
+                detail="A citation resolve job is already running")
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "citations"}
+
+        async def _run_resolve():
+            try:
+                payload = await asyncio.to_thread(load_coverage)
+                if await asyncio.to_thread(is_stale, payload, draft_id):
+                    payload = await asyncio.to_thread(compute_coverage, draft_id)
+                resolver = app.state.citations_resolver_override
+                if resolver is not None:
+                    payload = await asyncio.to_thread(
+                        resolve_missing, payload, resolver=resolver)
+                else:
+                    payload = await asyncio.to_thread(resolve_missing, payload)
+                await bus.publish(CitationCoverageUpdated(
+                    draft_paper_id=draft_id, **payload["counts"]))
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "citations"}
+            except Exception as exc:  # noqa: BLE001
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "citations"}
+
+        asyncio.create_task(_run_resolve())
+        return {"job_id": job_id}
 
     # -----------------------------------------------------------------
     # GET /api/draft/alignment
@@ -802,6 +896,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             try:
                 await ingest_fn(folder, bus=bus)
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "ingest"}
+                _schedule_coverage_refresh()
             except Exception as exc:
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "ingest"}
 

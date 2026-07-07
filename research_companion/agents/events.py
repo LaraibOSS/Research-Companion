@@ -34,6 +34,8 @@ _KIND = {
     "EmbeddingsReady": "embeddings_ready",
     # Workspace events (Task W4-B4)
     "WorkspaceChanged": "workspace_changed",
+    # Citation coverage events (Task W5-C2)
+    "CitationCoverageUpdated": "citation_coverage_updated",
 }
 
 
@@ -174,6 +176,16 @@ class EmbeddingsReady:
 @dataclass
 class WorkspaceChanged:
     workspace_id: str
+
+
+@dataclass
+class CitationCoverageUpdated:
+    draft_paper_id: str
+    total: int
+    in_library: int
+    available: int
+    unchecked: int
+    unresolved: int
 
 
 def event_to_dict(event) -> dict[str, object]:
