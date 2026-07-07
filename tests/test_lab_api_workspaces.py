@@ -118,3 +118,36 @@ class TestActivate:
             assert resp.status_code == 409
             app.state.jobs["job-1"]["status"] = "done"
             assert c.post("/api/workspaces/blocked/activate").status_code == 200
+
+
+class TestWorkspaceChangedNotReplayed:
+    """REGRESSION (0.4.0 flicker loop): workspace_changed is a transient
+    "reload now" signal. The SSE endpoint replays history to every fresh
+    connection — replaying workspace_changed made every page load reload
+    itself, an infinite flicker loop on any store that had ever switched
+    research."""
+
+    def test_replay_omits_workspace_changed_but_live_history_keeps_it(
+            self, isolated_papergraph_dir):
+        import asyncio as _asyncio
+        import json as _json
+
+        from research_companion.agents.events import PaperAdded, WorkspaceChanged
+
+        bus = Bus()
+        _asyncio.run(bus.publish(WorkspaceChanged(workspace_id="other")))
+        _asyncio.run(bus.publish(PaperAdded(paper_id="p1", title="After switch")))
+        app = create_lab_app(bus)
+        app.state._sse_done = True  # terminate after history replay (test mode)
+
+        with TestClient(app) as c:
+            resp = c.get("/api/events")
+            events = [
+                _json.loads(line[len("data: "):])
+                for line in resp.text.splitlines()
+                if line.startswith("data: ")
+            ]
+        kinds = [e.get("event") for e in events]
+        assert "workspace_changed" not in kinds, (
+            "replaying workspace_changed causes an infinite reload loop")
+        assert "paper_added" in kinds  # ordinary history still replays

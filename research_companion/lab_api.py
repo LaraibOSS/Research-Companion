@@ -1498,8 +1498,13 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             # Cursor: the number of records we have already yielded (starts after replay)
             cursor = len(snapshot)
             try:
-                # Replay pre-connect events with their original seq
+                # Replay pre-connect events with their original seq.
+                # WorkspaceChanged is a transient live signal ("reload now"),
+                # not state: replaying it to a fresh connection makes every
+                # page load reload itself — an infinite flicker loop.
                 for seq, event in snapshot:
+                    if type(event).__name__ == "WorkspaceChanged":
+                        continue
                     data = event_to_dict(event) | {"seq": seq}
                     yield f"data: {json.dumps(data)}\n\n"
 

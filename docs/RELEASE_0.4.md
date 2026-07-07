@@ -52,3 +52,10 @@ only matters if external tools hardcode the old paths.
 - **Python:** 3.10 – 3.13
 - **Dependencies:** no new external dependencies
 - **Install:** `pip install research-companion`
+
+## 0.4.1 (hotfix)
+
+Fixes an infinite page-reload loop ("flickering" UI) on any store that had
+ever switched research: the SSE endpoint replayed the transient
+`workspace_changed` signal to every fresh connection, and each page load
+obediently reloaded itself. Transient signals are no longer replayed.
