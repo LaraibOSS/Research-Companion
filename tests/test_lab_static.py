@@ -1692,3 +1692,16 @@ def test_citations_helpers_test_file_exists():
     """tests/js/citationsHelpers.test.mjs must exist (W5-C3 node tests)."""
     assert (REPO_ROOT / "tests" / "js" / "citationsHelpers.test.mjs").exists(), \
         "Missing tests/js/citationsHelpers.test.mjs"
+
+
+def test_settings_view_has_auto_add_citations_toggle():
+    """v0.5.1: cited papers download automatically; Settings holds the off-switch."""
+    js = (STATIC_DIR / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+    assert "auto_add_citations" in js
+    assert "s-auto-add-citations" in js
+
+
+def test_citations_panel_references_auto_mode():
+    js = (STATIC_DIR / "js" / "components" / "citationsPanel.js").read_text(encoding="utf-8")
+    assert "auto_add_citations" in js
+    assert "citations-note-muted" in js

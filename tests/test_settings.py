@@ -432,3 +432,16 @@ class TestNumericNullValidation:
     def test_char_budget_none_raises_settings_error(self, isolated_papergraph_dir):
         with pytest.raises(settings.SettingsError):
             settings.update_settings({"char_budget": None})
+
+
+class TestAutoAddCitationsSetting:
+    def test_default_is_true(self, isolated_papergraph_dir):
+        assert settings.get_settings()["auto_add_citations"] is True
+
+    def test_toggle_persists(self, isolated_papergraph_dir):
+        settings.update_settings({"auto_add_citations": False})
+        assert settings.get_settings()["auto_add_citations"] is False
+
+    def test_non_bool_rejected(self, isolated_papergraph_dir):
+        with pytest.raises(settings.SettingsError):
+            settings.update_settings({"auto_add_citations": "yes"})

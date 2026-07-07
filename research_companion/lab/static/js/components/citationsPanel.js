@@ -153,6 +153,13 @@ function _buildHtml(coverage) {
     ? `<div class="citations-note-amber">List from related-work extraction — full bibliography could not be parsed; coverage may be incomplete.</div>`
     : '';
 
+  // Auto-download note (v0.5.1): downloads are automatic unless turned off in
+  // Settings — the panel's job is to present what could NOT be fetched.
+  const settings = _storeRef.getState().settings || {};
+  const autoNote = (settings.auto_add_citations !== false && counts.total > 0)
+    ? `<div class="citations-note-muted">Missing papers download automatically — anything listed as Unresolved could not be fetched.</div>`
+    : '';
+
   // "Add all" button
   const addAllBtn = availLen > 0
     ? `<button class="btn btn-accent btn-sm citations-add-all">Add all (${escapeHtml(String(availLen))})</button>`
@@ -181,6 +188,7 @@ function _buildHtml(coverage) {
         <button class="citations-close btn btn-secondary btn-sm" aria-label="Close citations panel">&times;</button>
       </div>
       ${relatedWorkNote}
+      ${autoNote}
       <div class="citations-actions">
         ${addAllBtn}
         ${resolveBtn}

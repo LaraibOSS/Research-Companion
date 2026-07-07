@@ -37,6 +37,7 @@ DEFAULTS: dict[str, Any] = {
     "k_sections": 6,
     "char_budget": 8000,
     "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "auto_add_citations": True,
 }
 
 _VALID_PROVIDERS = {"anthropic", "openai"}
@@ -309,6 +310,11 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
             f"density must be one of {sorted(_VALID_DENSITIES)}, "
             f"got {regular_patch['density']!r}"
         )
+
+    if "auto_add_citations" in regular_patch:
+        v = regular_patch["auto_add_citations"]
+        if not isinstance(v, bool):
+            raise SettingsError(f"auto_add_citations must be a boolean, got {v!r}")
 
     if "k_sections" in regular_patch:
         v = regular_patch["k_sections"]

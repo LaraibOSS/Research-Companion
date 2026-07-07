@@ -182,6 +182,18 @@ function _render(s) {
     </div>
   </div>
 
+  <!-- 4b. Citations -->
+  <div class="settings-card" id="sc-citations">
+    <div class="settings-card-title">Citations</div>
+    <label class="settings-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="s-auto-add-citations" ${s.auto_add_citations !== false ? 'checked' : ''}>
+      Automatically download papers cited by your draft
+    </label>
+    <span class="settings-hint">Each downloaded paper costs one model extraction call
+      (~$0.02&ndash;$0.10). Anything that cannot be fetched stays listed in the
+      Citations panel.</span>
+  </div>
+
   <!-- 5. About -->
   <div class="settings-card" id="sc-about">
     <div class="settings-card-title">About / Help</div>
@@ -303,6 +315,23 @@ function _wireEvents(s) {
       const errors = validateSettings({ k_sections: kSections, char_budget: charBudget });
       if (errors.length) { showToast(errors[0], 'error'); return; }
       await _savePatch(formState, s, saveRetrieval);
+    });
+  }
+
+  // Citations auto-download toggle — saves immediately on change
+  const autoAdd = _el.querySelector('#s-auto-add-citations');
+  if (autoAdd) {
+    autoAdd.addEventListener('change', async () => {
+      try {
+        const updated = await api.putSettings({ auto_add_citations: autoAdd.checked });
+        store.setSettings(updated);
+        showToast(autoAdd.checked
+          ? 'Cited papers will download automatically'
+          : 'Automatic citation downloads off', 'info');
+      } catch (err) {
+        autoAdd.checked = !autoAdd.checked;
+        showToast(`Save failed: ${err.message}`, 'error');
+      }
     });
   }
 

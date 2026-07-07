@@ -291,6 +291,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     app.state.add_paper_override = None
     app.state.upload_override = None
     app.state.citations_resolver_override = None
+    # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
+    app.state.auto_added_targets: set = set()
     app.state.retry_override = None
 
     # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
@@ -410,12 +412,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)
     # -----------------------------------------------------------------
-    @app.post("/api/papers", status_code=202)
-    async def add_paper(body: _AddPaperBody) -> dict:
-        target = body.target.strip() if body.target else ""
-        if not target:
-            raise HTTPException(status_code=400, detail="target is required and must not be empty")
-
+    def _queue_add_paper(target: str) -> str:
+        """Create an add-paper job — shared by the endpoint and citation auto-add."""
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
         app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add"}
@@ -433,12 +431,22 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             try:
                 await coro
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
-                _schedule_coverage_refresh()
             except Exception as exc:
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
+            finally:
+                # add_paper stores metadata BEFORE the pipeline runs, so even a
+                # failed pipeline can have changed the library — always refresh.
+                _schedule_coverage_refresh()
 
         asyncio.create_task(_run())
-        return {"job_id": job_id}
+        return job_id
+
+    @app.post("/api/papers", status_code=202)
+    async def add_paper(body: _AddPaperBody) -> dict:
+        target = body.target.strip() if body.target else ""
+        if not target:
+            raise HTTPException(status_code=400, detail="target is required and must not be empty")
+        return {"job_id": _queue_add_paper(target)}
 
     # -----------------------------------------------------------------
     # POST /api/papers/upload  (raw PDF body — the browser file-picker path)
@@ -601,11 +609,18 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # POST /api/draft
     # -----------------------------------------------------------------
     async def _recompute_coverage_bg() -> None:
-        """Refresh citation coverage after library/draft changes (non-fatal)."""
+        """Refresh citation coverage after library/draft changes (non-fatal).
+
+        With auto_add_citations on (the default), missing cited papers with a
+        downloadable id are queued automatically, and title-only refs get one
+        automatic resolution pass — what remains "unresolved" is exactly what
+        the panel presents as not downloadable.
+        """
         with suppress(Exception):
             from research_companion import store
             from research_companion.agents.events import CitationCoverageUpdated
             from research_companion.citations_coverage import compute_coverage
+            from research_companion.settings import get_settings
 
             draft_id = store.get_draft_paper_id()
             if draft_id is None:
@@ -615,6 +630,24 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 return
             await bus.publish(CitationCoverageUpdated(
                 draft_paper_id=draft_id, **payload["counts"]))
+
+            if not get_settings().get("auto_add_citations", True):
+                return
+
+            # Auto-queue downloads for available refs (session-deduped so a
+            # failing add cannot retry-storm; the row keeps its manual button)
+            for rec in payload.get("references", []):
+                target = rec.get("add_target")
+                if (rec.get("status") == "available" and target
+                        and target not in app.state.auto_added_targets):
+                    app.state.auto_added_targets.add(target)
+                    _queue_add_paper(target)
+
+            # One automatic resolution pass per draft text (resolved_at is the
+            # marker); newly available refs auto-queue on the next refresh.
+            if (payload["counts"].get("unchecked", 0) > 0
+                    and payload.get("resolved_at") is None):
+                _start_resolve_job(draft_id)
 
     def _schedule_coverage_refresh() -> None:
         with suppress(Exception):
@@ -731,9 +764,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             payload = await asyncio.to_thread(compute_coverage, draft_id)
         return payload
 
-    @app.post("/api/draft/citations/resolve", status_code=202)
-    async def resolve_draft_citations() -> dict:
-        from research_companion import store
+    def _start_resolve_job(draft_id: str) -> str | None:
+        """Start the citation resolve job; None when one is already running."""
         from research_companion.agents.events import CitationCoverageUpdated
         from research_companion.citations_coverage import (
             compute_coverage,
@@ -742,14 +774,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             resolve_missing,
         )
 
-        draft_id = store.get_draft_paper_id()
-        if draft_id is None:
-            raise HTTPException(status_code=400, detail="No draft configured.")
         if any(j.get("status") == "running" and j.get("kind") == "citations"
                for j in app.state.jobs.values()):
-            raise HTTPException(
-                status_code=409,
-                detail="A citation resolve job is already running")
+            return None
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
@@ -769,10 +796,27 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 await bus.publish(CitationCoverageUpdated(
                     draft_paper_id=draft_id, **payload["counts"]))
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "citations"}
+                # Newly resolved refs become available — the refresh auto-queues
+                # their downloads when auto_add_citations is on.
+                _schedule_coverage_refresh()
             except Exception as exc:  # noqa: BLE001
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "citations"}
 
         asyncio.create_task(_run_resolve())
+        return job_id
+
+    @app.post("/api/draft/citations/resolve", status_code=202)
+    async def resolve_draft_citations() -> dict:
+        from research_companion import store
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            raise HTTPException(status_code=400, detail="No draft configured.")
+        job_id = _start_resolve_job(draft_id)
+        if job_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail="A citation resolve job is already running")
         return {"job_id": job_id}
 
     # -----------------------------------------------------------------

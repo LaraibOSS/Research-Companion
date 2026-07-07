@@ -40,3 +40,15 @@ time over the existing event stream.
 - **Python:** 3.10 – 3.13
 - **Dependencies:** no new external dependencies
 - **Install:** `pip install research-companion`
+
+## 0.5.1 — automatic downloads
+
+Cited papers now download **automatically** (user feedback: "can't it download
+on its own and then present what has not been downloaded?"). On every draft or
+library change, missing cited papers with a downloadable id are queued without
+a click, and title-only references get one automatic resolution pass. The
+Citations panel's job becomes presenting the remainder — whatever could not be
+fetched stays listed as Unresolved with the raw citation on hover. A Settings
+toggle ("Automatically download papers cited by your draft", on by default)
+preserves cost control: each downloaded paper still costs one model extraction
+call.

@@ -176,3 +176,91 @@ class TestCitationEventRoundTrip:
             available=2, unchecked=1, unresolved=0))
         assert d["event"] == "citation_coverage_updated"
         assert d["total"] == 5
+
+
+class TestAutoDownload:
+    """v0.5.1: with auto_add_citations on (default), missing cited papers with
+    a downloadable id are queued WITHOUT any user click; title-only refs get
+    one automatic resolution pass; what remains unresolved is the presented
+    remainder."""
+
+    def _spy_client(self):
+        bus = Bus()
+        app = create_lab_app(bus)
+        queued = []
+
+        async def spy_add(target, b):
+            queued.append(target)
+        app.state.add_paper_override = spy_add
+        return app, bus, TestClient(app), queued
+
+    def _wait(self, cond, timeout=10):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if cond():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def test_draft_set_auto_queues_available_refs(self, isolated_papergraph_dir):
+        draft = _seed_draft()
+        store.set_draft_paper_id(None)
+        app, _bus, c, queued = self._spy_client()
+        with c:
+            c.post("/api/draft", json={"paper_id": draft})
+            assert self._wait(lambda: len(queued) >= 2), queued
+        # both parsed arXiv ids queued with zero clicks
+        assert set(queued) >= {"1810.04805", "2106.09685"}
+
+    def test_no_duplicate_queue_on_second_recompute(self, isolated_papergraph_dir):
+        draft = _seed_draft()
+        store.set_draft_paper_id(None)
+        app, _bus, c, queued = self._spy_client()
+        with c:
+            c.post("/api/draft", json={"paper_id": draft})
+            assert self._wait(lambda: len(queued) >= 2)
+            n = len(queued)
+            # Force another recompute cycle (paper delete triggers refresh)
+            store.PaperMetadata(paper_id="arxiv:unrelated01", title="Unrelated",
+                                authors=["A"], added_at="2026-01-01T00:00:00Z").save()
+            c.delete("/api/papers/arxiv:unrelated01")
+            time.sleep(0.5)
+            assert len(queued) == n  # session-deduped
+
+    def test_setting_off_disables_auto(self, isolated_papergraph_dir):
+        from research_companion.settings import update_settings
+        update_settings({"auto_add_citations": False})
+        draft = _seed_draft()
+        store.set_draft_paper_id(None)
+        app, _bus, c, queued = self._spy_client()
+        with c:
+            c.post("/api/draft", json={"paper_id": draft})
+            time.sleep(1.0)
+            assert queued == []
+
+    def test_auto_resolve_runs_once_then_queues_new_available(
+            self, isolated_papergraph_dir):
+        draft = _seed_draft()
+        store.set_draft_paper_id(None)
+        app, _bus, c, queued = self._spy_client()
+        resolve_calls = []
+
+        def fake_resolver(ref):
+            resolve_calls.append(ref.raw)
+            return {"title": "Attention Is All You Need", "year": 2017,
+                    "doi": None, "arxiv_id": "1706.03762"}
+        app.state.citations_resolver_override = fake_resolver
+
+        with c:
+            c.post("/api/draft", json={"paper_id": draft})
+            # auto-resolve fires for the 1 unchecked ref, then its new
+            # available target auto-queues on the follow-up refresh
+            assert self._wait(lambda: "1706.03762" in queued, timeout=15), queued
+            assert len(resolve_calls) == 1
+            n_resolves = len(resolve_calls)
+            # another refresh cycle must NOT re-resolve (resolved_at set)
+            store.PaperMetadata(paper_id="arxiv:unrelated02", title="Unrelated2",
+                                authors=["A"], added_at="2026-01-01T00:00:00Z").save()
+            c.delete("/api/papers/arxiv:unrelated02")
+            time.sleep(0.8)
+            assert len(resolve_calls) == n_resolves
