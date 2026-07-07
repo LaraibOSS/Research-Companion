@@ -82,6 +82,10 @@ verify what we can verify — and state plainly what we cannot (see §5a).
 
 ### Track C — MCP Trust-Layer Server (flagship, do first)
 
+**Release identity (verbatim, for docs and launch):** "Research Companion
+MCP v0.6.0: a local, bounded, key-free trust server for citation
+verification, quote grounding, citation coverage, and library search."
+
 **Goal:** any MCP-capable client (Claude Desktop, agent frameworks, other
 research tools) can call Research Companion's verification machinery
 against a local workspace.
@@ -134,12 +138,20 @@ control**: results are data, never instruction-shaped prose (see below).
   gated by `--allow-write` and reuses the existing job machinery — no
   parallel write path. Lab server + MCP server concurrent READ access to
   the same workspace is safe (documented); writes remain single-path.
-- **Audit log:** every MCP call (tool, arguments hash, result size,
-  duration) is appended via the existing EventLog machinery.
+- **Audit log:** every MCP call is appended via the existing EventLog
+  machinery — metadata and hashes ONLY, never full paper/draft text or
+  full queries (consistent with the repo's no-secrets discipline). Fields:
+  tool_name, timestamp, workspace_id, input_hash, result_status,
+  duration_ms, cache_hit, rate_limit_status, output_size, connector_used.
 - **Abuse/loop protection:** per-session rate limits on network-touching
-  tools; `verify_citation` results cached keyed on the raw reference
-  string (reusing the coverage-cache pattern) so an agent retry loop
-  cannot hammer CrossRef/OpenAlex.
+  tools; `verify_citation` results cached so an agent retry loop cannot
+  hammer CrossRef/OpenAlex. Cache key is explicit:
+  `hash(schema_version, tool_name, workspace_id,
+  normalized_raw_reference, connector_chain_version)`. TTLs distinguish
+  outcomes: verified results ≈ 7 days; negative (no-match) results ≈ 1
+  hour (a fabricated reference shouldn't re-query constantly, but a
+  transient miss must not stick); transient API errors are NOT cached —
+  errors and negatives are different things.
 - **Output limits:** hard cap on characters per result; long texts are
   span-referenced, not dumped.
 - **Prompt-injection posture:** paper text is untrusted input that flows

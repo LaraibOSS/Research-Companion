@@ -35,6 +35,12 @@ python examples/demo_lab_offline.py      # zero-key, zero-network demo
 
 Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the subgraph for the matching sections is used, which cuts token cost and improves precision over whole-paper retrieval.
 
+## Documentation
+
+- **[User Manual](docs/USER_MANUAL.md)** ([PDF](docs/USER_MANUAL.pdf)) — every feature, how to use it, and how to read outputs honestly.
+- [Guide & Critical Analysis](docs/RESEARCH_COMPANION_GUIDE.pdf) — what the tool does well, with evidence, and where it honestly falls short.
+- Release notes: [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
+
 ## What's new in 0.5
 
 Citation coverage: the papers your draft **cites** are now first-class. The Lab parses your draft's bibliography, shows which cited papers are in your library and which are missing, downloads missing ones in one click ("Add all"), and displays a persistent disclaimer whenever the analysis is running on partial coverage — *"Analysis covers N of M cited papers"* — so incomplete context is never silent. See the [Release Notes](docs/RELEASE_0.5.md).
