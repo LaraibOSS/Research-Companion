@@ -20,20 +20,39 @@ import { escapeHtml } from '../format.js';
 /**
  * Derive the dock view-model from reducer state.
  *
- * @param {object} state  — { jobs: Map, ingestLog?: Array }
+ * @param {object} state  — { jobs: Map, ingestLog?: Array, activeJobs?: Map }
  * @returns {{ visible: boolean, collapsed: boolean,
  *             bar: {done:number, total:number},
  *             current: string,
  *             items: Array<{ok:boolean, label:string, retryable:boolean, paperId:string|null}>,
- *             summary: string|null }}
+ *             summary: string|null,
+ *             background: Array<{kind:string, label:string}> }}
  */
 export function dockModel(state) {
   const job = state.jobs && state.jobs.get('ingest');
   const log  = state.ingestLog || [];
 
-  // Never ran
+  // Build background task lines from activeJobs, excluding ingest (avoid double-display)
+  const background = [];
+  if (state.activeJobs) {
+    for (const [, bJob] of state.activeJobs) {
+      if (bJob.kind !== 'ingest') {
+        background.push({ kind: bJob.kind, label: bJob.label || '' });
+      }
+    }
+  }
+
+  // Never ran and no background jobs
   if (!job) {
-    return { visible: false, collapsed: false, bar: { done: 0, total: 0 }, current: '', items: [], summary: null };
+    return {
+      visible:    background.length > 0,
+      collapsed:  false,
+      bar:        { done: 0, total: 0 },
+      current:    '',
+      items:      [],
+      summary:    null,
+      background,
+    };
   }
 
   const done  = job.done  ?? 0;
@@ -50,22 +69,24 @@ export function dockModel(state) {
   if (job.status === 'done') {
     const successCount = items.filter(i => i.ok).length;
     return {
-      visible:   true,
-      collapsed: true,
-      bar:       { done: total || done, total: total || done },
-      current:   '',
+      visible:    true,
+      collapsed:  true,
+      bar:        { done: total || done, total: total || done },
+      current:    '',
       items,
-      summary:   `Ingest complete — ${successCount} paper${successCount !== 1 ? 's' : ''}`,
+      summary:    `Ingest complete — ${successCount} paper${successCount !== 1 ? 's' : ''}`,
+      background,
     };
   }
 
   return {
-    visible:   total > 0,
-    collapsed: false,
-    bar:       { done, total },
-    current:   job.current || '',
+    visible:    total > 0 || background.length > 0,
+    collapsed:  false,
+    bar:        { done, total },
+    current:    job.current || '',
     items,
-    summary:   null,
+    summary:    null,
+    background,
   };
 }
 
@@ -121,6 +142,13 @@ export function mountDock(el, storeRef, apiRef) {
       ? Math.round((model.bar.done / model.bar.total) * 100)
       : 0;
 
+    const bgHtml = model.background.map(bg => `
+      <div class="dock-bg-job">
+        <span class="activity-spin dock-bg-spin" aria-hidden="true"></span>
+        <span class="dock-bg-label">${escapeHtml(bg.label)}</span>
+      </div>
+    `).join('');
+
     const itemsHtml = model.items.map(item => {
       const icon = item.ok ? '&#10003;' : '&#10007;';
       const cls  = item.ok ? 'dock-item-ok' : 'dock-item-fail';
@@ -157,6 +185,7 @@ export function mountDock(el, storeRef, apiRef) {
           </div>
           ${model.current ? `<div class="dock-current muted">${escapeHtml(model.current)}</div>` : ''}
           <div class="dock-items-list">${itemsHtml}</div>
+          ${bgHtml ? `<div class="dock-bg-list">${bgHtml}</div>` : ''}
         </div>
       </div>
     `;
@@ -183,7 +212,7 @@ export function mountDock(el, storeRef, apiRef) {
   // Track previous job status to detect real transitions
   let _prevJobStatus = null;
 
-  storeRef.subscribe(['jobs', 'papers'], () => {
+  storeRef.subscribe(['jobs', 'papers', 'activity'], () => {
     const state = storeRef.getState();
     const job = state.jobs && state.jobs.get('ingest');
     const currentStatus = job ? job.status : null;

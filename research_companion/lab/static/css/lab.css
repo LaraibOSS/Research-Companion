@@ -286,6 +286,73 @@ html, body {
 .conn-disconnected { background: rgba(248,81,73,0.2);  color: var(--color-fail); }
 
 /* ---------------------------------------------------------------------------
+ * Activity indicator — W5-ACT
+ * --------------------------------------------------------------------------- */
+@keyframes rc-spin {
+  to { transform: rotate(360deg); }
+}
+
+.activity-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: default;
+}
+
+.activity-spin {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(88,166,255,0.25);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: rc-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-spin {
+    animation: none;
+  }
+}
+
+/* Dock background-job lines */
+.dock-bg-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dock-bg-job {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.dock-bg-spin {
+  width: 12px;
+  height: 12px;
+}
+
+.dock-bg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* chip-loading — accent-tinted chip for downloading citation rows */
+.chip-loading {
+  background: rgba(88,166,255,0.12);
+  color: var(--color-accent);
+  border: 1px solid rgba(88,166,255,0.3);
+}
+
+/* ---------------------------------------------------------------------------
  * Main Content Area
  * --------------------------------------------------------------------------- */
 #view {

@@ -32,6 +32,7 @@ import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
 import { mountCitationsPanel } from './components/citationsPanel.js';
 import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
+import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
 import * as researchesView from './views/researches.js';
@@ -101,6 +102,11 @@ async function boot() {
     .catch(() => {});
   mountWorkspaceSwitcher(store, api);
 
+  // Boot hydration for background jobs (non-fatal; 404 = older server) — W5-ACT
+  api.getJobs()
+    .then(d => store.setActiveJobs(d && d.jobs ? d.jobs : []))
+    .catch(() => {});
+
   // Snapshot refresher: when alignment_ready fires the reducer marks
   // paper.alignmentFresh=false; we pick that up on 'papers' notify and
   // schedule a debounced GET /api/papers to pull fresh stance_counts.
@@ -169,6 +175,24 @@ async function boot() {
 
   // Mount the citations coverage panel (W5-C3) once at boot
   mountCitationsPanel(store, api);
+
+  // Activity indicator (W5-ACT)
+  function updateActivityIndicator() {
+    const indicator = document.getElementById('activity-indicator');
+    const labelEl   = document.getElementById('activity-label');
+    if (!indicator || !labelEl) return;
+    const { activeJobs } = store.getState();
+    const { count, label } = activitySummary(activeJobs);
+    if (count > 0) {
+      indicator.style.display = '';
+      labelEl.textContent = label;
+    } else {
+      indicator.style.display = 'none';
+      labelEl.textContent = '';
+    }
+  }
+  store.subscribe('activity', updateActivityIndicator);
+  updateActivityIndicator();
 
   // Connection pill
   function updateConnectionPill() {
@@ -304,7 +328,7 @@ async function boot() {
 
   function updateCitationsBanner() {
     if (!citationsBanner) return;
-    const { draftId, citationCoverage } = store.getState();
+    const { draftId, citationCoverage, activeJobs } = store.getState();
     const counts = coverageCounts(citationCoverage);
     const collapsed = (() => {
       try { return sessionStorage.getItem('rc.citationsBannerCollapsed') === '1'; } catch { return false; }
@@ -317,10 +341,18 @@ async function boot() {
     );
     citationsBanner.classList.toggle('visible', visible);
     if (visible && citationsBannerText) {
-      citationsBannerText.textContent = bannerText(counts);
+      const downloadTargets = citationDownloadTargets(activeJobs);
+      if (downloadTargets.size > 0) {
+        citationsBannerText.textContent =
+          `Downloading cited papers… (${counts.in_library} of ${counts.total} in library)`;
+      } else if (isResolving(activeJobs)) {
+        citationsBannerText.textContent = 'Checking references…';
+      } else {
+        citationsBannerText.textContent = bannerText(counts);
+      }
     }
   }
-  store.subscribe(['citations', 'draft'], updateCitationsBanner);
+  store.subscribe(['citations', 'draft', 'activity'], updateCitationsBanner);
   updateCitationsBanner();
 
   // Start router

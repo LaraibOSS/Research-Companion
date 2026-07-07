@@ -317,3 +317,70 @@ test('dockModel: done state -> papers notification same status -> model unchange
   assert.equal(before.collapsed, after.collapsed);
   assert.equal(before.summary,   after.summary);
 });
+
+// ===========================================================================
+// W5-ACT: dockModel.background — background job lines
+// ===========================================================================
+
+function makeStateWithActiveJobs() {
+  const state = makeState();
+  state.activeJobs = new Map();
+  return state;
+}
+
+test('dockModel: no activeJobs -> background is empty array', () => {
+  const state = makeState();
+  // state has no activeJobs field at all
+  const model = dockModel(state);
+  assert.deepEqual(model.background, [], 'background should be empty when no activeJobs');
+});
+
+test('dockModel: activeJobs Map empty -> background is []', () => {
+  const state = makeStateWithActiveJobs();
+  const model = dockModel(state);
+  assert.deepEqual(model.background, []);
+});
+
+test('dockModel: activeJobs with kind!=ingest -> all appear in background', () => {
+  const state = makeStateWithActiveJobs();
+  state.activeJobs.set('j1', { kind: 'add', label: 'Downloading 1810.04805', target: '1810.04805' });
+  state.activeJobs.set('j2', { kind: 'citations', label: 'Checking references…', target: '' });
+  const model = dockModel(state);
+  assert.equal(model.background.length, 2);
+  const kinds = model.background.map(b => b.kind);
+  assert.ok(kinds.includes('add'), 'add kind should appear');
+  assert.ok(kinds.includes('citations'), 'citations kind should appear');
+});
+
+test('dockModel: activeJobs with kind=ingest -> excluded from background (avoid double-display)', () => {
+  const state = makeStateWithActiveJobs();
+  state.activeJobs.set('j1', { kind: 'ingest', label: 'Ingesting folder (12 PDFs)…', target: '' });
+  state.activeJobs.set('j2', { kind: 'add', label: 'Downloading xyz', target: 'xyz' });
+  const model = dockModel(state);
+  assert.equal(model.background.length, 1, 'ingest should be excluded');
+  assert.equal(model.background[0].kind, 'add');
+});
+
+test('dockModel: visible=true when background.length>0 even without ingest job', () => {
+  const state = makeStateWithActiveJobs();
+  // No ingest job set
+  state.activeJobs.set('j1', { kind: 'add', label: 'Downloading 1234', target: '1234' });
+  const model = dockModel(state);
+  assert.equal(model.visible, true, 'dock should be visible when background jobs exist');
+});
+
+test('dockModel: visible stays false when no ingest and no background jobs', () => {
+  const state = makeStateWithActiveJobs();
+  const model = dockModel(state);
+  assert.equal(model.visible, false);
+});
+
+test('dockModel: mixed ingest (total>0) + background jobs -> visible and background populated', () => {
+  const state = makeStateWithActiveJobs();
+  state.jobs.set('ingest', { status: 'running', done: 1, total: 3, current: 'f.pdf' });
+  state.activeJobs.set('j1', { kind: 'gaps', label: 'Analyzing gaps…', target: '' });
+  const model = dockModel(state);
+  assert.equal(model.visible, true);
+  assert.equal(model.background.length, 1);
+  assert.equal(model.background[0].kind, 'gaps');
+});

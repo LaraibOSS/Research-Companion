@@ -55,11 +55,13 @@ export function bannerText(counts) {
 
 /**
  * Map a reference entry's status to a display chip.
+ * If entry.downloading is true, shows a "Downloading…" loading chip.
  *
- * @param {{ status: string }} entry
+ * @param {{ status: string, downloading?: boolean }} entry
  * @returns {{ label: string, cls: string }}
  */
 export function statusChip(entry) {
+  if (entry.downloading) return { label: 'Downloading…', cls: 'chip-loading' };
   switch (entry.status) {
     case 'in_library': return { label: 'In library ✓', cls: 'chip-ok' };
     case 'available':  return { label: 'Add ↓',       cls: 'chip-add' };

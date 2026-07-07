@@ -276,3 +276,56 @@ test('citation_coverage_updated: returns ["citations"]', () => {
   });
   assert.deepEqual(topics, ['citations']);
 });
+
+// ---------------------------------------------------------------------------
+// W5-ACT: job_started / job_finished
+// ---------------------------------------------------------------------------
+
+test('job_started: adds entry to state.activeJobs and returns ["activity"]', () => {
+  const state = makeState();
+  state.activeJobs = new Map();
+  const topics = applyEvent(state, {
+    event: 'job_started',
+    job_id: 'abc123',
+    kind: 'add',
+    label: 'Downloading 1810.04805',
+    target: '1810.04805',
+    seq: 1,
+  });
+  assert.ok(topics.includes('activity'), 'should emit activity topic');
+  assert.ok(state.activeJobs.has('abc123'), 'job should be in activeJobs');
+  const job = state.activeJobs.get('abc123');
+  assert.equal(job.kind, 'add');
+  assert.equal(job.label, 'Downloading 1810.04805');
+  assert.equal(job.target, '1810.04805');
+});
+
+test('job_finished: removes entry from state.activeJobs and returns ["activity"]', () => {
+  const state = makeState();
+  state.activeJobs = new Map();
+  state.activeJobs.set('abc123', { kind: 'add', label: 'Downloading', target: '1810.04805' });
+  const topics = applyEvent(state, {
+    event: 'job_finished',
+    job_id: 'abc123',
+    kind: 'add',
+    status: 'done',
+    seq: 2,
+  });
+  assert.ok(topics.includes('activity'), 'should emit activity topic');
+  assert.ok(!state.activeJobs.has('abc123'), 'job should be removed from activeJobs');
+});
+
+test('job_finished: unknown job_id does not crash', () => {
+  const state = makeState();
+  state.activeJobs = new Map();
+  assert.doesNotThrow(() => {
+    applyEvent(state, {
+      event: 'job_finished',
+      job_id: 'nonexistent',
+      kind: 'add',
+      status: 'done',
+      seq: 1,
+    });
+  });
+  assert.equal(state.activeJobs.size, 0);
+});

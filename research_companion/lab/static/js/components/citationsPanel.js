@@ -16,6 +16,7 @@ import {
   availableEntries,
   groupByStatus,
 } from '../citationsHelpers.js';
+import { citationDownloadTargets } from '../activityHelpers.js';
 import { escapeHtml } from '../format.js';
 
 // ---------------------------------------------------------------------------
@@ -66,8 +67,8 @@ export function mountCitationsPanel(storeRef = store, apiRef = api) {
     if (_open && _panel && !_panel.contains(e.target)) _close();
   });
 
-  // Subscribe: if open and stale, refetch
-  _unsubscribe = storeRef.subscribe('citations', () => {
+  // Subscribe: if open and stale, refetch; also re-render on activity changes
+  _unsubscribe = storeRef.subscribe(['citations', 'activity'], () => {
     const { citationCoverage } = storeRef.getState();
     if (_open && !_updating && citationCoverage && citationCoverage.stale) {
       _fetchAndUpdate();
@@ -129,18 +130,24 @@ async function _fetchAndUpdate() {
 
 function _render() {
   if (!_panel) return;
-  const { citationCoverage } = _storeRef.getState();
-  _panel.innerHTML = _buildHtml(citationCoverage);
+  const { citationCoverage, activeJobs } = _storeRef.getState();
+  const downloadTargets = citationDownloadTargets(activeJobs);
+  _panel.innerHTML = _buildHtml(citationCoverage, downloadTargets);
   _bindEvents(citationCoverage);
 }
 
-function _buildHtml(coverage) {
+function _buildHtml(coverage, downloadTargets = new Set()) {
   const counts = coverageCounts(coverage);
   const refs = coverage && Array.isArray(coverage.references) ? coverage.references : [];
   const source = coverage && coverage.source;
   const avail = availableEntries(coverage);
   const availLen = avail.length;
-  const grouped = groupByStatus(refs);
+  // Mark entries that are currently downloading
+  const markedRefs = refs.map(r => ({
+    ...r,
+    downloading: !!(r.add_target && downloadTargets.has(r.add_target)),
+  }));
+  const grouped = groupByStatus(markedRefs);
   const missing = missingCount(counts);
 
   // Header title

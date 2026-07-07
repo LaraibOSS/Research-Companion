@@ -235,3 +235,13 @@ export const getDraftCitations = () => get('/api/draft/citations');
  * Returns 202 {job_id} | 400 no draft | 409 already running.
  */
 export const resolveCitations = () => post('/api/draft/citations/resolve');
+
+// ---------------------------------------------------------------------------
+// Background-activity endpoints (W5-ACT)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/jobs — returns { jobs: [{job_id, kind, label, target, status}] } (RUNNING only).
+ * Used at boot for hydration. Non-fatal when 404 (older server).
+ */
+export const getJobs = () => get('/api/jobs');

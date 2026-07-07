@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -93,6 +93,8 @@ REQUIRED_STATIC_FILES = [
     # W5-C3 additions
     "js/citationsHelpers.js",
     "js/components/citationsPanel.js",
+    # W5-ACT additions
+    "js/activityHelpers.js",
 ]
 
 
@@ -1705,3 +1707,59 @@ def test_citations_panel_references_auto_mode():
     js = (STATIC_DIR / "js" / "components" / "citationsPanel.js").read_text(encoding="utf-8")
     assert "auto_add_citations" in js
     assert "citations-note-muted" in js
+
+
+# ---------------------------------------------------------------------------
+# W5-ACT: Background-activity indicator — drift-guards
+# ---------------------------------------------------------------------------
+
+def test_index_html_has_activity_indicator():
+    """index.html must have #activity-indicator (W5-ACT)."""
+    html = _index_text()
+    assert 'id="activity-indicator"' in html, 'index.html missing #activity-indicator'
+    assert 'activity-indicator' in html, 'index.html missing activity-indicator class'
+
+
+def test_main_js_references_activity_indicator_and_getjobs():
+    """main.js must reference activity-indicator and import/call getJobs (W5-ACT)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "activity-indicator" in main_js, "main.js must reference activity-indicator"
+    assert "getJobs" in main_js, "main.js must call getJobs for boot hydration"
+
+
+def test_reducer_handles_job_started_and_job_finished():
+    """reducer.js must handle 'job_started' and 'job_finished' events (W5-ACT)."""
+    reducer_js = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "'job_started'" in reducer_js, "reducer.js must handle job_started"
+    assert "'job_finished'" in reducer_js, "reducer.js must handle job_finished"
+
+
+def test_api_js_exports_get_jobs():
+    """api.js must export getJobs (W5-ACT)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "export const getJobs" in api_js, "api.js must export getJobs"
+
+
+def test_dock_js_references_active_jobs():
+    """progressDock.js must reference activeJobs (W5-ACT background lines)."""
+    dock_js = (STATIC_DIR / "js" / "components" / "progressDock.js").read_text(encoding="utf-8")
+    assert "activeJobs" in dock_js, "progressDock.js must reference activeJobs"
+
+
+def test_citations_helpers_has_chip_loading():
+    """citationsHelpers.js statusChip must include chip-loading case (W5-ACT)."""
+    js = (STATIC_DIR / "js" / "citationsHelpers.js").read_text(encoding="utf-8")
+    assert "chip-loading" in js, "citationsHelpers.js must have chip-loading status"
+
+
+def test_css_has_activity_spin_and_prefers_reduced_motion():
+    """lab.css must have .activity-spin and prefers-reduced-motion rule (W5-ACT)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert ".activity-spin" in css, "lab.css missing .activity-spin"
+    assert "prefers-reduced-motion" in css, "lab.css missing prefers-reduced-motion guard"
+
+
+def test_activity_helpers_test_file_exists():
+    """tests/js/activityHelpers.test.mjs must exist (W5-ACT node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "activityHelpers.test.mjs").exists(), \
+        "Missing tests/js/activityHelpers.test.mjs"

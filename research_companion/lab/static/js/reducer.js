@@ -198,6 +198,24 @@ export function applyEvent(state, evt) {
       return ['gaps'];
     }
 
+    // W5-ACT: background job started
+    case 'job_started': {
+      if (!state.activeJobs) state.activeJobs = new Map();
+      state.activeJobs.set(evt.job_id, {
+        kind:   evt.kind   || '',
+        label:  evt.label  || '',
+        target: evt.target || '',
+      });
+      return ['activity'];
+    }
+
+    // W5-ACT: background job finished
+    case 'job_finished': {
+      if (!state.activeJobs) state.activeJobs = new Map();
+      state.activeJobs.delete(evt.job_id);
+      return ['activity'];
+    }
+
     // W5-C3: citation coverage SSE push (counts-only, marks stale for refetch)
     case 'citation_coverage_updated': {
       if (!state.citationCoverage) state.citationCoverage = {};

@@ -40,6 +40,7 @@ const _state = {
   journey: null,
   workspaces: { list: [], activeId: null },
   citationCoverage: null,
+  activeJobs: new Map(),
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -279,4 +280,27 @@ export function setGaps(data) {
 export function setCitationCoverage(data) {
   _state.citationCoverage = data || null;
   notify(['citations']);
+}
+
+// ---------------------------------------------------------------------------
+// Background-activity state (W5-ACT)
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace the activeJobs Map from a GET /api/jobs array and notify 'activity'.
+ * Each item in the array must have { job_id, kind, label, target }.
+ * Called at boot for hydration (non-fatal GET /api/jobs).
+ * @param {Array} list — [{job_id, kind, label, target, status}] or null/undefined
+ */
+export function setActiveJobs(list) {
+  _state.activeJobs = new Map();
+  const items = Array.isArray(list) ? list : [];
+  for (const job of items) {
+    _state.activeJobs.set(job.job_id, {
+      kind:   job.kind   || '',
+      label:  job.label  || '',
+      target: job.target || '',
+    });
+  }
+  notify(['activity']);
 }
