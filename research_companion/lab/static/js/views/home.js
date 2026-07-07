@@ -27,7 +27,7 @@ let _unsub = null;
 
 export function mount(el) {
   _el = el;
-  _unsub = store.subscribe(['suggestions', 'journey', 'papers', 'draft', 'settings'], _render);
+  _unsub = store.subscribe(['suggestions', 'journey', 'papers', 'draft', 'settings', 'citations'], _render);
   api.getJourney()
     .then(data => store.setJourney(data))
     .catch(err => console.warn('[home] journey fetch failed', err));
@@ -53,7 +53,7 @@ function _render() {
   if (!_el) return;
   const state = store.getState();
 
-  const { draftId, papers, suggestions, suggestionCounts, settings, journey, failures } = state;
+  const { draftId, papers, suggestions, suggestionCounts, settings, journey, failures, citationCoverage } = state;
 
   const draft = draftId ? papers.get(draftId) : null;
   const tourDismissed = _localStorage('rc.tourDismissed');
@@ -77,6 +77,7 @@ function _render() {
     failures: failures || {},
     suggestions: Array.isArray(suggestions) ? suggestions : [],
     suggestionCounts,
+    citationCoverage: citationCoverage || null,
   });
   const zone2Html = _nbaHtml(actions);
 
@@ -124,6 +125,8 @@ function _render() {
         openModal('upload');
       } else if (action === 'open-ingest-draft') {
         openModal('upload', { draft: true });
+      } else if (action === 'open-citations') {
+        window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
       }
     });
   });

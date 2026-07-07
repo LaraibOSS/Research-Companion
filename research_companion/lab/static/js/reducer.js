@@ -198,6 +198,24 @@ export function applyEvent(state, evt) {
       return ['gaps'];
     }
 
+    // W5-C3: citation coverage SSE push (counts-only, marks stale for refetch)
+    case 'citation_coverage_updated': {
+      if (!state.citationCoverage) state.citationCoverage = {};
+      state.citationCoverage = {
+        ...state.citationCoverage,
+        draft_paper_id: evt.draft_paper_id || null,
+        counts: {
+          total:      evt.total      || 0,
+          in_library: evt.in_library || 0,
+          available:  evt.available  || 0,
+          unchecked:  evt.unchecked  || 0,
+          unresolved: evt.unresolved || 0,
+        },
+        stale: true,
+      };
+      return ['citations'];
+    }
+
     default:
       return [];
   }

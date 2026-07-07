@@ -30,6 +30,8 @@ import { openModal } from './components/ingestModal.js';
 import { mountDock } from './components/progressDock.js';
 import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
+import { mountCitationsPanel } from './components/citationsPanel.js';
+import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
 import * as researchesView from './views/researches.js';
@@ -87,6 +89,11 @@ async function boot() {
   }).catch(err => {
     console.warn('[boot] failed to load suggestions:', err);
   });
+
+  // Initial citation coverage fetch (non-fatal) — W5-C3
+  api.getDraftCitations()
+    .then(d => store.setCitationCoverage(d))
+    .catch(() => {});
 
   // Initial workspaces fetch (non-fatal) + topbar switcher (W4-F1)
   api.getWorkspaces()
@@ -159,6 +166,9 @@ async function boot() {
 
   // Mount the global companion converse panel (F4) once at boot
   mountConversePanel(api);
+
+  // Mount the citations coverage panel (W5-C3) once at boot
+  mountCitationsPanel(store, api);
 
   // Connection pill
   function updateConnectionPill() {
@@ -272,6 +282,46 @@ async function boot() {
   if (helpBtn) {
     helpBtn.addEventListener('click', () => openHelpPanel());
   }
+
+  // Citations coverage banner (W5-C3)
+  const citationsBanner     = document.getElementById('citations-banner');
+  const citationsBannerText = document.getElementById('citations-banner-text');
+  const citationsBannerLink = document.getElementById('citations-banner-link');
+  const citationsBannerCollapse = document.getElementById('citations-banner-collapse');
+
+  if (citationsBannerLink) {
+    citationsBannerLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
+    });
+  }
+  if (citationsBannerCollapse) {
+    citationsBannerCollapse.addEventListener('click', () => {
+      try { sessionStorage.setItem('rc.citationsBannerCollapsed', '1'); } catch { /* noop */ }
+      if (citationsBanner) citationsBanner.classList.remove('visible');
+    });
+  }
+
+  function updateCitationsBanner() {
+    if (!citationsBanner) return;
+    const { draftId, citationCoverage } = store.getState();
+    const counts = coverageCounts(citationCoverage);
+    const collapsed = (() => {
+      try { return sessionStorage.getItem('rc.citationsBannerCollapsed') === '1'; } catch { return false; }
+    })();
+    const visible = !!(
+      draftId &&
+      counts.total > 0 &&
+      counts.in_library < counts.total &&
+      !collapsed
+    );
+    citationsBanner.classList.toggle('visible', visible);
+    if (visible && citationsBannerText) {
+      citationsBannerText.textContent = bannerText(counts);
+    }
+  }
+  store.subscribe(['citations', 'draft'], updateCitationsBanner);
+  updateCitationsBanner();
 
   // Start router
   const viewEl = document.getElementById('view');

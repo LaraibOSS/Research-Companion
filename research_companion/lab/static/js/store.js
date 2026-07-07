@@ -39,6 +39,7 @@ const _state = {
   views: [],
   journey: null,
   workspaces: { list: [], activeId: null },
+  citationCoverage: null,
 };
 
 // Subscribers: Map<topic, Set<fn>>
@@ -264,4 +265,18 @@ if (!('gaps' in _state)) {
 export function setGaps(data) {
   _state.gaps = data || null;
   notify(['gaps']);
+}
+
+// ---------------------------------------------------------------------------
+// Citation coverage state (W5-C3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the full citation coverage response and notify 'citations' subscribers.
+ * Called at boot (non-fatal) and on panel open (lazy fetch).
+ * @param {object|null} data — GET /api/draft/citations response shape
+ */
+export function setCitationCoverage(data) {
+  _state.citationCoverage = data || null;
+  notify(['citations']);
 }

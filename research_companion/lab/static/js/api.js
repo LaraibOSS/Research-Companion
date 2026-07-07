@@ -219,3 +219,19 @@ export const patchWorkspace = (id, body) =>
 /** POST /api/workspaces/{id}/activate — returns { active, reload } (409 archived/job running) */
 export const activateWorkspace = (id) =>
   post(`/api/workspaces/${encodeURIComponent(id)}/activate`);
+
+// ---------------------------------------------------------------------------
+// Citation coverage endpoints (W5-C3)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/draft/citations — returns citation coverage for the current draft.
+ * Always returns 200 (no draft: empty counts).
+ */
+export const getDraftCitations = () => get('/api/draft/citations');
+
+/**
+ * POST /api/draft/citations/resolve — kick off background resolution job.
+ * Returns 202 {job_id} | 400 no draft | 409 already running.
+ */
+export const resolveCitations = () => post('/api/draft/citations/resolve');

@@ -221,3 +221,58 @@ test('unknown event kind still returns [] after suggestions_updated added', () =
   const topics = applyEvent(state, { event: 'completely_unknown', data: 'x' });
   assert.deepEqual(topics, []);
 });
+
+// ---- W5-C3: citation_coverage_updated ----
+
+test('citation_coverage_updated: merges counts into state.citationCoverage', () => {
+  const state = makeState();
+  state.citationCoverage = null;
+  const topics = applyEvent(state, {
+    event: 'citation_coverage_updated',
+    draft_paper_id: 'paper-1',
+    total: 10,
+    in_library: 4,
+    available: 3,
+    unchecked: 2,
+    unresolved: 1,
+    seq: 1,
+  });
+  assert.ok(state.citationCoverage, 'citationCoverage should be set');
+  assert.equal(state.citationCoverage.counts.total, 10);
+  assert.equal(state.citationCoverage.counts.in_library, 4);
+  assert.equal(state.citationCoverage.counts.available, 3);
+  assert.equal(state.citationCoverage.draft_paper_id, 'paper-1');
+  assert.ok(topics.includes('citations'), 'should emit citations topic');
+});
+
+test('citation_coverage_updated: sets stale:true', () => {
+  const state = makeState();
+  state.citationCoverage = { counts: { total: 5, in_library: 5 }, stale: false };
+  applyEvent(state, {
+    event: 'citation_coverage_updated',
+    draft_paper_id: 'paper-1',
+    total: 8,
+    in_library: 3,
+    available: 2,
+    unchecked: 2,
+    unresolved: 1,
+    seq: 2,
+  });
+  assert.ok(state.citationCoverage.stale, 'stale should be true after SSE update');
+});
+
+test('citation_coverage_updated: returns ["citations"]', () => {
+  const state = makeState();
+  state.citationCoverage = null;
+  const topics = applyEvent(state, {
+    event: 'citation_coverage_updated',
+    draft_paper_id: 'p1',
+    total: 2,
+    in_library: 1,
+    available: 1,
+    unchecked: 0,
+    unresolved: 0,
+    seq: 1,
+  });
+  assert.deepEqual(topics, ['citations']);
+});

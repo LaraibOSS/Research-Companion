@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -90,6 +90,9 @@ REQUIRED_STATIC_FILES = [
     "js/workspaceHelpers.js",
     "js/views/researches.js",
     "js/components/workspaceSwitcher.js",
+    # W5-C3 additions
+    "js/citationsHelpers.js",
+    "js/components/citationsPanel.js",
 ]
 
 
@@ -1628,3 +1631,64 @@ def test_sse_reloads_on_workspace_changed():
 def test_graph_draft_mode_exits_saved_view_first():
     js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
     assert "_restoreLive()" in js.split("function _setMode")[1].split("function ")[0]
+
+
+# ---------------------------------------------------------------------------
+# W5-C3: Citation Coverage UI — drift-guards
+# ---------------------------------------------------------------------------
+
+def test_index_html_has_citations_banner():
+    """index.html must have the #citations-banner element (W5-C3)."""
+    html = _index_text()
+    assert 'id="citations-banner"' in html, 'index.html missing #citations-banner'
+    assert 'id="citations-banner-text"' in html, 'index.html missing #citations-banner-text'
+    assert 'id="citations-banner-link"' in html, 'index.html missing #citations-banner-link'
+    assert 'id="citations-banner-collapse"' in html, 'index.html missing #citations-banner-collapse'
+
+
+def test_main_js_references_citations_banner_and_mounts_panel():
+    """main.js must reference citations-banner and mount citationsPanel (W5-C3)."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "citations-banner" in main_js, "main.js must reference citations-banner"
+    assert "citationsPanel" in main_js, "main.js must reference citationsPanel"
+    assert "mountCitationsPanel" in main_js, "main.js must call mountCitationsPanel"
+
+
+def test_api_js_exports_citations_endpoints():
+    """api.js must export getDraftCitations and resolveCitations (W5-C3)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "getDraftCitations" in api_js, "api.js must export getDraftCitations"
+    assert "resolveCitations" in api_js, "api.js must export resolveCitations"
+
+
+def test_store_js_has_set_citation_coverage():
+    """store.js must export setCitationCoverage (W5-C3)."""
+    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "setCitationCoverage" in store_js, "store.js must export setCitationCoverage"
+
+
+def test_reducer_handles_citation_coverage_updated():
+    """reducer.js must handle citation_coverage_updated event (W5-C3)."""
+    reducer_js = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "citation_coverage_updated" in reducer_js, \
+        "reducer.js must handle citation_coverage_updated event"
+
+
+def test_next_action_js_has_add_cited_papers_rule():
+    """nextAction.js must have the add-cited-papers rule (W5-C3)."""
+    js = (STATIC_DIR / "js" / "nextAction.js").read_text(encoding="utf-8")
+    assert "add-cited-papers" in js, "nextAction.js must have add-cited-papers rule"
+    assert "open-citations" in js, "nextAction.js add-cited-papers must use open-citations action"
+
+
+def test_css_has_citations_banner_and_chip_add():
+    """lab.css must include #citations-banner and .chip-add styles (W5-C3)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert "#citations-banner" in css, "lab.css missing #citations-banner"
+    assert ".chip-add" in css, "lab.css missing .chip-add"
+
+
+def test_citations_helpers_test_file_exists():
+    """tests/js/citationsHelpers.test.mjs must exist (W5-C3 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "citationsHelpers.test.mjs").exists(), \
+        "Missing tests/js/citationsHelpers.test.mjs"

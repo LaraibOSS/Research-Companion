@@ -1,0 +1,323 @@
+/**
+ * citationsHelpers.test.mjs — TDD tests for W5-C3 pure helpers.
+ *   coverageCounts, missingCount, bannerText, statusChip,
+ *   availableEntries, groupByStatus (citationsHelpers.js)
+ *   + selectNextActions 'add-cited-papers' rule (nextAction.js)
+ *
+ * Run from repo root:
+ *   node --test tests/js/citationsHelpers.test.mjs
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot  = path.resolve(__dirname, '..', '..');
+
+const {
+  coverageCounts,
+  missingCount,
+  bannerText,
+  statusChip,
+  availableEntries,
+  groupByStatus,
+} = await import(
+  pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'citationsHelpers.js')).href
+);
+
+const { selectNextActions } = await import(
+  pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'nextAction.js')).href
+);
+
+// -----------------------------------------------------------------------
+// coverageCounts — zeros-safe on null / no counts field
+// -----------------------------------------------------------------------
+
+test('coverageCounts: null coverage returns zeros', () => {
+  const c = coverageCounts(null);
+  assert.equal(c.total, 0);
+  assert.equal(c.in_library, 0);
+  assert.equal(c.available, 0);
+  assert.equal(c.unchecked, 0);
+  assert.equal(c.unresolved, 0);
+});
+
+test('coverageCounts: undefined coverage returns zeros', () => {
+  const c = coverageCounts(undefined);
+  assert.equal(c.total, 0);
+  assert.equal(c.in_library, 0);
+});
+
+test('coverageCounts: coverage with no counts field returns zeros', () => {
+  const c = coverageCounts({ source: 'none', references: [] });
+  assert.equal(c.total, 0);
+});
+
+test('coverageCounts: returns existing counts from coverage.counts', () => {
+  const cov = {
+    counts: { total: 10, in_library: 4, available: 3, unchecked: 2, unresolved: 1 },
+    references: [],
+  };
+  const c = coverageCounts(cov);
+  assert.equal(c.total, 10);
+  assert.equal(c.in_library, 4);
+  assert.equal(c.available, 3);
+  assert.equal(c.unchecked, 2);
+  assert.equal(c.unresolved, 1);
+});
+
+test('coverageCounts: partial counts defaults missing fields to 0', () => {
+  const cov = { counts: { total: 5, in_library: 5 }, references: [] };
+  const c = coverageCounts(cov);
+  assert.equal(c.total, 5);
+  assert.equal(c.in_library, 5);
+  assert.equal(c.available, 0);
+  assert.equal(c.unchecked, 0);
+  assert.equal(c.unresolved, 0);
+});
+
+// -----------------------------------------------------------------------
+// missingCount
+// -----------------------------------------------------------------------
+
+test('missingCount: total - in_library', () => {
+  assert.equal(missingCount({ total: 10, in_library: 4 }), 6);
+});
+
+test('missingCount: fully covered returns 0', () => {
+  assert.equal(missingCount({ total: 5, in_library: 5 }), 0);
+});
+
+test('missingCount: zeros returns 0', () => {
+  assert.equal(missingCount({ total: 0, in_library: 0 }), 0);
+});
+
+// -----------------------------------------------------------------------
+// bannerText
+// -----------------------------------------------------------------------
+
+test('bannerText: returns correct string', () => {
+  const text = bannerText({ total: 12, in_library: 5 });
+  assert.equal(text, 'Analysis covers 5 of 12 cited papers');
+});
+
+test('bannerText: zero totals', () => {
+  const text = bannerText({ total: 0, in_library: 0 });
+  assert.equal(text, 'Analysis covers 0 of 0 cited papers');
+});
+
+// -----------------------------------------------------------------------
+// statusChip — four statuses
+// -----------------------------------------------------------------------
+
+test('statusChip: in_library', () => {
+  const chip = statusChip({ status: 'in_library' });
+  assert.equal(chip.label, 'In library ✓');
+  assert.equal(chip.cls, 'chip-ok');
+});
+
+test('statusChip: available', () => {
+  const chip = statusChip({ status: 'available' });
+  assert.equal(chip.label, 'Add ↓');
+  assert.equal(chip.cls, 'chip-add');
+});
+
+test('statusChip: unchecked', () => {
+  const chip = statusChip({ status: 'unchecked' });
+  assert.equal(chip.label, 'Not checked');
+  assert.equal(chip.cls, 'chip-muted');
+});
+
+test('statusChip: unresolved', () => {
+  const chip = statusChip({ status: 'unresolved' });
+  assert.equal(chip.label, 'Unresolved ?');
+  assert.equal(chip.cls, 'chip-warn');
+});
+
+test('statusChip: unknown status returns fallback', () => {
+  const chip = statusChip({ status: 'bogus' });
+  assert.ok(chip.label);
+  assert.ok(chip.cls);
+});
+
+// -----------------------------------------------------------------------
+// availableEntries
+// -----------------------------------------------------------------------
+
+const REFS = [
+  { index: 1, raw: 'Foo et al.', status: 'available', add_target: 'arxiv:1234' },
+  { index: 2, raw: 'Bar et al.', status: 'in_library', add_target: null },
+  { index: 3, raw: 'Baz et al.', status: 'available', add_target: null }, // no add_target
+  { index: 4, raw: 'Qux et al.', status: 'unchecked', add_target: 'arxiv:5678' },
+  { index: 5, raw: 'Quux et al.', status: 'available', add_target: 'arxiv:9999' },
+];
+
+test('availableEntries: returns only available refs with add_target', () => {
+  const coverage = { references: REFS, counts: {} };
+  const entries = availableEntries(coverage);
+  assert.equal(entries.length, 2);
+  assert.ok(entries.every(e => e.status === 'available' && e.add_target));
+});
+
+test('availableEntries: null coverage returns empty', () => {
+  assert.deepEqual(availableEntries(null), []);
+});
+
+test('availableEntries: no references returns empty', () => {
+  assert.deepEqual(availableEntries({ counts: {} }), []);
+});
+
+// -----------------------------------------------------------------------
+// groupByStatus — order: available, unchecked, unresolved, in_library
+// -----------------------------------------------------------------------
+
+const MIXED_REFS = [
+  { index: 1, raw: 'A', status: 'in_library' },
+  { index: 2, raw: 'B', status: 'available', add_target: 'x' },
+  { index: 3, raw: 'C', status: 'unresolved' },
+  { index: 4, raw: 'D', status: 'unchecked' },
+  { index: 5, raw: 'E', status: 'available', add_target: 'y' },
+  { index: 6, raw: 'F', status: 'in_library' },
+];
+
+test('groupByStatus: available comes first', () => {
+  const groups = groupByStatus(MIXED_REFS);
+  // First group should be available entries
+  const availableIdx = groups.findIndex(e => e.status === 'available');
+  const inLibIdx = groups.findIndex(e => e.status === 'in_library');
+  assert.ok(availableIdx < inLibIdx, 'available before in_library');
+});
+
+test('groupByStatus: unchecked before unresolved', () => {
+  const groups = groupByStatus(MIXED_REFS);
+  const uncheckedIdx = groups.findIndex(e => e.status === 'unchecked');
+  const unresolvedIdx = groups.findIndex(e => e.status === 'unresolved');
+  assert.ok(uncheckedIdx < unresolvedIdx, 'unchecked before unresolved');
+});
+
+test('groupByStatus: all refs present', () => {
+  const groups = groupByStatus(MIXED_REFS);
+  assert.equal(groups.length, MIXED_REFS.length);
+});
+
+test('groupByStatus: within same status, original index order preserved', () => {
+  const groups = groupByStatus(MIXED_REFS);
+  const avail = groups.filter(e => e.status === 'available');
+  assert.equal(avail[0].index, 2);
+  assert.equal(avail[1].index, 5);
+});
+
+test('groupByStatus: empty returns empty', () => {
+  assert.deepEqual(groupByStatus([]), []);
+});
+
+test('groupByStatus: null returns empty', () => {
+  assert.deepEqual(groupByStatus(null), []);
+});
+
+// -----------------------------------------------------------------------
+// selectNextActions — add-cited-papers rule
+// -----------------------------------------------------------------------
+
+function makeNBAState(overrides = {}) {
+  return {
+    settings: { provider: 'anthropic', keys: { anthropic_api_key: { set: true } } },
+    draftId: 'paper-1',
+    papers: new Map([
+      ['paper-1', { paper_id: 'paper-1', is_draft: true, status: 'done' }],
+      ['paper-2', { paper_id: 'paper-2', is_draft: false, status: 'done' }],
+      ['paper-3', { paper_id: 'paper-3', is_draft: false, status: 'done' }],
+    ]),
+    failures: {},
+    suggestions: [],
+    suggestionCounts: { open: 0, by_severity: null },
+    ...overrides,
+  };
+}
+
+test('selectNextActions add-cited-papers: fires when draft set, total>0, missing>0', () => {
+  const state = makeNBAState({
+    citationCoverage: {
+      draft_paper_id: 'paper-1',
+      counts: { total: 10, in_library: 4, available: 3, unchecked: 2, unresolved: 1 },
+    },
+  });
+  const actions = selectNextActions(state);
+  const action = actions.find(a => a.id === 'add-cited-papers');
+  assert.ok(action, 'add-cited-papers action should be present');
+  assert.equal(action.action, 'open-citations');
+  assert.ok(action.label.includes('6'), 'label should mention missing count');
+});
+
+test('selectNextActions add-cited-papers: absent when fully covered', () => {
+  const state = makeNBAState({
+    citationCoverage: {
+      draft_paper_id: 'paper-1',
+      counts: { total: 5, in_library: 5, available: 0, unchecked: 0, unresolved: 0 },
+    },
+  });
+  const actions = selectNextActions(state);
+  assert.ok(!actions.some(a => a.id === 'add-cited-papers'), 'should NOT fire when fully covered');
+});
+
+test('selectNextActions add-cited-papers: absent when no draft', () => {
+  const state = makeNBAState({
+    draftId: null,
+    citationCoverage: {
+      draft_paper_id: null,
+      counts: { total: 10, in_library: 4, available: 3, unchecked: 2, unresolved: 1 },
+    },
+  });
+  const actions = selectNextActions(state);
+  assert.ok(!actions.some(a => a.id === 'add-cited-papers'), 'should NOT fire when no draft');
+});
+
+test('selectNextActions add-cited-papers: absent when citationCoverage null', () => {
+  const state = makeNBAState({ citationCoverage: null });
+  const actions = selectNextActions(state);
+  assert.ok(!actions.some(a => a.id === 'add-cited-papers'));
+});
+
+test('selectNextActions add-cited-papers: absent when total=0', () => {
+  const state = makeNBAState({
+    citationCoverage: {
+      draft_paper_id: 'paper-1',
+      counts: { total: 0, in_library: 0, available: 0, unchecked: 0, unresolved: 0 },
+    },
+  });
+  const actions = selectNextActions(state);
+  assert.ok(!actions.some(a => a.id === 'add-cited-papers'));
+});
+
+test('selectNextActions add-cited-papers: priority places it before add-papers (Rule 3)', () => {
+  // State that triggers both add-cited-papers and add-papers
+  const state = makeNBAState({
+    papers: new Map([['paper-1', { paper_id: 'paper-1', is_draft: true }]]), // < 3 non-draft
+    citationCoverage: {
+      draft_paper_id: 'paper-1',
+      counts: { total: 10, in_library: 2, available: 5, unchecked: 3, unresolved: 0 },
+    },
+  });
+  const actions = selectNextActions(state);
+  const ccIdx = actions.findIndex(a => a.id === 'add-cited-papers');
+  const apIdx = actions.findIndex(a => a.id === 'add-papers');
+  // Both present: add-cited-papers must come first (lower priority number)
+  if (ccIdx !== -1 && apIdx !== -1) {
+    assert.ok(ccIdx < apIdx, 'add-cited-papers must appear before add-papers');
+  }
+});
+
+test('selectNextActions add-cited-papers: singular label for 1 missing', () => {
+  const state = makeNBAState({
+    citationCoverage: {
+      draft_paper_id: 'paper-1',
+      counts: { total: 5, in_library: 4, available: 1, unchecked: 0, unresolved: 0 },
+    },
+  });
+  const actions = selectNextActions(state);
+  const action = actions.find(a => a.id === 'add-cited-papers');
+  assert.ok(action, 'should be present');
+  assert.ok(!action.label.endsWith('papers'), 'singular: no trailing s');
+  assert.ok(action.label.includes('paper'), 'should include "paper"');
+});

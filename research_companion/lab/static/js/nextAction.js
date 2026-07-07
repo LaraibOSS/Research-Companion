@@ -41,6 +41,22 @@ export function selectNextActions(state) {
     });
   }
 
+  // Rule 2.5: missing cited papers (after add-draft, before add-papers)
+  const cc = state.citationCoverage;
+  if (state.draftId && cc && cc.counts && cc.counts.total > 0) {
+    const missing = (cc.counts.total - cc.counts.in_library);
+    if (missing > 0) {
+      const s = missing === 1 ? '' : 's';
+      candidates.push({
+        id: 'add-cited-papers',
+        priority: 2.5,
+        label: `Add ${missing} missing cited paper${s}`,
+        detail: 'Your draft cites papers that are not in your library yet.',
+        action: 'open-citations',
+      });
+    }
+  }
+
   // Rule 3: papers < 3 (non-draft papers)
   const papers = state.papers instanceof Map ? state.papers : new Map();
   let nonDraftCount = 0;
