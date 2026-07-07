@@ -36,6 +36,9 @@ _KIND = {
     "WorkspaceChanged": "workspace_changed",
     # Citation coverage events (Task W5-C2)
     "CitationCoverageUpdated": "citation_coverage_updated",
+    # Background-activity lifecycle (v0.5.2)
+    "JobStarted": "job_started",
+    "JobFinished": "job_finished",
 }
 
 
@@ -186,6 +189,27 @@ class CitationCoverageUpdated:
     available: int
     unchecked: int
     unresolved: int
+
+
+@dataclass
+class JobStarted:
+    """A background job began — drives the activity indicator.
+
+    `target` carries the add-target (arXiv id / DOI) for kind=="add" so the
+    citations panel can mark the matching row as downloading; empty otherwise.
+    """
+    job_id: str
+    kind: str
+    label: str
+    target: str = ""
+
+
+@dataclass
+class JobFinished:
+    """A background job ended (done or failed) — clears the activity entry."""
+    job_id: str
+    kind: str
+    status: str
 
 
 def event_to_dict(event) -> dict[str, object]:

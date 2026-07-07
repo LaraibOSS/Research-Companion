@@ -174,6 +174,7 @@ class _SeqRecorder:
         self._bus = bus
         self._records: list[tuple[int, Any]] = []
         self._seq = 0
+        self._stopping = False
         # Condition used to notify waiting SSE consumers when new events arrive.
         # Must be created lazily (inside the running event loop) — see _get_condition().
         self._condition: asyncio.Condition | None = None
@@ -212,6 +213,17 @@ class _SeqRecorder:
         self._seen_ids.clear()
         self._seq = 0
 
+    def stop(self) -> None:
+        """Request drain() to exit at its next iteration.
+
+        Cancellation alone is NOT reliable: Python 3.10's asyncio.wait_for can
+        swallow a cancellation that races a ready queue item (bpo-42130),
+        leaving drain alive after cancel() and wedging the lifespan shutdown
+        forever on `await drain_task` — surfaced when job-lifecycle events are
+        published right at shutdown time.
+        """
+        self._stopping = True
+
     async def drain(self) -> None:
         """Continuously drain the Bus queue, assigning seq numbers (skipping pre-history).
 
@@ -219,7 +231,7 @@ class _SeqRecorder:
         so that generators can serve the authoritative (seq, event) pair.
         """
         condition = self._get_condition()
-        while True:
+        while not self._stopping:
             try:
                 event = await asyncio.wait_for(self._q.get(), timeout=1.0)
                 if id(event) not in self._seen_ids:
@@ -274,6 +286,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         try:
             yield
         finally:
+            recorder.stop()   # flag first — cancel alone can be swallowed (bpo-42130)
             drain_task.cancel()
             with suppress(asyncio.CancelledError):
                 await drain_task
@@ -412,11 +425,24 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)
     # -----------------------------------------------------------------
+    async def _announce_start(job_id: str, kind: str, label: str, target: str = "") -> None:
+        from research_companion.agents.events import JobStarted
+        with suppress(Exception):
+            await bus.publish(JobStarted(job_id=job_id, kind=kind, label=label, target=target))
+
+    async def _announce_finish(job_id: str, kind: str) -> None:
+        from research_companion.agents.events import JobFinished
+        with suppress(Exception):
+            status = app.state.jobs.get(job_id, {}).get("status", "done")
+            await bus.publish(JobFinished(job_id=job_id, kind=kind, status=status))
+
     def _queue_add_paper(target: str) -> str:
         """Create an add-paper job — shared by the endpoint and citation auto-add."""
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add"}
+        label = f"Downloading {target}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add",
+                                  "label": label, "target": target}
 
         if app.state.add_paper_override is not None:
             coro = app.state.add_paper_override(target, bus)
@@ -428,12 +454,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             )
 
         async def _run():
+            await _announce_start(job_id, "add", label, target)
             try:
                 await coro
-                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add",
+                                          "label": label, "target": target}
             except Exception as exc:
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add",
+                                          "label": label, "target": target}
             finally:
+                await _announce_finish(job_id, "add")
                 # add_paper stores metadata BEFORE the pipeline runs, so even a
                 # failed pipeline can have changed the library — always refresh.
                 _schedule_coverage_refresh()
@@ -506,7 +536,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add"}
+        up_label = f"Ingesting {safe or meta.paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add",
+                                  "label": up_label, "target": ""}
 
         if app.state.upload_override is not None:
             coro = app.state.upload_override(meta, bus)
@@ -518,12 +550,17 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             )
 
         async def _run_upload():
+            await _announce_start(job_id, "add", up_label)
             try:
                 await coro
-                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add"}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add",
+                                          "label": up_label, "target": ""}
                 _schedule_coverage_refresh()
             except Exception as exc:
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add"}
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add",
+                                          "label": up_label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "add")
 
         asyncio.create_task(_run_upload())
         return {"job_id": job_id, "paper_id": meta.paper_id,
@@ -549,7 +586,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "retry"}
+        retry_label = f"Retrying {paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "retry",
+                                  "label": retry_label, "target": ""}
 
         if app.state.retry_override is not None:
             coro = app.state.retry_override(matched_key, paper_id, bus)
@@ -562,15 +601,20 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             )
 
         async def _run():
+            await _announce_start(job_id, "retry", retry_label)
             try:
                 await coro
                 # clear_failure only on success — failure entry kept/updated on error
                 store.clear_failure(matched_key)
-                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry"}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry",
+                                          "label": retry_label, "target": ""}
                 _schedule_coverage_refresh()
             except Exception as exc:
                 # Do NOT clear_failure — keep the failure record so the user can see it
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry"}
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry",
+                                          "label": retry_label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "retry")
 
         asyncio.create_task(_run())
         return {"job_id": job_id}
@@ -780,9 +824,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "citations"}
+        cite_label = "Checking references…"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "citations",
+                                  "label": cite_label, "target": ""}
 
         async def _run_resolve():
+            await _announce_start(job_id, "citations", cite_label)
             try:
                 payload = await asyncio.to_thread(load_coverage)
                 if await asyncio.to_thread(is_stale, payload, draft_id):
@@ -795,12 +842,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     payload = await asyncio.to_thread(resolve_missing, payload)
                 await bus.publish(CitationCoverageUpdated(
                     draft_paper_id=draft_id, **payload["counts"]))
-                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "citations"}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "citations",
+                                          "label": cite_label, "target": ""}
                 # Newly resolved refs become available — the refresh auto-queues
                 # their downloads when auto_add_citations is on.
                 _schedule_coverage_refresh()
             except Exception as exc:  # noqa: BLE001
-                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "citations"}
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "citations",
+                                          "label": cite_label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "citations")
 
         asyncio.create_task(_run_resolve())
         return job_id
@@ -929,7 +980,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "ingest"}
+        ingest_label = f"Ingesting folder ({len(pdfs)} PDFs)…"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "ingest",
+                                  "label": ingest_label, "target": ""}
 
         ingest_fn = app.state.ingest_override
         if ingest_fn is None:
@@ -937,12 +990,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             ingest_fn = _real_ingest
 
         async def _run_ingest():
+            await _announce_start(job_id, "ingest", ingest_label)
             try:
                 await ingest_fn(folder, bus=bus)
-                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "ingest"}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "ingest",
+                                          "label": ingest_label, "target": ""}
                 _schedule_coverage_refresh()
             except Exception as exc:
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "ingest"}
+            finally:
+                await _announce_finish(job_id, "ingest")
 
         asyncio.create_task(_run_ingest())
 
@@ -951,6 +1008,20 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             "discovered": len(pdfs),
             "files": [p.name for p in pdfs],
         }
+
+    # -----------------------------------------------------------------
+    # GET /api/jobs — active (running) jobs, for boot hydration of the
+    # activity indicator (registered before the /{job_id} route)
+    # -----------------------------------------------------------------
+    @app.get("/api/jobs")
+    async def list_jobs() -> dict:
+        return {"jobs": [
+            {"job_id": jid, "kind": info.get("kind", ""),
+             "label": info.get("label", ""), "target": info.get("target", ""),
+             "status": info.get("status", "")}
+            for jid, info in app.state.jobs.items()
+            if info.get("status") == "running"
+        ]}
 
     # -----------------------------------------------------------------
     # GET /api/jobs/{id}
@@ -1472,9 +1543,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "gaps"}
+        gaps_label = "Analyzing gaps…"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "gaps",
+                                  "label": gaps_label, "target": ""}
 
         async def _run_gaps():
+            await _announce_start(job_id, "gaps", gaps_label)
             try:
                 from research_companion.gaps import (
                     extract_all_gaps,
@@ -1500,13 +1574,17 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     if g.get("resolution", {}).get("status") == "open"
                 )
                 await bus.publish(GapsUpdated(n_gaps=n_gaps, n_open=n_open))
-                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "gaps"}
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "gaps",
+                                          "label": gaps_label, "target": ""}
             except Exception as exc:  # noqa: BLE001
                 app.state.jobs[job_id] = {
                     "status": "failed",
                     "detail": str(exc),
                     "kind": "gaps",
+                    "label": gaps_label, "target": "",
                 }
+            finally:
+                await _announce_finish(job_id, "gaps")
 
         asyncio.create_task(_run_gaps())
         return {"job_id": job_id}
