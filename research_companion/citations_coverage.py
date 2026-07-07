@@ -114,7 +114,7 @@ def _roughly_ascending(nums: list[int]) -> bool:
         return False
     if nums[0] > 5:  # bibliographies start at 1 (tolerate a couple of misses)
         return False
-    increasing = sum(1 for a, b in zip(nums, nums[1:]) if b > a)
+    increasing = sum(1 for a, b in zip(nums, nums[1:], strict=False) if b > a)
     return len(nums) == 1 or increasing >= (len(nums) - 1) * 0.7
 
 

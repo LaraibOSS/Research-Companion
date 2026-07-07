@@ -157,4 +157,6 @@ def list_workspaces(*, with_stats: bool = True) -> dict:
         if with_stats:
             item["stats"] = workspace_stats(rec["id"])
         out.append(item)
-    return {"active": reg.get("active", "main"), "workspaces": out}
+    # Effective active id (honors $RESEARCH_COMPANION_WORKSPACE), not just the
+    # registry field — the UI must label the workspace actually being served.
+    return {"active": store.active_workspace_id(), "workspaces": out}

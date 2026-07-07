@@ -131,3 +131,11 @@ class TestListAndStats:
         listing = workspaces.list_workspaces()  # must not raise
         rec = next(w for w in listing["workspaces"] if w["id"] == "corrupt")
         assert rec["stats"]["papers"] == 0
+
+
+class TestListActiveHonorsEnvOverride:
+    def test_env_override_reflected_in_listing(self, isolated_root_dir, monkeypatch):
+        workspaces.create_workspace("Other")
+        monkeypatch.setenv("RESEARCH_COMPANION_WORKSPACE", "other")
+        store._reset_workspace_caches()
+        assert workspaces.list_workspaces(with_stats=False)["active"] == "other"
