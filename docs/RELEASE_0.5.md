@@ -52,3 +52,14 @@ fetched stays listed as Unresolved with the raw citation on hover. A Settings
 toggle ("Automatically download papers cited by your draft", on by default)
 preserves cost control: each downloaded paper still costs one model extraction
 call.
+
+## 0.5.2 — it tells you what it's doing
+
+Every background task is now visible: a spinner with a live label in the top
+bar ("Downloading 1810.04805", "Checking references…", "2 tasks running"),
+per-task lines in the progress dock, "Downloading…" chips on citation rows,
+and the coverage banner switches to in-flight text while work is underway.
+A new GET /api/jobs endpoint hydrates tabs opened mid-work. Under the hood,
+every job publishes JobStarted/JobFinished lifecycle events — and chasing a
+test hang exposed and fixed a latent shutdown bug (Python 3.10 asyncio
+cancellation-swallowing) that had been lurking since 0.2.
