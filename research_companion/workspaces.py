@@ -84,6 +84,46 @@ def update_workspace(ws_id: str, *, name: str | None = None,
     return rec
 
 
+def delete_workspace(ws_id: str) -> dict:
+    """Remove a workspace's registry entry and its directory tree.
+
+    When the deletee is active, the registry is saved twice (new active first,
+    entry removed after the rmtree) so a crash mid-delete never leaves the
+    registry pointing at a removed workspace, and never orphans a directory
+    behind a removed entry — a re-created research with the same slug would
+    inherit the old papers.
+    """
+    reg = store.load_registry()
+    _find(reg, ws_id)
+    others = [w for w in reg["workspaces"] if w.get("id") != ws_id]
+    switched = reg.get("active") == ws_id
+
+    if not others:
+        # Deleting the last workspace: fall back to a fresh default main.
+        others = list(store._default_registry()["workspaces"])
+
+    if switched:
+        if any(w.get("id") == "main" for w in others):
+            new_active = "main"
+        else:
+            open_ws = [w for w in others if not w.get("archived")]
+            new_active = (open_ws or others)[0]["id"]
+        reg["active"] = new_active
+        store.save_registry(reg)
+    else:
+        new_active = reg.get("active") or "main"
+
+    ws_dir = store.workspaces_root() / ws_id
+    if ws_dir.exists():
+        store._rmtree_retry(ws_dir)
+
+    reg["workspaces"] = others
+    store.save_registry(reg)
+    if switched:
+        store._reset_workspace_caches()
+    return {"removed": True, "active": new_active, "switched": switched}
+
+
 def activate_workspace(ws_id: str) -> dict:
     reg = store.load_registry()
     rec = _find(reg, ws_id)

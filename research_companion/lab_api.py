@@ -1468,6 +1468,35 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         return {**result, "reload": True}
 
+    @app.delete("/api/workspaces/{ws_id}")
+    async def delete_workspace_ep(ws_id: str) -> dict:
+        from research_companion import store, workspaces
+        from research_companion.agents.events import EventLog, WorkspaceChanged
+
+        # Running pipelines write to the OLD workspace's paths — refuse to
+        # switch under them.
+        if any(j.get("status") == "running" for j in app.state.jobs.values()):
+            raise HTTPException(
+                status_code=409,
+                detail="A job is still running — wait for it to finish "
+                       "before switching research.")
+
+        try:
+            result = await asyncio.to_thread(workspaces.delete_workspace, ws_id)
+        except workspaces.WorkspaceError as exc:
+            raise _ws_http(exc) from exc
+
+        if result["switched"]:
+            # Repoint the persistent event log (skip for test buses without one)
+            if bus._log is not None:
+                bus.set_log(EventLog(store.papergraph_dir() / "lab_events.jsonl"))
+            # The SSE stream must not replay the previous workspace's events
+            bus.history.clear()
+            app.state.recorder.reset()
+            await bus.publish(WorkspaceChanged(workspace_id=result["active"]))
+
+        return result
+
     # -----------------------------------------------------------------
     # GET /api/views
     # -----------------------------------------------------------------

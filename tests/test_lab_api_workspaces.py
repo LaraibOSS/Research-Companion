@@ -120,6 +120,74 @@ class TestActivate:
             assert c.post("/api/workspaces/blocked/activate").status_code == 200
 
 
+class TestDelete:
+    def test_delete_non_active(self, isolated_papergraph_dir):
+        _app, _bus, c = _make_client()
+        with c:
+            c.post("/api/workspaces", json={"name": "Doomed"})
+            resp = c.delete("/api/workspaces/doomed")
+            assert resp.status_code == 200
+            assert resp.json() == {
+                "removed": True, "active": "main", "switched": False}
+            assert not (store.workspaces_root() / "doomed").exists()
+            data = c.get("/api/workspaces").json()
+            assert data["active"] == "main"
+            assert all(w["id"] != "doomed" for w in data["workspaces"])
+
+    def test_delete_active_switches_and_publishes_workspace_changed(
+            self, isolated_papergraph_dir):
+        _app, bus, c = _make_client()
+        with c:
+            c.post("/api/workspaces", json={"name": "Proj D"})
+            c.post("/api/workspaces/proj-d/activate")
+            resp = c.delete("/api/workspaces/proj-d")
+            assert resp.status_code == 200
+            assert resp.json() == {
+                "removed": True, "active": "main", "switched": True}
+            # history was cleared on switch, then the delete's event published
+            kinds = [type(e).__name__ for e in bus.history]
+            assert kinds == ["WorkspaceChanged"]
+            assert bus.history[0].workspace_id == "main"
+            assert store.papergraph_dir().name == "main"
+            assert not (store.workspaces_root() / "proj-d").exists()
+
+    def test_delete_only_workspace_synthesizes_fresh_main(
+            self, isolated_papergraph_dir):
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.delete("/api/workspaces/main")
+            assert resp.status_code == 200
+            assert resp.json() == {
+                "removed": True, "active": "main", "switched": True}
+            data = c.get("/api/workspaces").json()
+            assert data["active"] == "main"
+            assert [w["id"] for w in data["workspaces"]] == ["main"]
+
+    def test_delete_main_while_not_active_allowed(self, isolated_papergraph_dir):
+        _app, _bus, c = _make_client()
+        with c:
+            c.post("/api/workspaces", json={"name": "Other"})
+            c.post("/api/workspaces/other/activate")
+            resp = c.delete("/api/workspaces/main")
+            assert resp.status_code == 200
+            assert resp.json() == {
+                "removed": True, "active": "other", "switched": False}
+
+    def test_delete_unknown_404(self, isolated_papergraph_dir):
+        _app, _bus, c = _make_client()
+        with c:
+            assert c.delete("/api/workspaces/nope").status_code == 404
+
+    def test_delete_blocked_while_job_running(self, isolated_papergraph_dir):
+        app, _bus, c = _make_client()
+        with c:
+            c.post("/api/workspaces", json={"name": "Busy"})
+            app.state.jobs["x"] = {"status": "running"}
+            assert c.delete("/api/workspaces/busy").status_code == 409
+            app.state.jobs["x"]["status"] = "done"
+            assert c.delete("/api/workspaces/busy").status_code == 200
+
+
 class TestWorkspaceChangedNotReplayed:
     """REGRESSION (0.4.0 flicker loop): workspace_changed is a transient
     "reload now" signal. The SSE endpoint replays history to every fresh

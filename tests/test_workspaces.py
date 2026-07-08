@@ -93,6 +93,59 @@ class TestActivate:
         assert e.value.status == 409
 
 
+class TestDelete:
+    def test_delete_non_active(self, isolated_root_dir):
+        workspaces.create_workspace("Other")
+        result = workspaces.delete_workspace("other")
+        assert result == {"removed": True, "active": "main", "switched": False}
+        assert not (isolated_root_dir / "workspaces" / "other").exists()
+        reg = store.load_registry()
+        assert all(w["id"] != "other" for w in reg["workspaces"])
+        assert reg["active"] == "main"
+
+    def test_delete_active_prefers_main(self, isolated_root_dir):
+        workspaces.create_workspace("Other")
+        workspaces.activate_workspace("other")
+        result = workspaces.delete_workspace("other")
+        assert result == {"removed": True, "active": "main", "switched": True}
+        assert store.load_registry()["active"] == "main"
+        assert not (isolated_root_dir / "workspaces" / "other").exists()
+
+    def test_delete_active_main_falls_back_to_first_open(self, isolated_root_dir):
+        workspaces.create_workspace("Arch")
+        workspaces.create_workspace("Open One")
+        workspaces.update_workspace("arch", archived=True)
+        result = workspaces.delete_workspace("main")
+        assert result == {"removed": True, "active": "open-one", "switched": True}
+        assert store.load_registry()["active"] == "open-one"
+
+    def test_delete_active_all_others_archived_picks_first(self, isolated_root_dir):
+        workspaces.create_workspace("Arch")
+        workspaces.update_workspace("arch", archived=True)
+        result = workspaces.delete_workspace("main")
+        assert result == {"removed": True, "active": "arch", "switched": True}
+
+    def test_delete_only_workspace_resynthesizes_main(self, isolated_root_dir):
+        result = workspaces.delete_workspace("main")
+        assert result == {"removed": True, "active": "main", "switched": True}
+        reg = store.load_registry()
+        assert reg["active"] == "main"
+        assert [w["id"] for w in reg["workspaces"]] == ["main"]
+        assert reg["workspaces"][0]["archived"] is False
+
+    def test_delete_main_when_not_active(self, isolated_root_dir):
+        workspaces.create_workspace("Other")
+        workspaces.activate_workspace("other")
+        result = workspaces.delete_workspace("main")
+        assert result == {"removed": True, "active": "other", "switched": False}
+        assert [w["id"] for w in store.load_registry()["workspaces"]] == ["other"]
+
+    def test_delete_unknown_404(self, isolated_root_dir):
+        with pytest.raises(workspaces.WorkspaceError) as e:
+            workspaces.delete_workspace("nope")
+        assert e.value.status == 404
+
+
 class TestListAndStats:
     def test_list_includes_stats(self, isolated_papergraph_dir, isolated_root_dir):
         # Seed the active (main) workspace with a paper + draft + suggestions

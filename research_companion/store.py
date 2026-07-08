@@ -411,26 +411,31 @@ def list_papers() -> list[PaperMetadata]:
     return out
 
 
-def remove_paper(paper_id: str) -> bool:
-    """Delete a paper's directory. Returns True if removed, False if not present.
+def _rmtree_retry(path: Path) -> None:
+    """Delete a directory tree, retrying transient Windows sharing violations.
 
     Windows refuses to delete files another thread has momentarily open
     (WinError 32) — background coverage/stats reads race deletes — so retry
-    briefly before giving up.
+    briefly before giving up; the 5th PermissionError propagates.
     """
-    d = papers_dir() / _id_to_dirname(paper_id)
-    if not d.exists():
-        return False
     import shutil
     import time as _time
     for attempt in range(5):
         try:
-            shutil.rmtree(d)
-            return True
+            shutil.rmtree(path)
+            return
         except PermissionError:
             if attempt == 4:
                 raise
             _time.sleep(0.15 * (attempt + 1))
+
+
+def remove_paper(paper_id: str) -> bool:
+    """Delete a paper's directory. Returns True if removed, False if not present."""
+    d = papers_dir() / _id_to_dirname(paper_id)
+    if not d.exists():
+        return False
+    _rmtree_retry(d)
     return True
 
 
