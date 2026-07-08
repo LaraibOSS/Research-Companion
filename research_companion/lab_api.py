@@ -27,6 +27,26 @@ from typing import Any
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import event_to_dict
 
+
+def _pipeline_provider_model() -> tuple[str, str | None]:
+    """Resolve (provider, model) for pipeline LLM calls.
+
+    Uses the SAME resolution as /api/settings (saved settings <- env <-
+    default) so the pipeline can never disagree with what the Settings page
+    shows. Previously this read the raw env var and defaulted to anthropic,
+    so a server started without the env var failed extraction auth while the
+    UI displayed the correct provider.
+    """
+    try:
+        from research_companion.settings import get_settings
+        s = get_settings()
+        return s.get("provider") or "anthropic", s.get("model")
+    except Exception:  # noqa: BLE001 — never let settings issues kill a job
+        import os
+        return (os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic"),
+                os.environ.get("RESEARCH_COMPANION_MODEL"))
+
+
 # Upload size cap for POST /api/papers/upload (module-level so tests can patch it)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -1780,7 +1800,6 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 async def _run_paper_pipeline(meta, path_str: str, bus: Bus, *,
                               pipeline_overrides: dict | None = None) -> None:
     """Publish PaperAdded and run the full single-paper pipeline for a stored paper."""
-    import os
 
     from research_companion.agents.events import JobDone, PaperAdded
     from research_companion.lab import _default_aligner, _default_strengther, ingest_one
@@ -1808,8 +1827,7 @@ async def _run_paper_pipeline(meta, path_str: str, bus: Bus, *,
     aligner = pipeline_overrides.get("aligner", _default_aligner())
     strengther = pipeline_overrides.get("strengther", _default_strengther())
 
-    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-    model = os.environ.get("RESEARCH_COMPANION_MODEL")
+    provider, model = _pipeline_provider_model()
 
     await ingest_one(
         meta,
@@ -1854,7 +1872,6 @@ async def _retry_paper_task(
     Raises on add failure so the caller's _run() records "failed" status and
     the failure entry is kept (not cleared).
     """
-    import os
 
     from research_companion.agents.events import JobDone, PaperAdded
     from research_companion.lab import _default_aligner, _default_strengther, ingest_one
@@ -1887,8 +1904,7 @@ async def _retry_paper_task(
     aligner = pipeline_overrides.get("aligner", _default_aligner())
     strengther = pipeline_overrides.get("strengther", _default_strengther())
 
-    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-    model = os.environ.get("RESEARCH_COMPANION_MODEL")
+    provider, model = _pipeline_provider_model()
 
     await ingest_one(
         meta,
@@ -1917,12 +1933,10 @@ def _resolve_llm(*, json_mode: bool = True):
     (compare narrative) pass json_mode=False so OpenAI's forced JSON response
     format does not mangle free text.
     """
-    import os
 
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
-    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-    model = os.environ.get("RESEARCH_COMPANION_MODEL")
+    provider, model = _pipeline_provider_model()
     resolved_model = resolve_model(provider, model)
 
     def _real_llm(prompt: str) -> str:

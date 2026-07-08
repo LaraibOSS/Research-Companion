@@ -2721,3 +2721,30 @@ class TestUploadPaper:
         kinds = [type(e).__name__ for e in bus.history]
         assert "PaperAdded" in kinds
         assert "JobDone" in kinds
+
+
+class TestPipelineProviderFromSettings:
+    """REGRESSION: the extraction pipeline resolved its provider from a raw
+    env var (defaulting to anthropic) while /api/settings resolved it from
+    the saved settings — so a server started without the env var extracted
+    with the WRONG provider and failed auth, while the Settings page showed
+    the right one. The pipeline must use the same resolution as settings."""
+
+    def test_pipeline_provider_matches_saved_settings(self, isolated_papergraph_dir, monkeypatch):
+        import research_companion.lab_api as la
+        from research_companion.settings import update_settings
+
+        monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+        monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+        update_settings({"provider": "openai"})
+        # update_settings mirrors to env; clear again to simulate a FRESH
+        # process that only has settings.json (the failing scenario)
+        monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+
+        assert la._pipeline_provider_model() == ("openai", None)
+
+    def test_env_var_still_wins_when_set(self, isolated_papergraph_dir, monkeypatch):
+        import research_companion.lab_api as la
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+        monkeypatch.setenv("RESEARCH_COMPANION_MODEL", "gpt-4o-2024-11-20")
+        assert la._pipeline_provider_model() == ("openai", "gpt-4o-2024-11-20")
