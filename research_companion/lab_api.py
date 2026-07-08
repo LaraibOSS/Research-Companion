@@ -362,6 +362,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     async def lifespan(app):  # type: ignore[type-arg]
         # Start the recorder drain task so seq numbers are assigned centrally.
         drain_task = asyncio.create_task(recorder.drain())
+        # One-shot: backfill weak metadata for the active workspace's existing
+        # papers (non-fatal — must never block/crash startup).
+        with suppress(Exception):
+            asyncio.create_task(app.state._trigger_backfill())
         try:
             yield
         finally:
@@ -389,6 +393,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
     app.state.auto_added_targets: set = set()
     app.state.retry_override = None
+    # One-shot weak-metadata backfill (Task 5): test seam + per-session guard so
+    # each workspace is scanned at most once. backfill_override lets tests inject
+    # a fake in place of the real re-extraction pipeline.
+    app.state.backfill_override = None
+    app.state._backfilled_workspaces: set = set()
 
     # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
     # Tests inject counting/spying fakes here; production code leaves these None
@@ -817,6 +826,99 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         with suppress(Exception):
             asyncio.get_running_loop()
             asyncio.create_task(_recompute_coverage_bg())
+
+    # -----------------------------------------------------------------
+    # One-shot weak-metadata backfill (Task 5)
+    # -----------------------------------------------------------------
+    def _queue_backfill(meta) -> str:
+        """Enqueue a re-extraction job for an existing stored paper.
+
+        Reuses the single-paper pipeline body (`_run_paper_pipeline`) so
+        extraction/metadata-backfill, graph rebuild, alignment, activity
+        announce and coverage refresh behave exactly like add/retry.
+        """
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        pid = meta.paper_id
+        label = "Reading metadata…"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "backfill",
+                                  "label": label, "target": pid}
+
+        if app.state.backfill_override is not None:
+            coro = app.state.backfill_override(meta, bus)
+        else:
+            coro = _run_paper_pipeline(
+                meta, meta.source_url or pid, bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
+
+        async def _run():
+            await _announce_start(job_id, "backfill", label, pid)
+            try:
+                await coro
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "backfill",
+                                          "label": label, "target": pid}
+                _schedule_coverage_refresh()
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "backfill",
+                                          "label": label, "target": pid}
+            finally:
+                await _announce_finish(job_id, "backfill")
+
+        asyncio.create_task(_run())
+        return job_id
+
+    async def _backfill_weak_metadata_bg() -> None:
+        """Re-run extraction for existing papers with weak metadata (non-fatal).
+
+        Select a paper iff ALL hold:
+          - meta.year is None (weak — the timeline blocker),
+          - it has non-empty text (scanned/empty-text papers can't be
+            backfilled and must never spin),
+          - its extraction is stale/absent for the current prompt
+            (`load_extraction(pid, prompt_sha=...) is None`).
+        The last guard is the idempotency key: once a paper re-extracts with the
+        current prompt, load_extraction returns non-None → it is never selected
+        again, even if year stays None. Papers currently being processed (a
+        running job targets them) are skipped to avoid double work.
+        """
+        with suppress(Exception):
+            from research_companion import store
+            from research_companion.prompts import extraction_prompt_sha256
+
+            prompt_sha = extraction_prompt_sha256()
+            running_targets = {
+                info.get("target")
+                for info in app.state.jobs.values()
+                if info.get("status") == "running"
+            }
+            for meta in await asyncio.to_thread(store.list_papers):
+                pid = meta.paper_id
+                if meta.year is not None:
+                    continue
+                if pid in running_targets:
+                    continue
+                text = await asyncio.to_thread(store.load_text, pid)
+                if not text:
+                    continue
+                stale = await asyncio.to_thread(
+                    store.load_extraction, pid, prompt_sha=prompt_sha)
+                if stale is not None:
+                    continue
+                _queue_backfill(meta)
+
+    async def _maybe_backfill_active_workspace() -> None:
+        """Trigger the one-shot backfill for the active workspace, at most once
+        per workspace per session. Non-fatal."""
+        with suppress(Exception):
+            from research_companion import store
+            ws = store.active_workspace_id()
+            if ws in app.state._backfilled_workspaces:
+                return
+            app.state._backfilled_workspaces.add(ws)
+            await _backfill_weak_metadata_bg()
+
+    app.state._trigger_backfill = _maybe_backfill_active_workspace
 
     async def _apply_draft(paper_id: str | None) -> None:
         """Set the draft + journey record + suggestion auto-match.
@@ -1652,6 +1754,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         bus.history.clear()
         app.state.recorder.reset()
         await bus.publish(WorkspaceChanged(workspace_id=ws_id))
+
+        # Switching to a stale workspace backfills its weak-metadata papers
+        # once (non-fatal — must never break activation).
+        with suppress(Exception):
+            asyncio.create_task(app.state._trigger_backfill())
 
         return {**result, "reload": True}
 
