@@ -101,6 +101,12 @@ def delete_workspace(ws_id: str) -> dict:
     if not others:
         # Deleting the last workspace: fall back to a fresh default main.
         others = list(store._default_registry()["workspaces"])
+        # The phase-1 save below must already list the synthesized entries —
+        # `active` has to point at a listed workspace even if a crash lands
+        # in the rmtree window (the deletee stays listed until phase 2).
+        known = {w.get("id") for w in reg["workspaces"]}
+        reg["workspaces"] = reg["workspaces"] + [
+            w for w in others if w["id"] not in known]
 
     if switched:
         if any(w.get("id") == "main" for w in others):
@@ -116,6 +122,12 @@ def delete_workspace(ws_id: str) -> dict:
     ws_dir = store.workspaces_root() / ws_id
     if ws_dir.exists():
         store._rmtree_retry(ws_dir)
+
+    if switched:
+        # Mirror activate_workspace: the new active's directory must exist —
+        # the API repoints the persistent event log there right after the
+        # switch. After the rmtree, so a self-replacing main is not undone.
+        (store.workspaces_root() / new_active).mkdir(parents=True, exist_ok=True)
 
     reg["workspaces"] = others
     store.save_registry(reg)

@@ -178,6 +178,23 @@ class TestDelete:
         with c:
             assert c.delete("/api/workspaces/nope").status_code == 404
 
+    def test_delete_active_with_persistent_log_returns_200(
+            self, isolated_papergraph_dir):
+        # REGRESSION: after a switched delete the endpoint repoints the event
+        # log to the new active's lab_events.jsonl and publishes
+        # WorkspaceChanged — if the new active's dir does not exist, the
+        # append raises FileNotFoundError and the delete 500s after already
+        # committing.
+        from research_companion.agents.events import EventLog
+
+        bus = Bus(log=EventLog(store.papergraph_dir() / "lab_events.jsonl"))
+        app = create_lab_app(bus)
+        with TestClient(app) as c:
+            resp = c.delete("/api/workspaces/main")
+            assert resp.status_code == 200
+            assert resp.json()["switched"] is True
+            assert (store.workspaces_root() / "main" / "lab_events.jsonl").exists()
+
     def test_delete_blocked_while_job_running(self, isolated_papergraph_dir):
         app, _bus, c = _make_client()
         with c:
