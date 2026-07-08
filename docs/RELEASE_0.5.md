@@ -64,6 +64,19 @@ every job publishes JobStarted/JobFinished lifecycle events — and chasing a
 test hang exposed and fixed a latent shutdown bug (Python 3.10 asyncio
 cancellation-swallowing) that had been lurking since 0.2.
 
+## 0.5.3 — the provider you chose is the provider it uses
+
+Fixes an ingestion failure where the pipeline could call the wrong LLM
+provider: it read a raw environment variable (defaulting to Anthropic) while
+the Settings screen wrote to settings.json, so a machine configured for
+OpenAI in the UI could still attempt Anthropic auth and fail every paper at
+the extract step. The pipeline now resolves provider and model through the
+same settings chain as the Settings screen (settings.json, then environment,
+then default). Also hardened after the fix: citation-coverage recompute and
+resolve no longer clobber each other's saves (a lock serializes both
+writers), and paper deletion on Windows retries briefly when a background
+read momentarily holds a file open (WinError 32).
+
 ## 0.5.4 — deletion everywhere
 
 Users could archive a research but couldn't find how to *delete* anything —
