@@ -76,6 +76,19 @@ export function buildReaderModel(payload) {
 }
 
 /**
+ * Whether a reader model has any non-whitespace body text. False for papers
+ * whose extraction produced nothing (e.g. scanned PDFs) — the overlay then
+ * shows an empty-state and points the reader at the original PDF.
+ *
+ * @param {{sections: Array<{text: string}>}} model
+ * @returns {boolean}
+ */
+export function hasReadableText(model) {
+  const secs = model && Array.isArray(model.sections) ? model.sections : [];
+  return secs.some(s => typeof s.text === 'string' && s.text.trim().length > 0);
+}
+
+/**
  * Build the section navigation list with "§n Title" labels (1-based).
  *
  * @param {Array<{id, title, level}>} sections

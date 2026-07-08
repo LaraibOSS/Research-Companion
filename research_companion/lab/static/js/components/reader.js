@@ -20,6 +20,7 @@ import {
   sectionNav,
   resolveActiveSection,
   quoteRangeWithinSection,
+  hasReadableText,
 } from '../readerHelpers.js';
 
 // ---------------------------------------------------------------------------
@@ -184,6 +185,7 @@ function _renderContent(payload, detail) {
 
   const quoteRequested = !!detail.quote;
   const quoteMissing = quoteRequested && !model.quoteRange;
+  const emptyText = !hasReadableText(model);
 
   // Header
   const pdfLink = model.hasPdf
@@ -211,7 +213,11 @@ function _renderContent(payload, detail) {
     ? `<div class="reader-notice">Couldn't locate the exact quote in this paper — showing the paper.</div>`
     : '';
 
-  const sectionsHtml = model.sections.map(s => {
+  const emptyHtml = emptyText
+    ? `<div class="reader-empty">No extracted text for this paper${model.hasPdf ? ' — it may be a scanned PDF. Use “View original PDF” above to read it.' : '.'}</div>`
+    : '';
+
+  const sectionsHtml = emptyText ? '' : model.sections.map(s => {
     const isActive = s.id === activeId;
     const tag = s.level >= 2 ? 'h4' : 'h3';
     let textHtml;
@@ -235,7 +241,7 @@ function _renderContent(payload, detail) {
       </section>`;
   }).join('');
 
-  const bodyHtml = `<div class="reader-body">${noticeHtml}${sectionsHtml}</div>`;
+  const bodyHtml = `<div class="reader-body">${noticeHtml}${emptyHtml}${sectionsHtml}</div>`;
 
   _panel.innerHTML = headerHtml + navHtml + bodyHtml;
   _bindClose();

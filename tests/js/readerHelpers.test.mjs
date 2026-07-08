@@ -18,6 +18,7 @@ const {
   sectionNav,
   resolveActiveSection,
   quoteRangeWithinSection,
+  hasReadableText,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'readerHelpers.js')).href
 );
@@ -205,4 +206,22 @@ test('quoteRangeWithinSection: null quoteRange is null', () => {
 test('quoteRangeWithinSection: partial overlap clamps to section text', () => {
   // quote spans [8,15]; section abs 10..20 -> relative clamps to [0,5]
   assert.deepEqual(quoteRangeWithinSection(10, '0123456789', [8, 15]), [0, 5]);
+});
+
+// -----------------------------------------------------------------------
+// hasReadableText
+// -----------------------------------------------------------------------
+
+test('hasReadableText: true when any section has non-whitespace text', () => {
+  assert.equal(hasReadableText({ sections: [{ text: '' }, { text: '  hi ' }] }), true);
+});
+
+test('hasReadableText: false when all sections are empty/whitespace', () => {
+  assert.equal(hasReadableText({ sections: [{ text: '' }, { text: '   \n\t' }] }), false);
+});
+
+test('hasReadableText: false for empty/absent model', () => {
+  assert.equal(hasReadableText({ sections: [] }), false);
+  assert.equal(hasReadableText({}), false);
+  assert.equal(hasReadableText(null), false);
 });
