@@ -289,7 +289,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     """
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import HTMLResponse, JSONResponse
+        from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
         raise ImportError(
@@ -986,6 +986,74 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             raise HTTPException(status_code=404,
                                 detail=f"No alignment for {paper_id!r}")
         return alignment
+
+    # -----------------------------------------------------------------
+    # GET /api/papers/{id}/text — reader full text + section offsets
+    # (distinct suffix, so no collision with the DELETE {id} route)
+    # -----------------------------------------------------------------
+    @app.get("/api/papers/{paper_id:path}/text")
+    async def get_paper_text(paper_id: str, q: str | None = None) -> dict:
+        from research_companion import store
+        from research_companion.rebuttal.verify import locate_quote
+
+        text = await asyncio.to_thread(store.load_text, paper_id)
+        if text is None:
+            raise HTTPException(status_code=404, detail=f"No text for paper: {paper_id!r}")
+
+        meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+        title = meta.title if meta else paper_id
+
+        payload = await asyncio.to_thread(store.load_sections, paper_id)
+        stored = payload.get("sections", []) if payload else []
+        if stored:
+            sections = [
+                {
+                    "section_id": s["section_id"],
+                    "title": s["title"],
+                    "level": s["level"],
+                    "char_start": s["char_start"],
+                    "char_end": s["char_end"],
+                }
+                for s in stored
+            ]
+        else:
+            # Mirror qa.py's whole-paper fallback when no sections exist.
+            sections = [{"section_id": "s1", "title": "Full text", "level": 1,
+                         "char_start": 0, "char_end": len(text)}]
+
+        has_pdf = await asyncio.to_thread(store.pdf_path, paper_id) is not None
+
+        quote_range = None
+        if q:
+            r = locate_quote(q, text)
+            quote_range = [r[0], r[1]] if r else None
+
+        return {
+            "paper_id": paper_id,
+            "title": title,
+            "full_text": text,
+            "has_pdf": has_pdf,
+            "sections": sections,
+            "quote_range": quote_range,
+        }
+
+    # -----------------------------------------------------------------
+    # GET /api/papers/{id}/pdf — stream the stored PDF inline
+    # Path is mapped through store.pdf_path (_id_to_dirname), never built
+    # from the raw id, so it is safe against traversal.
+    # -----------------------------------------------------------------
+    @app.get("/api/papers/{paper_id:path}/pdf")
+    async def get_paper_pdf(paper_id: str):
+        from research_companion import store
+
+        p = await asyncio.to_thread(store.pdf_path, paper_id)
+        if p is None:
+            raise HTTPException(status_code=404, detail=f"No PDF for paper: {paper_id!r}")
+        return FileResponse(
+            p,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{paper_id}.pdf"'},
+        )
 
     # -----------------------------------------------------------------
     # GET /api/graph
