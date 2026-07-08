@@ -63,3 +63,29 @@ A new GET /api/jobs endpoint hydrates tabs opened mid-work. Under the hood,
 every job publishes JobStarted/JobFinished lifecycle events — and chasing a
 test hang exposed and fixed a latent shutdown bug (Python 3.10 asyncio
 cancellation-swallowing) that had been lurking since 0.2.
+
+## 0.5.4 — deletion everywhere
+
+Users could archive a research but couldn't find how to *delete* anything —
+deletion existed but hid in a drawer. 0.5.4 puts it in plain sight:
+
+- **Delete a research** from the Researches screen: a trash button on every
+  card, archived included. The confirmation names the research and its paper
+  count. Deleting the research you're currently in auto-switches you to
+  another one (Main preferred) and reloads; the action is blocked with a
+  clear message while a background job is running. Crash-safe on the backend:
+  the registry saves in two phases, and Windows locked-file deletes retry.
+- **Remove a paper** is now a visible button on every library card and every
+  list-view row (previously: the drawer and failed cards only). All three
+  surfaces share one flow.
+- Deleting the paper marked as **draft ★** clears the draft flag
+  automatically (the delete response carries `draft_cleared`).
+- **Unset draft** button in the paper drawer (setting was previously
+  one-way).
+- **Clear chat** button in the Companion panel, per thread — deletes the
+  server-side conversation; safe when nothing was persisted yet.
+
+**New API:** `DELETE /api/workspaces/{id}` →
+`{"removed", "active", "switched"}`; `DELETE /api/conversations/{id}`.
+
+**Upgrade notes:** none — purely additive; no store or settings changes.

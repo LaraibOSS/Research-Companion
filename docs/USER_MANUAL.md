@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.2 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.4 · 2026-07-08 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -80,7 +80,14 @@ The top bar shows the active research as a dropdown (e.g. **"Main ▾"**).
   into it. Other open tabs reload automatically.
 - **All researches…** — a card-per-research overview screen (name, draft
   title, paper count, open suggestions, last activity) with **create**,
-  **rename**, and **archive** actions.
+  **rename**, **archive**, and **delete** actions.
+- **Delete** — the trash icon on any card (archived ones included) deletes
+  that research and everything in it. The confirmation names the research
+  and its paper count so you know exactly what you are removing. If you
+  delete the research you are currently in, the Lab switches you to another
+  one automatically (Main preferred) and reloads. Deletion is blocked with
+  a clear message while a background job is running. **Archive** remains the
+  non-destructive option — it hides a research without deleting anything.
 - **CLI:** `research-companion workspace list|create <name>|use <id-or-name>`;
   a single invocation can also be redirected with the
   `RESEARCH_COMPANION_WORKSPACE` environment variable.
@@ -124,8 +131,13 @@ with your draft (0.25), recency (0.20) — renormalized over whichever signals
 exist. Green = strong, yellow = moderate, orange = weak, gray = unscored.
 It is a convenience for triage, not a judgment of the paper's science.
 
+Every card (grid) and every row (list) carries a **Remove** button, so you
+never have to open the drawer just to delete a paper. Removing the paper
+marked as your draft ★ clears the draft flag automatically.
+
 Click any row/card for the drawer: metadata, sections, alignment summary,
-**Set as draft**, delete.
+**Set as draft** / **Unset draft** (marking a draft is no longer one-way),
+and Remove.
 
 ## 7. Citation coverage — your bibliography as ground truth
 
@@ -236,6 +248,10 @@ grounded in retrieved sections with [S#] citations; quotes are verified
 verbatim; unverifiable spans are flagged, not hidden. Conversations persist
 on disk per research. With no review report yet, it degrades to a project
 overview — it always answers.
+
+Each thread has a **Clear chat** button that wipes its history and deletes
+the conversation stored on disk — it works even if nothing has been
+persisted yet.
 
 ## 14. Timeline & gaps
 
