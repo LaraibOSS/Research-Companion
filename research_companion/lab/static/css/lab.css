@@ -4524,6 +4524,14 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   white-space: nowrap;
 }
 
+.citation-row-detail {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
 .citation-row-meta {
   display: flex;
   align-items: center;

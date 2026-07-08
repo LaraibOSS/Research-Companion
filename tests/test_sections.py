@@ -17,6 +17,7 @@ from research_companion.sections import (
     group_extraction_by_section,
     is_boilerplate,
     refine_sections_llm,
+    section_for_offset,
     section_text,
 )
 
@@ -988,3 +989,37 @@ def test_allcaps_non_canonical_heading_detected():
     )
     for s in sections:
         assert s.level == 1
+
+
+# ===========================================================================
+# section_for_offset — map a character offset to the containing section
+# ===========================================================================
+
+class TestSectionForOffset:
+    def _tiled(self):
+        return [
+            Section("s1", "Introduction", 1, None, 0, 100),
+            Section("s2", "Methods", 1, None, 100, 200),
+            Section("s2.1", "Sub", 2, "s2", 120, 160),
+        ]
+
+    def test_offset_in_first_section(self):
+        assert section_for_offset(self._tiled(), 50).section_id == "s1"
+
+    def test_boundary_is_start_inclusive(self):
+        # char_start is inclusive: offset 100 belongs to s2, not s1.
+        assert section_for_offset(self._tiled(), 100).section_id == "s2"
+
+    def test_boundary_is_end_exclusive(self):
+        # char_end is exclusive: offset 99 is still s1.
+        assert section_for_offset(self._tiled(), 99).section_id == "s1"
+
+    def test_deepest_child_wins(self):
+        # 130 is inside s2 (100-200) AND its child s2.1 (120-160): child wins.
+        assert section_for_offset(self._tiled(), 130).section_id == "s2.1"
+
+    def test_offset_out_of_range_returns_none(self):
+        assert section_for_offset(self._tiled(), 999) is None
+
+    def test_empty_sections_returns_none(self):
+        assert section_for_offset([], 5) is None

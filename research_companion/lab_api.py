@@ -945,6 +945,29 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         }
 
     # -----------------------------------------------------------------
+    # Citation placement — is each cited paper in the right section?
+    # (draft-quality check; separate from strength scoring)
+    # -----------------------------------------------------------------
+    @app.get("/api/draft/placement")
+    async def get_draft_placement() -> dict:
+        from research_companion import store
+        from research_companion.citation_placement import (
+            compute_placement,
+            empty_placement,
+            is_stale,
+            load_placement,
+        )
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            return empty_placement(None)
+
+        payload = await asyncio.to_thread(load_placement)
+        if await asyncio.to_thread(is_stale, payload, draft_id):
+            payload = await asyncio.to_thread(compute_placement, draft_id)
+        return payload
+
+    # -----------------------------------------------------------------
     # GET /api/papers/{id}/alignment
     # -----------------------------------------------------------------
     @app.get("/api/papers/{paper_id:path}/alignment")

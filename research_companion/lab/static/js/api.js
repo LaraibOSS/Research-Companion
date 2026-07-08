@@ -231,6 +231,12 @@ export const activateWorkspace = (id) =>
 export const getDraftCitations = () => get('/api/draft/citations');
 
 /**
+ * GET /api/draft/placement — citation-placement check for the current draft.
+ * Always returns 200 (no draft / not applicable: empty placements).
+ */
+export const getDraftPlacement = () => get('/api/draft/placement');
+
+/**
  * POST /api/draft/citations/resolve — kick off background resolution job.
  * Returns 202 {job_id} | 400 no draft | 409 already running.
  */

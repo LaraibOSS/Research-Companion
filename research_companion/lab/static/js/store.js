@@ -40,6 +40,7 @@ const _state = {
   journey: null,
   workspaces: { list: [], activeId: null },
   citationCoverage: null,
+  citationPlacement: null,
   activeJobs: new Map(),
 };
 
@@ -280,6 +281,16 @@ export function setGaps(data) {
 export function setCitationCoverage(data) {
   _state.citationCoverage = data || null;
   notify(['citations']);
+}
+
+/**
+ * Set the full citation-placement response and notify 'placement' subscribers.
+ * Called on panel open (lazy fetch). Shape: GET /api/draft/placement response.
+ * @param {object|null} data
+ */
+export function setCitationPlacement(data) {
+  _state.citationPlacement = data || null;
+  notify(['placement']);
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import { mountDock } from './components/progressDock.js';
 import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
 import { mountCitationsPanel } from './components/citationsPanel.js';
+import { mountPlacementPanel } from './components/placementPanel.js';
 import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
 import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
@@ -176,6 +177,9 @@ async function boot() {
   // Mount the citations coverage panel (W5-C3) once at boot
   mountCitationsPanel(store, api);
 
+  // Mount the citation placement panel (draft-quality check) once at boot
+  mountPlacementPanel(store, api);
+
   // Activity indicator (W5-ACT)
   function updateActivityIndicator() {
     const indicator = document.getElementById('activity-indicator');
@@ -305,6 +309,14 @@ async function boot() {
   const helpBtn = document.getElementById('topbar-help');
   if (helpBtn) {
     helpBtn.addEventListener('click', () => openHelpPanel());
+  }
+
+  // Placement button — citation placement panel (draft-quality check)
+  const placementBtn = document.getElementById('topbar-placement');
+  if (placementBtn) {
+    placementBtn.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('rc:toggle-placement'));
+    });
   }
 
   // Citations coverage banner (W5-C3)
