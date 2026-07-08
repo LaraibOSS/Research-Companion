@@ -539,6 +539,31 @@ class TestDeletePaper:
         resp = c.delete("/api/papers/arxiv:nonexistent")
         assert resp.status_code == 404
 
+    def test_delete_draft_paper_clears_draft(self, isolated_papergraph_dir):
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "Draft Paper")
+        store.set_draft_paper_id("arxiv:1111.22222")
+        c = _make_client()
+        resp = c.delete("/api/papers/arxiv:1111.22222")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["removed"] is True
+        assert data["draft_cleared"] is True
+        assert c.get("/api/draft").json() == {"draft_paper_id": None}
+
+    def test_delete_non_draft_paper_keeps_draft(self, isolated_papergraph_dir):
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "arxiv:draft001", "Draft Paper")
+        _make_paper(isolated_papergraph_dir, "arxiv:other001", "Other Paper")
+        store.set_draft_paper_id("arxiv:draft001")
+        c = _make_client()
+        resp = c.delete("/api/papers/arxiv:other001")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["removed"] is True
+        assert data["draft_cleared"] is False
+        assert c.get("/api/draft").json() == {"draft_paper_id": "arxiv:draft001"}
+
 
 # ---------------------------------------------------------------------------
 # POST /api/ingest
@@ -2412,6 +2437,36 @@ class TestGetConversationEndpoint:
         assert "context" in meta
         assert "created_at" in meta
         assert "prompt_sha256" in meta
+
+
+class TestDeleteConversationEndpoint:
+    def _seed_and_converse(self, isolated_papergraph_dir) -> str:
+        """Create a paper + review and run one converse turn; return conversation_id."""
+        from research_companion import store
+        paper_id = "arxiv:dc001"
+        _make_paper(isolated_papergraph_dir, paper_id, "DC Paper")
+        store.save_review_report(paper_id, {
+            "lanes": {"structure": {"ok": True, "items": []}}
+        })
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "seed question",
+        })
+        return resp.json()["conversation_id"]
+
+    def test_delete_known_conversation(self, isolated_papergraph_dir):
+        conv_id = self._seed_and_converse(isolated_papergraph_dir)
+        c = _make_client()
+        resp = c.delete(f"/api/conversations/{conv_id}")
+        assert resp.status_code == 200
+        assert resp.json() == {"removed": True}
+        assert c.get(f"/api/conversations/{conv_id}").status_code == 404
+
+    def test_delete_unknown_conversation_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.delete("/api/conversations/conv_doesnotexist9999")
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

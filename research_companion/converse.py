@@ -444,6 +444,15 @@ def _persist_conversation(
             fh.write(line + "\n")
 
 
+def delete_conversation(conversation_id: str) -> bool:
+    """Delete a conversation's JSONL file. Returns True if a file was removed."""
+    path = _conv_path(conversation_id)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
 def load_conversation(conversation_id: str) -> dict | None:
     """Load a conversation from JSONL. Returns {"meta": {...}, "turns": [...]} or None."""
     path = _conv_path(conversation_id)

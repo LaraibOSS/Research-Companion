@@ -628,6 +628,35 @@ class TestLoadConversation:
 
 
 # ---------------------------------------------------------------------------
+# delete_conversation
+# ---------------------------------------------------------------------------
+
+class TestDeleteConversation:
+    def test_removes_file_and_returns_true(self):
+        from research_companion.converse import (
+            _conv_path,
+            _persist_conversation,
+            delete_conversation,
+        )
+
+        conv_id = "conv_del001"
+        _persist_conversation(
+            conv_id, {"type": "review", "id": "arxiv:del1"},
+            "question", "answer",
+            created_at="2026-01-01T00:00:00Z", is_new=True,
+        )
+        path = _conv_path(conv_id)
+        assert path.exists()
+        assert delete_conversation(conv_id) is True
+        assert not path.exists()
+
+    def test_returns_false_when_absent(self):
+        from research_companion.converse import delete_conversation
+
+        assert delete_conversation("conv_never_existed") is False
+
+
+# ---------------------------------------------------------------------------
 # Direct unit tests for extracted qa helpers
 # ---------------------------------------------------------------------------
 

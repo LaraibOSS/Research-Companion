@@ -654,6 +654,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if not removed:
             raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
 
+        # Clear a stale draft pointer before the coverage refresh reads it
+        draft_cleared = False
+        if store.get_draft_paper_id() == paper_id:
+            await asyncio.to_thread(store.set_draft_paper_id, None)
+            draft_cleared = True
+
         # Rebuild and save graph
         try:
             G = await asyncio.to_thread(build_graph)
@@ -662,7 +668,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             pass  # Non-fatal; graph rebuild failure doesn't undo removal
 
         _schedule_coverage_refresh()
-        return {"removed": True}
+        return {"removed": True, "draft_cleared": draft_cleared}
 
     # -----------------------------------------------------------------
     # GET /api/draft
@@ -1749,6 +1755,21 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 detail=f"Conversation not found: {conversation_id!r}",
             )
         return data
+
+    # -----------------------------------------------------------------
+    # DELETE /api/conversations/{id}
+    # -----------------------------------------------------------------
+    @app.delete("/api/conversations/{conversation_id}")
+    async def delete_conversation_endpoint(conversation_id: str) -> dict:
+        from research_companion.converse import delete_conversation
+
+        removed = await asyncio.to_thread(delete_conversation, conversation_id)
+        if not removed:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Conversation not found: {conversation_id!r}",
+            )
+        return {"removed": True}
 
     # -----------------------------------------------------------------
     # GET /api/events (SSE)
