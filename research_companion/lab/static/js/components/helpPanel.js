@@ -12,7 +12,7 @@
 
 import { GLOSSARY } from '../glossary.js';
 
-const VERSION = 'v0.5.6';
+const VERSION = 'v0.5.7';
 const GITHUB_URL = 'https://github.com/Laraib-Hasan-Future/Research-Companion';
 const DOCS_PATH = 'docs/RESEARCH_COMPANION_GUIDE.pdf';
 
