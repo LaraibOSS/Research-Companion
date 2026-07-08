@@ -92,7 +92,7 @@ def _bibliography_is_numbered(block: str) -> bool:
     for pat in (r"(?m)^\s*\[(\d{1,3})\]", r"(?m)^\s*(\d{1,3})\.\s+\S"):
         marks = [int(m.group(1)) for m in re.finditer(pat, block)]
         if len(marks) >= _MIN_ENTRIES and marks[0] <= 5:
-            increasing = sum(1 for a, b in zip(marks, marks[1:]) if b > a)
+            increasing = sum(1 for a, b in zip(marks, marks[1:], strict=False) if b > a)
             if len(marks) == 1 or increasing >= (len(marks) - 1) * 0.7:
                 return True
     return False

@@ -434,9 +434,8 @@ def section_for_offset(sections: list[Section], offset: int) -> Section | None:
     """
     match: Section | None = None
     for s in sections:
-        if s.char_start <= offset < s.char_end:
-            if match is None or s.level > match.level:
-                match = s
+        if s.char_start <= offset < s.char_end and (match is None or s.level > match.level):
+            match = s
     return match
 
 
