@@ -32,6 +32,7 @@ import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
 import { mountCitationsPanel } from './components/citationsPanel.js';
 import { mountPlacementPanel } from './components/placementPanel.js';
+import { mountReader } from './components/reader.js';
 import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
 import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
@@ -179,6 +180,9 @@ async function boot() {
 
   // Mount the citation placement panel (draft-quality check) once at boot
   mountPlacementPanel(store, api);
+
+  // Mount the paper reader overlay once at boot (listens for rc:open-reader)
+  mountReader(store, api);
 
   // Activity indicator (W5-ACT)
   function updateActivityIndicator() {

@@ -83,6 +83,17 @@ export const setDraft = (paperId) => post('/api/draft', { paper_id: paperId });
 /** GET /api/sections — returns section array */
 export const getSections = () => get('/api/sections');
 
+/**
+ * GET /api/papers/{id}/text[?q=<quote>] — full text + sections for the reader.
+ * Returns { paper_id, title, full_text, has_pdf, sections, quote_range }.
+ * 404 when the paper has no readable text.
+ */
+export const getPaperText = (id, q) =>
+  get(`/api/papers/${encodeURIComponent(id)}/text${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+
+/** URL for the inline original PDF of a paper (GET /api/papers/{id}/pdf). */
+export const paperPdfUrl = (id) => `/api/papers/${encodeURIComponent(id)}/pdf`;
+
 /** GET /api/draft/alignment */
 export const getDraftAlignment = () => get('/api/draft/alignment');
 
