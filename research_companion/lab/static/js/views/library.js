@@ -25,7 +25,7 @@ let _listDir    = 'desc';
 export function mount(el) {
   _el = el;
   _render();
-  _unsubscribe = store.subscribe('papers', () => _renderGrid());
+  _unsubscribe = store.subscribe(['papers', 'draft'], () => _renderGrid());
 
   // Listen for paper-source link clicks from the suggestions panel / view.
   // The panel also sets window.__rcPendingPaper before dispatching the event
