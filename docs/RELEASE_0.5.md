@@ -102,3 +102,15 @@ deletion existed but hid in a drawer. 0.5.4 puts it in plain sight:
 `{"removed", "active", "switched"}`; `DELETE /api/conversations/{id}`.
 
 **Upgrade notes:** none — purely additive; no store or settings changes.
+
+## 0.5.5 — the banner stays in its lane
+
+The "Analysis covers N of M cited papers" banner occupied a layout row in
+every view except the graph, which is a viewport overlay pinned just below
+the topbar — so on the Graph screen the banner painted straight over the
+Draft/Explore toggle and the sections panel. The overlay now offsets itself
+per visible banner. Banners are fixed-height single-line (long text
+ellipsizes instead of wrapping into the content), the graph's floating
+panels size themselves against the canvas rather than the viewport, and
+scrollbars app-wide are thin and theme-colored instead of the heavy
+platform-gray default. CSS-only; no behavior changes.

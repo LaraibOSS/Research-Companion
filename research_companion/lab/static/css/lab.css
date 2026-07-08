@@ -33,6 +33,7 @@
   /* Layout */
   --nav-width:    56px;
   --topbar-h:     52px;
+  --banner-h:     32px; /* fixed so viewport overlays (#graph-canvas) can offset exactly */
   --drawer-width: 420px;
 
   /* Typography */
@@ -756,6 +757,23 @@ html, body {
 .stub-sub { font-size: 14px; }
 
 /* ---------------------------------------------------------------------------
+ * Scrollbars — thin, theme-colored, quiet (default Windows bars are heavy
+ * gray slabs that fight the floating panels)
+ * --------------------------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---------------------------------------------------------------------------
  * Utility
  * --------------------------------------------------------------------------- */
 .muted { color: var(--color-muted); }
@@ -772,6 +790,17 @@ html, body {
   bottom: 0 !important;
   background: var(--color-bg);
   overflow: hidden;
+}
+
+/* #graph-canvas is a viewport overlay, so the banner grid rows (which push
+   #view down) do not move it — offset it explicitly per visible banner or
+   the graph's floating panels/toggle render under the banner strip. */
+body:has(#no-key-banner.visible) #graph-canvas,
+body:has(#citations-banner.visible) #graph-canvas {
+  top: calc(var(--topbar-h) + var(--banner-h)) !important;
+}
+body:has(#no-key-banner.visible):has(#citations-banner.visible) #graph-canvas {
+  top: calc(var(--topbar-h) + 2 * var(--banner-h)) !important;
 }
 
 /* ---------------------------------------------------------------------------
@@ -791,7 +820,8 @@ html, body {
   gap: 12px;
   z-index: 20;
   backdrop-filter: blur(4px);
-  max-height: calc(100vh - var(--topbar-h) - 40px);
+  /* 100% = #graph-canvas height (banner-aware); 32px = 16px top + bottom */
+  max-height: calc(100% - 32px);
   overflow-y: auto;
 }
 
@@ -933,7 +963,7 @@ html, body {
   top: 16px;
   right: 16px;
   width: 320px;
-  max-height: calc(100vh - var(--topbar-h) - 40px);
+  max-height: calc(100% - 32px);
   background: #161b22ee;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -1954,8 +1984,13 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   border-bottom: 1px solid rgba(210,153,34,0.4);
   color: var(--color-warn);
   font-size: 13px;
-  padding: 7px 16px;
-  text-align: center;
+  height: var(--banner-h);
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
   z-index: 45;
 }
 #no-key-banner a {
@@ -1964,7 +1999,7 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   text-decoration: underline;
   cursor: pointer;
 }
-#no-key-banner.visible { display: block; }
+#no-key-banner.visible { display: flex; }
 
 /* When banner is visible, main view must shift down — add extra row */
 .app:has(#no-key-banner.visible) {
@@ -4399,9 +4434,17 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   border-bottom: 1px solid rgba(88,166,255,0.35);
   color: var(--color-accent);
   font-size: 13px;
-  padding: 7px 16px;
-  text-align: center;
+  height: var(--banner-h);
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
   z-index: 45;
+}
+#citations-banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #citations-banner a {
   color: var(--color-accent);
@@ -4420,7 +4463,7 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   opacity: 0.7;
 }
 #citations-banner-collapse:hover { opacity: 1; }
-#citations-banner.visible { display: block; }
+#citations-banner.visible { display: flex; }
 
 /* When citations banner is visible, extend layout rows */
 .app:has(#citations-banner.visible) {
