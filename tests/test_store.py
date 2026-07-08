@@ -130,3 +130,68 @@ def test_rmtree_retry_raises_after_five_failures(tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         store._rmtree_retry(victim)
     assert calls["n"] == 5
+
+
+# ---------------------------------------------------------------------------
+# update_paper_metadata (manual title/authors/year edit)
+# ---------------------------------------------------------------------------
+
+def _seed_paper(paper_id: str = "local:abc123def456") -> None:
+    store.PaperMetadata(
+        paper_id=paper_id, title="Old Title", authors=["Alice"], year=2020,
+        added_at="2024-01-01T00:00:00Z",
+    ).save()
+
+
+def test_update_paper_metadata_title(isolated_papergraph_dir):
+    _seed_paper()
+    meta = store.update_paper_metadata("local:abc123def456", title="New Title")
+    assert meta is not None
+    assert meta.title == "New Title"
+    # authors/year untouched (omitted -> sentinel -> leave)
+    assert meta.authors == ["Alice"]
+    assert meta.year == 2020
+    assert store.PaperMetadata.load("local:abc123def456").title == "New Title"
+
+
+def test_update_paper_metadata_authors_trimmed_and_blank_dropped(isolated_papergraph_dir):
+    _seed_paper()
+    meta = store.update_paper_metadata(
+        "local:abc123def456", authors=["  Bob  ", "", "   ", "Carol"])
+    assert meta.authors == ["Bob", "Carol"]
+
+
+def test_update_paper_metadata_authors_empty_clears(isolated_papergraph_dir):
+    _seed_paper()
+    meta = store.update_paper_metadata("local:abc123def456", authors=[])
+    assert meta.authors == []
+
+
+def test_update_paper_metadata_year_set(isolated_papergraph_dir):
+    _seed_paper()
+    meta = store.update_paper_metadata("local:abc123def456", year=1999)
+    assert meta.year == 1999
+
+
+def test_update_paper_metadata_year_none_clears(isolated_papergraph_dir):
+    """Explicit year=None clears; sentinel makes this distinct from omission."""
+    _seed_paper()
+    meta = store.update_paper_metadata("local:abc123def456", year=None)
+    assert meta.year is None
+    assert store.PaperMetadata.load("local:abc123def456").year is None
+
+
+def test_update_paper_metadata_omitted_leaves_year(isolated_papergraph_dir):
+    _seed_paper()
+    meta = store.update_paper_metadata("local:abc123def456", title="X")
+    assert meta.year == 2020  # not passed -> unchanged
+
+
+def test_update_paper_metadata_blank_title_keeps_old(isolated_papergraph_dir):
+    _seed_paper()
+    meta = store.update_paper_metadata("local:abc123def456", title="   ")
+    assert meta.title == "Old Title"
+
+
+def test_update_paper_metadata_unknown_id_returns_none(isolated_papergraph_dir):
+    assert store.update_paper_metadata("local:missing", title="X") is None

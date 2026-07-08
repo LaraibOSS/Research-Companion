@@ -349,6 +349,50 @@ class PaperMetadata:
         return cls(**data)
 
 
+class _Unset:
+    """Sentinel type for 'argument omitted', distinct from an explicit None."""
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<UNSET>"
+
+
+# Module-level sentinel: lets update_paper_metadata tell "field not passed"
+# (leave unchanged) apart from "field passed as None" (e.g. clear the year).
+_UNSET: Any = _Unset()
+
+
+def update_paper_metadata(
+    paper_id: str,
+    *,
+    title: Any = _UNSET,
+    authors: Any = _UNSET,
+    year: Any = _UNSET,
+) -> PaperMetadata | None:
+    """Manually correct a paper's title/authors/year. Returns the updated
+    metadata, or None if the paper does not exist.
+
+    Sentinel semantics (via module-level _UNSET): an omitted field is left
+    unchanged; a passed field is applied. This is what lets a caller CLEAR the
+    year with ``year=None`` while ``update_paper_metadata(pid)`` (year omitted)
+    leaves it. title/authors use the same sentinel for consistency, but an
+    explicit ``title=None``/``authors=None`` is treated as "leave unchanged"
+    (title is required; use ``authors=[]`` to clear authors). Year-RANGE
+    validation is the caller/endpoint's job.
+    """
+    meta = PaperMetadata.load(paper_id)
+    if meta is None:
+        return None
+    if title is not _UNSET and title is not None:
+        meta.title = title.strip() or meta.title
+    if authors is not _UNSET and authors is not None:
+        meta.authors = [a.strip() for a in authors if a and a.strip()]
+    if year is not _UNSET:
+        meta.year = year  # None clears; int stored as-is
+    meta.save()
+    return meta
+
+
 def save_pdf(paper_id: str, pdf_bytes: bytes) -> Path:
     p = paper_dir(paper_id) / "paper.pdf"
     p.write_bytes(pdf_bytes)

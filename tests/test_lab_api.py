@@ -566,6 +566,87 @@ class TestDeletePaper:
 
 
 # ---------------------------------------------------------------------------
+# PATCH /api/papers/{id} — manual title/authors/year edit
+# ---------------------------------------------------------------------------
+
+class TestPatchPaper:
+    _SHAPE = {"paper_id", "title", "authors", "year", "status", "strength",
+              "is_draft", "stance_counts", "added_at", "failure_reason"}
+
+    def test_patch_title(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "Old", year=2020)
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc", json={"title": "New Title"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["title"] == "New Title"
+        assert body["paper_id"] == "local:abc"
+        # Returns the same per-paper dict shape as GET /api/papers.
+        assert set(body) >= self._SHAPE
+
+    def test_patch_authors(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "P", authors=["X"])
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc",
+                       json={"authors": ["  Ann  ", "", "Bob"]})
+        assert resp.status_code == 200
+        assert resp.json()["authors"] == ["Ann", "Bob"]
+
+    def test_patch_authors_empty_clears(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "P", authors=["X"])
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc", json={"authors": []})
+        assert resp.status_code == 200
+        assert resp.json()["authors"] == []
+
+    def test_patch_year(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "P", year=2020)
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc", json={"year": 1999})
+        assert resp.status_code == 200
+        assert resp.json()["year"] == 1999
+
+    def test_patch_year_null_clears(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "P", year=2020)
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc", json={"year": None})
+        assert resp.status_code == 200
+        assert resp.json()["year"] is None
+
+    def test_patch_combined(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "Old",
+                    authors=["X"], year=2020)
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc",
+                       json={"title": "T2", "authors": ["Y"], "year": 2001})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["title"] == "T2"
+        assert body["authors"] == ["Y"]
+        assert body["year"] == 2001
+
+    def test_patch_unknown_returns_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.patch("/api/papers/local:missing", json={"title": "X"})
+        assert resp.status_code == 404
+
+    def test_patch_year_out_of_range_returns_422(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "P")
+        c = _make_client()
+        resp = c.patch("/api/papers/local:abc", json={"year": 1200})
+        assert resp.status_code == 422
+
+    def test_patch_reflected_in_get_papers(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "local:abc", "Old", year=2020)
+        c = _make_client()
+        c.patch("/api/papers/local:abc", json={"title": "Fresh", "year": 2011})
+        papers = c.get("/api/papers").json()
+        row = next(p for p in papers if p["paper_id"] == "local:abc")
+        assert row["title"] == "Fresh"
+        assert row["year"] == 2011
+
+
+# ---------------------------------------------------------------------------
 # POST /api/ingest
 # ---------------------------------------------------------------------------
 

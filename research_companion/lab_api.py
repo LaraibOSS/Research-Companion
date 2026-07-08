@@ -111,6 +111,13 @@ try:
         name: str | None = None
         pinned: bool | None = None
 
+    class _PatchPaperBody(_BaseModel):
+        """Manual metadata edit for PATCH /api/papers/{id}. All optional; only
+        explicitly-sent fields (model_fields_set) are applied."""
+        title: str | None = None
+        authors: list[str] | None = None
+        year: int | None = None
+
     class _ConverseBody(_BaseModel):
         context: dict = {}
         message: str = ""
@@ -136,6 +143,7 @@ except ImportError:
     _RegenerateBody = None  # type: ignore[assignment,misc]
     _CreateViewBody = None  # type: ignore[assignment,misc]
     _PatchViewBody = None  # type: ignore[assignment,misc]
+    _PatchPaperBody = None  # type: ignore[assignment,misc]
     _ConverseBody = None  # type: ignore[assignment,misc]
     _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
@@ -272,6 +280,57 @@ class _SeqRecorder:
         return self._seq
 
 
+def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> dict:
+    """Build the per-paper dict served by GET /api/papers (and returned by
+    PATCH /api/papers/{id}). Factored so the two stay identical in shape."""
+    from research_companion import store
+
+    paper_id = meta.paper_id
+    status = "pending"
+    failure_reason = None
+    for key, info in failures.items():
+        if key == paper_id or info.get("paper_id") == paper_id:
+            status = "failed"
+            failure_reason = info.get("error")
+            break
+
+    if status != "failed" and store.load_extraction(
+            paper_id, prompt_sha=prompt_sha) is not None:
+        status = "done"
+
+    strength_payload = store.load_strength(paper_id)
+    if strength_payload is not None:
+        strength = {
+            "score": strength_payload.get("score"),
+            "band": strength_payload.get("band", ""),
+            "color": strength_payload.get("color", ""),
+        }
+    else:
+        strength = None
+
+    stance_counts = {"strengthens": 0, "challenges": 0, "alternative": 0}
+    if draft_id is not None:
+        alignment = store.load_alignment(paper_id, draft_paper_id=draft_id)
+        if alignment is not None:
+            for sec in alignment.get("sections", []):
+                rel = sec.get("relation", "")
+                if rel in stance_counts:
+                    stance_counts[rel] += 1
+
+    return {
+        "paper_id": paper_id,
+        "title": meta.title,
+        "authors": meta.authors,
+        "year": meta.year,
+        "status": status,
+        "failure_reason": failure_reason,
+        "strength": strength,
+        "is_draft": paper_id == draft_id,
+        "stance_counts": stance_counts,
+        "added_at": meta.added_at,
+    }
+
+
 # ---------------------------------------------------------------------------
 # create_lab_app
 # ---------------------------------------------------------------------------
@@ -390,60 +449,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         draft_id = store.get_draft_paper_id()
         prompt_sha = extraction_prompt_sha256()
 
-        result = []
-        for meta in papers:
-            paper_id = meta.paper_id
-            # Determine status
-            status = "pending"
-            failure_reason = None
-
-            # Check failures by paper_id or path
-            for key, info in failures.items():
-                if key == paper_id or info.get("paper_id") == paper_id:
-                    status = "failed"
-                    failure_reason = info.get("error")
-                    break
-
-            if status != "failed":
-                cached = store.load_extraction(paper_id, prompt_sha=prompt_sha)
-                if cached is not None:
-                    status = "done"
-
-            # Strength
-            strength_payload = store.load_strength(paper_id)
-            if strength_payload is not None:
-                strength = {
-                    "score": strength_payload.get("score"),
-                    "band": strength_payload.get("band", ""),
-                    "color": strength_payload.get("color", ""),
-                }
-            else:
-                strength = None
-
-            # Stance counts from alignment
-            stance_counts = {"strengthens": 0, "challenges": 0, "alternative": 0}
-            if draft_id is not None:
-                alignment = store.load_alignment(paper_id, draft_paper_id=draft_id)
-                if alignment is not None:
-                    for sec in alignment.get("sections", []):
-                        rel = sec.get("relation", "")
-                        if rel in stance_counts:
-                            stance_counts[rel] += 1
-
-            result.append({
-                "paper_id": paper_id,
-                "title": meta.title,
-                "authors": meta.authors,
-                "year": meta.year,
-                "status": status,
-                "failure_reason": failure_reason,
-                "strength": strength,
-                "is_draft": paper_id == draft_id,
-                "stance_counts": stance_counts,
-                "added_at": meta.added_at,
-            })
-
-        return result
+        return [
+            _build_paper_summary(
+                meta, failures=failures, draft_id=draft_id, prompt_sha=prompt_sha)
+            for meta in papers
+        ]
 
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)
@@ -669,6 +679,54 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         _schedule_coverage_refresh()
         return {"removed": True, "draft_cleared": draft_cleared}
+
+    # -----------------------------------------------------------------
+    # PATCH /api/papers/{id}  (manual title/authors/year edit)
+    # -----------------------------------------------------------------
+    @app.patch("/api/papers/{paper_id:path}")
+    async def patch_paper(paper_id: str, body: _PatchPaperBody) -> dict:
+        from research_companion import store
+        from research_companion.prompts import extraction_prompt_sha256
+
+        # Load first so unknown ids 404 (mirrors DELETE + the view PATCH).
+        existing = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        # Forward only fields the client actually sent (pydantic v2/v1 compat),
+        # passing None through so a sent-but-null field clears (year). The store
+        # sentinel distinguishes "omitted" from "explicit None".
+        try:
+            provided = body.model_fields_set
+        except AttributeError:
+            provided = body.__fields_set__  # type: ignore[attr-defined]
+
+        kwargs: dict = {}
+        if "title" in provided:
+            kwargs["title"] = body.title
+        if "authors" in provided:
+            kwargs["authors"] = body.authors
+        if "year" in provided:
+            year = body.year
+            if year is not None and not (1900 <= year <= 2100):
+                raise HTTPException(
+                    status_code=422, detail="year must be between 1900 and 2100")
+            kwargs["year"] = year
+
+        meta = await asyncio.to_thread(store.update_paper_metadata, paper_id, **kwargs)
+        if meta is None:  # concurrent delete between the load and the write
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        # Edited authors/year can flip citation-coverage matches; also nudges
+        # clients to refresh the library (DELETE relies on the same refetch).
+        _schedule_coverage_refresh()
+
+        return _build_paper_summary(
+            meta,
+            failures=store.list_failures(),
+            draft_id=store.get_draft_paper_id(),
+            prompt_sha=extraction_prompt_sha256(),
+        )
 
     # -----------------------------------------------------------------
     # GET /api/draft
