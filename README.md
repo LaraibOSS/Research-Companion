@@ -349,8 +349,8 @@ node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test
 
 ## Acknowledgements
 
-research-companion's design is inspired by [graphify](https://github.com/safishamsi/graphify) (Safi Shamsi) for the topology-based clustering approach and the EXTRACTED/INFERRED tagging idea, and by [GraphRAG](https://github.com/microsoft/graphrag) (Microsoft Research) for the cross-document community-summary concept.
+research-companion's design is inspired by [GraphRAG](https://github.com/microsoft/graphrag) (Microsoft Research) for the cross-document community-summary concept.
 
 ## License
 
-MIT © 2026 Azizur
+MIT © 2026 Laraib Hasan
