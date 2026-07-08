@@ -412,12 +412,25 @@ def list_papers() -> list[PaperMetadata]:
 
 
 def remove_paper(paper_id: str) -> bool:
-    """Delete a paper's directory. Returns True if removed, False if not present."""
+    """Delete a paper's directory. Returns True if removed, False if not present.
+
+    Windows refuses to delete files another thread has momentarily open
+    (WinError 32) — background coverage/stats reads race deletes — so retry
+    briefly before giving up.
+    """
     d = papers_dir() / _id_to_dirname(paper_id)
     if not d.exists():
         return False
     import shutil
-    shutil.rmtree(d)
+    import time as _time
+    for attempt in range(5):
+        try:
+            shutil.rmtree(d)
+            return True
+        except PermissionError:
+            if attempt == 4:
+                raise
+            _time.sleep(0.15 * (attempt + 1))
     return True
 
 
