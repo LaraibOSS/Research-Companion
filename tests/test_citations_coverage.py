@@ -364,6 +364,54 @@ class TestComputeCoverage:
         assert payload["source"] == "related_work"
         assert payload["counts"]["total"] == 2
 
+    def test_dedup_carryover_persists_while_matched_paper_exists(self, isolated_papergraph_dir):
+        # A prior run resolved this title-only ref onto a library paper via
+        # dedup (network resolution, not a direct parse-time match). That
+        # in_library/dedup verdict must survive a recompute as long as the
+        # matched paper is still in the library — no revert, no re-queue.
+        draft = _seed_draft()
+        _mk_paper_full("arxiv:9999.11111", "Foundational Neural Sequence Modeling Survey",
+                        ["Z Someone"], 2015)
+        p1 = cc.compute_coverage(draft)
+        target = next(r for r in p1["references"] if "few-shot learners" in r["raw"])
+        assert target["status"] == "unchecked"  # sanity: no direct match pre-dedup
+
+        target["status"] = "in_library"
+        target["matched_paper_id"] = "arxiv:9999.11111"
+        target["match_kind"] = "dedup"
+        p1["resolved_at"] = "2026-07-07T00:00:00Z"
+        cc.save_coverage(p1)
+
+        p2 = cc.compute_coverage(draft)
+        again = next(r for r in p2["references"] if r["raw"] == target["raw"])
+        assert again["status"] == "in_library"
+        assert again["matched_paper_id"] == "arxiv:9999.11111"
+        assert again["match_kind"] == "dedup"
+        assert p2["counts"]["in_library"] == 1
+
+    def test_dedup_reverts_when_matched_paper_deleted(self, isolated_papergraph_dir):
+        # Once the paper a dedup verdict pointed at is removed from the
+        # library, the stale in_library/dedup record must not mask a
+        # genuinely-missing reference on recompute.
+        draft = _seed_draft()
+        _mk_paper_full("arxiv:9999.11111", "Foundational Neural Sequence Modeling Survey",
+                        ["Z Someone"], 2015)
+        p1 = cc.compute_coverage(draft)
+        target = next(r for r in p1["references"] if "few-shot learners" in r["raw"])
+
+        target["status"] = "in_library"
+        target["matched_paper_id"] = "arxiv:9999.11111"
+        target["match_kind"] = "dedup"
+        p1["resolved_at"] = "2026-07-07T00:00:00Z"
+        cc.save_coverage(p1)
+
+        assert store.remove_paper("arxiv:9999.11111") is True
+
+        p2 = cc.compute_coverage(draft)
+        again = next(r for r in p2["references"] if r["raw"] == target["raw"])
+        assert again["status"] != "in_library"
+        assert p2["counts"]["in_library"] == 0
+
     def test_no_text_returns_none_source_without_caching(self, isolated_papergraph_dir):
         draft = "local:draftnotext"
         store.PaperMetadata(paper_id=draft, title="D", authors=["M"],
