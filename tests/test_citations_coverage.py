@@ -149,6 +149,101 @@ class TestMatchReferenceToLibrary:
 
 
 # ---------------------------------------------------------------------------
+# _ref_first_surname
+# ---------------------------------------------------------------------------
+
+class TestRefFirstSurname:
+    def _ref(self, raw, year=None):
+        return Reference(title=raw, authors=[], year=year, doi=None,
+                         arxiv_id=None, url=None, raw=raw)
+
+    def test_simple_et_al(self):
+        assert cc._ref_first_surname(self._ref("Neumann et al. 2019")) == "neumann"
+
+    def test_hyphenated_surname_kept_whole(self):
+        assert cc._ref_first_surname(self._ref("Segura-Bedmar et al. 2013")) == "segurabedmar"
+
+    def test_leading_enumeration_stripped(self):
+        assert cc._ref_first_surname(self._ref("[12] Neumann et al. 2019")) == "neumann"
+
+    def test_before_comma(self):
+        assert cc._ref_first_surname(self._ref("Neumann, E. 2019")) == "neumann"
+
+    def test_org_yields_non_person_token(self):
+        # Leading token of an org name — will not equal any person's surname.
+        sn = cc._ref_first_surname(
+            self._ref("NHS Chief Clinical Information Officers Study Group 2023"))
+        assert sn == "nhs"
+
+    def test_empty_raw_returns_none(self):
+        assert cc._ref_first_surname(self._ref("")) is None
+
+
+# ---------------------------------------------------------------------------
+# match_reference_to_library — author + year strategy
+# ---------------------------------------------------------------------------
+
+def _mk_paper_full(paper_id, title, authors, year):
+    store.PaperMetadata(paper_id=paper_id, title=title, authors=authors,
+                        year=year, added_at="2026-01-01T00:00:00Z").save()
+
+
+class TestAuthorYearMatch:
+    def _ref(self, raw, year):
+        return Reference(title=raw, authors=[], year=year, doi=None,
+                         arxiv_id=None, url=None, raw=raw)
+
+    def test_surname_and_year_match(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00001", "Some Title", ["Emma Neumann", "X Author"], 2019)
+        m = cc.match_reference_to_library(
+            self._ref("Neumann et al. 2019", 2019), store.list_papers())
+        assert m == ("arxiv:1111.00001", "author_year")
+
+    def test_year_mismatch_no_match(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00002", "Some Title", ["Emma Neumann"], 2018)
+        assert cc.match_reference_to_library(
+            self._ref("Neumann et al. 2019", 2019), store.list_papers()) is None
+
+    def test_surname_mismatch_no_match(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00003", "Some Title", ["Alice Smith"], 2019)
+        assert cc.match_reference_to_library(
+            self._ref("Neumann et al. 2019", 2019), store.list_papers()) is None
+
+    def test_empty_authors_skipped(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00004", "Some Title", [], 2019)
+        assert cc.match_reference_to_library(
+            self._ref("Neumann et al. 2019", 2019), store.list_papers()) is None
+
+    def test_hyphenated_surname_match(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00005", "NER Title", ["Isabel Segura-Bedmar"], 2013)
+        m = cc.match_reference_to_library(
+            self._ref("Segura-Bedmar et al. 2013", 2013), store.list_papers())
+        assert m == ("arxiv:1111.00005", "author_year")
+
+    def test_org_does_not_falsely_match(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00006", "Unrelated 2023 Paper", ["John Doe"], 2023)
+        m = cc.match_reference_to_library(
+            self._ref("NHS Chief Clinical Information Officers Study Group 2023", 2023),
+            store.list_papers())
+        assert m is None
+
+    def test_no_year_no_author_year_match(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00007", "Some Title", ["Emma Neumann"], 2019)
+        assert cc.match_reference_to_library(
+            self._ref("Neumann et al.", None), store.list_papers()) is None
+
+    def test_id_strategy_precedence_over_author_year(self, isolated_papergraph_dir):
+        # An arxiv-id ref must still match by arxiv_id even if a different
+        # paper would satisfy the author+year rule.
+        _mk_paper_full("arxiv:2106.09685", "LoRA", ["Edward Hu"], 2021)
+        _mk_paper_full("arxiv:9999.00009", "Other", ["Edward Hu"], 2021)
+        ref = Reference(title="t", authors=[], year=2021, doi=None,
+                        arxiv_id="2106.09685", url=None, raw="Hu et al. 2021")
+        m = cc.match_reference_to_library(ref, store.list_papers())
+        assert m == ("arxiv:2106.09685", "arxiv_id")
+
+
+# ---------------------------------------------------------------------------
 # compute_coverage
 # ---------------------------------------------------------------------------
 

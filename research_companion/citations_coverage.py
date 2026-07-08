@@ -26,7 +26,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from research_companion.refcheck.matching import normalize_title, title_similarity
+from research_companion.refcheck.matching import _last_name, normalize_title, title_similarity
 from research_companion.refcheck.parse import parse_reference_string
 from research_companion.refcheck.retrieval import (
     _crossref_search,
@@ -213,6 +213,36 @@ def extract_bibliography_entries(draft_id: str) -> tuple[list[str], str]:
 # 4. Library matching
 # ---------------------------------------------------------------------------
 
+_ENUM_PREFIX_RE = re.compile(r"^\s*(?:\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s*")
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_ETAL_RE = re.compile(r"\bet\s+al\b", re.IGNORECASE)
+
+
+def _ref_first_surname(ref: Reference) -> str | None:
+    """First-author surname from a reference's raw label, normalized.
+
+    These refs are author+year labels ("Neumann et al. 2019") with no real
+    title/id. Strip leading enumeration, then take the head before "et al",
+    the first comma, or the year, and normalize its first token via
+    `_last_name`. Hyphenated names ("Segura-Bedmar") stay whole; org names
+    yield a non-person token that simply won't equal any library surname.
+    """
+    raw = _ENUM_PREFIX_RE.sub("", ref.raw or "").strip()
+    if not raw:
+        return None
+    cut = len(raw)
+    for m in (_YEAR_RE.search(raw), _ETAL_RE.search(raw)):
+        if m:
+            cut = min(cut, m.start())
+    comma = raw.find(",")
+    if comma != -1:
+        cut = min(cut, comma)
+    head = raw[:cut].split()
+    if not head:
+        return None
+    return _last_name(head[0]) or None
+
+
 def match_reference_to_library(
     ref: Reference, papers: list[PaperMetadata],
 ) -> tuple[str, str] | None:
@@ -242,6 +272,18 @@ def match_reference_to_library(
     for p in papers:
         if title_similarity(ref.title, p.title) >= _TITLE_SIM_THRESHOLD:
             return p.paper_id, "title_similarity"
+
+    # Author+year: conservative last resort for bare "Surname et al. YEAR"
+    # labels. Requires BOTH exact year equality AND normalized first-author
+    # surname equality; never loosen.
+    if ref.year is not None:
+        ref_sn = _ref_first_surname(ref)
+        if ref_sn:
+            for p in papers:
+                if p.year == ref.year and p.authors:
+                    lib_sn = _last_name(p.authors[0])
+                    if lib_sn and lib_sn == ref_sn:
+                        return p.paper_id, "author_year"
 
     return None
 
