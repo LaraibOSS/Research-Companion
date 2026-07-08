@@ -175,6 +175,64 @@ def _validate_extraction(data: Any) -> dict[str, list]:
     return out
 
 
+# Bibliographic backfill: the extractor also returns the paper's own metadata as
+# an OPTIONAL `paper_meta` object. We write it back onto PaperMetadata for WEAK
+# fields only (never clobber trusted arxiv/doi/s2 data).
+_MAX_BACKFILL_AUTHORS = 25
+_MAX_BACKFILL_TITLE = 300
+
+
+def _backfilled_metadata(meta: PaperMetadata, paper_meta: Any) -> dict[str, Any]:
+    """Pure decision: which weak fields to fill from `paper_meta`. Never raises.
+
+    Returns a dict of {field: new_value} for fields that should change (may be empty).
+    Rules:
+      - year: only when meta.year is None and paper_meta.year coerces to int in 1900..2100.
+      - authors: only when meta.authors is empty and paper_meta.authors is a non-empty
+        list of non-empty strings (stripped, blanks dropped, capped).
+      - title: only when meta.source_url is an ``upload://`` and paper_meta.title is a
+        non-empty string (stripped, length-capped). Never for arxiv/doi/s2.
+    """
+    if not isinstance(paper_meta, dict):
+        return {}
+    changes: dict[str, Any] = {}
+
+    if meta.year is None:
+        try:
+            y = int(paper_meta.get("year"))
+        except (TypeError, ValueError):
+            y = None
+        if y is not None and 1900 <= y <= 2100:
+            changes["year"] = y
+
+    if not meta.authors:
+        raw = paper_meta.get("authors")
+        if isinstance(raw, list):
+            cleaned = [a.strip() for a in raw if isinstance(a, str) and a.strip()]
+            if cleaned:
+                changes["authors"] = cleaned[:_MAX_BACKFILL_AUTHORS]
+
+    if isinstance(meta.source_url, str) and meta.source_url.startswith("upload://"):
+        raw_title = paper_meta.get("title")
+        if isinstance(raw_title, str) and raw_title.strip():
+            changes["title"] = raw_title.strip()[:_MAX_BACKFILL_TITLE]
+
+    return changes
+
+
+def _apply_backfill(meta: PaperMetadata, extraction: dict) -> None:
+    """Apply _backfilled_metadata to `meta` and persist iff anything changed. Never raises."""
+    try:
+        changes = _backfilled_metadata(meta, extraction.get("paper_meta"))
+    except Exception:
+        return
+    if not changes:
+        return
+    for k, v in changes.items():
+        setattr(meta, k, v)
+    meta.save()
+
+
 def extract_paper(
     meta: PaperMetadata,
     *,
@@ -192,6 +250,8 @@ def extract_paper(
     if not force:
         cached = load_extraction(meta.paper_id, prompt_sha=prompt_sha)
         if cached is not None:
+            # Cache hit: still backfill weak metadata (cached extraction may carry paper_meta).
+            _apply_backfill(meta, cached)
             return cached, {"input_tokens": 0, "output_tokens": 0, "cached": True}
 
     text = get_paper_text(meta)
@@ -247,6 +307,12 @@ def extract_paper(
             if isinstance(entity, dict) and "section" in entity and entity["section"] not in section_ids:
                 entity["section"] = None
 
+    # Preserve the optional paper_meta block for backfill + future cache hits;
+    # _validate_extraction only keeps the required entity lists.
+    if isinstance(parsed, dict) and isinstance(parsed.get("paper_meta"), dict):
+        extraction["paper_meta"] = parsed["paper_meta"]
+
     save_extraction(meta.paper_id, extraction, prompt_sha=prompt_sha)
+    _apply_backfill(meta, extraction)
     usage["cached"] = False
     return extraction, usage

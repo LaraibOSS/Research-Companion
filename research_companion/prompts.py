@@ -40,7 +40,12 @@ Return JSON ONLY (no prose, no markdown fences) matching this schema exactly:
   ],
   "related_work": [
     "string (a referenced paper title or first-author + year, e.g. 'Lewis et al. 2020')"
-  ]
+  ],
+  "paper_meta": {
+    "title": "string — this paper's real title as printed on the first page (NOT a filename)",
+    "authors": ["string — author names as printed, first author first"],
+    "year": "integer — publication year, or null if not determinable"
+  }
 }
 
 Rules:
@@ -49,6 +54,7 @@ Rules:
 - Claims are the paper's own assertions, not your evaluation of them.
 - Results: only include numeric results explicitly stated in the paper.
 - related_work: just the names/titles as they appear in the paper. Do NOT fabricate IDs or URLs.
+- paper_meta describes THIS paper's own bibliography (its title/authors/year), distinct from related_work which lists cited prior work. Read it from the first page; use null for year if not determinable.
 - If a section is absent, return an empty list for it.
 - DO NOT wrap the JSON in code fences or add commentary. Output starts with `{` and ends with `}`.
 <<SECTION_OUTLINE_BLOCK>>
