@@ -35,7 +35,7 @@ from research_companion.refcheck.retrieval import (
     parse_openalex_item,
 )
 from research_companion.refcheck.validate import Reference
-from research_companion.store import PaperMetadata, make_arxiv_id, papergraph_dir
+from research_companion.store import PaperMetadata, make_arxiv_id, make_doi_id, papergraph_dir
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -288,6 +288,52 @@ def match_reference_to_library(
     return None
 
 
+def find_library_duplicate(
+    ref: Reference, papers: list[PaperMetadata], *, resolved: dict | None = None,
+) -> str | None:
+    """Return a library paper_id that already holds this reference's work, else None.
+
+    Conservative dedup for the auto-download loop ("don't add it again"): reuse
+    `match_reference_to_library` on the parsed reference (id / title / author+year),
+    then, when a network resolution has enriched the coverage record with an
+    arxiv_id/doi or a clean title/year, check those too. `resolved` is the coverage
+    record dict — enriched values are read from its top level and its `resolved`
+    sub-dict (`resolve_missing` leaves the top-level parse fields stale). Thresholds
+    never loosen beyond what the matcher already encodes.
+    """
+    m = match_reference_to_library(ref, papers)
+    if m:
+        return m[0]
+
+    if not resolved:
+        return None
+    sub = resolved.get("resolved") if isinstance(resolved.get("resolved"), dict) else {}
+    sub = sub or {}
+    arxiv_id = resolved.get("arxiv_id") or sub.get("arxiv_id")
+    doi = resolved.get("doi") or sub.get("doi")
+    title = resolved.get("title") or sub.get("title")
+    year = resolved.get("year") or sub.get("year")
+
+    if arxiv_id:
+        want = make_arxiv_id(arxiv_id).lower()
+        for p in papers:
+            if p.paper_id.lower() == want:
+                return p.paper_id
+    if doi:
+        want = make_doi_id(doi).lower()
+        for p in papers:
+            if p.paper_id.lower() == want:
+                return p.paper_id
+    if title or year:
+        synth = Reference(
+            title=title or ref.title, authors=[], year=year,
+            doi=doi, arxiv_id=arxiv_id, url=None, raw=title or ref.raw)
+        m2 = match_reference_to_library(synth, papers)
+        if m2:
+            return m2[0]
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 5. Persistence
 # ---------------------------------------------------------------------------
@@ -390,7 +436,15 @@ def compute_coverage(draft_id: str) -> dict:
         else:
             # Carry over a previous network resolution for this exact entry
             old = prev_by_raw.get(raw)
-            if old and old.get("resolved"):
+            if (old and old.get("status") == "in_library" and old.get("matched_paper_id")
+                    and any(p.paper_id == old["matched_paper_id"] for p in papers)):
+                # A prior run deduped this ref onto a library paper (via a
+                # resolved id/title); keep it in_library while that paper exists.
+                rec["status"] = "in_library"
+                rec["matched_paper_id"] = old["matched_paper_id"]
+                rec["match_kind"] = old.get("match_kind")
+                rec["resolved"] = old.get("resolved")
+            elif old and old.get("resolved"):
                 rec["resolved"] = old["resolved"]
                 rec["add_target"] = old.get("add_target")
                 rec["status"] = "available" if rec["add_target"] else "unresolved"

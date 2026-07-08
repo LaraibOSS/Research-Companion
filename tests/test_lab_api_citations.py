@@ -238,6 +238,45 @@ class TestAutoDownload:
             time.sleep(1.0)
             assert queued == []
 
+    def test_dedup_skips_queue_when_resolved_paper_already_in_library(
+            self, isolated_papergraph_dir):
+        # The title-only Vaswani ref resolves to an arXiv id that is ALREADY in
+        # the library — it must be deduped (in_library), never queued. The
+        # library title is intentionally NOT contained in the raw so only the
+        # resolved id finds the duplicate.
+        store.PaperMetadata(
+            paper_id="arxiv:1706.03762", title="Transformer Sequence Model",
+            authors=["Q. Researcher"], year=2016,
+            added_at="2026-01-01T00:00:00Z").save()
+        draft = _seed_draft()
+        store.set_draft_paper_id(None)
+        app, _bus, c, queued = self._spy_client()
+
+        def fake_resolver(ref):
+            return {"title": "Attention Is All You Need", "year": 2017,
+                    "doi": None, "arxiv_id": "1706.03762"}
+        app.state.citations_resolver_override = fake_resolver
+
+        with c:
+            c.post("/api/draft", json={"paper_id": draft})
+            # the two parsed-arXiv refs still auto-queue as usual
+            assert self._wait(
+                lambda: set(queued) >= {"1810.04805", "2106.09685"}), queued
+
+            def _deduped():
+                cov = load_coverage() or {}
+                return any(r.get("match_kind") == "dedup"
+                           for r in cov.get("references", []))
+            assert self._wait(_deduped, timeout=15), load_coverage()
+            time.sleep(0.3)
+        # the already-in-library resolved id must NEVER be queued for download
+        assert "1706.03762" not in queued
+        cov = load_coverage()
+        att = next(r for r in cov["references"] if "Attention" in r["raw"])
+        assert att["status"] == "in_library"
+        assert att["matched_paper_id"] == "arxiv:1706.03762"
+        assert att["match_kind"] == "dedup"
+
     def test_auto_resolve_runs_once_then_queues_new_available(
             self, isolated_papergraph_dir):
         draft = _seed_draft()

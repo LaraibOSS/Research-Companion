@@ -692,20 +692,52 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         with suppress(Exception):
             from research_companion import store
             from research_companion.agents.events import CitationCoverageUpdated
-            from research_companion.citations_coverage import compute_coverage
+            from research_companion.citations_coverage import (
+                _recount,
+                compute_coverage,
+                find_library_duplicate,
+                save_coverage,
+            )
+            from research_companion.refcheck.validate import Reference
             from research_companion.settings import get_settings
 
             draft_id = store.get_draft_paper_id()
             if draft_id is None:
                 return
+            auto_add = get_settings().get("auto_add_citations", True)
             async with app.state._coverage_lock:
                 payload = await asyncio.to_thread(compute_coverage, draft_id)
+                # Dedup-before-add: an "available" ref whose work is already in
+                # the library (e.g. an uploaded local: PDF, or a resolved id we
+                # already hold) is marked in_library instead of being downloaded
+                # again. Mutation + persist stay inside the coverage lock so the
+                # published counts reflect the dedup without a second race.
+                if payload.get("source") != "none" and auto_add:
+                    papers = await asyncio.to_thread(store.list_papers)
+                    deduped = False
+                    for rec in payload.get("references", []):
+                        if rec.get("status") != "available" or not rec.get("add_target"):
+                            continue
+                        ref = Reference(
+                            title=rec.get("title") or rec.get("raw") or "", authors=[],
+                            year=rec.get("year"), doi=rec.get("doi"),
+                            arxiv_id=rec.get("arxiv_id"), url=None, raw=rec.get("raw") or "")
+                        dup = find_library_duplicate(ref, papers, resolved=rec)
+                        if dup:
+                            rec["status"] = "in_library"
+                            rec["matched_paper_id"] = dup
+                            rec["match_kind"] = "dedup"
+                            rec["add_target"] = None
+                            deduped = True
+                    if deduped:
+                        _recount(payload)
+                        await asyncio.to_thread(save_coverage, payload)
             if payload.get("source") == "none":
                 return
             await bus.publish(CitationCoverageUpdated(
                 draft_paper_id=draft_id, **payload["counts"]))
 
-            if not get_settings().get("auto_add_citations", True):
+            if not auto_add:
                 return
 
             # Auto-queue downloads for available refs (session-deduped so a

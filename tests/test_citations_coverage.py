@@ -244,6 +244,55 @@ class TestAuthorYearMatch:
 
 
 # ---------------------------------------------------------------------------
+# find_library_duplicate — conservative dedup for the auto-download loop
+# ---------------------------------------------------------------------------
+
+class TestFindLibraryDuplicate:
+    def test_reuses_match_author_year(self, isolated_papergraph_dir):
+        _mk_paper_full("arxiv:1111.00001", "Some Title", ["Emma Neumann"], 2019)
+        ref = Reference(title="Neumann et al. 2019", authors=[], year=2019,
+                        doi=None, arxiv_id=None, url=None, raw="Neumann et al. 2019")
+        assert cc.find_library_duplicate(ref, store.list_papers()) == "arxiv:1111.00001"
+
+    def test_resolved_arxiv_id_already_in_library(self, isolated_papergraph_dir):
+        # Library title is deliberately NOT contained in the raw, so only the
+        # resolved arxiv_id can find the duplicate.
+        _mk_paper("arxiv:1706.03762", "Transformer Sequence Model")
+        ref = Reference(title="Foo", authors=[], year=None, doi=None,
+                        arxiv_id=None, url=None, raw="Foo et al. Some cited work. 2099.")
+        rec = {"arxiv_id": None, "doi": None, "title": None, "year": None,
+               "resolved": {"title": "Attention Is All You Need", "year": 2017,
+                            "doi": None, "arxiv_id": "1706.03762"}}
+        assert cc.find_library_duplicate(
+            ref, store.list_papers(), resolved=rec) == "arxiv:1706.03762"
+
+    def test_resolved_title_matches_local_upload(self, isolated_papergraph_dir):
+        _mk_paper_full("local:up7", "Attention Is All You Need", ["Ashish Vaswani"], 2017)
+        ref = Reference(title="Foo", authors=[], year=None, doi=None, arxiv_id=None,
+                        url=None, raw="Foo et al. Some cited work. 2099.")
+        rec = {"arxiv_id": None, "doi": None, "title": None, "year": None,
+               "resolved": {"title": "Attention Is All You Need", "year": 2017,
+                            "doi": None, "arxiv_id": "9999.88888"}}
+        assert cc.find_library_duplicate(
+            ref, store.list_papers(), resolved=rec) == "local:up7"
+
+    def test_new_reference_returns_none(self, isolated_papergraph_dir):
+        _mk_paper("arxiv:0000.11111", "A Completely Unrelated Topic Paper")
+        ref = Reference(title="Novel Work", authors=[], year=2099, doi=None,
+                        arxiv_id=None, url=None, raw="Nobody. A brand new novel work. 2099.")
+        rec = {"arxiv_id": None, "doi": None, "title": None, "year": None,
+               "resolved": {"title": "Some Brand New Work", "year": 2099,
+                            "doi": None, "arxiv_id": "2099.99999"}}
+        assert cc.find_library_duplicate(ref, store.list_papers(), resolved=rec) is None
+
+    def test_no_resolved_no_match_returns_none(self, isolated_papergraph_dir):
+        _mk_paper("arxiv:0000.22222", "Unrelated Paper Title Here")
+        ref = Reference(title="x", authors=[], year=None, doi=None, arxiv_id=None,
+                        url=None, raw="Totally different citation string here.")
+        assert cc.find_library_duplicate(ref, store.list_papers()) is None
+
+
+# ---------------------------------------------------------------------------
 # compute_coverage
 # ---------------------------------------------------------------------------
 
