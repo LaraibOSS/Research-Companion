@@ -691,11 +691,18 @@ function _startMetadataEdit(paperId) {
   }
   header.querySelector('#meta-cancel').addEventListener('click', cancel);
 
-  // Escape cancels the edit without closing the whole drawer.
-  header.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      cancel();
-    }
-  });
+  // Escape cancels the edit without closing the whole drawer. Bound to the
+  // FORM (not the persistent header) so the listener is discarded along
+  // with it when cancel()/save()/restore() replace header.innerHTML — a
+  // listener on the header itself would outlive the edit and keep calling
+  // stopPropagation() on every later Escape, permanently blocking the
+  // drawer's document-level Escape-to-close (and stacking on repeat edits).
+  if (form) {
+    form.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        cancel();
+      }
+    });
+  }
 }

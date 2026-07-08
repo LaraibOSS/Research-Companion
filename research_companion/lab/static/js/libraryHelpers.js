@@ -35,6 +35,19 @@ export function needsMetadata(paper) {
   return noYear || noAuthors;
 }
 
+/**
+ * Build the aggregate missing-metadata banner text, correctly pluralized
+ * for both "paper(s)" and "need(s)".
+ *
+ * @param {number} count — number of papers missing metadata (> 0)
+ * @returns {string}
+ */
+export function metadataBannerText(count) {
+  const noun = count === 1 ? 'paper' : 'papers';
+  const verb = count === 1 ? 'needs' : 'need';
+  return `${count} ${noun} ${verb} metadata — add authors/year so they appear on the timeline and match your citations`;
+}
+
 // Tie-break priority: strengthens > challenges > alternative
 const RELATION_PRIORITY = ['strengthens', 'challenges', 'alternative'];
 

@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
 
@@ -351,4 +351,26 @@ test('draftActionFor: no draft set (undefined) -> Set as draft', () => {
   const action = draftActionFor('p1', undefined);
   assert.equal(action.label, 'Set as draft');
   assert.equal(action.next, 'p1');
+});
+
+// ---------------------------------------------------------------------------
+// metadataBannerText
+// ---------------------------------------------------------------------------
+
+test('metadataBannerText: singular count -> "1 paper needs metadata"', () => {
+  assert.equal(
+    metadataBannerText(1),
+    '1 paper needs metadata — add authors/year so they appear on the timeline and match your citations'
+  );
+});
+
+test('metadataBannerText: plural count -> "N papers need metadata"', () => {
+  assert.equal(
+    metadataBannerText(2),
+    '2 papers need metadata — add authors/year so they appear on the timeline and match your citations'
+  );
+  assert.equal(
+    metadataBannerText(5),
+    '5 papers need metadata — add authors/year so they appear on the timeline and match your citations'
+  );
 });

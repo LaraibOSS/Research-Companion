@@ -34,7 +34,7 @@ import { mountCitationsPanel } from './components/citationsPanel.js';
 import { mountPlacementPanel } from './components/placementPanel.js';
 import { mountReader } from './components/reader.js';
 import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
-import { needsMetadata } from './libraryHelpers.js';
+import { needsMetadata, metadataBannerText } from './libraryHelpers.js';
 import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
@@ -374,7 +374,7 @@ async function boot() {
 
   // Missing-metadata banner (aggregate) — session-collapsible
   const metadataBanner         = document.getElementById('metadata-banner');
-  const metadataBannerText     = document.getElementById('metadata-banner-text');
+  const metadataBannerTextEl   = document.getElementById('metadata-banner-text');
   const metadataBannerLink     = document.getElementById('metadata-banner-link');
   const metadataBannerCollapse = document.getElementById('metadata-banner-collapse');
 
@@ -403,9 +403,8 @@ async function boot() {
     })();
     const visible = count > 0 && !collapsed;
     metadataBanner.classList.toggle('visible', visible);
-    if (visible && metadataBannerText) {
-      metadataBannerText.textContent =
-        `${count} paper${count === 1 ? '' : 's'} need metadata — add authors/year so they appear on the timeline and match your citations`;
+    if (visible && metadataBannerTextEl) {
+      metadataBannerTextEl.textContent = metadataBannerText(count);
     }
   }
   store.subscribe('papers', updateMetadataBanner);
