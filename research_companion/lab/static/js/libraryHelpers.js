@@ -20,6 +20,21 @@ export function deriveStatus(paper) {
   return 'queued';
 }
 
+/**
+ * True when a paper is missing authors or year — i.e. it needs manual
+ * metadata so it appears on the timeline and matches citations.
+ * Missing = year is null/undefined OR authors is empty/absent.
+ *
+ * @param {object|null|undefined} paper
+ * @returns {boolean}
+ */
+export function needsMetadata(paper) {
+  if (!paper) return false;
+  const noYear    = paper.year == null;
+  const noAuthors = !(Array.isArray(paper.authors) && paper.authors.length > 0);
+  return noYear || noAuthors;
+}
+
 // Tie-break priority: strengthens > challenges > alternative
 const RELATION_PRIORITY = ['strengthens', 'challenges', 'alternative'];
 
@@ -76,6 +91,7 @@ export function buildRows(papersMapOrArray, draftId) {
   const toRow = (paper) => ({
     paperId:       paper.paper_id,
     title:         paper.title || '',
+    authors:       Array.isArray(paper.authors) ? paper.authors : [],
     year:          paper.year  || null,
     status:        deriveStatus(paper),
     strengthBand:  paper.strength ? (paper.strength.band || null) : null,
@@ -84,6 +100,7 @@ export function buildRows(papersMapOrArray, draftId) {
     addedAt:       paper.added_at || null,
     isDraft:       draftId != null && paper.paper_id === draftId,
     failureReason: paper.failure_reason || null,
+    needsMetadata: needsMetadata(paper),
   });
 
   const draftRow  = papers.filter(p => draftId != null && p.paper_id === draftId).map(toRow);

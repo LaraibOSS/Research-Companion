@@ -13,9 +13,52 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
+
+// ---------------------------------------------------------------------------
+// needsMetadata (truth table)
+// ---------------------------------------------------------------------------
+
+test('needsMetadata: year null -> true', () => {
+  assert.equal(needsMetadata({ year: null, authors: ['Alice'] }), true);
+  assert.equal(needsMetadata({ authors: ['Alice'] }), true); // year undefined
+});
+
+test('needsMetadata: authors empty/absent -> true', () => {
+  assert.equal(needsMetadata({ year: 2020, authors: [] }), true);
+  assert.equal(needsMetadata({ year: 2020 }), true); // authors absent
+  assert.equal(needsMetadata({ year: 2020, authors: null }), true);
+});
+
+test('needsMetadata: both missing -> true', () => {
+  assert.equal(needsMetadata({}), true);
+  assert.equal(needsMetadata({ year: null, authors: [] }), true);
+});
+
+test('needsMetadata: year present and authors present -> false', () => {
+  assert.equal(needsMetadata({ year: 2020, authors: ['Alice'] }), false);
+  assert.equal(needsMetadata({ year: 1999, authors: ['A', 'B'] }), false);
+});
+
+test('needsMetadata: null/undefined paper -> false (nothing to flag)', () => {
+  assert.equal(needsMetadata(null), false);
+  assert.equal(needsMetadata(undefined), false);
+});
+
+test('buildRows: exposes authors and needsMetadata on each row', () => {
+  const rows = buildRows(new Map([
+    ['a', { paper_id: 'a', title: 'A', year: 2020, authors: ['Alice'] }],
+    ['b', { paper_id: 'b', title: 'B', year: null, authors: [] }],
+  ]), null);
+  const a = rows.find(r => r.paperId === 'a');
+  const b = rows.find(r => r.paperId === 'b');
+  assert.deepEqual(a.authors, ['Alice']);
+  assert.equal(a.needsMetadata, false);
+  assert.deepEqual(b.authors, []);
+  assert.equal(b.needsMetadata, true);
+});
 
 // ---------------------------------------------------------------------------
 // deriveStatus

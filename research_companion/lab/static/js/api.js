@@ -74,6 +74,14 @@ export const retryPaper = (paperId) => post(`/api/papers/${encodeURIComponent(pa
 /** DELETE /api/papers/{id} */
 export const deletePaper = (paperId) => del(`/api/papers/${encodeURIComponent(paperId)}`);
 
+/**
+ * PATCH /api/papers/{id} — manual metadata edit. body: { title?, authors?, year? }
+ * (only sent fields applied). Returns the FULL per-paper dict.
+ * Rules: authors:[] clears; year:null clears; never send title:null/authors:null.
+ */
+export const patchPaper = (id, body) =>
+  _fetch('PATCH', `/api/papers/${encodeURIComponent(id)}`, body);
+
 /** GET /api/draft — returns { draft_paper_id } */
 export const getDraft = () => get('/api/draft');
 

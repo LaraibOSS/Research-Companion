@@ -793,14 +793,21 @@ html, body {
 }
 
 /* #graph-canvas is a viewport overlay, so the banner grid rows (which push
-   #view down) do not move it — offset it explicitly per visible banner or
-   the graph's floating panels/toggle render under the banner strip. */
+   #view down) do not move it — offset it explicitly by the number of visible
+   banners (no-key + citations + metadata) or the graph's floating panels/toggle
+   render under the banner strip. More-specific (more :has) rules win. */
 body:has(#no-key-banner.visible) #graph-canvas,
-body:has(#citations-banner.visible) #graph-canvas {
+body:has(#citations-banner.visible) #graph-canvas,
+body:has(#metadata-banner.visible) #graph-canvas {
   top: calc(var(--topbar-h) + var(--banner-h)) !important;
 }
-body:has(#no-key-banner.visible):has(#citations-banner.visible) #graph-canvas {
+body:has(#no-key-banner.visible):has(#citations-banner.visible) #graph-canvas,
+body:has(#no-key-banner.visible):has(#metadata-banner.visible) #graph-canvas,
+body:has(#citations-banner.visible):has(#metadata-banner.visible) #graph-canvas {
   top: calc(var(--topbar-h) + 2 * var(--banner-h)) !important;
+}
+body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) #graph-canvas {
+  top: calc(var(--topbar-h) + 3 * var(--banner-h)) !important;
 }
 
 /* ---------------------------------------------------------------------------
@@ -4152,6 +4159,20 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   color: var(--color-fail);
 }
 
+/* Missing-metadata pill — amber, clickable (opens the drawer in edit mode) */
+.lib-status-pill-metadata {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--color-warn);
+  border: 1px solid rgba(210, 153, 34, 0.4);
+  cursor: pointer;
+  font-family: inherit;
+  text-transform: none;
+  margin-left: var(--space-2);
+}
+.lib-status-pill-metadata:hover {
+  background: rgba(210, 153, 34, 0.28);
+}
+
 /* Failed rows — subtle red tint */
 .lib-row-failed {
   border-left: 2px solid rgba(248, 81, 73, 0.4);
@@ -4536,21 +4557,142 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   grid-row: 1 / 4;
 }
 
-/* When both banners are visible, add a third banner row */
-.app:has(#no-key-banner.visible):has(#citations-banner.visible) {
-  grid-template-rows: var(--topbar-h) auto auto 1fr;
-}
-.app:has(#no-key-banner.visible):has(#citations-banner.visible) #no-key-banner {
+/* ---------------------------------------------------------------------------
+ * v0.5.7 — Missing-metadata banner (amber, cloned from #no-key-banner)
+ * --------------------------------------------------------------------------- */
+#metadata-banner {
+  display: none;
   grid-row: 2;
+  grid-column: 2;
+  background: rgba(210,153,34,0.12);
+  border-bottom: 1px solid rgba(210,153,34,0.4);
+  color: var(--color-warn);
+  font-size: 13px;
+  height: var(--banner-h);
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  z-index: 45;
 }
-.app:has(#no-key-banner.visible):has(#citations-banner.visible) #citations-banner {
+#metadata-banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#metadata-banner a {
+  color: var(--color-warn);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#metadata-banner-collapse {
+  background: none;
+  border: none;
+  color: var(--color-warn);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 0 0 6px;
+  opacity: 0.7;
+}
+#metadata-banner-collapse:hover { opacity: 1; }
+#metadata-banner.visible { display: flex; }
+
+/* When the metadata banner alone is visible, extend layout rows */
+.app:has(#metadata-banner.visible) {
+  grid-template-rows: var(--topbar-h) auto 1fr;
+}
+.app:has(#metadata-banner.visible) #view {
   grid-row: 3;
 }
-.app:has(#no-key-banner.visible):has(#citations-banner.visible) #view {
+.app:has(#metadata-banner.visible) .nav-rail {
+  grid-row: 1 / 4;
+}
+
+/* ---------------------------------------------------------------------------
+ * Multi-banner stacking (no-key -> citations -> metadata, top to bottom).
+ * More-specific (more :has) selectors win, so 2-banner rules override the
+ * 1-banner rules above and the 3-banner rule overrides everything.
+ * --------------------------------------------------------------------------- */
+
+/* --- Any TWO banners visible: 2 banner rows, banners on rows 2 & 3 --- */
+.app:has(#no-key-banner.visible):has(#citations-banner.visible),
+.app:has(#no-key-banner.visible):has(#metadata-banner.visible),
+.app:has(#citations-banner.visible):has(#metadata-banner.visible) {
+  grid-template-rows: var(--topbar-h) auto auto 1fr;
+}
+.app:has(#no-key-banner.visible):has(#citations-banner.visible) #view,
+.app:has(#no-key-banner.visible):has(#metadata-banner.visible) #view,
+.app:has(#citations-banner.visible):has(#metadata-banner.visible) #view {
   grid-row: 4;
 }
-.app:has(#no-key-banner.visible):has(#citations-banner.visible) .nav-rail {
+.app:has(#no-key-banner.visible):has(#citations-banner.visible) .nav-rail,
+.app:has(#no-key-banner.visible):has(#metadata-banner.visible) .nav-rail,
+.app:has(#citations-banner.visible):has(#metadata-banner.visible) .nav-rail {
   grid-row: 1 / 5;
+}
+/* no-key + citations */
+.app:has(#no-key-banner.visible):has(#citations-banner.visible) #no-key-banner   { grid-row: 2; }
+.app:has(#no-key-banner.visible):has(#citations-banner.visible) #citations-banner { grid-row: 3; }
+/* no-key + metadata */
+.app:has(#no-key-banner.visible):has(#metadata-banner.visible) #no-key-banner   { grid-row: 2; }
+.app:has(#no-key-banner.visible):has(#metadata-banner.visible) #metadata-banner { grid-row: 3; }
+/* citations + metadata */
+.app:has(#citations-banner.visible):has(#metadata-banner.visible) #citations-banner { grid-row: 2; }
+.app:has(#citations-banner.visible):has(#metadata-banner.visible) #metadata-banner  { grid-row: 3; }
+
+/* --- All THREE banners visible: 3 banner rows on 2, 3, 4 --- */
+.app:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) {
+  grid-template-rows: var(--topbar-h) auto auto auto 1fr;
+}
+.app:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) #no-key-banner   { grid-row: 2; }
+.app:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) #citations-banner { grid-row: 3; }
+.app:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) #metadata-banner  { grid-row: 4; }
+.app:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) #view {
+  grid-row: 5;
+}
+.app:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-banner.visible) .nav-rail {
+  grid-row: 1 / 6;
+}
+
+/* Drawer inline metadata edit form (v0.5.7) */
+.drawer-meta-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.drawer-meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.drawer-meta-label {
+  font-size: var(--text-sm);
+  color: var(--color-fg-dim);
+}
+.drawer-meta-input {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+  font-size: var(--text-base);
+  padding: 6px 8px;
+  width: 100%;
+}
+.drawer-meta-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.drawer-meta-error {
+  color: var(--color-fail);
+  font-size: var(--text-sm);
+  min-height: 0;
+}
+.drawer-meta-error:empty { display: none; }
+.drawer-meta-actions {
+  display: flex;
+  gap: var(--space-2);
 }
 
 /* ---------------------------------------------------------------------------

@@ -34,6 +34,7 @@ import { mountCitationsPanel } from './components/citationsPanel.js';
 import { mountPlacementPanel } from './components/placementPanel.js';
 import { mountReader } from './components/reader.js';
 import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
+import { needsMetadata } from './libraryHelpers.js';
 import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
@@ -370,6 +371,45 @@ async function boot() {
   }
   store.subscribe(['citations', 'draft', 'activity'], updateCitationsBanner);
   updateCitationsBanner();
+
+  // Missing-metadata banner (aggregate) — session-collapsible
+  const metadataBanner         = document.getElementById('metadata-banner');
+  const metadataBannerText     = document.getElementById('metadata-banner-text');
+  const metadataBannerLink     = document.getElementById('metadata-banner-link');
+  const metadataBannerCollapse = document.getElementById('metadata-banner-collapse');
+
+  if (metadataBannerLink) {
+    metadataBannerLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.hash = '#/library';
+    });
+  }
+  if (metadataBannerCollapse) {
+    metadataBannerCollapse.addEventListener('click', () => {
+      try { sessionStorage.setItem('rc.metadataBannerCollapsed', '1'); } catch { /* noop */ }
+      if (metadataBanner) metadataBanner.classList.remove('visible');
+    });
+  }
+
+  function updateMetadataBanner() {
+    if (!metadataBanner) return;
+    const { papers } = store.getState();
+    let count = 0;
+    for (const paper of papers.values()) {
+      if (needsMetadata(paper)) count++;
+    }
+    const collapsed = (() => {
+      try { return sessionStorage.getItem('rc.metadataBannerCollapsed') === '1'; } catch { return false; }
+    })();
+    const visible = count > 0 && !collapsed;
+    metadataBanner.classList.toggle('visible', visible);
+    if (visible && metadataBannerText) {
+      metadataBannerText.textContent =
+        `${count} paper${count === 1 ? '' : 's'} need metadata — add authors/year so they appear on the timeline and match your citations`;
+    }
+  }
+  store.subscribe('papers', updateMetadataBanner);
+  updateMetadataBanner();
 
   // Start router
   const viewEl = document.getElementById('view');

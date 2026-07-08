@@ -4,6 +4,7 @@
 
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
+import { needsMetadata } from '../libraryHelpers.js';
 
 /**
  * Render a paper card element.
@@ -34,6 +35,9 @@ export function renderPaperCard(paper) {
   const badges = [];
   if (paper.is_draft) {
     badges.push('<span class="badge badge-draft">★ DRAFT</span>');
+  }
+  if (needsMetadata(paper)) {
+    badges.push('<span class="badge badge-warn" title="Missing authors/year — open to add">Needs metadata</span>');
   }
 
   // Stance chips from stance_counts

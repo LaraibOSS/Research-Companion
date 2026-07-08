@@ -10,6 +10,7 @@ import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
 import { buildRows, sortRows, draftActionFor } from '../libraryHelpers.js';
+import { buildPaperPatch } from '../metadataForm.js';
 
 let _el = null;
 let _unsubscribe = null;
@@ -353,8 +354,13 @@ function _renderList(grid, papers, draftId) {
       ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
       : '';
 
+    // Missing-metadata pill — opens the drawer straight into edit mode.
+    const metadataPillHtml = row.needsMetadata
+      ? ` <button class="lib-status-pill lib-status-pill-metadata lib-meta-btn" data-paper-id="${escapeHtml(row.paperId)}" title="Missing authors/year — click to add">Needs metadata</button>`
+      : '';
+
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${retryBtnHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${retryBtnHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
@@ -428,16 +434,28 @@ function _renderList(grid, papers, draftId) {
       removePaperFlow(btn.dataset.paperId);
     });
   });
+
+  // Wire "Needs metadata" pills -> open drawer straight into edit mode
+  grid.querySelectorAll('.lib-meta-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _openDrawer(btn.dataset.paperId, { edit: true });
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Drawer
 // ---------------------------------------------------------------------------
 
-async function _openDrawer(paperId) {
+async function _openDrawer(paperId, { edit = false } = {}) {
   const state = store.getState();
   const paper = state.papers.get(paperId);
   if (!paper) return;
+
+  // Fresh drawer render clears any prior in-progress edit (prevents a stuck
+  // guard if the drawer was closed mid-edit via the overlay/close button).
+  _metaEditing = false;
 
   const draftAction = draftActionFor(paperId, state.draftId);
 
@@ -500,7 +518,7 @@ async function _openDrawer(paperId) {
   }
 
   const html = `
-    <div class="drawer-header">
+    <div class="drawer-header" id="drawer-meta-header">
       <h2 class="drawer-title">${escapeHtml(paper.title || 'Untitled')}</h2>
       <div class="muted">${escapeHtml(authorsLine(paper.authors || [], paper.year))}</div>
     </div>
@@ -515,6 +533,7 @@ async function _openDrawer(paperId) {
 
     <div class="drawer-section drawer-actions">
       <div class="drawer-section-title">Actions</div>
+      <button class="btn btn-secondary btn-full" id="drawer-edit-meta">Edit metadata</button>
       <button class="btn btn-secondary btn-full" id="drawer-set-draft">${escapeHtml(draftAction.label)}</button>
       <button class="btn btn-secondary btn-full" id="drawer-read">Read</button>
       <button class="btn btn-secondary btn-full" id="drawer-compare">Compare with...</button>
@@ -559,5 +578,124 @@ async function _openDrawer(paperId) {
 
   content.querySelector('#drawer-remove').addEventListener('click', () => {
     removePaperFlow(paperId, { onSuccess: drawerClose });
+  });
+
+  const editBtn = content.querySelector('#drawer-edit-meta');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => _startMetadataEdit(paperId));
+  }
+
+  // Optionally open straight into edit mode (from the "Needs metadata" pill).
+  if (edit) _startMetadataEdit(paperId);
+}
+
+// ---------------------------------------------------------------------------
+// Drawer inline metadata edit form
+// ---------------------------------------------------------------------------
+
+let _metaEditing = false; // one edit at a time; guards re-entry
+
+/**
+ * Swap the drawer header into an inline Title / Authors / Year form.
+ * Save calls PATCH /api/papers/{id}; Cancel/Escape restore the header.
+ */
+function _startMetadataEdit(paperId) {
+  if (_metaEditing) return;
+  const state = store.getState();
+  const paper = state.papers.get(paperId);
+  if (!paper) return;
+
+  const header = document.getElementById('drawer-meta-header');
+  if (!header) return;
+  _metaEditing = true;
+
+  const originalHtml = header.innerHTML;
+  const authorsStr = (paper.authors || []).join(', ');
+  const yearVal = paper.year != null ? String(paper.year) : '';
+
+  header.innerHTML = `
+    <form class="drawer-meta-form" novalidate>
+      <label class="drawer-meta-field">
+        <span class="drawer-meta-label">Title</span>
+        <input type="text" id="meta-title" class="drawer-meta-input"
+               value="${escapeHtml(paper.title || '')}" autocomplete="off">
+      </label>
+      <label class="drawer-meta-field">
+        <span class="drawer-meta-label">Authors <span class="muted">(comma-separated)</span></span>
+        <input type="text" id="meta-authors" class="drawer-meta-input"
+               value="${escapeHtml(authorsStr)}" autocomplete="off">
+      </label>
+      <label class="drawer-meta-field">
+        <span class="drawer-meta-label">Year</span>
+        <input type="number" id="meta-year" class="drawer-meta-input"
+               min="1900" max="2100" step="1" value="${escapeHtml(yearVal)}" autocomplete="off">
+      </label>
+      <div class="drawer-meta-error" id="meta-error" role="alert"></div>
+      <div class="drawer-meta-actions">
+        <button type="submit" class="btn btn-accent btn-sm" id="meta-save">Save</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="meta-cancel">Cancel</button>
+      </div>
+    </form>
+  `;
+
+  const form      = header.querySelector('.drawer-meta-form');
+  const titleEl   = header.querySelector('#meta-title');
+  const authorsEl = header.querySelector('#meta-authors');
+  const yearEl    = header.querySelector('#meta-year');
+  const errorEl   = header.querySelector('#meta-error');
+  if (titleEl) { titleEl.focus(); titleEl.select(); }
+
+  let done = false; // guard: submit + async can race
+  const restore = () => {
+    _metaEditing = false;
+    if (header) header.innerHTML = originalHtml;
+  };
+  const cancel = () => {
+    if (done) return;
+    done = true;
+    restore();
+  };
+
+  const save = async () => {
+    if (done) return;
+    const result = buildPaperPatch({
+      title:      titleEl ? titleEl.value : '',
+      authorsStr: authorsEl ? authorsEl.value : '',
+      yearStr:    yearEl ? yearEl.value : '',
+    });
+    if (result.error) {
+      if (errorEl) errorEl.textContent = result.error;
+      showToast(result.error, 'error');
+      return; // keep the form open
+    }
+    done = true;
+    try {
+      const updated = await api.patchPaper(paperId, result.body);
+      // Splice the returned full dict back into the store and re-render.
+      const s = store.getState();
+      s.papers.set(updated.paper_id, { ...s.papers.get(updated.paper_id), ...updated });
+      store.notify(['papers']);
+      showToast('Metadata updated', 'info');
+      _metaEditing = false;
+      // Re-open the drawer to reflect fresh values (header + banners refresh).
+      _openDrawer(updated.paper_id);
+    } catch (err) {
+      done = false; // allow retry
+      if (errorEl) errorEl.textContent = err.message;
+      showToast(err.message, 'error');
+    }
+  };
+
+  if (form) {
+    form.addEventListener('submit', (e) => { e.preventDefault(); save(); });
+  }
+  header.querySelector('#meta-cancel').addEventListener('click', cancel);
+
+  // Escape cancels the edit without closing the whole drawer.
+  header.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      cancel();
+    }
   });
 }
