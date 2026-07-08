@@ -9,7 +9,7 @@ import { open as drawerOpen, close as drawerClose } from '../components/drawer.j
 import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
-import { buildRows, sortRows } from '../libraryHelpers.js';
+import { buildRows, sortRows, draftActionFor } from '../libraryHelpers.js';
 
 let _el = null;
 let _unsubscribe = null;
@@ -158,6 +158,30 @@ async function _handleAdd() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared remove flow (grid cards, list rows, drawer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Confirm + delete a paper, update the store, and toast the outcome.
+ * @param {string} paperId
+ * @param {{ onSuccess?: () => void }} [opts] — e.g. close the drawer
+ */
+async function removePaperFlow(paperId, { onSuccess } = {}) {
+  if (!confirm(`Remove paper ${paperId}?`)) return;
+  try {
+    const res = await api.deletePaper(paperId);
+    const s = store.getState();
+    s.papers.delete(paperId);
+    if (res && res.draft_cleared === true) store.setDraft(null);
+    store.notify(['papers']);
+    if (onSuccess) onSuccess();
+    showToast('Paper removed', 'info');
+  } catch (err) {
+    showToast(`Remove failed: ${err.message}`, 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Grid render
 // ---------------------------------------------------------------------------
 
@@ -250,22 +274,12 @@ function _renderGridCards(grid, papers) {
       });
     }
 
-    // Remove button (on failed cards)
+    // Remove button (on all cards)
     const removeBtn = card.querySelector('.btn-remove');
     if (removeBtn) {
-      removeBtn.addEventListener('click', async (e) => {
+      removeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const pid = removeBtn.dataset.paperId;
-        if (!confirm(`Remove paper ${pid}?`)) return;
-        try {
-          await api.deletePaper(pid);
-          const s = store.getState();
-          s.papers.delete(pid);
-          store.notify(['papers']);
-          showToast('Paper removed', 'info');
-        } catch (err) {
-          showToast(`Remove failed: ${err.message}`, 'error');
-        }
+        removePaperFlow(removeBtn.dataset.paperId);
       });
     }
 
@@ -308,7 +322,7 @@ function _renderList(grid, papers, draftId) {
     const isActive = key === _listCol;
     const arrow = isActive ? ((_listDir === 'asc') ? ' ▲' : ' ▼') : '';
     return `<th class="lib-th${isActive ? ' lib-th-active' : ''}" data-col="${escapeHtml(key)}" role="columnheader" aria-sort="${isActive ? (_listDir === 'asc' ? 'ascending' : 'descending') : 'none'}">${escapeHtml(label)}${arrow}</th>`;
-  }).join('');
+  }).join('') + '<th class="lib-th lib-th-actions" role="columnheader" aria-label="Actions"></th>';
 
   const rowsHtml = rows.map(row => {
     const draftBadge = row.isDraft ? '<span class="badge badge-draft">★ DRAFT</span> ' : '';
@@ -335,6 +349,7 @@ function _renderList(grid, papers, draftId) {
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
       <td class="lib-td lib-td-relation">${relationTxt}</td>
       <td class="lib-td lib-td-added">${addedTxt}</td>
+      <td class="lib-td lib-td-actions"><button class="btn-icon btn-row-remove" data-paper-id="${escapeHtml(row.paperId)}" title="Remove" aria-label="Remove paper">&#128465;</button></td>
     </tr>`;
   }).join('');
 
@@ -384,6 +399,14 @@ function _renderList(grid, papers, draftId) {
       }
     });
   });
+
+  // Wire per-row remove buttons
+  grid.querySelectorAll('.btn-row-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removePaperFlow(btn.dataset.paperId);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +417,8 @@ async function _openDrawer(paperId) {
   const state = store.getState();
   const paper = state.papers.get(paperId);
   if (!paper) return;
+
+  const draftAction = draftActionFor(paperId, state.draftId);
 
   const bandColor = paper.strength ? strengthColor(paper.strength.band) : strengthColor('unscored');
   const bandLabel = paper.strength ? paper.strength.band : 'unscored';
@@ -469,7 +494,7 @@ async function _openDrawer(paperId) {
 
     <div class="drawer-section drawer-actions">
       <div class="drawer-section-title">Actions</div>
-      <button class="btn btn-secondary btn-full" id="drawer-set-draft">Set as draft</button>
+      <button class="btn btn-secondary btn-full" id="drawer-set-draft">${escapeHtml(draftAction.label)}</button>
       <button class="btn btn-secondary btn-full" id="drawer-compare">Compare with...</button>
       <button class="btn btn-secondary btn-full" id="drawer-show-graph">Show in graph</button>
       <button class="btn btn-danger btn-full" id="drawer-remove">Remove</button>
@@ -484,9 +509,9 @@ async function _openDrawer(paperId) {
 
   content.querySelector('#drawer-set-draft').addEventListener('click', async () => {
     try {
-      await api.setDraft(paperId);
-      store.setDraft(paperId);
-      showToast('Draft updated', 'info');
+      await api.setDraft(draftAction.next);
+      store.setDraft(draftAction.next);
+      showToast(draftAction.toast, 'info');
       drawerClose();
     } catch (err) {
       showToast(`Failed: ${err.message}`, 'error');
@@ -503,17 +528,7 @@ async function _openDrawer(paperId) {
     window.location.hash = '#/graph';
   });
 
-  content.querySelector('#drawer-remove').addEventListener('click', async () => {
-    if (!confirm(`Remove paper ${paperId}?`)) return;
-    try {
-      await api.deletePaper(paperId);
-      const s = store.getState();
-      s.papers.delete(paperId);
-      store.notify(['papers']);
-      drawerClose();
-      showToast('Paper removed', 'info');
-    } catch (err) {
-      showToast(`Remove failed: ${err.message}`, 'error');
-    }
+  content.querySelector('#drawer-remove').addEventListener('click', () => {
+    removePaperFlow(paperId, { onSuccess: drawerClose });
   });
 }

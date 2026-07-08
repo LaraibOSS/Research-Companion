@@ -13,6 +13,7 @@
 import { escapeHtml } from '../format.js';
 import { renderAnswerHtml, renderUnverifiedHtml } from '../answerHtml.js';
 import { attachCiteHandlers } from './citeMiniCard.js';
+import { showToast } from './toast.js';
 import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,30 @@ export function nextThreadState(state, event) {
  */
 export function threadKey(ctx) {
   return `${ctx.type}:${ctx.id || ''}`;
+}
+
+// ---------------------------------------------------------------------------
+// Pure: clearedThread / shouldResetAfterClearError — node-tested (Clear chat)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fresh thread entry used after a successful Clear chat.
+ * @returns {{ conversationId: null, messages: [], threadState: 'idle' }}
+ */
+export function clearedThread() {
+  return { conversationId: null, messages: [], threadState: 'idle' };
+}
+
+/**
+ * Decide whether a DELETE /api/conversations/{id} error still allows a local
+ * reset. 404 means the conversation was never persisted — treat as success.
+ * Any other error must NOT reset (state must reflect server truth).
+ *
+ * @param {Error|null|undefined} err — error with optional .status
+ * @returns {boolean}
+ */
+export function shouldResetAfterClearError(err) {
+  return !!(err && err.status === 404);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +324,8 @@ function _renderPanel() {
             : ''}
         </span>
       </div>
+      <button class="converse-clear" title="Clear chat" aria-label="Clear chat"
+              ${thread.messages.length === 0 ? 'disabled' : ''}>&#128465;</button>
       <span class="converse-history-hint"
             title="Conversation history persists for this session only"
             aria-label="History persists on this device">&#128274;</span>
@@ -324,6 +351,9 @@ function _renderPanel() {
 
   // Wire close button
   _panel.querySelector('.converse-close').addEventListener('click', _close);
+
+  // Wire clear-chat button
+  _panel.querySelector('.converse-clear').addEventListener('click', _clearChat);
 
   // Wire chip clear
   const clearBtn = _panel.querySelector('.converse-chip-clear');
@@ -378,6 +408,36 @@ function _renderPanel() {
 function _scrollToBottom() {
   const body = document.getElementById('converse-body');
   if (body) body.scrollTop = body.scrollHeight;
+}
+
+// ---------------------------------------------------------------------------
+// Clear chat (active thread)
+// ---------------------------------------------------------------------------
+
+async function _clearChat() {
+  if (!confirm('Clear this conversation?')) return;
+
+  const thread = _thread();
+
+  if (thread.conversationId) {
+    try {
+      await _apiRef.deleteConversation(thread.conversationId);
+    } catch (err) {
+      // 404 = conversation never persisted server-side; treat as success.
+      if (!shouldResetAfterClearError(err)) {
+        showToast(`Clear failed: ${err.message}`, 'error');
+        return; // state must reflect server truth — do NOT reset
+      }
+    }
+  }
+
+  const fresh = clearedThread();
+  _threads.set(_key(), fresh);
+  // Keep the store mirror in sync (write-through, same as _doSend)
+  store.getConversations().set(_key(), fresh);
+
+  _renderPanel();
+  showToast('Conversation cleared', 'info');
 }
 
 // ---------------------------------------------------------------------------

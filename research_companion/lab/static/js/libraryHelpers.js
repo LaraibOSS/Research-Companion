@@ -92,6 +92,21 @@ export function buildRows(papersMapOrArray, draftId) {
   return [...draftRow, ...otherRows];
 }
 
+/**
+ * Decide the drawer draft-action for a paper given the current draft.
+ * If the paper IS the draft, the action unsets it; otherwise it sets it.
+ *
+ * @param {string} paperId
+ * @param {string|null|undefined} draftId — current draft paper_id from the store
+ * @returns {{label: string, next: string|null, toast: string}}
+ */
+export function draftActionFor(paperId, draftId) {
+  if (draftId != null && paperId === draftId) {
+    return { label: 'Unset draft', next: null, toast: 'Draft cleared' };
+  }
+  return { label: 'Set as draft', next: paperId, toast: 'Draft updated' };
+}
+
 // Strength sort order: strong=0, moderate=1, weak=2, null/unscored=3
 const STRENGTH_ORDER = { strong: 0, moderate: 1, weak: 2 };
 

@@ -59,12 +59,14 @@ export function renderPaperCard(paper) {
         <span class="strength-badge" style="color:${borderColor}"${tip('strength')}>${escapeHtml(bandLabel)}</span>
       </div>
       ${paper.status === 'failed' && paper.failure_reason
-        ? `<div class="failure-reason muted">${escapeHtml(paper.failure_reason)}</div>
-           <div class="card-actions">
-             <button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>
-             <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
-           </div>`
+        ? `<div class="failure-reason muted">${escapeHtml(paper.failure_reason)}</div>`
         : ''}
+      <div class="card-actions">
+        ${paper.status === 'failed'
+          ? `<button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>`
+          : ''}
+        <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
+      </div>
     </div>
   `;
 

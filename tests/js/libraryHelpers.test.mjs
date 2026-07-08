@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
 
@@ -277,4 +277,35 @@ test('sortRows: returns new array (immutable)', () => {
   const rows = makeRows();
   const sorted = sortRows(rows, 'title', 'asc');
   assert.notEqual(sorted, rows);
+});
+
+// ---------------------------------------------------------------------------
+// draftActionFor
+// ---------------------------------------------------------------------------
+
+test('draftActionFor: paper is the current draft -> Unset draft, next null', () => {
+  const action = draftActionFor('p1', 'p1');
+  assert.equal(action.label, 'Unset draft');
+  assert.equal(action.next, null);
+  assert.equal(action.toast, 'Draft cleared');
+});
+
+test('draftActionFor: paper is not the draft -> Set as draft, next paperId', () => {
+  const action = draftActionFor('p1', 'p2');
+  assert.equal(action.label, 'Set as draft');
+  assert.equal(action.next, 'p1');
+  assert.equal(action.toast, 'Draft updated');
+});
+
+test('draftActionFor: no draft set (null) -> Set as draft', () => {
+  const action = draftActionFor('p1', null);
+  assert.equal(action.label, 'Set as draft');
+  assert.equal(action.next, 'p1');
+  assert.equal(action.toast, 'Draft updated');
+});
+
+test('draftActionFor: no draft set (undefined) -> Set as draft', () => {
+  const action = draftActionFor('p1', undefined);
+  assert.equal(action.label, 'Set as draft');
+  assert.equal(action.next, 'p1');
 });

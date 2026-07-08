@@ -21,7 +21,7 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const jsRoot = path.join(repoRoot, 'research_companion', 'lab', 'static', 'js');
 
 // Import the pure helpers from conversePanel.js
-const { deriveContext, nextThreadState, threadKey } = await import(
+const { deriveContext, nextThreadState, threadKey, clearedThread, shouldResetAfterClearError } = await import(
   pathToFileURL(path.join(jsRoot, 'components', 'conversePanel.js')).href
 );
 
@@ -194,4 +194,49 @@ test('threadKey {type:gaps, id:"gap-x"} -> "gaps:gap-x"', () => {
 test('ask.js renderAnswerHtml is the same function as answerHtml.js export', () => {
   assert.strictEqual(renderFromAsk, renderFromAnswerHtml,
     'ask.js must re-export the same renderAnswerHtml from answerHtml.js');
+});
+
+// ---------------------------------------------------------------------------
+// clearedThread — fresh thread entry after Clear chat
+// ---------------------------------------------------------------------------
+
+test('clearedThread returns a pristine thread entry', () => {
+  assert.deepEqual(clearedThread(), {
+    conversationId: null,
+    messages: [],
+    threadState: 'idle',
+  });
+});
+
+test('clearedThread returns a NEW object each call (no shared state)', () => {
+  const a = clearedThread();
+  const b = clearedThread();
+  assert.notEqual(a, b);
+  assert.notEqual(a.messages, b.messages);
+});
+
+// ---------------------------------------------------------------------------
+// shouldResetAfterClearError — 404 from DELETE /api/conversations/{id}
+// means the file never persisted; treat as success and reset locally.
+// ---------------------------------------------------------------------------
+
+test('shouldResetAfterClearError: 404 -> true (treat as success)', () => {
+  const err = new Error('not found');
+  err.status = 404;
+  assert.equal(shouldResetAfterClearError(err), true);
+});
+
+test('shouldResetAfterClearError: 500 -> false (state must reflect server truth)', () => {
+  const err = new Error('boom');
+  err.status = 500;
+  assert.equal(shouldResetAfterClearError(err), false);
+});
+
+test('shouldResetAfterClearError: network error without status -> false', () => {
+  assert.equal(shouldResetAfterClearError(new Error('fetch failed')), false);
+});
+
+test('shouldResetAfterClearError: null/undefined -> false', () => {
+  assert.equal(shouldResetAfterClearError(null), false);
+  assert.equal(shouldResetAfterClearError(undefined), false);
 });

@@ -182,6 +182,13 @@ export const converse = (body) => post('/api/converse', body);
 export const getConversation = (id) =>
   get(`/api/conversations/${encodeURIComponent(id)}`);
 
+/**
+ * DELETE /api/conversations/{id} — returns { removed: true }.
+ * 404 for unknown conversation.
+ */
+export const deleteConversation = (id) =>
+  del(`/api/conversations/${encodeURIComponent(id)}`);
+
 // ---------------------------------------------------------------------------
 // Temporal + Gaps endpoints (W3-F5)
 // ---------------------------------------------------------------------------

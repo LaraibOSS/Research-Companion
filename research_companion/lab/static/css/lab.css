@@ -3092,6 +3092,22 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   flex-shrink: 0;
 }
 
+/* Clear-chat button in panel header */
+.converse-clear {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: color var(--dur-fast);
+}
+.converse-clear:hover:not(:disabled) { color: var(--color-fail); }
+.converse-clear:disabled { opacity: 0.35; cursor: default; }
+
 .converse-close {
   background: none;
   border: none;
@@ -3973,6 +3989,35 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   font-size: var(--text-xs);
   padding: 2px var(--space-2);
   vertical-align: middle;
+}
+
+/* Trailing actions column (per-row Remove) */
+.lib-th-actions {
+  cursor: default;
+  width: 1%;
+}
+
+.lib-td-actions {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Small icon button (trash) — muted, red on hover */
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-fast);
+}
+
+.btn-icon:hover {
+  color: var(--color-fail);
 }
 
 /* Status pills */
