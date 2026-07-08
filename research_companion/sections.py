@@ -424,6 +424,22 @@ def section_text(text: str, s: Section) -> str:
     return text[s.char_start:s.char_end]
 
 
+def section_for_offset(sections: list[Section], offset: int) -> Section | None:
+    """Return the deepest section whose ``[char_start, char_end)`` contains offset.
+
+    Level-1 sections tile the text (no gaps/overlaps), so at most one level-1
+    section matches any offset; when a level-2 child also contains the offset the
+    more specific child is returned. Returns None if no section contains the
+    offset (e.g. an empty section list).
+    """
+    match: Section | None = None
+    for s in sections:
+        if s.char_start <= offset < s.char_end:
+            if match is None or s.level > match.level:
+                match = s
+    return match
+
+
 def group_extraction_by_section(extraction: dict, sections: list[Section]) -> dict[str, dict]:
     """Group extraction entities by section.
 
