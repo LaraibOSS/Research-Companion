@@ -4301,6 +4301,12 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   color: var(--color-fg);
 }
 
+.ws-icon-btn-danger:hover {
+  border-color: var(--color-fail);
+  color: var(--color-fail);
+  background: rgba(248,81,73,0.1);
+}
+
 .ws-rename-input {
   flex: 1;
   min-width: 0;

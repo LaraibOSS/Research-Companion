@@ -216,6 +216,9 @@ export const createWorkspace = (name) => post('/api/workspaces', { name });
 export const patchWorkspace = (id, body) =>
   _fetch('PATCH', `/api/workspaces/${encodeURIComponent(id)}`, body);
 
+/** DELETE /api/workspaces/{id} — returns { removed, active, switched } (404 unknown, 409 job running) */
+export const deleteWorkspace = (id) => del(`/api/workspaces/${encodeURIComponent(id)}`);
+
 /** POST /api/workspaces/{id}/activate — returns { active, reload } (409 archived/job running) */
 export const activateWorkspace = (id) =>
   post(`/api/workspaces/${encodeURIComponent(id)}/activate`);

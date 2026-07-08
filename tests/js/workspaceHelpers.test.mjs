@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  deleteConfirmMessage,
   splitWorkspaces,
   validateWorkspaceName,
   workspaceCardModel,
@@ -196,4 +197,38 @@ test('workspaceCardModel: defaults for missing stats', () => {
 test('workspaceCardModel: falls back to id when name missing', () => {
   const m = workspaceCardModel({ id: 'w9', archived: false }, 'w9');
   assert.equal(m.name, 'w9');
+});
+
+// ---------------------------------------------------------------------------
+// deleteConfirmMessage
+// ---------------------------------------------------------------------------
+
+test('deleteConfirmMessage: plural paper count', () => {
+  assert.equal(
+    deleteConfirmMessage('Quantum', 12),
+    'Delete research "Quantum" and its 12 papers? This cannot be undone.',
+  );
+});
+
+test('deleteConfirmMessage: singular for exactly one paper', () => {
+  assert.equal(
+    deleteConfirmMessage('Quantum', 1),
+    'Delete research "Quantum" and its 1 paper? This cannot be undone.',
+  );
+});
+
+test('deleteConfirmMessage: zero papers stays plural', () => {
+  assert.equal(
+    deleteConfirmMessage('Empty', 0),
+    'Delete research "Empty" and its 0 papers? This cannot be undone.',
+  );
+});
+
+test('deleteConfirmMessage: unknown count omits the paper clause', () => {
+  for (const unknown of [null, undefined, NaN, 'not-a-number']) {
+    assert.equal(
+      deleteConfirmMessage('Mystery', unknown),
+      'Delete research "Mystery"? This cannot be undone.',
+    );
+  }
 });

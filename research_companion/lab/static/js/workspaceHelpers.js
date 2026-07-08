@@ -84,6 +84,22 @@ export function validateWorkspaceName(name, existingNames = []) {
  * @returns {{ id, name, isActive, draftTitle, paperCount, openSuggestions,
  *             lastActivityIso, archived }}
  */
+/**
+ * Build the native-confirm() message for deleting a research.
+ *
+ * @param {string} name          — workspace display name
+ * @param {number|null} paperCount — paper count, or null/non-number when unknown
+ * @returns {string}
+ */
+export function deleteConfirmMessage(name, paperCount) {
+  const n = Number(paperCount);
+  if (paperCount === null || paperCount === undefined || Number.isNaN(n)) {
+    return `Delete research "${name}"? This cannot be undone.`;
+  }
+  const papers = n === 1 ? 'paper' : 'papers';
+  return `Delete research "${name}" and its ${n} ${papers}? This cannot be undone.`;
+}
+
 export function workspaceCardModel(ws, activeId) {
   const stats = (ws && ws.stats) || {};
   return {

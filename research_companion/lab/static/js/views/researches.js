@@ -9,6 +9,8 @@
  *   - per-card pencil -> inline rename (Enter/blur commits via PATCH)
  *   - per-card Archive -> PATCH archived:true; archived cards live in a
  *     collapsed <details> section below with an Unarchive button
+ *   - per-card trash -> confirm() then DELETE /api/workspaces/{id};
+ *     reload if the server switched the active research, else refresh
  *
  * All workspace names and draft titles are user/server input -> escapeHtml.
  */
@@ -18,6 +20,7 @@ import * as api from '../api.js';
 import { showToast } from '../components/toast.js';
 import { escapeHtml, timeAgo } from '../format.js';
 import {
+  deleteConfirmMessage,
   splitWorkspaces,
   validateWorkspaceName,
   workspaceCardModel,
@@ -144,6 +147,7 @@ function _cardHtml(m) {
         <span class="ws-card-actions-spacer"></span>
         <button class="ws-icon-btn" data-ws-rename="${id}" title="Rename" aria-label="Rename">&#9998;</button>
         ${m.isActive ? '' : `<button class="ws-icon-btn" data-ws-archive="${id}" title="Archive" aria-label="Archive">Archive</button>`}
+        <button class="ws-icon-btn ws-icon-btn-danger" data-ws-delete="${id}" title="Delete" aria-label="Delete">&#128465;</button>
       </div>
     </div>`;
 }
@@ -160,6 +164,7 @@ function _archivedCardHtml(m) {
       </div>
       <div class="ws-card-actions">
         <button class="btn" data-ws-unarchive="${id}">Unarchive</button>
+        <button class="ws-icon-btn ws-icon-btn-danger" data-ws-delete="${id}" title="Delete" aria-label="Delete">&#128465;</button>
       </div>
     </div>`;
 }
@@ -203,6 +208,10 @@ function _bindEvents() {
 
   _el.querySelectorAll('[data-ws-unarchive]').forEach(btn => {
     btn.addEventListener('click', () => _setArchived(btn.dataset.wsUnarchive, false));
+  });
+
+  _el.querySelectorAll('[data-ws-delete]').forEach(btn => {
+    btn.addEventListener('click', () => _delete(btn.dataset.wsDelete));
   });
 }
 
@@ -258,6 +267,30 @@ async function _create(rawName) {
   } catch (err) {
     _busy = false;
     showToast(err.message || 'Failed to create research', 'error');
+  }
+}
+
+async function _delete(id) {
+  if (_busy) return;
+  const { workspaces } = store.getState();
+  const rec = (workspaces.list || []).find(w => w.id === id);
+  const name = rec ? (rec.name || rec.id) : id;
+  const paperCount = rec && rec.stats && rec.stats.papers != null
+    ? Number(rec.stats.papers)
+    : null;
+  if (!confirm(deleteConfirmMessage(name, paperCount))) return;
+  try {
+    const res = await api.deleteWorkspace(id);
+    if (res.switched) {
+      // Server moved us to another research; a reload lands there.
+      _busy = true;
+      window.location.reload();
+      return;
+    }
+    await _refresh();
+    showToast('Research deleted', 'info');
+  } catch (err) {
+    showToast(err.message || 'Failed to delete research', 'error');
   }
 }
 
