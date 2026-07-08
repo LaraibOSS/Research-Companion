@@ -1255,6 +1255,66 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible) #graph-canvas {
 
 .draft-evidence { margin-bottom: 0; }
 
+/* --- Reader affordances (v0.5.6, Task 4) --------------------------------- */
+
+/* Small "Read" button used in draft/graph section rows and the placement panel. */
+.draft-read-btn {
+  margin-left: auto;
+  flex: none;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.draft-section-row:hover .draft-read-btn,
+.graph-section-row:hover .draft-read-btn,
+.draft-read-btn:focus-visible {
+  opacity: 1;
+}
+.draft-read-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Clickable evidence blockquote -> open the cited source at the quote. */
+.evidence-clickable {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.evidence-clickable:hover,
+.evidence-clickable:focus-visible {
+  background: var(--color-bg-hover, rgba(127, 127, 127, 0.08));
+  outline: none;
+}
+.ev-open-hint {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.evidence-clickable:hover .ev-open-hint,
+.evidence-clickable:focus-visible .ev-open-hint {
+  opacity: 1;
+}
+
+/* "Read paper" sits beside "Open in Library" in the graph node detail panel. */
+.graph-read-paper { margin-top: 6px; }
+
+/* Cited-section Read chips in the placement panel. */
+.placement-read-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.placement-read-row .draft-read-btn { margin-left: 0; opacity: 1; }
+
 .ev-match {
   font-size: 11px;
   margin-left: 4px;

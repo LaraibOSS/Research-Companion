@@ -164,11 +164,21 @@ function _renderRow(pl) {
   const chip = statusChip(pl.status);
   const title = pl.paper_title || pl.paper_id || '';
   const detail = pl.detail || '';
+  // Cited-in draft sections get a Read affordance -> open the draft at that section.
+  const citedSections = Array.isArray(pl.cited_sections) ? pl.cited_sections : [];
+  const sectionLinks = citedSections
+    .filter(cs => cs && cs.section_id)
+    .map(cs => `<button class="draft-read-btn placement-read-section" data-section-id="${escapeHtml(cs.section_id)}" title="Read draft section: ${escapeHtml(cs.title || cs.section_id)}" aria-label="Read draft section">${escapeHtml(cs.title || cs.section_id)}</button>`)
+    .join('');
+  const sectionRow = sectionLinks
+    ? `<div class="placement-read-row">${sectionLinks}</div>`
+    : '';
   return `
     <div class="citation-row" title="${escapeHtml(detail)}">
       <div class="citation-row-main">
         <span class="citation-row-title">${escapeHtml(title)}</span>
         <span class="citation-row-detail">${escapeHtml(detail)}</span>
+        ${sectionRow}
       </div>
       <div class="citation-row-meta">
         <span class="citation-chip ${escapeHtml(chip.cls)}">${escapeHtml(chip.label)}</span>
@@ -183,4 +193,16 @@ function _renderRow(pl) {
 function _bindEvents() {
   if (!_panel) return;
   _panel.querySelector('.placement-close')?.addEventListener('click', _close);
+
+  // Read a cited draft section -> open the draft in the reader at that section.
+  _panel.querySelectorAll('.placement-read-section').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const { draftId } = _storeRef.getState();
+      if (!draftId) return;
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: draftId, sectionId: btn.dataset.sectionId },
+      }));
+    });
+  });
 }

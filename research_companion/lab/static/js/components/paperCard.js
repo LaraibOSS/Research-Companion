@@ -64,7 +64,7 @@ export function renderPaperCard(paper) {
       <div class="card-actions">
         ${paper.status === 'failed'
           ? `<button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>`
-          : ''}
+          : `<button class="btn btn-sm btn-read" data-paper-id="${escapeHtml(paper.paper_id)}">Read</button>`}
         <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
       </div>
     </div>

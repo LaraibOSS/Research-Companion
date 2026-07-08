@@ -709,12 +709,26 @@ function _renderSectionList() {
       const count = sec.node_count != null ? ` <span class="muted">${sec.node_count}</span>` : '';
       rows.push(
         `<div class="graph-section-row${isActive ? ' active' : ''}" data-section-id="${escapeHtml(sec.section_id)}">` +
-        `<span class="graph-section-bullet">§${idx + 1}</span> ${title}${count}</div>`
+        `<span class="graph-section-bullet">§${idx + 1}</span> ${title}${count}` +
+        `<button class="draft-read-btn graph-section-read" data-section-id="${escapeHtml(sec.section_id)}" title="Read this section" aria-label="Read section">Read</button>` +
+        `</div>`
       );
     });
   }
 
   _sectionListEl.innerHTML = rows.join('');
+
+  // Read buttons on real section rows -> open the reader at that draft section.
+  _sectionListEl.querySelectorAll('.graph-section-read').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();  // don't trigger the row's section filter
+      const { draftId } = store.getState();
+      if (!draftId) return;
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: draftId, sectionId: btn.dataset.sectionId },
+      }));
+    });
+  });
 
   // Wire clicks
   _sectionListEl.querySelectorAll('.graph-section-row').forEach(row => {
@@ -1035,11 +1049,14 @@ function _showNodeDetail(node) {
     html += `<div class="graph-detail-attrs">${attrRows.join('')}</div>`;
   }
 
-  // "Open in Library" for paper nodes
+  // "Open in Library" + "Read paper" for paper nodes
   if (node.kind === 'paper') {
     html += `
       <button class="btn btn-secondary btn-sm graph-open-library" data-paper-id="${escapeHtml(node.id || '')}">
         Open in Library
+      </button>
+      <button class="btn btn-secondary btn-sm graph-read-paper" data-paper-id="${escapeHtml(node.id || '')}">
+        Read paper
       </button>
     `;
   }
@@ -1051,6 +1068,16 @@ function _showNodeDetail(node) {
   if (libBtn) {
     libBtn.addEventListener('click', () => {
       window.location.hash = '/library';
+    });
+  }
+
+  // Wire "Read paper" -> open the paper in the reader.
+  const readBtn = content.querySelector('.graph-read-paper');
+  if (readBtn) {
+    readBtn.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: node.id, title: node.label },
+      }));
     });
   }
 

@@ -274,6 +274,17 @@ function _renderGridCards(grid, papers) {
       });
     }
 
+    // Read button -> open the paper in the reader.
+    const readBtn = card.querySelector('.btn-read');
+    if (readBtn) {
+      readBtn.addEventListener('click', (e) => {
+        e.stopPropagation();  // don't open the drawer
+        window.dispatchEvent(new CustomEvent('rc:open-reader', {
+          detail: { paperId: paper.paper_id, title: paper.title },
+        }));
+      });
+    }
+
     // Remove button (on all cards)
     const removeBtn = card.querySelector('.btn-remove');
     if (removeBtn) {
@@ -349,7 +360,7 @@ function _renderList(grid, papers, draftId) {
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
       <td class="lib-td lib-td-relation">${relationTxt}</td>
       <td class="lib-td lib-td-added">${addedTxt}</td>
-      <td class="lib-td lib-td-actions"><button class="btn-icon btn-row-remove" data-paper-id="${escapeHtml(row.paperId)}" title="Remove" aria-label="Remove paper">&#128465;</button></td>
+      <td class="lib-td lib-td-actions"><button class="btn btn-sm btn-row-read" data-paper-id="${escapeHtml(row.paperId)}" data-title="${escapeHtml(row.title || '')}" title="Read" aria-label="Read paper">Read</button><button class="btn-icon btn-row-remove" data-paper-id="${escapeHtml(row.paperId)}" title="Remove" aria-label="Remove paper">&#128465;</button></td>
     </tr>`;
   }).join('');
 
@@ -397,6 +408,16 @@ function _renderList(grid, papers, draftId) {
       } catch (err) {
         showToast(`Retry failed: ${err.message}`, 'error');
       }
+    });
+  });
+
+  // Wire per-row read buttons -> open the paper in the reader.
+  grid.querySelectorAll('.btn-row-read').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();  // don't open the drawer
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: btn.dataset.paperId, title: btn.dataset.title || undefined },
+      }));
     });
   });
 
@@ -495,6 +516,7 @@ async function _openDrawer(paperId) {
     <div class="drawer-section drawer-actions">
       <div class="drawer-section-title">Actions</div>
       <button class="btn btn-secondary btn-full" id="drawer-set-draft">${escapeHtml(draftAction.label)}</button>
+      <button class="btn btn-secondary btn-full" id="drawer-read">Read</button>
       <button class="btn btn-secondary btn-full" id="drawer-compare">Compare with...</button>
       <button class="btn btn-secondary btn-full" id="drawer-show-graph">Show in graph</button>
       <button class="btn btn-danger btn-full" id="drawer-remove">Remove</button>
@@ -516,6 +538,13 @@ async function _openDrawer(paperId) {
     } catch (err) {
       showToast(`Failed: ${err.message}`, 'error');
     }
+  });
+
+  content.querySelector('#drawer-read').addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('rc:open-reader', {
+      detail: { paperId, title: paper.title },
+    }));
+    drawerClose();
   });
 
   content.querySelector('#drawer-compare').addEventListener('click', () => {

@@ -22,6 +22,9 @@ let _el = null;
 let _unsub = null;
 let _selectedSectionId = null;
 let _alignment = null;   // cached { sections: [...] }
+// Evidence quotes for the currently-rendered detail, indexed by data-quote-idx.
+// Kept out of HTML attributes (quotes may contain quotes/newlines).
+let _evidenceQuotes = [];
 
 // ---------------------------------------------------------------------------
 // Stance ordering
@@ -182,6 +185,10 @@ function _renderSectionList(sections) {
     return;
   }
 
+  const { draftId, papers: _draftPapers } = store.getState();
+  const draftPaper = draftId ? _draftPapers.get(draftId) : null;
+  const draftTitle = draftPaper ? (draftPaper.title || draftId) : draftId;
+
   listEl.innerHTML = sections.map((sec, idx) => {
     const hasChallenges = (sec.alignments || []).some(a => a.relation === 'challenges');
     const isActive = sec.section_id === _selectedSectionId;
@@ -209,6 +216,7 @@ function _renderSectionList(sections) {
         <div class="draft-section-title-row">
           <span class="draft-section-num">§${idx + 1}</span>
           <span class="draft-section-name">${escapeHtml(sec.title || sec.section_id)}</span>
+          <button class="draft-read-btn" data-section-id="${escapeHtml(sec.section_id)}" title="Read this section" aria-label="Read section">Read</button>
         </div>
         <div class="draft-chip-strip">${chipHtml}</div>
       </div>
@@ -220,6 +228,17 @@ function _renderSectionList(sections) {
       _selectedSectionId = row.dataset.sectionId;
       _renderSectionList(sections);
       _renderDetail(sections);
+    });
+  });
+
+  // Read button on each section row -> open the reader at that draft section.
+  listEl.querySelectorAll('.draft-read-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();  // don't trigger the row's select-and-repaint
+      if (!draftId) return;
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: draftId, sectionId: btn.dataset.sectionId, title: draftTitle },
+      }));
     });
   });
 }
@@ -270,6 +289,9 @@ function _renderDetail(sections) {
     alternative: alignments.filter(a => a.relation === 'alternative'),
   };
 
+  // Reset the evidence-quote registry for this render; _renderAlignCard fills it.
+  _evidenceQuotes = [];
+
   const groupHtml = STANCE_ORDER.map(relation => {
     const items = groups[relation];
     if (!items || items.length === 0) return '';
@@ -295,6 +317,29 @@ function _renderDetail(sections) {
       if (pid) _openPaperDrawer(pid);
     });
   });
+
+  // Wire evidence-quote clicks -> open the cited source paper at the quote.
+  detailEl.querySelectorAll('.evidence-clickable').forEach(bq => {
+    const openSource = () => {
+      const pid = bq.dataset.paperId;
+      if (!pid) return;
+      const idx = Number(bq.dataset.quoteIdx);
+      const quote = _evidenceQuotes[idx] || '';
+      const { papers } = store.getState();
+      const cited = papers.get(pid);
+      const title = cited ? (cited.title || pid) : pid;
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: pid, quote, title },
+      }));
+    };
+    bq.addEventListener('click', openSource);
+    bq.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openSource();
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -310,10 +355,16 @@ function _renderAlignCard(a, relation, sectionId) {
     const verifiedBadge = ev.verified
       ? `<span class="badge badge-ok"${tip('verified')}>&#10003; verified</span>${ev.match ? `<span class="muted ev-match">${escapeHtml(ev.match)}</span>` : ''}`
       : `<span class="badge badge-warn"${tip('unverified')}>unverified</span>`;
+    // Store the quote text out-of-band and reference it by index; clicking opens
+    // the CITED paper in the reader at this quote.
+    const quoteIdx = _evidenceQuotes.push(ev.quote || '') - 1;
     return `
-      <blockquote class="evidence-quote draft-evidence">
+      <blockquote class="evidence-quote draft-evidence evidence-clickable"
+                  role="button" tabindex="0"
+                  data-paper-id="${escapeHtml(a.paper_id)}" data-quote-idx="${quoteIdx}"
+                  title="Open in source paper">
         <p>${escapeHtml(ev.quote || '')}</p>
-        <footer>${verifiedBadge}</footer>
+        <footer>${verifiedBadge}<span class="ev-open-hint muted">&#8599; open in source</span></footer>
       </blockquote>
     `;
   }).join('');
