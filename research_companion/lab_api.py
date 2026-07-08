@@ -324,6 +324,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     app.state.add_paper_override = None
     app.state.upload_override = None
     app.state.citations_resolver_override = None
+    # Serializes coverage compute/resolve read-modify-write cycles (prevents
+    # a recompute racing the resolve job's save and re-triggering auto-resolve)
+    app.state._coverage_lock = asyncio.Lock()
     # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
     app.state.auto_added_targets: set = set()
     app.state.retry_override = None
@@ -689,7 +692,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             draft_id = store.get_draft_paper_id()
             if draft_id is None:
                 return
-            payload = await asyncio.to_thread(compute_coverage, draft_id)
+            async with app.state._coverage_lock:
+                payload = await asyncio.to_thread(compute_coverage, draft_id)
             if payload.get("source") == "none":
                 return
             await bus.publish(CitationCoverageUpdated(
@@ -851,15 +855,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run_resolve():
             await _announce_start(job_id, "citations", cite_label)
             try:
-                payload = await asyncio.to_thread(load_coverage)
-                if await asyncio.to_thread(is_stale, payload, draft_id):
-                    payload = await asyncio.to_thread(compute_coverage, draft_id)
-                resolver = app.state.citations_resolver_override
-                if resolver is not None:
-                    payload = await asyncio.to_thread(
-                        resolve_missing, payload, resolver=resolver)
-                else:
-                    payload = await asyncio.to_thread(resolve_missing, payload)
+                async with app.state._coverage_lock:
+                    payload = await asyncio.to_thread(load_coverage)
+                    if await asyncio.to_thread(is_stale, payload, draft_id):
+                        payload = await asyncio.to_thread(compute_coverage, draft_id)
+                    resolver = app.state.citations_resolver_override
+                    if resolver is not None:
+                        payload = await asyncio.to_thread(
+                            resolve_missing, payload, resolver=resolver)
+                    else:
+                        payload = await asyncio.to_thread(resolve_missing, payload)
                 await bus.publish(CitationCoverageUpdated(
                     draft_paper_id=draft_id, **payload["counts"]))
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "citations",
