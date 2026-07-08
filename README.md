@@ -45,6 +45,8 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 
 Citation coverage: the papers your draft **cites** are now first-class. The Lab parses your draft's bibliography, shows which cited papers are in your library and which are missing, downloads missing ones in one click ("Add all"), and displays a persistent disclaimer whenever the analysis is running on partial coverage — *"Analysis covers N of M cited papers"* — so incomplete context is never silent. See the [Release Notes](docs/RELEASE_0.5.md).
 
+**0.5.6** — read it yourself: click any draft section, graph section, or paper to open a built-in reader with a section-navigation rail and the section highlighted; click a verified evidence quote on an alignment card and the cited paper opens with that exact quote highlighted; **View original PDF** opens the stored file, and scanned PDFs with no extracted text show a clear empty-state that points there.
+
 **0.5.5** — clean top-of-screen: the coverage banner gets its own row everywhere (it used to overlap the graph's Draft/Explore toggle and side panel), banners are single-line, and scrollbars are thin and theme-colored.
 
 **0.5.4** — deletion everywhere: delete a whole research from the Researches screen (confirmation with paper count, auto-switch if it's the one you're in, blocked while jobs run), a visible **Remove** button on every library card and list row, **Unset draft** from the paper drawer, and per-thread **Clear chat** in the Companion.

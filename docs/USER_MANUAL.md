@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.4 · 2026-07-08 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.6 · 2026-07-08 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -167,7 +167,27 @@ library by arXiv ID, DOI, or title.
   falls back to the related-work extraction and says so in an amber note —
   labeled, never silent.
 
-## 8. The knowledge graph
+## 8. Citation placement
+
+Citation coverage asks *whether* each cited paper is in your library.
+**Citation placement** asks a different question: is each cited paper
+discussed in the draft section where it is **most relevant**? Open it from
+the **map-pin button in the top bar** (visible with a draft set). Each cited
+paper gets one of three verdicts:
+
+- **Well-placed** — the paper is cited in the section it fits best.
+- **Misplaced** — the paper would be more relevant in a different section
+  than the one that cites it; the panel names the section it suggests.
+- **Unknown** — placement could not be determined for that reference.
+
+**Limitation (v1).** Placement only activates for **numbered `[n]`
+bibliographies** parsed from the draft's References section — the analysis
+needs the `[n]` markers to tie each in-text citation to a reference. Drafts
+that use author–year (e.g. *(Smith et al., 2021)*) or any other
+non-numbered citation style show **"not applicable"** rather than a guess.
+There is no CLI command for placement; it is a Lab-only view.
+
+## 9. The knowledge graph
 
 Every paper becomes concepts, methods, datasets, claims, and results, merged
 across papers (five papers mentioning GraphRAG = one node, five connections).
@@ -185,7 +205,7 @@ across papers (five papers mentioning GraphRAG = one node, five connections).
 - **Saved views** — save the subgraph behind any Ask answer (or hand-picked
   nodes) as a named view; pin, rename, reload from the Graph sidebar.
 
-## 9. Draft analysis (alignments)
+## 10. Draft analysis (alignments)
 
 Every library paper gets a verdict against *your* sections: which it
 **strengthens**, **challenges**, or offers an **alternative** to — each with
@@ -194,7 +214,35 @@ paper **verified verbatim** against its text (✓ verified / unverified badge
 when the quote cannot be found). The Draft view shows your section tree with
 stance chips; "view in graph" jumps to that section's subgraph.
 
-## 10. The six-lane review
+## 11. Reading papers and sections
+
+The Lab has a built-in **reader** so the source text is always one click from
+any claim about it — you never have to leave the app to check what a paper
+actually says.
+
+**Ways to open it:**
+
+- **A draft section** — click a section in the draft view's section list, or
+  a section in the **graph** section list, to open the reader on your draft's
+  extracted text, scrolled to that section and highlighted.
+- **A paper** — the graph node's **"Read paper"** action, the **Read** button
+  on any library card or list row, or the same button in the paper drawer,
+  opens that paper's full extracted text.
+- **An evidence quote** — click a **verified evidence quote** on a draft
+  alignment card and the cited paper opens with that exact quote highlighted.
+  Locating the quote is whitespace- and case-insensitive; if it cannot be
+  located, the paper still opens with a notice rather than failing silently.
+
+**Inside the reader:**
+
+- A **section-navigation rail** lists the paper's sections; click any one to
+  jump to it. The current section (or the located quote) is highlighted.
+- **View original PDF** opens the stored PDF in a new browser tab.
+- **Scanned PDFs** (and any paper with no extracted text) show a clear
+  empty-state — *"No extracted text — use View original PDF"* — instead of a
+  blank pane, so you always have a way to reach the source.
+
+## 12. The six-lane review
 
 `research-companion review <paper-id> --serve --report out/` runs the full
 pre-submission review with a live dashboard:
@@ -212,7 +260,7 @@ Lanes run concurrently with failure isolation: one failing lane degrades the
 report, never the run. `--fast` runs only LLM-free lanes. Every run appends
 to a JSONL audit log.
 
-## 11. Suggestions & revision tracking
+## 13. Suggestions & revision tracking
 
 Deterministic rules read your review, alignments, and gap map and produce
 concrete, sectioned advice: *discuss paper X as an alternative in related
@@ -226,7 +274,7 @@ to **addressed** automatically. Dismissals are sticky. The **Home** view
 shows your journey: version pills, open/addressed counts, a severity donut,
 and a "Do this next" card driven by simple rules.
 
-## 12. Ask & search
+## 14. Ask & search
 
 Type a question in **Ask**; the tool ranks all paper sections and sends only
 the best slices to the model. Answers come back with numbered citation chips
@@ -239,7 +287,7 @@ scoped to a single section of your draft.
 retrieval fuses BM25 with embedding similarity. Without the token, ranking
 is byte-identical to pure BM25 — a tested degradation contract.
 
-## 13. The Companion (chat)
+## 15. The Companion (chat)
 
 The floating chat button opens the Companion — a candid senior-colleague
 persona that can discuss any artifact: the review, a section's alignment, a
@@ -253,7 +301,7 @@ Each thread has a **Clear chat** button that wipes its history and deletes
 the conversation stored on disk — it works even if nothing has been
 persisted yet.
 
-## 14. Timeline & gaps
+## 16. Timeline & gaps
 
 The **Timeline** lays out concepts, methods, and datasets by year — when each
 first appeared and how it evolved. Toggle the **gap overlay**: amber diamonds
@@ -262,7 +310,7 @@ are limitations papers admitted in their own limitation/future-work sections
 for the evidence quote and a Discuss button. Gaps your draft addresses are
 highlighted; open gaps relevant to your draft become suggestions.
 
-## 15. Background activity
+## 17. Background activity
 
 The Lab tells you what it is doing:
 
@@ -274,7 +322,7 @@ The Lab tells you what it is doing:
 
 A tab opened mid-work picks up running tasks immediately. Idle = invisible.
 
-## 16. Settings reference
+## 18. Settings reference
 
 - **Model** — provider (Anthropic/OpenAI), model override, API keys
   (write-only fields, masked, stored in local `.env`, applied without
@@ -288,7 +336,7 @@ A tab opened mid-work picks up running tasks immediately. Idle = invisible.
   (default on).
 - **About** — replay the intro tour; links to docs.
 
-## 17. CLI reference
+## 19. CLI reference
 
 Everything in the web UI has a command-line twin:
 
@@ -313,7 +361,7 @@ research-companion workspace list|create|use        # manage researches
 research-companion lab serve|ingest|failures        # the web Lab
 ```
 
-## 18. Data, privacy & costs
+## 20. Data, privacy & costs
 
 - **Everything is local.** The store lives at `~/.research-companion/`
   (override with `RESEARCH_COMPANION_DIR`): global `.env` (keys),
@@ -327,7 +375,7 @@ research-companion lab serve|ingest|failures        # the web Lab
   re-extracting a 16-paper library cost $0.51; an alignment or a grounded
   answer is one model call. Everything cached is free to re-run.
 
-## 19. Reading outputs honestly
+## 21. Reading outputs honestly
 
 - **"Verified" means the quote exists** in the source text — it does *not*
   mean the claim is true. A real paper can be cited for a false claim; quote
@@ -347,7 +395,7 @@ research-companion lab serve|ingest|failures        # the web Lab
   papers" banner and the amber related-work-fallback note exist because
   partial context should never masquerade as a full picture.
 
-## 20. Troubleshooting & FAQ
+## 22. Troubleshooting & FAQ
 
 - **A PDF failed to ingest** — usually scanned (no text layer) or corrupt.
   The failure card shows the exact reason; Retry after fixing the file. OCR

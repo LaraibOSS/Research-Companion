@@ -114,3 +114,31 @@ ellipsizes instead of wrapping into the content), the graph's floating
 panels size themselves against the canvas rather than the viewport, and
 scrollbars app-wide are thin and theme-colored instead of the heavy
 platform-gray default. CSS-only; no behavior changes.
+
+## 0.5.6 — read it yourself
+
+Until now the Lab could tell you *about* a paper — its sections, its
+alignment, the quotes it was cited for — but never let you actually **read**
+it in place. 0.5.6 adds a reader across the Lab so the source is always one
+click from the claim about it.
+
+- **Open a section.** Click a section in the **draft view** or in the
+  **graph** section list and a reading overlay opens the draft's extracted
+  text, scrolled to that section and highlighted, with a
+  section-navigation rail down the side to jump between sections.
+- **Open a paper.** Click a paper — the graph's *"Read paper"* node action, a
+  **Read** button on library cards and list rows, or the same button in the
+  paper drawer — to read its full extracted text with the same section nav.
+- **Quote → source.** Click a **verified evidence quote** on a draft
+  alignment card and the cited paper opens with that exact quote highlighted.
+  Location is whitespace- and case-insensitive; if the quote can't be located
+  in the text the paper still opens, with a notice instead of a silent miss.
+- **View original PDF.** Every reader carries a **"View original PDF"** link
+  that opens the stored PDF in a new tab. Papers with **no extracted text**
+  (e.g. scanned PDFs) don't show a blank pane — they show a clear empty-state
+  that points you to the PDF.
+- **New API (read-only):** `GET /api/papers/{id}/text?q=<quote>` returns the
+  extracted text (with the located quote's offsets when `q` is given) and
+  `GET /api/papers/{id}/pdf` streams the stored PDF.
+
+**Upgrade notes:** none — purely additive; no store or settings changes.
