@@ -10,6 +10,31 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.lower()).strip()
 
 
+def locate_quote(quote: str, text: str) -> tuple[int, int] | None:
+    """Find the (start, end) character offsets of `quote` within `text`.
+
+    Tries an exact match first, then a whitespace/case-insensitive match.
+    Offsets always index into the original `text`. Returns the first
+    occurrence, or None if the quote is missing, empty, or too short to
+    locate reliably.
+    """
+    if not quote or not text:
+        return None
+    if len(quote.strip()) < _MIN_SPAN:
+        return None
+
+    idx = text.find(quote)
+    if idx >= 0:
+        return idx, idx + len(quote)
+
+    pattern = re.compile(r"\s+".join(re.escape(tok) for tok in quote.split()), re.IGNORECASE)
+    m = pattern.search(text)
+    if m:
+        return m.start(), m.end()
+
+    return None
+
+
 def verify_quote(quote: str, fulltext: str) -> tuple[bool, str]:
     if not quote or not fulltext:
         return False, ""
