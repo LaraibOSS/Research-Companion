@@ -142,3 +142,37 @@ click from the claim about it.
   `GET /api/papers/{id}/pdf` streams the stored PDF.
 
 **Upgrade notes:** none — purely additive; no store or settings changes.
+
+## 0.5.7 — real paper metadata
+
+Until now an uploaded PDF entered your library with only a filename and no
+year — so it never appeared on the timeline, and citation coverage could only
+recognise it by title. 0.5.7 makes each paper's real bibliographic identity
+first-class, extracted automatically and correctable by hand.
+
+- **Automatic extraction.** The per-paper analysis now reads each paper's
+  **title, authors, and year** from its own text and fills them in
+  automatically — no more filename-only entries.
+- **One-time backfill.** Existing papers are backfilled on startup and when
+  you open a workspace: any paper that has extracted text but is missing a
+  year is re-read once to recover its metadata. Scanned PDFs with no
+  extractable text are skipped (there is nothing to read).
+- **Timeline sees them.** Because the timeline needs years, papers that were
+  previously yearless now appear on it once their metadata is filled in.
+- **Smarter citation matching.** Citation coverage now recognises a cited
+  paper as already-in-library by **first-author surname + exact year**, not
+  just by title — so "Add N missing" stops nagging about papers you already
+  have under a slightly different title.
+- **No duplicate downloads.** Before auto-downloading a resolved citation, the
+  app checks the library (by id, title, and author+year) and skips the
+  download when you already have the paper.
+- **Manual metadata entry.** Every paper still missing authors or a year
+  shows an amber **"Needs metadata"** indicator, and a banner tells you how
+  many need attention. An **Edit metadata** form in the paper drawer lets you
+  set the title, authors, and year by hand (year constrained to 1900–2100).
+- **New API:** `PATCH /api/papers/{id}` — update a paper's title, authors,
+  and/or year.
+
+**Upgrade notes:** none — purely additive; no store or settings migration.
+The extraction prompt changed, so papers re-extract once on first open,
+backfilling their metadata as a side effect.

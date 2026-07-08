@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.6 · 2026-07-08 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.7 · 2026-07-08 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -139,11 +139,38 @@ Click any row/card for the drawer: metadata, sections, alignment summary,
 **Set as draft** / **Unset draft** (marking a draft is no longer one-way),
 and Remove.
 
+### Paper metadata — automatic and manual
+
+Every paper carries a **title, authors, and year**. These are no longer just
+the filename: when a paper is analysed the tool reads them straight from its
+text and fills them in automatically, and existing papers that predate this
+are backfilled once — any paper that has extracted text but no year is re-read
+the first time you open its workspace to recover its metadata. **Scanned or
+image-only PDFs with no extractable text cannot be auto-filled** — there is
+nothing to read — so you set their metadata by hand.
+
+- **"Needs metadata" indicator.** Any paper still missing authors or a year
+  wears an amber **"Needs metadata"** marker in the Library, and a banner
+  tells you how many papers need attention so nothing quietly stays
+  half-identified.
+- **Edit it by hand.** Open the paper's drawer and click **Edit metadata** to
+  reveal a form for the **title**, **authors**, and **year** (the year is
+  constrained to 1900–2100). Fill in what is missing or correct what was
+  extracted and **Save**; the indicator clears once the paper has both authors
+  and a year.
+
+Metadata is not cosmetic — two features depend on it. The **Timeline**
+(section 16) needs a year to place a paper at all, so papers only appear there
+once their year is set. **Citation coverage** (section 7) matches a cited
+reference to a paper you already own by **first-author surname + exact year**
+as well as by title, so accurate authors and year stop the tool from urging
+you to "Add" a paper that is already in your library.
+
 ## 7. Citation coverage — your bibliography as ground truth
 
 When you set a draft, its References section is parsed (four splitting
 strategies with sanity checks) and every cited paper is matched against your
-library by arXiv ID, DOI, or title.
+library by arXiv ID, DOI, title, or **first-author surname + year**.
 
 - **Automatic downloads** (default on): missing cited papers with a
   recognizable arXiv ID or DOI are downloaded and ingested with **zero
