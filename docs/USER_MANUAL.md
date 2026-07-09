@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.11 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.12 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -283,6 +283,9 @@ across papers (five papers mentioning GraphRAG = one node, five connections).
   your draft.
 - **Saved views** — save the subgraph behind any Ask answer (or hand-picked
   nodes) as a named view; pin, rename, reload from the Graph sidebar.
+- **Entity provenance** — click a concept, method, or dataset node and its
+  detail panel shows **"Appears in N papers"** with the contributing papers
+  listed, so you can see at a glance which of your papers share it.
 
 ## 10. Draft analysis (alignments)
 

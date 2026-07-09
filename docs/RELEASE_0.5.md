@@ -306,3 +306,22 @@ finishes wiring semantic retrieval down to the same chunk granularity.
   configured — the BM25 fallback is unchanged.
 
 **Upgrade notes:** none — purely additive; no store or settings migration.
+
+## 0.5.12 — knowledge-graph provenance
+
+The knowledge graph has always merged shared entities across papers (five
+papers mentioning GraphRAG = one node), but the graph never told you *which*
+papers those were — the shared-ness was implicit in the merge, not visible.
+0.5.12 makes it explicit.
+
+- **Provenance on every entity node.** Concept, method, dataset, claim, and
+  result nodes now record the set of papers they appear in (`papers` +
+  `paper_count`), tracked as entities are extracted and merged during graph
+  build.
+- **"Appears in N papers."** The graph's node detail panel shows this count
+  plus the contributing papers by name — click a concept, method, or dataset
+  and see at a glance which of your papers share it, without leaving the
+  graph.
+
+**Upgrade notes:** none — purely additive; no graph restructure, no store or
+settings migration.
