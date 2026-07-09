@@ -362,3 +362,138 @@ test('job_finished: unknown job_id does not crash', () => {
   });
   assert.equal(state.activeJobs.size, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Ingest manifest reconciliation (folder-ingest per-file status)
+// ---------------------------------------------------------------------------
+
+function makeManifestState() {
+  const state = makeState();
+  state.ingestManifest = [
+    { path: '/f/a.pdf', name: 'a.pdf', relPath: 'a.pdf', status: 'queued', reason: '' },
+    { path: '/f/b.pdf', name: 'b.pdf', relPath: 'b.pdf', status: 'queued', reason: '' },
+  ];
+  return state;
+}
+
+test('ingest_progress: marks matching manifest row processing', () => {
+  const state = makeManifestState();
+  const topics = applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 2, current: '/f/a.pdf',
+  });
+  const rowA = state.ingestManifest.find(r => r.path === '/f/a.pdf');
+  assert.equal(rowA.status, 'processing');
+  assert.ok(topics.includes('ingestManifest'));
+});
+
+test('paper_added: marks matching manifest row done', () => {
+  const state = makeManifestState();
+  const topics = applyEvent(state, {
+    event: 'paper_added', paper_id: 'p', title: 'A', path: '/f/a.pdf',
+  });
+  const rowA = state.ingestManifest.find(r => r.path === '/f/a.pdf');
+  assert.equal(rowA.status, 'done');
+  assert.ok(topics.includes('ingestManifest'));
+});
+
+test('ingest_failed: marks matching manifest row failed with reason', () => {
+  const state = makeManifestState();
+  const topics = applyEvent(state, {
+    event: 'ingest_failed', path: '/f/a.pdf', stage: 'extract', error: 'boom',
+  });
+  const rowA = state.ingestManifest.find(r => r.path === '/f/a.pdf');
+  assert.equal(rowA.status, 'failed');
+  assert.equal(rowA.reason, 'boom');
+  assert.ok(topics.includes('ingestManifest'));
+});
+
+test('ingest_skipped: marks matching manifest row skipped with reason', () => {
+  const state = makeManifestState();
+  const topics = applyEvent(state, {
+    event: 'ingest_skipped', path: '/f/b.pdf', paper_id: 'p2', reason: 'already in library',
+  });
+  const rowB = state.ingestManifest.find(r => r.path === '/f/b.pdf');
+  assert.equal(rowB.status, 'skipped');
+  assert.equal(rowB.reason, 'already in library');
+  assert.deepEqual(topics, ['ingestManifest']);
+});
+
+test('job_done: sweeps remaining queued/processing manifest rows to done', () => {
+  const state = makeManifestState();
+  // a is mid-flight, b already resolved
+  state.ingestManifest[0].status = 'processing';
+  state.ingestManifest[1].status = 'skipped';
+  const topics = applyEvent(state, { event: 'job_done', job: 'ingest' });
+  assert.equal(state.ingestManifest[0].status, 'done', 'processing row swept to done');
+  assert.equal(state.ingestManifest[1].status, 'skipped', 'already-resolved row untouched');
+  assert.ok(topics.includes('ingestManifest'));
+});
+
+test('job_done: no manifest change means no ingestManifest topic', () => {
+  const state = makeManifestState();
+  state.ingestManifest[0].status = 'done';
+  state.ingestManifest[1].status = 'skipped';
+  const topics = applyEvent(state, { event: 'job_done', job: 'ingest' });
+  assert.ok(!topics.includes('ingestManifest'));
+});
+
+test('paper_added with no path: does not throw and does not mutate manifest', () => {
+  const state = makeManifestState();
+  const before = JSON.parse(JSON.stringify(state.ingestManifest));
+  const topics = applyEvent(state, {
+    event: 'paper_added', paper_id: 'p', title: 'Single add', source: 'http://x',
+  });
+  assert.deepEqual(state.ingestManifest, before, 'manifest untouched for single-add (no path)');
+  assert.ok(!topics.includes('ingestManifest'));
+});
+
+test('ingest_progress phase-note does not touch manifest rows (no path match)', () => {
+  const state = makeManifestState();
+  const before = JSON.parse(JSON.stringify(state.ingestManifest));
+  const topics = applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 0, current: 'OCR-ing…',
+  });
+  assert.deepEqual(state.ingestManifest, before, 'manifest untouched by phase-note');
+  assert.ok(!topics.includes('ingestManifest'));
+});
+
+test('ingest_progress phase-note still preserves running folder bar (unchanged behavior)', () => {
+  const state = makeManifestState();
+  state.jobs.set('ingest', { status: 'running', done: 1, total: 2, current: '/f/a.pdf' });
+  const topics = applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 0, current: 'OCR-ing…',
+  });
+  const job = state.jobs.get('ingest');
+  assert.equal(job.done, 1);
+  assert.equal(job.total, 2);
+  assert.equal(job.current, 'OCR-ing…');
+  assert.ok(topics.includes('jobs'));
+});
+
+test('ingest_skipped with no matching row is a no-op (returns [])', () => {
+  const state = makeManifestState();
+  const topics = applyEvent(state, {
+    event: 'ingest_skipped', path: '/f/nonexistent.pdf', reason: 'already in library',
+  });
+  assert.deepEqual(topics, []);
+});
+
+// ---- store.js: startIngestManifest ----
+
+test('store.startIngestManifest: seeds rows, already_in_library -> skipped, others -> queued', async () => {
+  const { startIngestManifest, getState } = await import(
+    pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'store.js')).href
+  );
+  startIngestManifest([
+    { path: '/f/a.pdf', name: 'a.pdf', rel_path: 'a.pdf' },
+    { path: '/f/b.pdf', name: 'b.pdf', rel_path: 'b.pdf', already_in_library: true },
+  ]);
+  const state = getState();
+  assert.equal(state.ingestManifest.length, 2);
+  const rowA = state.ingestManifest.find(r => r.path === '/f/a.pdf');
+  const rowB = state.ingestManifest.find(r => r.path === '/f/b.pdf');
+  assert.equal(rowA.status, 'queued');
+  assert.equal(rowA.reason, '');
+  assert.equal(rowB.status, 'skipped');
+  assert.equal(rowB.reason, 'already in library');
+});

@@ -17,6 +17,13 @@
  *              Each ingest_failed pushes {ok:false, ...}.
  *              Each paper_added during an active job pushes {ok:true, label, paperId}.
  *              The progressDock derives its mini-list from this array.
+ *   ingestManifest: Array<{path, name, relPath, status, reason}>
+ *              Ordered per-file status list for a folder ingest, keyed by
+ *              absolute path. Seeded client-side by store.startIngestManifest;
+ *              reconciled here from ingest_progress/paper_added/ingest_failed/
+ *              ingest_skipped/job_done. Rows are matched by exact `path`;
+ *              events with no matching row (e.g. single-add, phase-notes) are
+ *              silently no-ops.
  */
 
 /**
@@ -28,6 +35,25 @@
  * @param {object} evt  — parsed JSON event with an "event" discriminator
  * @returns {string[]}  — changed topics
  */
+
+/**
+ * Find a row in state.ingestManifest by absolute path and mutate its status
+ * (and optionally its reason). Returns true if a row was found and mutated.
+ * @param {object} state
+ * @param {string} path
+ * @param {string} status
+ * @param {string} [reason]
+ * @returns {boolean}
+ */
+function _setManifestStatus(state, path, status, reason) {
+  if (!path || !Array.isArray(state.ingestManifest)) return false;
+  const row = state.ingestManifest.find(r => r.path === path);
+  if (!row) return false;
+  row.status = status;
+  if (reason !== undefined) row.reason = reason;
+  return true;
+}
+
 export function applyEvent(state, evt) {
   const kind = evt && evt.event;
   if (!kind) return [];
@@ -52,6 +78,7 @@ export function applyEvent(state, evt) {
       // If a job is active, push a success entry to ingestLog for the dock mini-list
       if (!state.ingestLog) state.ingestLog = [];
       const activeJob = state.jobs && state.jobs.get('ingest');
+      const topics = ['papers'];
       if (activeJob && activeJob.status === 'running') {
         const label = evt.title
           || (evt.source ? _basename(evt.source) : null)
@@ -62,10 +89,14 @@ export function applyEvent(state, evt) {
           paperId: evt.paper_id,
           seq:     state.ingestLog.length,
         });
-        return ['papers', 'ingestLog'];
+        topics.push('ingestLog');
       }
 
-      return ['papers'];
+      if (_setManifestStatus(state, evt.path, 'done')) {
+        topics.push('ingestManifest');
+      }
+
+      return topics;
     }
 
     case 'section_tree_built': {
@@ -149,7 +180,18 @@ export function applyEvent(state, evt) {
         seq:     state.ingestLog.length,
       });
 
-      return ['papers', 'failures', 'ingestLog'];
+      const failedTopics = ['papers', 'failures', 'ingestLog'];
+      if (_setManifestStatus(state, evt.path, 'failed', evt.error || '')) {
+        failedTopics.push('ingestManifest');
+      }
+      return failedTopics;
+    }
+
+    case 'ingest_skipped': {
+      if (_setManifestStatus(state, evt.path, 'skipped', evt.reason || 'already in library')) {
+        return ['ingestManifest'];
+      }
+      return [];
     }
 
     case 'ingest_progress': {
@@ -193,7 +235,11 @@ export function applyEvent(state, evt) {
         total: evt.total,
         current: evt.current || '',
       });
-      return ['jobs'];
+      const progressTopics = ['jobs'];
+      if (_setManifestStatus(state, evt.current, 'processing')) {
+        progressTopics.push('ingestManifest');
+      }
+      return progressTopics;
     }
 
     case 'job_done': {
@@ -208,7 +254,20 @@ export function applyEvent(state, evt) {
           paper.status = 'done';
         }
       }
-      return ['jobs', 'papers'];
+
+      // Sweep the manifest: nothing should be left stuck spinning.
+      const doneTopics = ['jobs', 'papers'];
+      if (Array.isArray(state.ingestManifest)) {
+        let manifestChanged = false;
+        for (const row of state.ingestManifest) {
+          if (row.status === 'queued' || row.status === 'processing') {
+            row.status = 'done';
+            manifestChanged = true;
+          }
+        }
+        if (manifestChanged) doneTopics.push('ingestManifest');
+      }
+      return doneTopics;
     }
 
     case 'suggestions_updated': {

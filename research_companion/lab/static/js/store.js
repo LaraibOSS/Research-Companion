@@ -12,6 +12,7 @@
  *   failures:   {}
  *   graphSeq:   number
  *   ingestLog:  Array<{ok, label, path?, stage?, error?, paperId, seq}>
+ *   ingestManifest: Array<{path, name, relPath, status, reason}>
  *   views:      Array<{view_id, name, created_at, source, node_ids, pinned}>
  */
 
@@ -32,6 +33,7 @@ const _state = {
   failures: {},
   graphSeq: 0,
   ingestLog: [],
+  ingestManifest: [],
   suggestionCounts: { open: 0, by_severity: null },
   suggestions: [],
   lastAddressedIds: [],
@@ -128,6 +130,7 @@ export function resetFromSnapshot(snapshot) {
   _state.graphSeq = 0;
   _state.jobs = new Map();
   _state.ingestLog = [];
+  _state.ingestManifest = [];
 
   for (const p of (snapshot.papers || [])) {
     _state.papers.set(p.paper_id, p);
@@ -314,4 +317,25 @@ export function setActiveJobs(list) {
     });
   }
   notify(['activity']);
+}
+
+// ---------------------------------------------------------------------------
+// Ingest manifest state (folder-ingest per-file status list)
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed the ingest manifest from the scan/ingest file list at the start of a
+ * folder ingest run and notify 'ingestManifest' subscribers.
+ * @param {Array} files — [{path, name, rel_path, already_in_library}]
+ */
+export function startIngestManifest(files) {
+  const rows = (Array.isArray(files) ? files : []).map(f => ({
+    path: f.path || '',
+    name: f.name || f.path || '',
+    relPath: f.rel_path || f.name || f.path || '',
+    status: f.already_in_library ? 'skipped' : 'queued',
+    reason: f.already_in_library ? 'already in library' : '',
+  }));
+  _state.ingestManifest = rows;
+  notify(['ingestManifest']);
 }
