@@ -655,6 +655,51 @@ class TestOcrFallback:
         assert loaded_meta.ocr_used is False
         assert loaded_meta.parse_source == "pypdfium"
 
+    def test_reingest_on_cached_text_preserves_prior_ocr_provenance(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        """Re-ingesting a paper whose usable text is already cached must NOT
+        re-run the parser or downgrade prior provenance. A previously-OCR'd
+        paper keeps ocr_used=True / parse_source='docling+ocr' — otherwise the
+        OCR badge would vanish on a plain re-add even though the on-disk text is
+        still the OCR-recovered text."""
+        from research_companion import extract, store
+        from research_companion.lab import ingest_one
+        from research_companion.parsers import ParsedDoc
+
+        pid = "local:scan"
+        _make_pdf(tmp_path, "scanned.pdf")
+        # Prior state, as left by a first successful OCR ingest: OCR-recovered
+        # text cached on disk + meta flagged OCR.
+        store.save_text(pid, _GOOD_TEXT)
+        meta = store.PaperMetadata(
+            paper_id=pid, title="Scanned", authors=["A"],
+            parse_source="docling+ocr", ocr_used=True,
+        )
+        meta.save()
+
+        # This pass serves the cached text (quality gate passes) — the parser
+        # does NOT re-run and OCR must not run.
+        monkeypatch.setattr(extract, "get_paper_parsed",
+                            lambda m, **kw: ParsedDoc(text=_GOOD_TEXT))
+
+        def _no_ocr(m):
+            raise AssertionError("OCR must not run when cached text is usable")
+
+        monkeypatch.setattr(extract, "ocr_fallback_parse", _no_ocr)
+
+        _, sect, ext, _, _ = _make_fakes([pid])
+        bus = Bus()
+        ok = asyncio.run(ingest_one(
+            meta, str(tmp_path / "scanned.pdf"), bus=bus,
+            provider="anthropic", model=None, align=False,
+            aligner=None, strengther=None, extractor=ext, sectioner=sect,
+        ))
+        assert ok is True
+        reloaded = store.PaperMetadata.load(pid)
+        assert reloaded.ocr_used is True
+        assert reloaded.parse_source == "docling+ocr"
+
 
 # ---------------------------------------------------------------------------
 # Docling structural sections wiring (stage 2)

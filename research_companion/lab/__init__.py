@@ -218,14 +218,20 @@ async def ingest_one(
                 await bus.publish(IngestFailed(path=path_str, stage="extract",
                                                error=error, paper_id=paper_id))
                 return False
-        # Record how the text was produced (ingestion transparency).
+        # Record how the text was produced (ingestion transparency). Never
+        # DOWNGRADE a prior OCR flag: a re-ingest of an already-OCR'd paper hits
+        # the cached-text path (the parser does not re-run), so overwriting here
+        # would wrongly clear ocr_used and drop the OCR badge even though the
+        # on-disk text is still the OCR-recovered text.
         if ocr_used:
             meta.parse_source = "docling+ocr"
-        else:
+            meta.ocr_used = True
+            meta.save()
+        elif not getattr(meta, "ocr_used", False):
             from research_companion.parsers import get_parser
             meta.parse_source = get_parser().name
-        meta.ocr_used = ocr_used
-        meta.save()
+            meta.ocr_used = False
+            meta.save()
         # Prefer parser-provided (docling) structural sections; fall back to the
         # heuristic sectioner when the parser recovered none.
         paper_sections = None
