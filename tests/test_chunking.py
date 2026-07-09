@@ -8,6 +8,8 @@ span and BM25 can tokenize the FULL chunk (not just a leading slice).
 """
 from __future__ import annotations
 
+import pytest
+
 from research_companion.chunking import (
     DEFAULT_MIN_TAIL,
     DEFAULT_OVERLAP_CHARS,
@@ -131,3 +133,12 @@ class TestLongSection:
         assert DEFAULT_TARGET_CHARS > 0
         assert 0 <= DEFAULT_OVERLAP_CHARS < DEFAULT_TARGET_CHARS
         assert DEFAULT_MIN_TAIL > 0
+
+
+def test_chunk_section_rejects_bad_params():
+    with pytest.raises(ValueError):
+        chunk_section("abc" * 10, 0, target_chars=0)
+    with pytest.raises(ValueError):
+        chunk_section("abc" * 10, 0, target_chars=100, overlap_chars=100)
+    with pytest.raises(ValueError):
+        chunk_section("abc" * 10, 0, overlap_chars=-1)

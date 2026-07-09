@@ -75,6 +75,11 @@ def chunk_section(
         A section at or below ``target_chars`` (including empty text) yields a
         single chunk covering the whole section.
     """
+    if target_chars <= 0 or overlap_chars < 0 or overlap_chars >= target_chars:
+        raise ValueError(
+            "chunk_section requires target_chars > 0 and 0 <= overlap_chars < target_chars"
+        )
+
     n = len(text)
 
     # Short (or empty) section -> exactly one chunk covering the whole span.
