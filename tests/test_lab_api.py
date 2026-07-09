@@ -715,6 +715,105 @@ class TestIngest:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/ingest/scan
+# ---------------------------------------------------------------------------
+
+_FIXTURE_PDF = Path(__file__).parent / "fixtures" / "sample_paper.pdf"
+
+
+class TestIngestScan:
+    def test_bad_folder_returns_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/ingest/scan", json={"folder": "/no/such/folder/xyz"})
+        assert resp.status_code == 400
+
+    def test_empty_folder(self, isolated_papergraph_dir, tmp_path):
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        c = _make_client()
+        resp = c.post("/api/ingest/scan", json={"folder": str(folder)})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["discovered"] == 0
+        assert data["files"] == []
+
+    def test_discovers_two_pdfs_fresh_store(self, isolated_papergraph_dir, tmp_path):
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        pdf_bytes = _FIXTURE_PDF.read_bytes()
+        (folder / "a.pdf").write_bytes(pdf_bytes)
+        # Different content so the two files hash differently.
+        (folder / "b.pdf").write_bytes(pdf_bytes + b"\n%extra")
+
+        c = _make_client()
+        resp = c.post("/api/ingest/scan", json={"folder": str(folder)})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["discovered"] == 2
+        assert data["already"] == 0
+        for f in data["files"]:
+            assert set(f.keys()) == {"name", "path", "rel_path", "already_in_library"}
+            assert f["already_in_library"] is False
+
+    def test_already_in_library_file_flagged(self, isolated_papergraph_dir, tmp_path):
+        from research_companion import store
+
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        pdf_bytes = _FIXTURE_PDF.read_bytes()
+        seeded_path = folder / "a.pdf"
+        seeded_path.write_bytes(pdf_bytes)
+        (folder / "b.pdf").write_bytes(pdf_bytes + b"\n%extra")
+
+        # Seed a.pdf as already-in-library
+        pid = store.make_local_id(pdf_bytes)
+        meta = store.PaperMetadata(
+            paper_id=pid, title="Seeded Paper", authors=["Author"],
+            year=2024, added_at="2024-01-01T00:00:00Z",
+        )
+        meta.save()
+        store.save_pdf(pid, pdf_bytes)
+
+        c = _make_client()
+        resp = c.post("/api/ingest/scan", json={"folder": str(folder)})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["discovered"] == 2
+        assert data["already"] == 1
+
+        by_name = {f["name"]: f for f in data["files"]}
+        assert by_name["a.pdf"]["already_in_library"] is True
+        assert by_name["b.pdf"]["already_in_library"] is False
+
+    def test_subfolder_rel_path(self, isolated_papergraph_dir, tmp_path):
+        folder = tmp_path / "pdfs"
+        sub = folder / "sub"
+        sub.mkdir(parents=True)
+        (sub / "x.pdf").write_bytes(_FIXTURE_PDF.read_bytes())
+
+        c = _make_client()
+        resp = c.post("/api/ingest/scan", json={"folder": str(folder)})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["discovered"] == 1
+        f = data["files"][0]
+        assert f["rel_path"] == str(Path("sub") / "x.pdf")
+
+    def test_scan_does_not_create_job(self, isolated_papergraph_dir, tmp_path):
+        """Scan must never start an ingest job (no job_id, no queued job)."""
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        (folder / "a.pdf").write_bytes(_FIXTURE_PDF.read_bytes())
+
+        app = create_lab_app(Bus())
+        with TestClient(app) as c:
+            resp = c.post("/api/ingest/scan", json={"folder": str(folder)})
+            assert resp.status_code == 200
+            assert "job_id" not in resp.json()
+            assert app.state.jobs == {}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/jobs/{id}
 # ---------------------------------------------------------------------------
 

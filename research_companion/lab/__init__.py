@@ -19,6 +19,7 @@ from research_companion.agents.events import (
     GraphDelta,
     IngestFailed,
     IngestProgress,
+    IngestSkipped,
     JobDone,
     PaperAdded,
     SectionExtracted,
@@ -489,6 +490,8 @@ async def ingest_folder(
         # add_local_pdf returns the existing meta if already present — we detect
         # by checking extraction cache. If cached, count as skipped.
         if cached_ext is not None:
+            await bus.publish(IngestSkipped(
+                path=path_str, paper_id=paper_id, reason="already in library"))
             result.skipped.append(path_str)
             continue
 
@@ -497,6 +500,7 @@ async def ingest_folder(
             paper_id=paper_id,
             title=meta.title,
             source=meta.source_url,
+            path=path_str,
         ))
 
         # -----------------------------------------------------------------------

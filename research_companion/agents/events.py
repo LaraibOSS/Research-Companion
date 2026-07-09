@@ -24,6 +24,7 @@ _KIND = {
     "StrengthUpdated": "strength_updated",
     "IngestFailed": "ingest_failed",
     "IngestProgress": "ingest_progress",
+    "IngestSkipped": "ingest_skipped",
     "JobDone": "job_done",
     "SuggestionsUpdated": "suggestions_updated",
     # Journey events (Task W3-T8)
@@ -83,6 +84,7 @@ class PaperAdded:
     paper_id: str
     title: str
     source: str = ""
+    path: str = ""
 
 
 @dataclass
@@ -135,6 +137,14 @@ class IngestProgress:
     done: int
     total: int
     current: str = ""
+
+
+@dataclass
+class IngestSkipped:
+    """An already-in-library file was skipped during folder ingest (Task F-I1)."""
+    path: str
+    paper_id: str = ""
+    reason: str = "already in library"
 
 
 @dataclass

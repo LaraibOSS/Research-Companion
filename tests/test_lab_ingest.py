@@ -17,6 +17,7 @@ from research_companion.agents.events import (
     GraphDelta,
     IngestFailed,
     IngestProgress,
+    IngestSkipped,
     JobDone,
     PaperAdded,
     SectionExtracted,
@@ -218,6 +219,14 @@ class TestHappyPath:
         # JobDone must be last
         assert isinstance(bus.history[-1], JobDone)
         assert bus.history[-1].job == "ingest"
+
+        # PaperAdded from a folder ingest carries the ingested file's path
+        added_events = [e for e in bus.history if isinstance(e, PaperAdded)]
+        assert len(added_events) == 2
+        added_paths = {e.path for e in added_events}
+        assert added_paths == {str(tmp_path / "p1.pdf"), str(tmp_path / "p2.pdf")}
+        for e in added_events:
+            assert e.path != ""
 
     def test_two_papers_ingest_result_counts(self, tmp_path, isolated_papergraph_dir):
         _make_pdf(tmp_path, "p1.pdf")
@@ -849,6 +858,12 @@ class TestSkipPath:
         # No PaperAdded event
         added_events = [e for e in bus.history if isinstance(e, PaperAdded)]
         assert len(added_events) == 0
+        # IngestSkipped event published with the right path/paper_id
+        skipped_events = [e for e in bus.history if isinstance(e, IngestSkipped)]
+        assert len(skipped_events) == 1
+        assert skipped_events[0].path == str(tmp_path / "p1.pdf")
+        assert skipped_events[0].paper_id == paper_id
+        assert skipped_events[0].reason == "already in library"
 
 
 # ---------------------------------------------------------------------------
@@ -1403,6 +1418,18 @@ class TestEventSerialization:
         d = self._roundtrip(ev)
         assert d["source"] == ""
 
+    def test_paper_added_default_path(self):
+        ev = PaperAdded(paper_id="local:abc", title="A paper")
+        d = self._roundtrip(ev)
+        assert d["path"] == ""
+
+    def test_paper_added_with_path(self):
+        ev = PaperAdded(paper_id="local:abc", title="A paper", source="file://foo.pdf",
+                         path="/f/a.pdf")
+        d = self._roundtrip(ev)
+        assert d["event"] == "paper_added"
+        assert d["path"] == "/f/a.pdf"
+
     def test_section_tree_built(self):
         ev = SectionTreeBuilt(paper_id="local:abc", n_sections=5)
         d = self._roundtrip(ev)
@@ -1478,6 +1505,20 @@ class TestEventSerialization:
         assert d["event"] == "embeddings_ready"
         assert d["paper_id"] == "local:abc"
         assert d["n_vectors"] == 5
+
+    def test_ingest_skipped(self):
+        ev = IngestSkipped(path="a.pdf", paper_id="local:x")
+        d = self._roundtrip(ev)
+        assert d["event"] == "ingest_skipped"
+        assert d["path"] == "a.pdf"
+        assert d["paper_id"] == "local:x"
+        assert d["reason"] == "already in library"
+
+    def test_ingest_skipped_default_reason_and_paper_id(self):
+        ev = IngestSkipped(path="b.pdf")
+        d = self._roundtrip(ev)
+        assert d["paper_id"] == ""
+        assert d["reason"] == "already in library"
 
     def test_suggestions_updated(self):
         ev = SuggestionsUpdated(

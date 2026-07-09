@@ -1393,6 +1393,42 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         }
 
     # -----------------------------------------------------------------
+    # POST /api/ingest/scan — folder preview (no job started, no ingest)
+    # -----------------------------------------------------------------
+    @app.post("/api/ingest/scan")
+    async def ingest_scan(body: _IngestBody) -> dict:
+        from research_companion import store
+        from research_companion.lab import scan_pdfs
+
+        folder = Path(body.folder)
+        try:
+            pdfs = await asyncio.to_thread(scan_pdfs, folder)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def _scan() -> list[dict]:
+            out = []
+            for p in pdfs:
+                already = False
+                try:
+                    pid = store.make_local_id(p.read_bytes())
+                    meta = store.PaperMetadata.load(pid)
+                    already = meta is not None and (store.paper_dir(pid) / "paper.pdf").exists()
+                except Exception:
+                    already = False
+                try:
+                    rel = str(p.relative_to(folder))
+                except ValueError:
+                    rel = p.name
+                out.append({"name": p.name, "path": str(p), "rel_path": rel,
+                            "already_in_library": already})
+            return out
+
+        files = await asyncio.to_thread(_scan)
+        return {"discovered": len(files), "already": sum(1 for f in files if f["already_in_library"]),
+                "files": files}
+
+    # -----------------------------------------------------------------
     # GET /api/jobs — active (running) jobs, for boot hydration of the
     # activity indicator (registered before the /{job_id} route)
     # -----------------------------------------------------------------
