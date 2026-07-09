@@ -225,9 +225,9 @@ def embed_paper_sections(
         return None
 
     from research_companion import qa  # lazy to avoid circular imports
-    from research_companion.store import load_embeddings, save_embeddings
+    from research_companion.store import embedding_key, load_embeddings, save_embeddings
 
-    # Build section units
+    # Build per-chunk retrieval units
     units = qa.build_section_index([paper_id])
     if not units:
         return None
@@ -238,18 +238,19 @@ def embed_paper_sections(
     if cached is not None:
         cached_vectors = cached.get("vectors", {})
 
-    # Determine which sections need (re-)embedding
-    to_embed: list[tuple[str, str, str]] = []  # (section_id, text, sha256)
+    # Determine which chunks need (re-)embedding. Each unit is one chunk; embed
+    # the CHUNK text and key by (section_id, chunk_index).
+    to_embed: list[tuple[str, str, str]] = []  # (composite_key, text, sha256)
     for unit in units:
-        section_id = unit["section_id"]
+        key = embedding_key(unit["section_id"], unit.get("chunk_index", 0))
         text = unit.get("text", "")
         text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-        cached_entry = cached_vectors.get(section_id)
+        cached_entry = cached_vectors.get(key)
         if cached_entry and cached_entry.get("text_sha256") == text_sha:
             # Cache hit — reuse
             continue
-        to_embed.append((section_id, text, text_sha))
+        to_embed.append((key, text, text_sha))
 
     # Build merged vectors dict starting from cache
     merged: dict[str, dict] = dict(cached_vectors)
@@ -262,8 +263,8 @@ def embed_paper_sections(
             token=resolved_token,
             post=post,
         )
-        for (section_id, _text, text_sha), vector in zip(to_embed, vectors, strict=True):
-            merged[section_id] = {
+        for (key, _text, text_sha), vector in zip(to_embed, vectors, strict=True):
+            merged[key] = {
                 "text_sha256": text_sha,
                 "vector": vector,
             }

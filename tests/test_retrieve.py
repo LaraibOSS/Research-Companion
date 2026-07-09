@@ -81,9 +81,10 @@ class TestBm25OnlyDegradation:
 
 class TestHybridFusion:
     def _seed_vectors(self, paper_id, section_vecs, model="sentence-transformers/all-MiniLM-L6-v2"):
+        # units from _units have no chunk_index -> chunk_index 0 -> "sid#0"
         store.save_embeddings(paper_id, {
             "embed_model": model,
-            "vectors": {sid: {"text_sha256": "x", "vector": v}
+            "vectors": {store.embedding_key(sid, 0): {"text_sha256": "x", "vector": v}
                         for sid, v in section_vecs.items()},
         })
 
@@ -152,3 +153,53 @@ class TestHybridFusion:
         r = ranked[0]
         assert set(r.keys()) == {"unit", "score", "bm25", "cosine", "mode"}
         assert isinstance(r["bm25"], float) and isinstance(r["cosine"], float)
+
+
+class TestChunkLevelVectorLoading:
+    """_load_unit_vectors keys by (section_id, chunk_index) so two chunks of
+    the same section get their OWN vectors, and legacy keys miss gracefully."""
+
+    def _chunk_units(self):
+        # two chunks of ONE section s1 (chunk_index 0 and 1)
+        return [
+            {"paper_id": "arxiv:1", "paper_title": "P", "section_id": "s1",
+             "section_title": "S", "tokens": ["query"], "text": "c0", "chunk_index": 0},
+            {"paper_id": "arxiv:1", "paper_title": "P", "section_id": "s1",
+             "section_title": "S", "tokens": ["query"], "text": "c1", "chunk_index": 1},
+        ]
+
+    def test_two_chunks_one_section_get_distinct_vectors(self):
+        from research_companion.retrieve import _load_unit_vectors
+        store.save_embeddings("arxiv:1", {
+            "embed_model": "m",
+            "vectors": {
+                store.embedding_key("s1", 0): {"text_sha256": "x", "vector": [1.0, 0.0]},
+                store.embedding_key("s1", 1): {"text_sha256": "y", "vector": [0.0, 1.0]},
+            },
+        })
+        vecs = _load_unit_vectors(self._chunk_units(), "m")
+        assert vecs[0] == [1.0, 0.0]
+        assert vecs[1] == [0.0, 1.0]
+
+    def test_missing_chunk_vector_absent_no_error(self):
+        from research_companion.retrieve import _load_unit_vectors
+        # only chunk 0 seeded; chunk 1 must simply be absent (BM25 fallback)
+        store.save_embeddings("arxiv:1", {
+            "embed_model": "m",
+            "vectors": {
+                store.embedding_key("s1", 0): {"text_sha256": "x", "vector": [1.0, 0.0]},
+            },
+        })
+        vecs = _load_unit_vectors(self._chunk_units(), "m")
+        assert vecs.get(0) == [1.0, 0.0]
+        assert 1 not in vecs
+
+    def test_legacy_bare_key_misses_falls_back(self):
+        from research_companion.retrieve import _load_unit_vectors
+        # legacy payload keyed by bare section_id -> composite lookup misses
+        store.save_embeddings("arxiv:1", {
+            "embed_model": "m",
+            "vectors": {"s1": {"text_sha256": "x", "vector": [1.0, 0.0]}},
+        })
+        vecs = _load_unit_vectors(self._chunk_units(), "m")
+        assert vecs == {}

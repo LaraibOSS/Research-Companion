@@ -627,6 +627,16 @@ def load_strength(paper_id: str) -> dict | None:
         return None
 
 
+def embedding_key(section_id: str, chunk_index: int) -> str:
+    """Composite vector-map key for one retrieval unit.
+
+    Vectors are keyed per (section_id, chunk_index) so multi-chunk sections keep
+    a distinct vector per chunk instead of collapsing to one (last chunk wins).
+    Format defined once here and reused by embed/retrieve/store.
+    """
+    return f"{section_id}#{chunk_index}"
+
+
 def save_embeddings(paper_id: str, payload: dict) -> Path:
     """Save embeddings JSON to papers/<dir>/embeddings.json.
 
@@ -635,9 +645,12 @@ def save_embeddings(paper_id: str, payload: dict) -> Path:
         {
             "embed_model": str,
             "vectors": {
-                section_id: {"text_sha256": str, "vector": [floats]}
+                "<section_id>#<chunk_index>": {"text_sha256": str, "vector": [floats]}
             }
         }
+
+    Keys are the composite key from :func:`embedding_key`. Legacy files keyed by
+    bare ``section_id`` still load, but composite lookups miss them (cache-miss).
     """
     p = paper_dir(paper_id) / "embeddings.json"
     p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

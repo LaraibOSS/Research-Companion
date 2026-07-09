@@ -10,7 +10,7 @@ import pytest
 
 from research_companion import store
 from research_companion.embed import DEFAULT_EMBED_MODEL, EmbedError, embed_paper_sections, hf_embed
-from research_companion.store import load_embeddings, save_embeddings
+from research_companion.store import embedding_key, load_embeddings, save_embeddings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -203,6 +203,40 @@ class TestEmbeddingsStore:
         loaded = load_embeddings(paper_id, embed_model=DEFAULT_EMBED_MODEL)
         assert loaded is not None
 
+    def test_composite_key_roundtrip(self):
+        """Vectors keyed by (section_id, chunk_index) round-trip intact."""
+        paper_id = "arxiv:3333.33333"
+        k0 = embedding_key("s1", 0)
+        k1 = embedding_key("s1", 1)
+        assert k0 == "s1#0" and k1 == "s1#1"
+        payload = {
+            "embed_model": DEFAULT_EMBED_MODEL,
+            "vectors": {
+                k0: {"text_sha256": "a", "vector": [0.1, 0.2]},
+                k1: {"text_sha256": "b", "vector": [0.3, 0.4]},
+            },
+        }
+        save_embeddings(paper_id, payload)
+        loaded = load_embeddings(paper_id)
+        assert loaded is not None
+        assert loaded["vectors"][k0]["vector"] == [0.1, 0.2]
+        assert loaded["vectors"][k1]["vector"] == [0.3, 0.4]
+
+    def test_legacy_bare_section_id_payload_loads_and_misses(self):
+        """Old on-disk vectors keyed by bare section_id load without crashing;
+        a composite-key lookup simply misses (cache-miss / no vector)."""
+        paper_id = "arxiv:4444.44444"
+        save_embeddings(paper_id, {
+            "embed_model": DEFAULT_EMBED_MODEL,
+            "vectors": {"s1": {"text_sha256": "x", "vector": [1.0, 2.0]}},
+        })
+        loaded = load_embeddings(paper_id)
+        assert loaded is not None  # no crash
+        # composite lookup misses the legacy bare key
+        assert loaded["vectors"].get(embedding_key("s1", 0)) is None
+        # legacy key still literally present (proves we didn't rewrite it)
+        assert "s1" in loaded["vectors"]
+
 
 # ---------------------------------------------------------------------------
 # embed_paper_sections: no token => None silently
@@ -314,3 +348,71 @@ class TestCacheReuse:
         # s2 should NOT be re-embedded (its slice hasn't changed relative to cached sha)
         # We verify: total embedded after cache check should be < 2 sections (only the changed one)
         assert len(all_sent) < 2 or len(embedded_texts) > 0  # at least something changed
+
+
+# ---------------------------------------------------------------------------
+# embed_paper_sections: chunk-level keying (Phase 3)
+# ---------------------------------------------------------------------------
+
+def _post_by_text():
+    """Fake post returning a distinct vector per input text (len-based)."""
+    sent: list[str] = []
+
+    def fake_post(url, headers, json_body, timeout):
+        inputs = json_body["inputs"]
+        sent.extend(inputs)
+        # one vector per input, made distinct by input length so different
+        # chunk texts get different vectors
+        return (200, [[[float(len(t)), 1.0, 2.0, 3.0]] for t in inputs])
+
+    fake_post.sent = sent  # type: ignore[attr-defined]
+    return fake_post
+
+
+class TestChunkLevelEmbeddings:
+    def _long_section_paper(self, paper_id: str) -> None:
+        # >1200 chars so chunk_section yields 2 chunks; two paragraphs of
+        # different length so the two chunk texts (and thus vectors) differ.
+        para_a = ("Alpha content about graph retrieval methods. " * 30)
+        para_b = ("Beta content about vector databases and cells. " * 20)
+        body = para_a + "\n\n" + para_b
+        meta = store.PaperMetadata(paper_id=paper_id, title="Long Paper",
+                                   authors=["A"], year=2024)
+        meta.save()
+        store.save_text(paper_id, body)
+        store.save_sections(paper_id, {"sections": [
+            {"section_id": "s1", "title": "Body", "char_start": 0,
+             "char_end": len(body), "level": 1, "parent": None},
+        ]})
+
+    def test_two_chunk_section_gets_two_distinct_vectors(self):
+        paper_id = "arxiv:5555.55555"
+        self._long_section_paper(paper_id)
+
+        # sanity: qa builds >1 chunk for this section
+        from research_companion import qa
+        units = qa.build_section_index([paper_id])
+        assert len({u["chunk_index"] for u in units}) >= 2
+
+        post = _post_by_text()
+        payload = embed_paper_sections(paper_id, token="tok", post=post)
+        assert payload is not None
+        vectors = payload["vectors"]
+        # keyed per (section_id, chunk_index)
+        k0 = embedding_key("s1", 0)
+        k1 = embedding_key("s1", 1)
+        assert k0 in vectors and k1 in vectors
+        # two DISTINCT vectors (chunk collapse regression guard)
+        assert vectors[k0]["vector"] != vectors[k1]["vector"]
+
+    def test_cache_hit_skips_reembedding_unchanged_chunks(self):
+        paper_id = "arxiv:6666.66666"
+        self._long_section_paper(paper_id)
+
+        post1 = _post_by_text()
+        embed_paper_sections(paper_id, token="tok", post=post1)
+        assert len(post1.sent) >= 2  # both chunks embedded first time
+
+        post2 = _post_by_text()
+        embed_paper_sections(paper_id, token="tok", post=post2)
+        assert post2.sent == [], "unchanged chunks must not be re-embedded"

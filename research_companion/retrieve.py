@@ -46,7 +46,7 @@ def _auto_embed_query() -> Callable[[str], list[float]] | None:
 
 def _load_unit_vectors(units: list[dict], embed_model: str) -> dict[int, list[float]]:
     """Map unit index -> cached vector, reading each paper's embeddings once."""
-    from research_companion.store import load_embeddings
+    from research_companion.store import embedding_key, load_embeddings
 
     by_paper: dict[str, dict | None] = {}
     vectors: dict[int, list[float]] = {}
@@ -60,7 +60,8 @@ def _load_unit_vectors(units: list[dict], embed_model: str) -> dict[int, list[fl
         payload = by_paper[pid]
         if not payload:
             continue
-        entry = (payload.get("vectors") or {}).get(unit.get("section_id", ""))
+        key = embedding_key(unit.get("section_id", ""), unit.get("chunk_index", 0))
+        entry = (payload.get("vectors") or {}).get(key)
         if entry and isinstance(entry.get("vector"), list):
             vectors[i] = entry["vector"]
     return vectors
