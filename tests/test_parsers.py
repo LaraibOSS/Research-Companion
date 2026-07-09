@@ -55,21 +55,24 @@ class TestTextQuality:
 # ---------------------------------------------------------------------------
 
 class TestGetParser:
-    def test_default_is_pypdfium(self, monkeypatch):
-        # No explicit name, no env override. Even if the docling *package* is
-        # installed, the Task-2 docling_parser backend module is absent -> pypdfium.
+    def test_default_selects_available_backend(self, monkeypatch):
+        # No explicit name, no env override: docling if its package is importable
+        # (Task 2 landed the backend module), else the pypdfium default.
+        import importlib.util
         monkeypatch.delenv("RESEARCH_COMPANION_PARSER", raising=False)
-        assert get_parser().name == "pypdfium"
+        expected = "docling" if importlib.util.find_spec("docling") is not None else "pypdfium"
+        assert get_parser().name == expected
 
     def test_env_override_pypdfium(self, monkeypatch):
         monkeypatch.setenv("RESEARCH_COMPANION_PARSER", "pypdfium")
         assert get_parser().name == "pypdfium"
 
-    def test_docling_falls_back_when_backend_absent(self, monkeypatch):
-        # Selecting docling while the backend module is absent must fall back
-        # cleanly to pypdfium (Task 2 adds the real backend).
+    def test_docling_selected_when_backend_present(self, monkeypatch):
+        # The Task-2 backend module is present; selecting docling returns it
+        # (construction never imports docling itself, so this holds even if the
+        # docling package is not installed).
         monkeypatch.setenv("RESEARCH_COMPANION_PARSER", "docling")
-        assert get_parser("docling").name == "pypdfium"
+        assert get_parser("docling").name == "docling"
 
     def test_unknown_name_falls_back(self, monkeypatch):
         monkeypatch.delenv("RESEARCH_COMPANION_PARSER", raising=False)

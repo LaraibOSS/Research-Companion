@@ -47,6 +47,9 @@ demo = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
+docling = [
+    "docling>=2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -78,6 +81,9 @@ research_companion = [
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
+markers = [
+    "slow: slow tests (real docling conversion; may download models / need network)",
+]
 
 [tool.ruff]
 line-length = 110

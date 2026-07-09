@@ -480,6 +480,112 @@ class TestEmptyTextGate:
 
 
 # ---------------------------------------------------------------------------
+# Docling structural sections wiring (stage 2)
+# ---------------------------------------------------------------------------
+
+class TestParserSectionsWiring:
+    """When the parser (docling) returns non-empty sections, stage 2 persists
+    them via the store and does NOT call the heuristic sectioner. When the parser
+    returns no sections, the heuristic sectioner still runs (fallback preserved).
+    """
+
+    def _parsed(self, tables=None, figures=None):
+        from research_companion.parsers import ParsedDoc
+        return ParsedDoc(
+            text=_GOOD_TEXT,
+            sections=[
+                {"section_id": "s1", "title": "Introduction", "level": 1,
+                 "parent": None, "char_start": 0, "char_end": 80},
+                {"section_id": "s2", "title": "Methods", "level": 1,
+                 "parent": None, "char_start": 80, "char_end": len(_GOOD_TEXT)},
+            ],
+            tables=tables or [],
+            figures=figures or [],
+        )
+
+    def test_docling_sections_persisted_and_sectioner_skipped(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        from research_companion import extract, store
+
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        sectioner_calls = []
+
+        def tracking_sectioner(paper_id, **kw):
+            sectioner_calls.append(paper_id)
+            return sect(paper_id)
+
+        monkeypatch.setattr(
+            extract, "get_paper_parsed",
+            lambda meta, **kw: self._parsed(
+                tables=[{"markdown": "| a |\n|---|\n| 1 |", "caption": "T1"}],
+                figures=[{"caption": "F1"}],
+            ),
+        )
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path, bus=bus, add_pdf=add, extractor=ext,
+                sectioner=tracking_sectioner, aligner=None, strengther=None,
+            )
+        )
+
+        assert len(result.added) == 1
+        # Heuristic sectioner NOT invoked — docling sections win.
+        assert sectioner_calls == []
+        # Sections persisted with method="docling".
+        saved = store.load_sections("local:aaa")
+        assert saved is not None
+        assert saved["method"] == "docling"
+        assert [s["section_id"] for s in saved["sections"]] == ["s1", "s2"]
+        # Tables/figures persisted to structure.json.
+        structure = store.load_structure("local:aaa")
+        assert structure is not None
+        assert structure["tables"][0]["caption"] == "T1"
+        assert structure["figures"] == [{"caption": "F1"}]
+        # SectionTreeBuilt reflects the docling section count.
+        built = [e for e in bus.history if isinstance(e, SectionTreeBuilt)]
+        assert built[0].n_sections == 2
+
+    def test_empty_parser_sections_falls_back_to_sectioner(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        from research_companion import extract, store
+        from research_companion.parsers import ParsedDoc
+
+        _make_pdf(tmp_path, "p1.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:aaa"])
+
+        sectioner_calls = []
+
+        def tracking_sectioner(paper_id, **kw):
+            sectioner_calls.append(paper_id)
+            return sect(paper_id)
+
+        monkeypatch.setattr(
+            extract, "get_paper_parsed",
+            lambda meta, **kw: ParsedDoc(text=_GOOD_TEXT),  # no structural sections
+        )
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path, bus=bus, add_pdf=add, extractor=ext,
+                sectioner=tracking_sectioner, aligner=None, strengther=None,
+            )
+        )
+
+        assert len(result.added) == 1
+        # Heuristic sectioner IS invoked (fallback preserved).
+        assert sectioner_calls == ["local:aaa"]
+        # No structure.json written when there are no tables/figures.
+        assert store.load_structure("local:aaa") is None
+
+
+# ---------------------------------------------------------------------------
 # Skip path
 # ---------------------------------------------------------------------------
 

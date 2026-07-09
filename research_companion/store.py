@@ -555,6 +555,29 @@ def load_sections(paper_id: str, *, text_sha: str | None = None) -> dict | None:
     return payload
 
 
+def save_structure(paper_id: str, payload: dict) -> Path:
+    """Save parser-derived structure (tables/figures) to papers/<dir>/structure.json.
+
+    Small, additive artifact written best-effort by the ingest pipeline when a
+    layout-aware parser (docling) recovers tables/figures. Not read back yet.
+    """
+    p = paper_dir(paper_id) / "structure.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_structure(paper_id: str) -> dict | None:
+    """Load papers/<dir>/structure.json. Returns None if missing or unparseable."""
+    p = paper_dir(paper_id) / "structure.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
 def save_alignment(paper_id: str, payload: dict) -> Path:
     """Save alignment JSON to papers/<dir>/alignment.json."""
     p = paper_dir(paper_id) / "alignment.json"

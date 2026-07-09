@@ -103,6 +103,49 @@ def _build_llm_callable(provider: str, model: str | None) -> Callable[[str], str
     return _llm
 
 
+def _persist_parser_sections(paper_id: str, parsed) -> list | None:
+    """Persist parser-provided (docling) sections via the store, matching the
+    sections.py payload shape so downstream ``build_and_save_sections`` treats
+    them as a cache hit (keyed on the text SHA) instead of rebuilding heuristically.
+
+    Returns the list of Section objects, or None when nothing usable was
+    persisted (caller then falls back to the heuristic sectioner).
+    """
+    import hashlib
+    from dataclasses import asdict
+
+    from research_companion import store
+    from research_companion.sections import Section
+
+    try:
+        secs = [Section(**s) for s in parsed.sections]
+    except (TypeError, ValueError):
+        return None
+    if not secs:
+        return None
+
+    text_sha = hashlib.sha256(parsed.text.encode()).hexdigest()
+    store.save_sections(paper_id, {
+        "version": 1,
+        "text_sha256": text_sha,
+        "method": "docling",
+        "sections": [asdict(s) for s in secs],
+    })
+    return secs
+
+
+def _persist_structure(paper_id: str, parsed) -> None:
+    """Best-effort persistence of parser-derived tables/figures. Never raises."""
+    try:
+        from research_companion import store
+        tables = getattr(parsed, "tables", None) or []
+        figures = getattr(parsed, "figures", None) or []
+        if tables or figures:
+            store.save_structure(paper_id, {"tables": tables, "figures": figures})
+    except Exception:
+        pass
+
+
 async def ingest_one(
     meta,
     path_str: str,
@@ -136,7 +179,7 @@ async def ingest_one(
     """
     from research_companion import graph as _graph
     from research_companion import store
-    from research_companion.extract import get_paper_text
+    from research_companion.extract import get_paper_parsed
     from research_companion.parsers import text_quality
     from research_companion.sections import group_extraction_by_section
 
@@ -146,16 +189,24 @@ async def ingest_one(
     # Stage 2: text + sections
     # -----------------------------------------------------------------------
     try:
-        _text = await asyncio.to_thread(get_paper_text, meta)
+        parsed = await asyncio.to_thread(get_paper_parsed, meta)
         # Honesty gate: empty/degenerate text (scanned/image-only PDF) must fail
         # here, never silently proceed to `done` with an empty text.txt.
-        if not text_quality(_text)["ok"]:
+        if not text_quality(parsed.text)["ok"]:
             store.record_failure(path_str, {"stage": "extract", "error": EMPTY_TEXT_ERROR,
                                             "paper_id": paper_id})
             await bus.publish(IngestFailed(path=path_str, stage="extract",
                                            error=EMPTY_TEXT_ERROR, paper_id=paper_id))
             return False
-        paper_sections = await asyncio.to_thread(sectioner, paper_id)
+        # Prefer parser-provided (docling) structural sections; fall back to the
+        # heuristic sectioner when the parser recovered none.
+        paper_sections = None
+        if parsed.sections:
+            paper_sections = await asyncio.to_thread(_persist_parser_sections, paper_id, parsed)
+        if paper_sections is None:
+            paper_sections = await asyncio.to_thread(sectioner, paper_id)
+        # Persist parser-derived tables/figures best-effort (never fatal).
+        await asyncio.to_thread(_persist_structure, paper_id, parsed)
         await bus.publish(SectionTreeBuilt(
             paper_id=paper_id,
             n_sections=len(paper_sections),

@@ -75,6 +75,30 @@ def get_paper_text(meta: PaperMetadata, *, force: bool = False) -> str:
     return text
 
 
+def get_paper_parsed(meta: PaperMetadata, *, force: bool = False):
+    """Parse the PDF via the pluggable parser, returning the full ParsedDoc and
+    caching its text.
+
+    When text is already cached (and not `force`), the parser is NOT re-run: a
+    text-only ParsedDoc is returned (structural fields empty) so the heuristic
+    sectioner handles structure downstream. This keeps an expensive layout-aware
+    conversion (docling) to at most once per paper while still surfacing its
+    sections/tables/figures on the fresh-parse path.
+    """
+    from research_companion.parsers import ParsedDoc, get_parser
+
+    if not force:
+        cached = load_text(meta.paper_id)
+        if cached is not None:
+            return ParsedDoc(text=cached)
+    pdf = pdf_path(meta.paper_id)
+    if pdf is None:
+        raise FileNotFoundError(f"no PDF on disk for {meta.paper_id}")
+    doc = get_parser().parse(pdf)
+    save_text(meta.paper_id, doc.text)
+    return doc
+
+
 # ---------------------------------------------------------------------------
 # LLM call
 # ---------------------------------------------------------------------------
