@@ -18,6 +18,7 @@ from research_companion.parsers.base import (
     Parser,
     text_quality,
 )
+from research_companion.parsers.docling_parser import ParserError
 from research_companion.parsers.pypdfium import PypdfiumParser
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "MIN_CHARS",
     "ParsedDoc",
     "Parser",
+    "ParserError",
     "PypdfiumParser",
     "get_parser",
     "text_quality",

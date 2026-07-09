@@ -20,6 +20,12 @@ def _restore_os_environ():
     makes env isolation hold for the whole suite regardless of who mutates it.
     """
     snapshot = dict(os.environ)
+    # Pin the parser to pypdfium for the whole suite: docling is auto-selected
+    # by get_parser() whenever the docling package happens to be importable, and
+    # routing real-PDF parsing through it costs 40+ seconds per call (plus model
+    # downloads on a clean machine). Tests that specifically exercise docling
+    # selection override this explicitly (see tests/test_parsers_docling.py).
+    os.environ["RESEARCH_COMPANION_PARSER"] = "pypdfium"
     yield
     for key in list(os.environ):
         if key not in snapshot:

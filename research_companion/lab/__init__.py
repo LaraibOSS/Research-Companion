@@ -180,7 +180,7 @@ async def ingest_one(
     from research_companion import graph as _graph
     from research_companion import store
     from research_companion.extract import get_paper_parsed
-    from research_companion.parsers import text_quality
+    from research_companion.parsers import ParserError, text_quality
     from research_companion.sections import group_extraction_by_section
 
     paper_id = meta.paper_id
@@ -211,6 +211,13 @@ async def ingest_one(
             paper_id=paper_id,
             n_sections=len(paper_sections),
         ))
+    except ParserError as exc:
+        # docling convert failure -> a text/parse extraction failure, not a
+        # sectioning failure; consistent with the empty-text gate above.
+        error_str = f"Failed to parse the PDF ({exc})"
+        store.record_failure(path_str, {"stage": "extract", "error": error_str, "paper_id": paper_id})
+        await bus.publish(IngestFailed(path=path_str, stage="extract", error=error_str, paper_id=paper_id))
+        return False
     except Exception as exc:
         error_str = str(exc)
         store.record_failure(path_str, {"stage": "sections", "error": error_str, "paper_id": paper_id})
