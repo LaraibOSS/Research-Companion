@@ -30,6 +30,14 @@ from research_companion.agents.events import (
 # Sentinel for "not provided" — distinguishes explicit None (skip) from unset (use default).
 _UNSET = object()
 
+# Shown when text extraction yields nothing usable (scanned/image-only PDF).
+# Making this an honest failure stops empty text from polluting the pipeline.
+EMPTY_TEXT_ERROR = (
+    "No extractable text — the PDF appears to be scanned/image-only. "
+    "Install the OCR engine (pip install research-companion[docling]) "
+    "or add the paper's metadata by hand."
+)
+
 # Module-level lock to serialize graph read/write operations across concurrent tasks.
 _GRAPH_LOCK = asyncio.Lock()
 
@@ -129,6 +137,7 @@ async def ingest_one(
     from research_companion import graph as _graph
     from research_companion import store
     from research_companion.extract import get_paper_text
+    from research_companion.parsers import text_quality
     from research_companion.sections import group_extraction_by_section
 
     paper_id = meta.paper_id
@@ -138,6 +147,14 @@ async def ingest_one(
     # -----------------------------------------------------------------------
     try:
         _text = await asyncio.to_thread(get_paper_text, meta)
+        # Honesty gate: empty/degenerate text (scanned/image-only PDF) must fail
+        # here, never silently proceed to `done` with an empty text.txt.
+        if not text_quality(_text)["ok"]:
+            store.record_failure(path_str, {"stage": "extract", "error": EMPTY_TEXT_ERROR,
+                                            "paper_id": paper_id})
+            await bus.publish(IngestFailed(path=path_str, stage="extract",
+                                           error=EMPTY_TEXT_ERROR, paper_id=paper_id))
+            return False
         paper_sections = await asyncio.to_thread(sectioner, paper_id)
         await bus.publish(SectionTreeBuilt(
             paper_id=paper_id,

@@ -67,9 +67,10 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
         if meta is None:
             continue
 
-        # Try to load text; skip paper silently if missing
+        # Try to load text; skip paper silently if missing OR blank (an
+        # empty-text paper — e.g. a scanned PDF — must never pollute the index).
         text = store.load_text(pid)
-        if text is None:
+        if not text:
             continue
 
         title = meta.title

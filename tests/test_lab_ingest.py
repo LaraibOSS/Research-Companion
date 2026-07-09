@@ -32,6 +32,16 @@ from research_companion.store import PaperMetadata
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
 
+# A realistic paper body (>200 chars, mostly letters) that passes the ingest
+# text-quality gate. Tiny stubs would now be rejected as scanned/empty.
+_GOOD_TEXT = (
+    "Introduction. This paper studies graph based retrieval augmented generation. "
+    "Methods. We build a knowledge graph over the corpus and rank sections with BM25. "
+    "Results. The approach improves multi hop question answering over strong baselines. "
+    "Conclusion. Structured retrieval yields more grounded and verifiable answers."
+)
+
+
 def _make_pdf(tmp_path: Path, name: str) -> Path:
     """Write a minimal valid PDF file and return its path."""
     pdf = tmp_path / name
@@ -94,7 +104,7 @@ def _make_fakes(paper_ids: list[str], extraction: dict | None = None):
         meta = _make_meta(pid, title=f"Paper {idx+1}")
         meta.save()
         # Save stub text so get_paper_text() works without a real PDF
-        _store.save_text(pid, f"This is the text of {pid}. Introduction Methods Results.")
+        _store.save_text(pid, f"{_GOOD_TEXT} Paper {pid}.")
         return meta
 
     def fake_sectioner(paper_id, **kwargs):
@@ -276,7 +286,7 @@ class TestExtractFailure:
             pid = f"local:{'aaa' if idx == 0 else 'bbb'}"
             meta = _make_meta(pid)
             meta.save()
-            store.save_text(pid, f"text for {pid}")
+            store.save_text(pid, f"{_GOOD_TEXT} Paper {pid}.")
             return meta
 
         def bad_extractor(meta, *, provider="anthropic", model=None, force=False):
@@ -333,7 +343,7 @@ class TestExtractFailure:
             pid = f"local:{'fail' if idx == 0 else 'good'}"
             meta = _make_meta(pid)
             meta.save()
-            store.save_text(pid, f"text for {pid}")
+            store.save_text(pid, f"{_GOOD_TEXT} Paper {pid}.")
             return meta
 
         def extractor(meta, *, provider="anthropic", model=None, force=False):
@@ -390,6 +400,83 @@ class TestExtractFailure:
         assert len(result.added) == 1
         # Failure should be cleared
         assert path_str not in store.list_failures()
+
+
+# ---------------------------------------------------------------------------
+# Empty / degenerate text quality gate (scanned-PDF honesty fix)
+# ---------------------------------------------------------------------------
+
+class TestEmptyTextGate:
+    def test_empty_text_fails_with_scanned_reason(self, tmp_path, isolated_papergraph_dir):
+        """A PDF whose extracted text is empty -> paper FAILS (not done), with the
+        scanned-PDF reason recorded, and extract is never reached."""
+        from research_companion import store
+        from research_companion.lab import EMPTY_TEXT_ERROR
+
+        _make_pdf(tmp_path, "scanned.pdf")
+
+        def add_pdf(path):
+            meta = _make_meta("local:scanned")
+            meta.save()
+            store.save_text("local:scanned", "")  # empty extraction (scanned/image)
+            return meta
+
+        extract_calls = []
+
+        def extractor(meta, *, provider="anthropic", model=None, force=False):
+            extract_calls.append(meta.paper_id)
+            return ({"concepts": [], "methods": [], "datasets": [], "claims": [],
+                     "results": [], "related_work": []}, {"cached": False})
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add_pdf,
+                extractor=extractor,
+                sectioner=lambda pid, **kw: [_fake_section()],
+                aligner=None,
+                strengther=None,
+            )
+        )
+
+        # Failed, not added; extractor never called (gate is before extract).
+        assert len(result.failed) == 1
+        assert len(result.added) == 0
+        assert extract_calls == []
+
+        # IngestFailed published at the extract stage with the scanned reason.
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(failed_events) == 1
+        assert failed_events[0].stage == "extract"
+        assert "scanned" in failed_events[0].error.lower()
+        assert failed_events[0].error == EMPTY_TEXT_ERROR
+
+        # Failure recorded (keyed by path, so re-runs can clear it).
+        path_str = str(sorted(tmp_path.glob("*.pdf"))[0])
+        assert path_str in store.list_failures()
+
+    def test_good_text_still_succeeds(self, tmp_path, isolated_papergraph_dir):
+        """A healthy text PDF still ingests successfully (gate does not over-fire)."""
+        _make_pdf(tmp_path, "good.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:good"])
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+            )
+        )
+
+        assert len(result.added) == 1
+        assert len(result.failed) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1344,7 +1431,7 @@ def _fixture_fakes():
         meta = _make_meta(pid, title=f"Fixture Paper {idx+1}")
         meta.save()
         # Save stub text so get_paper_text() works without a real PDF
-        _store.save_text(pid, f"Introduction Methods Results Conclusion for paper {pid}.")
+        _store.save_text(pid, f"{_GOOD_TEXT} Paper {pid}.")
         return meta
 
     def sectioner(paper_id, **kwargs):

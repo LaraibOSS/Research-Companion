@@ -850,7 +850,7 @@ def _make_pipeline_spying_fakes(store_paper: bool = True):
 
     if store_paper:
         fake_meta.save()
-        _store.save_text(paper_id, "This is the text. Introduction Methods Results.")
+        _store.save_text(paper_id, "This is the text. Introduction Methods Results. " * 6)
 
     counts: dict[str, int] = {
         "extractor": 0,
@@ -1073,7 +1073,7 @@ class TestRetryPaper:
             added_at="2024-01-01T00:00:00Z",
         )
         real_meta.save()
-        _store.save_text(paper_id_val, "Introduction Methods Results.")
+        _store.save_text(paper_id_val, "Introduction Methods Results. " * 10)
 
         def fake_add_local_pdf(path):
             return real_meta
@@ -2836,7 +2836,7 @@ class TestUploadPaper:
         app.state.pipeline_overrides = seam_overrides
         # Pre-seed text for the sha-derived id so get_paper_text succeeds
         expected_id = _store.make_local_id(_UPLOAD_PDF)
-        _store.save_text(expected_id, "Uploaded text. Introduction Methods Results.")
+        _store.save_text(expected_id, "Uploaded text. Introduction Methods Results. " * 6)
 
         with TestClient(app) as c:
             resp = self._post(c, filename="pipeline.pdf")

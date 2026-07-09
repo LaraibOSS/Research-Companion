@@ -1,7 +1,7 @@
 """LLM-driven structured extraction from a paper PDF.
 
 Pipeline per paper:
-    PDF -> pypdf text -> truncated text -> Anthropic/OpenAI with EXTRACTION_PROMPT
+    PDF -> parser text -> truncated text -> Anthropic/OpenAI with EXTRACTION_PROMPT
                                        -> JSON dict
                                        -> validated + cached on disk
 
@@ -18,8 +18,6 @@ import os
 import re
 from pathlib import Path
 from typing import Any
-
-import pypdf
 
 from research_companion.prompts import extraction_prompt_sha256, render_extraction_prompt
 from research_companion.store import (
@@ -54,19 +52,13 @@ def resolve_model(provider: str, model: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 def pdf_to_text(pdf_file: Path) -> str:
-    """Extract plain text from a PDF using pypdf. No OCR (out of scope for v0.1)."""
-    reader = pypdf.PdfReader(str(pdf_file))
-    parts: list[str] = []
-    for page in reader.pages:
-        try:
-            parts.append(page.extract_text() or "")
-        except Exception:
-            continue
-    text = "\n\n".join(p for p in parts if p.strip())
-    # Collapse whitespace to keep token cost manageable.
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    """Extract plain text from a PDF via the configured parser (pypdfium2 default).
+
+    Kept for back-compat; delegates to the pluggable parser layer. No OCR on the
+    default path — a scanned PDF yields "", which the ingest quality gate rejects.
+    """
+    from research_companion.parsers import get_parser
+    return get_parser().parse(pdf_file).text
 
 
 def get_paper_text(meta: PaperMetadata, *, force: bool = False) -> str:

@@ -95,6 +95,15 @@ class TestBuildSectionIndex:
         units = build_section_index(["arxiv:9999"])
         assert units == []
 
+    def test_paper_with_empty_text_excluded(self):
+        """A paper whose text.txt is blank (e.g. a scanned PDF) must not pollute
+        the index — it is excluded just like a missing text.txt."""
+        from research_companion.qa import build_section_index
+        _make_paper("arxiv:9998", "EmptyText", "")  # empty text.txt on disk
+        assert store.load_text("arxiv:9998") == ""  # present but blank
+        units = build_section_index(["arxiv:9998"])
+        assert units == []
+
     def test_tokens_include_section_title_words(self):
         from research_companion.qa import build_section_index
         _make_paper("arxiv:0004", "Paper Four", "Neural network text here.", sections=[
