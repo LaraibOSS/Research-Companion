@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.14 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.15 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -108,9 +108,16 @@ Click **"+ Add papers"** (top right). Three tabs:
   ("Already in your library").
 - **arXiv / URL / path** — type an arXiv ID (`2312.12345`), a DOI, a URL, or
   an absolute path to a PDF on disk.
-- **Ingest folder** — a directory path; every PDF inside is discovered and
-  processed. You can watch the pipeline live: sections parsed, entities
-  extracted, graph nodes blooming, per-file progress in the dock.
+- **Ingest folder** — a directory path; every PDF inside (including
+  subfolders) is discovered and processed. The tab **scans the folder first**:
+  before anything is ingested you see every PDF listed with a **New** or
+  **Already in library** chip and a summary line (e.g. *"12 PDFs — 9 new, 3
+  already in your library"*), then start the run from an **"Ingest N new"**
+  button. During the run the progress dock (bottom-right) shows the full
+  file list live — each file moves **Queued → Reading… → Added ✓ / Failed ✗
+  / Skipped** — so you can watch exactly where the pipeline is and which files
+  were already in your library. The list scrolls for large folders, and when
+  the run finishes the dock summarizes *"X added, Y skipped, Z failed."*
 
 Files that cannot be parsed (scanned/corrupt PDFs) become red failure cards
 with the exact reason and a one-click **Retry** — no silent failures.

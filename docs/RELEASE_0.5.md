@@ -361,3 +361,29 @@ You could already trust *that* a paper was ingested; now you can see *how*.
 
 **Upgrade notes:** none — additive metadata fields with safe defaults; papers
 ingested before 0.5.14 simply show no parse badge until re-ingested.
+
+## 0.5.15 — folder ingest, file by file
+
+Adding a folder used to be a leap of faith: you typed a path, got a "Found N
+PDFs" toast, and the dialog closed. During the run the dock showed only files
+that had already succeeded or failed — and files already in your library were
+skipped **silently**. Now every file is visible, before and during ingest.
+
+- **Scan before you commit.** The "Ingest folder" tab now scans the folder first
+  and lists every PDF with a **New** or **Already in library** chip, plus a
+  summary ("12 PDFs — 9 new, 3 already in your library"). You start the ingest
+  from an informed **"Ingest N new"** button.
+- **A live per-file list in the dock.** During the run the progress dock shows
+  the full file manifest, each row moving Queued → Reading… → Added ✓ / Failed ✗
+  (with Retry) / Skipped. The list scrolls for large folders; the completion
+  summary reads "X added, Y skipped, Z failed."
+- **No more silent skips.** Already-in-library files emit an explicit skip signal
+  (a new `IngestSkipped` event) and show as **Skipped** rather than sitting on
+  "Queued" forever.
+- Under the hood: a preview endpoint (`POST /api/ingest/scan`, content-hash
+  dedup), a per-file `path` on `PaperAdded`, and a client-side ingest manifest
+  reconciled live by absolute path.
+
+**Upgrade notes:** none — additive endpoint + events; no store or settings
+migration. Ingests started outside the Lab UI (CLI, another tab) fall back to
+the previous added/failed-only dock view.
