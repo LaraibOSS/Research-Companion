@@ -211,3 +211,48 @@ Also in this release: a test-isolation leak was fixed — the suite now restores
 into another.
 
 **Upgrade notes:** none — purely additive; no store or settings migration.
+
+## 0.5.9 — robust ingestion
+
+Ingestion used a single hard-wired PDF reader (pypdf), had no OCR, and — worst
+of all — a scanned PDF that yielded no text still "succeeded", entering your
+library as an empty-text paper that quietly polluted retrieval. 0.5.9 rebuilds
+the front of the pipeline around a pluggable parser layer and makes an
+unreadable PDF fail honestly.
+
+- **Pluggable parser layer** (`research_companion/parsers/`). The pipeline no
+  longer hard-codes a PDF reader; it asks `get_parser()` for one. The default
+  is **pypdfium2** (permissive licence, better layout fidelity than the old
+  pypdf). Set `RESEARCH_COMPANION_PARSER=pypdfium|docling` to choose explicitly.
+- **Optional Docling engine** — `pip install research-companion[docling]`. When
+  the `docling` package is importable it is auto-selected, giving **layout-aware
+  reading order** (fixes multi-column papers), **real document sections**,
+  captured **tables and figures**, and **OCR for scanned/image PDFs**. Docling
+  and its torch stack are imported lazily, so installing the extra never slows
+  the digital-PDF path and not installing it costs nothing.
+- **Honest empty-text quality gate.** Extracted text now passes a cheap quality
+  check (length + alphabetic ratio). A scanned/unreadable PDF is marked
+  **failed** with a clear message — *"No extractable text — the PDF appears to
+  be scanned/image-only. Install the OCR engine (pip install
+  research-companion[docling]) or add the paper's metadata by hand."* — instead
+  of silently succeeding with empty text. **Retrieval no longer indexes
+  empty-text papers.**
+- **OCR fallback for scanned PDFs.** When the normal parse fails the gate and
+  Docling is installed, the pipeline retries once with **forced full-page OCR**
+  (a separate, slower converter used only on this fallback path). Verified live:
+  a real scanned paper that extracted 0 characters recovered 35,411 characters
+  and 17 sections through this path. If OCR still recovers nothing (corrupt or
+  genuinely text-free PDF), the paper fails with an honest message rather than a
+  false success.
+- **Docling sections win downstream.** When Docling returns real sections they
+  are persisted and used in place of the heuristic sectioner (the heuristic
+  remains the fallback). Tables and figures are captured to `structure.json`
+  (not yet surfaced in the UI — a future phase).
+
+A full audit and the architecture decision behind keeping the design
+local-first are written up in
+`docs/superpowers/specs/2026-07-09-ingestion-architecture.md`.
+
+**Upgrade notes:** none — purely additive; no store or settings migration. The
+`[docling]` extra is optional; without it ingestion behaves as before except
+that scanned PDFs now fail honestly instead of entering empty.

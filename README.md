@@ -45,6 +45,8 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 
 Citation coverage: the papers your draft **cites** are now first-class. The Lab parses your draft's bibliography, shows which cited papers are in your library and which are missing, downloads missing ones in one click ("Add all"), and displays a persistent disclaimer whenever the analysis is running on partial coverage — *"Analysis covers N of M cited papers"* — so incomplete context is never silent. See the [Release Notes](docs/RELEASE_0.5.md).
 
+**0.5.9** — robust ingestion: a pluggable PDF parser layer replaces the single hard-wired reader. The default is now **pypdfium2** (permissive, better layout than pypdf); installing the optional **Docling** engine adds layout-aware reading order, real sections, tables/figures, and **OCR for scanned/image PDFs**. A scanned PDF that yields no text now **fails honestly** with a clear message ("No extractable text — scanned/image PDF; install `research-companion[docling]` for OCR or add metadata by hand") instead of silently entering your library empty — and retrieval no longer indexes empty-text papers. See the [Release Notes](docs/RELEASE_0.5.md).
+
 **0.5.8** — one-click citation linking: tell the app *"this cited reference is that paper I already have"* in one move — from a not-in-library row in the **Citations panel** (a **Link…** dropdown of your library papers, ones needing metadata listed first) or from a library paper's drawer (**"This is a cited reference…"**). Linking marks the citation **In library** durably (it survives coverage recomputes and reverts only if you delete the paper) and backfills the paper's **year** from the citation so it appears on the **timeline** — with a disclaimer that the titles/years shown come from your draft's citations, not the papers themselves. New endpoint `POST /api/draft/citations/link`.
 
 **0.5.7** — real paper metadata: each paper's **title, authors, and year** are now read from its text automatically (uploaded PDFs used to have only a filename), existing papers are backfilled once on open, and the **timeline** and **citation matching** (first-author surname + year) use them — so "Add N missing" stops nagging about papers you already have. Papers with no extractable metadata get a **"Needs metadata"** indicator, a count banner, and an **Edit metadata** form in the paper drawer to set title/authors/year by hand.
@@ -93,6 +95,19 @@ export ANTHROPIC_API_KEY=sk-ant-...   # default
 # or
 export OPENAI_API_KEY=sk-...          # use --provider openai
 ```
+
+### Better PDF ingestion (optional)
+
+```bash
+pip install research-companion[docling]   # OCR + layout-aware parsing
+```
+
+The core install parses digital PDFs with pypdfium2. Installing the optional
+**Docling** engine adds **OCR** for scanned/image PDFs plus layout-aware reading
+order, real sections, and table/figure capture for complex or multi-column
+papers. It is auto-detected and used when present (override with
+`RESEARCH_COMPANION_PARSER=pypdfium|docling`). Without it, scanned PDFs fail
+with a clear message telling you to install the extra or add metadata by hand.
 
 ## Quickstart
 

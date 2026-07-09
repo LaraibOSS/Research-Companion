@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.8 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.9 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -114,6 +114,36 @@ Click **"+ Add papers"** (top right). Three tabs:
 
 Files that cannot be parsed (scanned/corrupt PDFs) become red failure cards
 with the exact reason and a one-click **Retry** — no silent failures.
+
+### What parses automatically, and what needs OCR
+
+Every PDF goes through a pluggable parser layer. **Digital PDFs** (a real text
+layer — most papers you download) parse automatically: the text is extracted,
+split into sections, and analysed with no setup. By default this uses
+**pypdfium2**, which handles single- and most multi-column layouts well.
+
+**Scanned or image-only PDFs** have no text layer — there is nothing to read —
+so out of the box they cannot be parsed. Rather than entering your library
+empty and quietly breaking search, such a PDF now **fails honestly** with the
+message *"No extractable text — the PDF appears to be scanned/image-only.
+Install the OCR engine (pip install research-companion[docling]) or add the
+paper's metadata by hand."* You have two ways to fix it:
+
+- **Install the OCR engine.** `pip install research-companion[docling]` adds the
+  optional **Docling** parser. It is detected and used automatically, and it
+  brings three things: **OCR** (so scanned PDFs become readable text),
+  **layout-aware reading order** (better on complex, multi-column, or
+  figure-heavy papers), and **real document structure** (sections, tables, and
+  figure captions read from the document itself rather than guessed). With it
+  installed, retry the failed paper and it will ingest. OCR is slower than
+  normal parsing — expect a scanned paper to take noticeably longer — because it
+  runs full-page recognition over every page.
+- **Add metadata by hand.** If you don't want to install the OCR engine, you can
+  still keep the paper: set its **title, authors, and year** with **Edit
+  metadata** (section 6) so it appears on the timeline and in citation matching,
+  and use **View original PDF** in the reader (section 11) to read the scanned
+  source directly. The paper simply won't contribute its text to search or
+  alignment until it has extractable text.
 
 ## 6. The Library
 
@@ -447,8 +477,12 @@ research-companion lab serve|ingest|failures        # the web Lab
 ## 22. Troubleshooting & FAQ
 
 - **A PDF failed to ingest** — usually scanned (no text layer) or corrupt.
-  The failure card shows the exact reason; Retry after fixing the file. OCR
-  is not yet supported.
+  The failure card shows the exact reason. If it says the PDF is
+  scanned/image-only, install the OCR engine with
+  `pip install research-companion[docling]` and Retry, or add the paper's
+  metadata by hand and read the original PDF (see "What parses automatically,
+  and what needs OCR" in section 5). Corrupt files: fix or re-download, then
+  Retry.
 - **"Bibliography could not be parsed" (amber note)** — two-column PDF text
   sometimes defeats the splitter; coverage falls back to the related-work
   extraction, clearly labeled. Hover rows to see raw strings.
