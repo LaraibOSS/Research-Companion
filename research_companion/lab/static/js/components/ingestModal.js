@@ -5,7 +5,10 @@
  *   UPLOAD: drag-and-drop / file-picker PDF -> POST /api/papers/upload
  *           (optional "This is my draft" -> set_draft=true)   [default tab]
  *   SINGLE: arXiv ID / URL / PDF path -> POST /api/papers -> toast + close
- *   FOLDER: path input + "Start ingest" -> POST /api/ingest -> show result 2s, close
+ *   FOLDER: scan -> review -> ingest, two steps within the tab:
+ *     1. Scan step  — path input + "Scan folder" -> POST /api/ingest/scan
+ *     2. Review step — summary + per-file list (new vs already-in-library) ->
+ *        "Ingest N new" -> POST /api/ingest -> store.startIngestManifest(...) -> close
  *
  * API:
  *   openModal(tab, opts)  — open (or re-open) the modal; opts.draft pre-checks
@@ -16,12 +19,21 @@
 import * as api from '../api.js';
 import * as store from '../store.js';
 import { showToast } from './toast.js';
-import { classifyIngestError, validateUploadFile } from './ingestHelpers.js';
+import { escapeHtml } from '../format.js';
+import { classifyIngestError, validateUploadFile, scanSummary, scanRows } from './ingestHelpers.js';
 
 let _overlay = null;
 let _modal = null;
 let _autoCloseTimer = null;
 let _lastOpts = {};
+
+// Folder tab's local scan/review state. Reset whenever the dialog is
+// (re)opened or the tab changes, so a stale file list never shows.
+let _folderState = { step: 'scan', folder: '', scanResult: null };
+
+function _resetFolderState() {
+  _folderState = { step: 'scan', folder: '', scanResult: null };
+}
 
 // ---------------------------------------------------------------------------
 // DOM creation (lazy, once)
@@ -72,6 +84,7 @@ function _renderModal(activeTab = 'upload', opts = {}) {
   _modal.querySelector('.ingest-tabs').addEventListener('click', (e) => {
     const tab = e.target.closest('[data-tab]');
     if (!tab) return;
+    if (tab.dataset.tab !== 'folder') _resetFolderState();
     _renderModal(tab.dataset.tab, _lastOpts);
     // Focus first input
     setTimeout(() => {
@@ -215,59 +228,134 @@ function _renderModal(activeTab = 'upload', opts = {}) {
     // Auto-focus
     setTimeout(() => inp.focus(), 0);
 
+  } else if (_folderState.step === 'review') {
+    _renderFolderReviewStep(body);
   } else {
-    // Folder tab
-    body.innerHTML = `
-      <div class="ingest-form">
-        <label class="ingest-label" for="ingest-folder-input">Folder path</label>
-        <input id="ingest-folder-input" class="add-input" type="text"
-               placeholder="/path/to/folder" autocomplete="off">
-        <div class="ingest-error-line" id="ingest-folder-error" style="display:none"></div>
-        <div class="ingest-info-line" id="ingest-folder-info" style="display:none"></div>
-        <div class="ingest-form-actions">
-          <button class="btn btn-accent" id="ingest-folder-start-btn">Start ingest</button>
-        </div>
+    _renderFolderScanStep(body);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Folder tab — scan step
+// ---------------------------------------------------------------------------
+
+function _renderFolderScanStep(body) {
+  body.innerHTML = `
+    <div class="ingest-form">
+      <label class="ingest-label" for="ingest-folder-input">Folder path</label>
+      <input id="ingest-folder-input" class="add-input" type="text"
+             placeholder="/path/to/folder" autocomplete="off" value="${escapeHtml(_folderState.folder)}">
+      <div class="ingest-error-line" id="ingest-folder-error" style="display:none"></div>
+      <div class="ingest-form-actions">
+        <button class="btn btn-accent" id="ingest-folder-scan-btn">Scan folder</button>
       </div>
-    `;
+    </div>
+  `;
 
-    const inp   = body.querySelector('#ingest-folder-input');
-    const errLine  = body.querySelector('#ingest-folder-error');
-    const infoLine = body.querySelector('#ingest-folder-info');
+  const inp     = body.querySelector('#ingest-folder-input');
+  const errLine = body.querySelector('#ingest-folder-error');
+  const scanBtn = body.querySelector('#ingest-folder-scan-btn');
 
-    async function _doFolderIngest() {
-      const folder = (inp.value || '').trim();
-      if (!folder) return;
-      errLine.style.display = 'none';
-      infoLine.style.display = 'none';
+  function _showError(msg) {
+    errLine.textContent = msg;
+    errLine.style.display = '';
+  }
 
-      const startBtn = body.querySelector('#ingest-folder-start-btn');
-      startBtn.disabled = true;
-
-      try {
-        const res = await api.ingest(folder);
-        // Show info for 2s then close
-        infoLine.textContent = `Found ${res.discovered} PDFs — ingest started`;
-        infoLine.style.display = '';
-        _autoCloseTimer = setTimeout(() => closeModal(), 2000);
-      } catch (err) {
-        startBtn.disabled = false;
-        const kind = classifyIngestError(err);
-        if (kind === 'conflict') {
-          showToast('An ingest is already running', 'error');
-          closeModal();
-        } else {
-          errLine.textContent = err.message;
-          errLine.style.display = '';
-        }
-      }
+  async function _doScan() {
+    const folder = (inp.value || '').trim();
+    errLine.style.display = 'none';
+    if (!folder) {
+      _showError('Enter a folder path');
+      return;
     }
 
-    body.querySelector('#ingest-folder-start-btn').addEventListener('click', _doFolderIngest);
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') _doFolderIngest(); });
+    scanBtn.disabled = true;
+    scanBtn.textContent = 'Scanning…';
 
-    // Auto-focus
-    setTimeout(() => inp.focus(), 0);
+    try {
+      const res = await api.scanFolder(folder);
+      _folderState = { step: 'review', folder, scanResult: res };
+      _renderModal('folder', _lastOpts);
+    } catch (err) {
+      scanBtn.disabled = false;
+      scanBtn.textContent = 'Scan folder';
+      _showError(err.message);
+    }
   }
+
+  scanBtn.addEventListener('click', _doScan);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') _doScan(); });
+
+  // Auto-focus
+  setTimeout(() => inp.focus(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Folder tab — review step
+// ---------------------------------------------------------------------------
+
+function _renderFolderReviewStep(body) {
+  const scanResult = _folderState.scanResult || { discovered: 0, already: 0, files: [] };
+  const summary = scanSummary(scanResult.files);
+  const rows = scanRows(scanResult.files);
+
+  const summaryLine = `${summary.total} PDF${summary.total !== 1 ? 's' : ''} — `
+    + `${summary.newCount} new, ${summary.alreadyCount} already in your library`;
+
+  const rowsHtml = rows.map(row => `
+    <div class="ingest-scan-row">
+      <span class="ingest-scan-relpath" title="${escapeHtml(row.relPath)}">${escapeHtml(row.relPath)}</span>
+      ${row.already
+        ? '<span class="badge badge-muted">Already in library</span>'
+        : '<span class="badge badge-ok">New</span>'}
+    </div>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="ingest-form">
+      <div class="ingest-scan-summary">${escapeHtml(summaryLine)}</div>
+      <div class="ingest-scan-list">${rowsHtml || '<div class="muted">No PDFs found.</div>'}</div>
+      <div class="ingest-error-line" id="ingest-folder-review-error" style="display:none"></div>
+      ${summary.newCount === 0
+        ? '<div class="ingest-hint-line">All files are already in your library</div>'
+        : ''}
+      <div class="ingest-form-actions">
+        <button class="btn" id="ingest-folder-back-btn">Back</button>
+        <button class="btn btn-accent" id="ingest-folder-confirm-btn"${summary.newCount === 0 ? ' disabled' : ''}>
+          Ingest ${summary.newCount} new
+        </button>
+      </div>
+    </div>
+  `;
+
+  const errLine    = body.querySelector('#ingest-folder-review-error');
+  const backBtn    = body.querySelector('#ingest-folder-back-btn');
+  const confirmBtn = body.querySelector('#ingest-folder-confirm-btn');
+
+  backBtn.addEventListener('click', () => {
+    _folderState = { ..._folderState, step: 'scan' };
+    _renderModal('folder', _lastOpts);
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    errLine.style.display = 'none';
+    confirmBtn.disabled = true;
+    try {
+      await api.ingest(_folderState.folder);
+      store.startIngestManifest(scanResult.files);
+      closeModal();
+    } catch (err) {
+      confirmBtn.disabled = false;
+      const kind = classifyIngestError(err);
+      if (kind === 'conflict') {
+        showToast('An ingest is already running', 'error');
+        closeModal();
+      } else {
+        errLine.textContent = err.message;
+        errLine.style.display = '';
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +372,7 @@ export function openModal(tab = 'upload', opts = {}) {
     clearTimeout(_autoCloseTimer);
     _autoCloseTimer = null;
   }
+  _resetFolderState();
   _lastOpts = opts || {};
   _ensureDOM();
   _renderModal(tab, _lastOpts);
@@ -299,6 +388,7 @@ export function closeModal() {
     clearTimeout(_autoCloseTimer);
     _autoCloseTimer = null;
   }
+  _resetFolderState();
   if (!_overlay) return;
   _overlay.classList.remove('open');
   document.body.style.overflow = '';

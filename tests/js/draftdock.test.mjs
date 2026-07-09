@@ -33,6 +33,7 @@ function makeState() {
     failures:  {},
     graphSeq:  0,
     ingestLog: [],
+    ingestManifest: [],
   };
 }
 
@@ -383,4 +384,100 @@ test('dockModel: mixed ingest (total>0) + background jobs -> visible and backgro
   assert.equal(model.visible, true);
   assert.equal(model.background.length, 1);
   assert.equal(model.background[0].kind, 'gaps');
+});
+
+// ===========================================================================
+// Folder-ingest manifest driven dock (Task 3)
+// ===========================================================================
+
+function makeManifestRow(overrides) {
+  return {
+    path: '/lib/a.pdf',
+    name: 'a.pdf',
+    relPath: 'a.pdf',
+    status: 'queued',
+    reason: '',
+    ...overrides,
+  };
+}
+
+test('dockModel: non-empty ingestManifest drives items (queued/processing/done/failed/skipped)', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'running', done: 2, total: 5, current: 'c.pdf' });
+  state.ingestManifest = [
+    makeManifestRow({ path: '/lib/a.pdf', relPath: 'a.pdf', status: 'queued' }),
+    makeManifestRow({ path: '/lib/b.pdf', relPath: 'b.pdf', status: 'processing' }),
+    makeManifestRow({ path: '/lib/c.pdf', relPath: 'c.pdf', status: 'done' }),
+    makeManifestRow({ path: '/lib/d.pdf', relPath: 'd.pdf', status: 'failed' }),
+    makeManifestRow({ path: '/lib/e.pdf', relPath: 'e.pdf', status: 'skipped' }),
+  ];
+  const model = dockModel(state);
+  assert.equal(model.items.length, 5);
+  assert.deepEqual(model.items.map(i => i.status), ['queued', 'processing', 'done', 'failed', 'skipped']);
+  assert.deepEqual(model.items.map(i => i.label), ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf', 'e.pdf']);
+  // Ingest log is ignored while a manifest is present.
+  state.ingestLog = [{ ok: true, label: 'should-not-appear.pdf', paperId: null, seq: 0 }];
+  const model2 = dockModel(state);
+  assert.equal(model2.items.length, 5);
+});
+
+test('dockModel: empty ingestManifest falls back to ingestLog-driven items', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'running', done: 1, total: 2, current: '' });
+  state.ingestManifest = [];
+  state.ingestLog = [{ ok: true, label: 'p1.pdf', paperId: 'local:p1', seq: 0 }];
+  const model = dockModel(state);
+  assert.equal(model.items.length, 1);
+  assert.equal(model.items[0].label, 'p1.pdf');
+  assert.equal(model.items[0].ok, true);
+});
+
+test('dockModel: manifest failed row is retryable when state.failures has a paper_id for its path', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'running', done: 1, total: 2, current: '' });
+  state.failures['/lib/bad.pdf'] = { path: '/lib/bad.pdf', stage: 'extract', error: 'boom', paper_id: 'local:bad' };
+  state.ingestManifest = [
+    makeManifestRow({ path: '/lib/bad.pdf', relPath: 'bad.pdf', status: 'failed' }),
+  ];
+  const model = dockModel(state);
+  assert.equal(model.items[0].retryable, true);
+  assert.equal(model.items[0].paperId, 'local:bad');
+});
+
+test('dockModel: manifest failed row without a derivable paperId is not retryable', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'running', done: 1, total: 2, current: '' });
+  state.ingestManifest = [
+    makeManifestRow({ path: '/lib/bad.pdf', relPath: 'bad.pdf', status: 'failed' }),
+  ];
+  const model = dockModel(state);
+  assert.equal(model.items[0].retryable, false);
+  assert.equal(model.items[0].paperId, null);
+});
+
+test('dockModel: job done with manifest -> "X added, Y skipped, Z failed" summary', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'done', done: 5, total: 5, current: '' });
+  state.ingestManifest = [
+    makeManifestRow({ path: '/lib/a.pdf', status: 'done' }),
+    makeManifestRow({ path: '/lib/b.pdf', status: 'done' }),
+    makeManifestRow({ path: '/lib/c.pdf', status: 'skipped' }),
+    makeManifestRow({ path: '/lib/d.pdf', status: 'failed' }),
+    makeManifestRow({ path: '/lib/e.pdf', status: 'failed' }),
+  ];
+  const model = dockModel(state);
+  assert.equal(model.collapsed, true);
+  assert.equal(model.summary, 'Ingest complete — 2 added, 1 skipped, 2 failed');
+});
+
+test('dockModel: job done with empty manifest falls back to "N papers" summary', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'done', done: 2, total: 2, current: '' });
+  state.ingestManifest = [];
+  state.ingestLog = [
+    { ok: true, label: 'p1.pdf', paperId: 'local:p1', seq: 0 },
+    { ok: true, label: 'p2.pdf', paperId: 'local:p2', seq: 1 },
+  ];
+  const model = dockModel(state);
+  assert.ok(model.summary.includes('2 papers'), `expected "2 papers" in "${model.summary}"`);
 });

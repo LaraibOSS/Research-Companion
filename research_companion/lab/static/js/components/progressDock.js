@@ -6,12 +6,17 @@
  *
  * Pure logic (node-testable):
  *   dockModel(state) -> { visible, collapsed, bar:{done,total}, current,
- *                          items:[{ok,label,retryable,paperId}], summary }
+ *                          items:[{status,ok,label,retryable,paperId}], summary }
+ *   items are driven by state.ingestManifest (per-file folder-ingest status:
+ *   queued/processing/done/failed/skipped) when it is non-empty; otherwise they
+ *   fall back to the flat state.ingestLog (single-add / ingest started outside
+ *   this UI). Each item's status chip is rendered via manifestItemView().
  *
  * DOM renderer: mountDock(el, store, api)
  */
 
 import { escapeHtml } from '../format.js';
+import { manifestItemView } from './ingestHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Pure model (exported for node --test)
@@ -20,17 +25,19 @@ import { escapeHtml } from '../format.js';
 /**
  * Derive the dock view-model from reducer state.
  *
- * @param {object} state  — { jobs: Map, ingestLog?: Array, activeJobs?: Map }
+ * @param {object} state  — { jobs: Map, ingestLog?: Array, ingestManifest?: Array, activeJobs?: Map, failures?: object }
  * @returns {{ visible: boolean, collapsed: boolean,
  *             bar: {done:number, total:number},
  *             current: string,
- *             items: Array<{ok:boolean, label:string, retryable:boolean, paperId:string|null}>,
+ *             items: Array<{status:string, ok:boolean|null, label:string, retryable:boolean, paperId:string|null}>,
  *             summary: string|null,
  *             background: Array<{kind:string, label:string}> }}
  */
 export function dockModel(state) {
   const job = state.jobs && state.jobs.get('ingest');
-  const log  = state.ingestLog || [];
+  const log = state.ingestLog || [];
+  const manifest = Array.isArray(state.ingestManifest) ? state.ingestManifest : [];
+  const usingManifest = manifest.length > 0;
 
   // Build background task lines from activeJobs, excluding ingest (avoid double-display)
   const background = [];
@@ -58,23 +65,47 @@ export function dockModel(state) {
   const done  = job.done  ?? 0;
   const total = job.total ?? 0;
 
-  // Build items from ingestLog
-  const items = log.map(entry => ({
-    ok:        entry.ok,
-    label:     entry.label || entry.path || '',
-    retryable: entry.ok ? false : !!entry.paperId,
-    paperId:   entry.paperId || null,
-  }));
+  // Build items from the per-file manifest when present (folder-ingest scan/review
+  // flow); fall back to the flat ingestLog (single-add / ingest started outside this UI).
+  const items = usingManifest
+    ? manifest.map(row => {
+        const status = row.status || 'queued';
+        const failure = status === 'failed' && state.failures ? state.failures[row.path] : null;
+        const paperId = (failure && failure.paper_id) || null;
+        return {
+          status,
+          ok:        status === 'done' ? true : (status === 'failed' ? false : null),
+          label:     row.relPath || row.name || row.path || '',
+          retryable: status === 'failed' && !!paperId,
+          paperId,
+        };
+      })
+    : log.map(entry => ({
+        status:    entry.ok ? 'done' : 'failed',
+        ok:        entry.ok,
+        label:     entry.label || entry.path || '',
+        retryable: entry.ok ? false : !!entry.paperId,
+        paperId:   entry.paperId || null,
+      }));
 
   if (job.status === 'done') {
-    const successCount = items.filter(i => i.ok).length;
+    let summary;
+    if (usingManifest) {
+      const added   = manifest.filter(r => r.status === 'done').length;
+      const skipped = manifest.filter(r => r.status === 'skipped').length;
+      const failed  = manifest.filter(r => r.status === 'failed').length;
+      summary = `Ingest complete — ${added} added, ${skipped} skipped, ${failed} failed`;
+    } else {
+      const successCount = items.filter(i => i.ok).length;
+      summary = `Ingest complete — ${successCount} paper${successCount !== 1 ? 's' : ''}`;
+    }
     return {
       visible:    true,
       collapsed:  true,
       bar:        { done: total || done, total: total || done },
       current:    '',
       items,
-      summary:    `Ingest complete — ${successCount} paper${successCount !== 1 ? 's' : ''}`,
+      summary,
       background,
     };
   }
@@ -150,12 +181,11 @@ export function mountDock(el, storeRef, apiRef) {
     `).join('');
 
     const itemsHtml = model.items.map(item => {
-      const icon = item.ok ? '&#10003;' : '&#10007;';
-      const cls  = item.ok ? 'dock-item-ok' : 'dock-item-fail';
+      const view = manifestItemView(item);
       const labelHtml = escapeHtml(item.label);
 
       let retryHtml = '';
-      if (!item.ok) {
+      if (item.status === 'failed') {
         if (item.retryable) {
           retryHtml = `<button class="btn btn-sm dock-retry-btn" data-paper-id="${escapeHtml(item.paperId)}">[Retry]</button>`;
         } else {
@@ -164,8 +194,8 @@ export function mountDock(el, storeRef, apiRef) {
       }
 
       return `
-        <div class="dock-item ${cls}">
-          <span class="dock-item-icon">${icon}</span>
+        <div class="dock-item">
+          <span class="lib-status-pill ${view.cls}">${escapeHtml(view.chipLabel)}</span>
           <span class="dock-item-label" title="${escapeHtml(item.label)}">${labelHtml}</span>
           ${retryHtml}
         </div>
@@ -212,7 +242,7 @@ export function mountDock(el, storeRef, apiRef) {
   // Track previous job status to detect real transitions
   let _prevJobStatus = null;
 
-  storeRef.subscribe(['jobs', 'papers', 'activity'], () => {
+  storeRef.subscribe(['jobs', 'papers', 'activity', 'ingestManifest'], () => {
     const state = storeRef.getState();
     const job = state.jobs && state.jobs.get('ingest');
     const currentStatus = job ? job.status : null;

@@ -126,6 +126,13 @@ export const getJob = (jobId) => get(`/api/jobs/${encodeURIComponent(jobId)}`);
 /** POST /api/ingest — body: { folder: string } */
 export const ingest = (folder) => post('/api/ingest', { folder });
 
+/**
+ * POST /api/ingest/scan — body: { folder: string }
+ * Returns { discovered, already, files:[{name, path, rel_path, already_in_library}] }.
+ * 400 on empty/invalid folder.
+ */
+export const scanFolder = (folder) => post('/api/ingest/scan', { folder });
+
 /** POST /api/align — body: { paper_id, against?, force? } */
 export const align = (paperId, against, force = false) =>
   post('/api/align', { paper_id: paperId, against: against || null, force });

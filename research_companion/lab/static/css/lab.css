@@ -568,6 +568,12 @@ html, body {
   color: #58a6ff;
 }
 
+/* Muted badge — folder scan-preview "Already in library" chip */
+.badge-muted {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--color-muted);
+}
+
 .stance-chip {
   font-size: 12px;
   padding: 2px 6px;
@@ -1511,6 +1517,41 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
   gap: 8px;
   justify-content: flex-end;
 }
+.ingest-hint-line {
+  font-size: 12px;
+  color: var(--color-muted);
+  padding: 4px 0;
+}
+
+/* Folder tab — scan/review step (v0.6.0) */
+.ingest-scan-summary {
+  font-size: 13px;
+  color: var(--color-fg-dim);
+}
+.ingest-scan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+}
+.ingest-scan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12px;
+}
+.ingest-scan-relpath {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Upload tab (v0.3.1) */
 .ingest-dropzone {
@@ -1635,7 +1676,7 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
 }
 
 .dock-items-list {
-  max-height: 180px;
+  max-height: 40vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -4190,6 +4231,12 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 .lib-status-pill-failed {
   background: rgba(248, 81, 73, 0.12);
   color: var(--color-fail);
+}
+
+/* Skipped (folder-ingest: already in library) — muted grey, same tint as queued */
+.lib-status-pill-skipped {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--color-muted);
 }
 
 /* Missing-metadata pill — amber, clickable (opens the drawer in edit mode) */
