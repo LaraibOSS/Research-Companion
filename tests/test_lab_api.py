@@ -1039,13 +1039,13 @@ class TestRetryPaper:
             job_id = resp.json()["job_id"]
 
             import time
-            for _ in range(50):
+            job = None
+            for _ in range(100):
                 job = c.get(f"/api/jobs/{job_id}").json()
                 if job["status"] != "running":
                     break
-                    time.sleep(0.05)
-
-                assert job["status"] == "failed", f"expected failed, got: {job}"
+                time.sleep(0.05)
+            assert job["status"] == "failed", f"expected failed, got: {job}"
 
         # Failure entry must still be present (not silently cleared)
         failures = store.list_failures()
