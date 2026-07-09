@@ -325,3 +325,17 @@ papers those were — the shared-ness was implicit in the merge, not visible.
 
 **Upgrade notes:** none — purely additive; no graph restructure, no store or
 settings migration.
+
+## 0.5.13 — cleanup
+
+Internal housekeeping — no user-facing feature.
+
+- **Dependency trim.** Dropped the unused `pypdf` runtime dependency; the PDF
+  backend has been pypdfium2 since 0.5.9, so a base install is a touch leaner.
+- **Dead-code removal.** Removed a never-imported frontend module (`icons.js`)
+  and its stale test, and fixed a stranded JSDoc comment in `readerHelpers.js`.
+- **Test-isolation fix.** A module-global `asyncio.Lock` was leaking across
+  test event loops, occasionally flaking the retry-pipeline test; the lock now
+  resets per test so the suite is reliably green.
+
+**Upgrade notes:** none — purely internal; no store or settings migration.
