@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.7 · 2026-07-08 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.8 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -193,6 +193,28 @@ library by arXiv ID, DOI, title, or **first-author surname + year**.
 - **Honest fallback:** if PDF text defeats bibliography parsing, the list
   falls back to the related-work extraction and says so in an amber note —
   labeled, never silent.
+
+When automatic matching misses — a cited reference worded differently from a
+paper's real title, say — you can **link it by hand**, from either side:
+
+- **From the Citations panel.** Each not-in-library citation row has a
+  **"Link…"** control that opens an inline dropdown of your library papers
+  (the ones still needing metadata are listed first, since they are the
+  likeliest matches). Pick the paper and the citation is linked to it.
+- **From the paper drawer.** Open a library paper and use **"This is a cited
+  reference…"** to attach it to one of your draft's citations from the paper
+  side.
+- **What the titles and years mean.** The picker shows titles and years drawn
+  from your **draft's citations**, not from the papers themselves — a
+  disclaimer says so — so you are choosing on the citation's terms, not the
+  library's.
+- **What linking does.** The citation is marked **In library** and the mark is
+  durable: it survives coverage recomputes and reverts only if you delete the
+  paper it points to. Linking also **backfills the paper's year** from the
+  citation (year only) when the paper had none, so a previously yearless paper
+  appears on the **Timeline** (section 16) right away. Authors are left
+  untouched — fill those in with **Edit metadata** (section 6) when you want
+  them.
 
 ## 8. Citation placement
 

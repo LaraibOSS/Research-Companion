@@ -176,3 +176,38 @@ first-class, extracted automatically and correctable by hand.
 **Upgrade notes:** none — purely additive; no store or settings migration.
 The extraction prompt changed, so papers re-extract once on first open,
 backfilling their metadata as a side effect.
+
+## 0.5.8 — link a citation to a paper you already have
+
+Citation coverage could recognise a cited reference automatically (by arXiv
+ID, DOI, title, or author+year), but when the automatic match missed — a
+reference worded differently from the paper's real title, say — there was no
+way to tell the app *"this cited reference is that paper I already have."*
+0.5.8 adds that link, from either side of the relationship.
+
+- **From the Citations panel.** Every not-in-library citation row now carries
+  a **"Link…"** control that opens an **inline dropdown** of your library
+  papers — the papers still needing metadata are listed first, since they are
+  the likeliest missing matches. Pick one and the citation is linked to that
+  paper. A disclaimer on the picker notes that the titles and years shown come
+  from your draft's citations, not from the papers themselves, so you choose
+  on the citation's terms.
+- **From a paper's drawer.** The same link can be made from the paper side: a
+  **"This is a cited reference…"** picker in the library paper's drawer lets
+  you attach it to one of your draft's citations.
+- **Durable manual link.** Linking marks the citation **In library** and the
+  mark holds: it survives coverage recomputes and reverts only if you delete
+  the paper it points to. A manual link is a deliberate statement, not a guess
+  the next recompute is free to overwrite.
+- **Year backfill for the timeline.** Linking **backfills the paper's year**
+  from the citation (year only) when the paper had none, so a previously
+  yearless paper appears on the **timeline** straight away. Authors are left
+  untouched — fill those in via **Edit metadata** when you want them.
+- **New API:** `POST /api/draft/citations/link` — link a cited reference to a
+  library paper.
+
+Also in this release: a test-isolation leak was fixed — the suite now restores
+`os.environ` per test so one test's environment changes can no longer bleed
+into another.
+
+**Upgrade notes:** none — purely additive; no store or settings migration.
