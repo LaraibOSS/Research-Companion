@@ -1,9 +1,32 @@
 """Shared fixtures: isolated RESEARCH_COMPANION_DIR per test, sample fixtures."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restore_os_environ():
+    """Snapshot and restore os.environ around every test.
+
+    monkeypatch only undoes env vars it set itself; it cannot undo *direct*
+    os.environ writes made by product code (e.g. settings.load_env_file loading
+    the project .env in serve_lab, or update_settings mirroring keys/provider).
+    Those leak process-globally and change later tests' behavior (a leaked
+    HF_TOKEN flips qa.answer onto the hybrid retrieval path, breaking the
+    zero-score / empty-question short-circuit). Restoring the full environ here
+    makes env isolation hold for the whole suite regardless of who mutates it.
+    """
+    snapshot = dict(os.environ)
+    yield
+    for key in list(os.environ):
+        if key not in snapshot:
+            del os.environ[key]
+    for key, value in snapshot.items():
+        if os.environ.get(key) != value:
+            os.environ[key] = value
 
 
 @pytest.fixture(autouse=True)
