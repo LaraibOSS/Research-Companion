@@ -36,6 +36,34 @@ def _restore_os_environ():
 
 
 @pytest.fixture(autouse=True)
+def _reset_graph_lock():
+    """Give every test a fresh ``research_companion.lab._GRAPH_LOCK``.
+
+    The pipeline serializes graph read/write with a *module-global*
+    ``asyncio.Lock`` (``lab._GRAPH_LOCK``). An asyncio.Lock binds to the event
+    loop that first *waits* on it and carries its ``_locked``/``_waiters`` state
+    process-globally. That is invisible in production (serve_lab runs one loop
+    for the whole process) but leaks across tests: each TestClient spins up its
+    own short-lived event loop, and if one test's loop is torn down while a task
+    is contending the lock (the bpo-42130 cancellation-race shape the lifespan
+    teardown already guards against), the lock is left locked and bound to a now
+    dead loop. The next test that contends it — e.g. the retry job racing the
+    startup weak-metadata backfill on the same paper — then raises
+    ``RuntimeError: ... is bound to a different event loop`` inside the stage-4
+    graph section, so ``ingest_one`` bails before the strength stage and
+    ``test_retry_pipeline_stages_run_on_success`` sees strengther never called.
+    Rebinding a pristine Lock per test keeps that isolation from leaking.
+    """
+    import asyncio
+
+    from research_companion import lab
+
+    lab._GRAPH_LOCK = asyncio.Lock()
+    yield
+    lab._GRAPH_LOCK = asyncio.Lock()
+
+
+@pytest.fixture(autouse=True)
 def isolated_papergraph_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Force every test to use a fresh research-companion dir under tmp_path.
 
