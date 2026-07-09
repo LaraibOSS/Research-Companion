@@ -45,6 +45,8 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 
 Citation coverage: the papers your draft **cites** are now first-class. The Lab parses your draft's bibliography, shows which cited papers are in your library and which are missing, downloads missing ones in one click ("Add all"), and displays a persistent disclaimer whenever the analysis is running on partial coverage — *"Analysis covers N of M cited papers"* — so incomplete context is never silent. See the [Release Notes](docs/RELEASE_0.5.md).
 
+**0.5.14** — ingestion transparency: the Lab now records and shows *how* each paper was read. Scanned PDFs that need OCR show a clear **"OCR-ing scanned PDF (may take a few minutes)…"** state while it runs (instead of a progress bar that appeared to stall), and papers recovered by OCR carry a quiet **OCR** badge in the library so you know their text came from image recognition rather than an embedded text layer. Purely additive. See the [Release Notes](docs/RELEASE_0.5.md).
+
 **0.5.13** — internal cleanup: trimmed an unused dependency (`pypdf` — the PDF backend is pypdfium2), removed a dead frontend module and its stale test, and hardened test isolation so the suite is reliably green. No user-facing changes. See the [Release Notes](docs/RELEASE_0.5.md).
 
 **0.5.12** — knowledge-graph entity provenance: every concept, method, dataset, claim, and result node now records which of your papers it appears in — the node detail panel shows **"Appears in N papers"** with the contributing papers listed, so you can see at a glance which methods/datasets/concepts your library shares. Purely additive; no graph restructure. See the [Release Notes](docs/RELEASE_0.5.md).

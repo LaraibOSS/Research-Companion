@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.13 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.14 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -137,7 +137,13 @@ paper's metadata by hand."* You have two ways to fix it:
   figure captions read from the document itself rather than guessed). With it
   installed, retry the failed paper and it will ingest. OCR is slower than
   normal parsing — expect a scanned paper to take noticeably longer — because it
-  runs full-page recognition over every page.
+  runs full-page recognition over every page. While OCR runs, the progress
+  indicator shows **"OCR-ing scanned PDF (may take a few minutes)…"** so a slow
+  scan reads as *working*, not stalled. Once ingested, a paper whose text was
+  recovered by OCR wears a quiet **OCR** badge in the Library (card and list
+  views): a reminder that its text came from image recognition and may contain
+  recognition errors, unlike a paper read from an embedded text layer. Digital
+  PDFs show no badge.
 - **Add metadata by hand.** If you don't want to install the OCR engine, you can
   still keep the paper: set its **title, authors, and year** with **Edit
   metadata** (section 6) so it appears on the timeline and in citation matching,

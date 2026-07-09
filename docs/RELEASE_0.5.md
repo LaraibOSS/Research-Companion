@@ -339,3 +339,25 @@ Internal housekeeping — no user-facing feature.
   resets per test so the suite is reliably green.
 
 **Upgrade notes:** none — purely internal; no store or settings migration.
+
+## 0.5.14 — ingestion transparency
+
+You could already trust *that* a paper was ingested; now you can see *how*.
+
+- **A clear OCR-in-progress state.** When a scanned/image-only PDF fails the
+  text-quality gate, the Lab falls back to forced full-page OCR (since 0.5.9).
+  That step is slow, and the progress indicator used to blank out while it ran
+  — looking stalled. It now shows **"OCR-ing scanned PDF (may take a few
+  minutes)…"** without disturbing an in-progress folder-import bar, and the
+  same message surfaces on the activity indicator during a single add.
+- **Per-paper parse provenance.** Every paper now records which parser produced
+  its text (`pypdfium`, `docling`, or `docling+ocr`) and whether OCR was used.
+  Papers read via OCR carry a quiet **OCR** badge in the library (card and list
+  views) — a low-confidence signal that the text came from image recognition,
+  not an embedded text layer. Digital PDFs show no badge; the norm stays
+  uncluttered.
+- **Honest on re-ingest.** Re-adding a paper whose text is already cached no
+  longer clears its OCR provenance — the badge sticks to the paper it describes.
+
+**Upgrade notes:** none — additive metadata fields with safe defaults; papers
+ingested before 0.5.14 simply show no parse badge until re-ingested.
