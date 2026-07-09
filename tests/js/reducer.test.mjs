@@ -418,6 +418,31 @@ test('ingest_skipped: marks matching manifest row skipped with reason', () => {
   assert.deepEqual(topics, ['ingestManifest']);
 });
 
+test('ingest_progress: new run whose file is NOT in the manifest clears the stale manifest', () => {
+  // A prior run's manifest is left over; a fresh ingest starts outside this UI
+  // (its file isn't in the seeded rows) -> manifest cleared so the dock falls
+  // back to the ingestLog view instead of showing stale chips.
+  const state = makeManifestState();
+  state.jobs.set('ingest', { status: 'done', done: 2, total: 2, current: '' });
+  const topics = applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 3, current: '/other/x.pdf',
+  });
+  assert.equal(state.ingestManifest.length, 0, 'stale manifest cleared');
+  assert.ok(topics.includes('ingestManifest'));
+});
+
+test('ingest_progress: new run whose file IS in the manifest keeps the seeded manifest', () => {
+  // The happy path: this UI seeded the manifest for the run that is starting,
+  // so the incoming file matches a row -> manifest preserved, row -> processing.
+  const state = makeManifestState();
+  state.jobs.set('ingest', { status: 'done', done: 1, total: 1, current: '' });
+  applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 2, current: '/f/a.pdf',
+  });
+  assert.equal(state.ingestManifest.length, 2, 'seeded manifest preserved');
+  assert.equal(state.ingestManifest.find(r => r.path === '/f/a.pdf').status, 'processing');
+});
+
 test('job_done: sweeps remaining queued/processing manifest rows to done', () => {
   const state = makeManifestState();
   // a is mid-flight, b already resolved

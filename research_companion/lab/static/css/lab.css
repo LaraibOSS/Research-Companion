@@ -1523,7 +1523,7 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
   padding: 4px 0;
 }
 
-/* Folder tab — scan/review step (v0.6.0) */
+/* Folder tab — scan/review step (v0.5.15) */
 .ingest-scan-summary {
   font-size: 13px;
   color: var(--color-fg-dim);

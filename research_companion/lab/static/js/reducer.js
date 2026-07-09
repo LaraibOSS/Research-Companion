@@ -226,8 +226,19 @@ export function applyEvent(state, evt) {
 
       // Normal per-file progress.
       // If no prior job (or prior was done), this is a new ingest run — reset log.
+      const progressTopics = ['jobs'];
       if (!prevJob || prevJob.status === 'done') {
         state.ingestLog = [];
+        // Drop a STALE manifest left over from a prior run that this run did
+        // not seed — e.g. an ingest started outside this UI (CLI / another
+        // tab). If the incoming file isn't in the manifest, it can't be ours,
+        // so clear it and fall back to the flat ingestLog view. A manifest this
+        // UI just seeded always contains the current run's files, so it stays.
+        if (Array.isArray(state.ingestManifest) && state.ingestManifest.length
+            && !state.ingestManifest.some(r => r.path === evt.current)) {
+          state.ingestManifest = [];
+          progressTopics.push('ingestManifest');
+        }
       }
       state.jobs.set('ingest', {
         status: 'running',
@@ -235,8 +246,8 @@ export function applyEvent(state, evt) {
         total: evt.total,
         current: evt.current || '',
       });
-      const progressTopics = ['jobs'];
-      if (_setManifestStatus(state, evt.current, 'processing')) {
+      if (_setManifestStatus(state, evt.current, 'processing')
+          && !progressTopics.includes('ingestManifest')) {
         progressTopics.push('ingestManifest');
       }
       return progressTopics;
