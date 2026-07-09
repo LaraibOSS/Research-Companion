@@ -196,6 +196,8 @@ class TestGetPapers:
         assert "challenges" in sc
         assert "alternative" in sc
         assert "added_at" in p
+        assert p["parse_source"] == ""
+        assert p["ocr_used"] is False
 
     def test_status_done_when_extraction_cached(self, isolated_papergraph_dir):
         _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "My Paper",

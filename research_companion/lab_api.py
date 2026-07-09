@@ -335,6 +335,8 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         "is_draft": paper_id == draft_id,
         "stance_counts": stance_counts,
         "added_at": meta.added_at,
+        "parse_source": getattr(meta, "parse_source", "") or "",
+        "ocr_used": bool(getattr(meta, "ocr_used", False)),
     }
 
 

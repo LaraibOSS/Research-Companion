@@ -550,6 +550,14 @@ class TestOcrFallback:
         assert [s["section_id"] for s in saved["sections"]] == ["s1", "s2"]
         # No IngestFailed on the success path.
         assert [e for e in bus.history if isinstance(e, IngestFailed)] == []
+        # Provenance recorded on meta and persisted to disk.
+        loaded_meta = store.PaperMetadata.load("local:scan")
+        assert loaded_meta is not None
+        assert loaded_meta.ocr_used is True
+        assert loaded_meta.parse_source == "docling+ocr"
+        # OCR-progress message is the clearer, user-facing string.
+        progress = [e for e in bus.history if isinstance(e, IngestProgress)]
+        assert any("OCR-ing scanned PDF (may take a few minutes)" in e.current for e in progress)
 
     def test_ocr_fallback_unavailable_fails_with_install_message(
         self, tmp_path, isolated_papergraph_dir, monkeypatch
@@ -639,6 +647,13 @@ class TestOcrFallback:
 
         assert len(result.added) == 1
         assert ocr_calls == []
+
+        # Digital happy path: no OCR involved, provenance reflects the
+        # configured parser (conftest pins RESEARCH_COMPANION_PARSER=pypdfium).
+        loaded_meta = PaperMetadata.load("local:digital")
+        assert loaded_meta is not None
+        assert loaded_meta.ocr_used is False
+        assert loaded_meta.parse_source == "pypdfium"
 
 
 # ---------------------------------------------------------------------------

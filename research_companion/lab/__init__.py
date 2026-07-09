@@ -202,11 +202,13 @@ async def ingest_one(
         # a forced full-page OCR fallback — this recovers text from image-only
         # scans (docling default OCR does not). It is slow, so it only runs on
         # this failure path; digital PDFs that pass the gate never pay the cost.
+        ocr_used = False
         if not text_quality(parsed.text)["ok"]:
-            await bus.publish(IngestProgress(done=0, total=0, current="OCR-ing scanned PDF…"))
+            await bus.publish(IngestProgress(done=0, total=0, current="OCR-ing scanned PDF (may take a few minutes)…"))
             ocr_parsed = await asyncio.to_thread(ocr_fallback_parse, meta)
             if ocr_parsed is not None and text_quality(ocr_parsed.text)["ok"]:
                 parsed = ocr_parsed  # OCR recovered usable text -> continue as success
+                ocr_used = True
             else:
                 # ocr_parsed is None -> docling not installed (advise install);
                 # otherwise OCR ran but still failed (corrupt/text-free PDF).
@@ -216,6 +218,14 @@ async def ingest_one(
                 await bus.publish(IngestFailed(path=path_str, stage="extract",
                                                error=error, paper_id=paper_id))
                 return False
+        # Record how the text was produced (ingestion transparency).
+        if ocr_used:
+            meta.parse_source = "docling+ocr"
+        else:
+            from research_companion.parsers import get_parser
+            meta.parse_source = get_parser().name
+        meta.ocr_used = ocr_used
+        meta.save()
         # Prefer parser-provided (docling) structural sections; fall back to the
         # heuristic sectioner when the parser recovered none.
         paper_sections = None

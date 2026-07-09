@@ -335,6 +335,8 @@ class PaperMetadata:
     source_url: str = ""
     arxiv_categories: list[str] = field(default_factory=list)
     added_at: str = ""
+    parse_source: str = ""   # which parser produced the stored text: "pypdfium" | "docling" | "docling+ocr"
+    ocr_used: bool = False    # True when the forced-full-page-OCR fallback recovered the text
 
     def save(self) -> None:
         p = paper_dir(self.paper_id) / "metadata.json"

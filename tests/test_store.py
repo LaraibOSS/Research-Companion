@@ -57,6 +57,58 @@ def test_metadata_load_missing_returns_none():
     assert store.PaperMetadata.load("arxiv:9999.99999") is None
 
 
+def test_metadata_parse_provenance_defaults():
+    meta = store.PaperMetadata(
+        paper_id="arxiv:2410.05780",
+        title="Untouched provenance",
+        authors=["Carol"],
+    )
+    assert meta.parse_source == ""
+    assert meta.ocr_used is False
+
+
+def test_metadata_parse_provenance_roundtrip():
+    meta = store.PaperMetadata(
+        paper_id="arxiv:2410.05781",
+        title="OCR provenance",
+        authors=["Dave"],
+        parse_source="docling+ocr",
+        ocr_used=True,
+    )
+    meta.save()
+    loaded = store.PaperMetadata.load("arxiv:2410.05781")
+    assert loaded is not None
+    assert loaded.parse_source == "docling+ocr"
+    assert loaded.ocr_used is True
+
+
+def test_metadata_load_backward_compat_without_provenance_fields(isolated_papergraph_dir):
+    """Old metadata.json files written before parse_source/ocr_used existed
+    must still load, defaulting the new fields."""
+    import json
+
+    paper_id = "arxiv:2410.05782"
+    d = store.paper_dir(paper_id)
+    d.mkdir(parents=True, exist_ok=True)
+    old_data = {
+        "paper_id": paper_id,
+        "title": "Legacy paper",
+        "authors": ["Eve"],
+        "year": 2020,
+        "abstract": "",
+        "source_url": "",
+        "arxiv_categories": [],
+        "added_at": "2026-01-01T00:00:00",
+    }
+    (d / "metadata.json").write_text(json.dumps(old_data), encoding="utf-8")
+
+    loaded = store.PaperMetadata.load(paper_id)
+    assert loaded is not None
+    assert loaded.title == "Legacy paper"
+    assert loaded.parse_source == ""
+    assert loaded.ocr_used is False
+
+
 def test_extraction_cache_key_on_prompt_sha(sample_extraction: dict):
     paper_id = "arxiv:2410.05779"
     store.PaperMetadata(
