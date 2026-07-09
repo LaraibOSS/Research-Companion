@@ -154,7 +154,36 @@ export function applyEvent(state, evt) {
 
     case 'ingest_progress': {
       const prevJob = state.jobs.get('ingest');
-      // If no prior job (or prior was done), this is a new ingest run — reset log
+      const isPhaseNote = (evt.total || 0) === 0 && !!evt.current;
+
+      // A phase-note (e.g. "OCR-ing scanned PDF…") is a mid-file status with no
+      // file counts. It must NOT zero an in-progress folder bar, and must not
+      // create a lingering empty job when there is no folder run at all.
+      if (isPhaseNote) {
+        const topics = [];
+        // Ride on top of an active folder-ingest bar: keep done/total, update only current.
+        if (prevJob && prevJob.status === 'running') {
+          state.jobs.set('ingest', { ...prevJob, current: evt.current });
+          topics.push('jobs');
+        }
+        // Surface the phase on any active add/retry job so a single-paper add
+        // (no folder bar) still shows the OCR state in the top-bar indicator.
+        // Self-clears when the add job's JobFinished removes it from activeJobs.
+        if (state.activeJobs) {
+          let touched = false;
+          for (const [id, job] of state.activeJobs) {
+            if (job.kind === 'add' || job.kind === 'retry') {
+              state.activeJobs.set(id, { ...job, label: evt.current });
+              touched = true;
+            }
+          }
+          if (touched) topics.push('activity');
+        }
+        return topics;
+      }
+
+      // Normal per-file progress.
+      // If no prior job (or prior was done), this is a new ingest run — reset log.
       if (!prevJob || prevJob.status === 'done') {
         state.ingestLog = [];
       }

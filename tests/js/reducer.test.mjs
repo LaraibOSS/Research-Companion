@@ -90,6 +90,39 @@ test('ingest_progress updates jobs map', () => {
   assert.equal(job.total, 3);
 });
 
+test('ingest_progress phase-note preserves a running folder bar (no stomp)', () => {
+  const state = makeState();
+  state.jobs.set('ingest', { status: 'running', done: 2, total: 7, current: 'file3.pdf' });
+  const topics = applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 0,
+    current: 'OCR-ing scanned PDF (may take a few minutes)…',
+  });
+  const job = state.jobs.get('ingest');
+  assert.equal(job.done, 2, 'done preserved');
+  assert.equal(job.total, 7, 'total preserved');
+  assert.equal(job.current, 'OCR-ing scanned PDF (may take a few minutes)…');
+  assert.ok(topics.includes('jobs'));
+});
+
+test('ingest_progress phase-note with no folder run creates no lingering ingest job', () => {
+  const state = makeState();
+  applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 0, current: 'OCR-ing scanned PDF (may take a few minutes)…',
+  });
+  assert.equal(state.jobs.has('ingest'), false, 'no phantom total=0 ingest job created');
+});
+
+test('ingest_progress phase-note updates active add-job label (single-add OCR)', () => {
+  const state = makeState();
+  if (!state.activeJobs) state.activeJobs = new Map();
+  state.activeJobs.set('job1', { kind: 'add', label: 'Adding paper…', target: '' });
+  const topics = applyEvent(state, {
+    event: 'ingest_progress', done: 0, total: 0, current: 'OCR-ing scanned PDF (may take a few minutes)…',
+  });
+  assert.equal(state.activeJobs.get('job1').label, 'OCR-ing scanned PDF (may take a few minutes)…');
+  assert.ok(topics.includes('activity'));
+});
+
 test('job_done transitions processing papers to done', () => {
   const state = makeState();
   state.papers.set('p1', { paper_id: 'p1', status: 'processing' });
