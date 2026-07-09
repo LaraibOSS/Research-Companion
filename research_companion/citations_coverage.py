@@ -426,6 +426,19 @@ def compute_coverage(draft_id: str) -> dict:
             "resolved": None,
             "add_target": None,
         }
+        # Manual link wins over every heuristic and survives recompute: the
+        # user asserted this ref IS a specific library paper. Kept only while
+        # that paper still exists — if it was deleted, fall through to normal
+        # matching so a missing paper is never masked (auto-revert).
+        old = prev_by_raw.get(raw)
+        if (old and old.get("match_kind") == "manual" and old.get("matched_paper_id")
+                and any(p.paper_id == old["matched_paper_id"] for p in papers)):
+            rec["status"] = "in_library"
+            rec["matched_paper_id"] = old["matched_paper_id"]
+            rec["match_kind"] = "manual"
+            rec["resolved"] = old.get("resolved")
+            refs_out.append(rec)
+            continue
         m = match_reference_to_library(ref, papers)
         if m:
             rec["status"] = "in_library"

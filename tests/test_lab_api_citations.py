@@ -303,3 +303,128 @@ class TestAutoDownload:
             c.delete("/api/papers/arxiv:unrelated02")
             time.sleep(0.8)
             assert len(resolve_calls) == n_resolves
+
+
+class TestLinkCitation:
+    """POST /api/draft/citations/link — user asserts a cited ref IS a library
+    paper. Durable (survives recompute), backfills year-only."""
+
+    def _mk_paper(self, paper_id, title="A Cited Paper", authors=("A",),
+                  year=None):
+        store.PaperMetadata(
+            paper_id=paper_id, title=title, authors=list(authors),
+            year=year, added_at="2026-01-02T00:00:00Z").save()
+
+    def test_link_by_index_marks_manual_and_bumps_count(self, isolated_papergraph_dir):
+        _seed_draft()
+        self._mk_paper("local:linked01", year=2000)
+        app, bus, c = _make_client()
+        with c:
+            before = c.get("/api/draft/citations").json()
+            n_before = before["counts"]["in_library"]
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 0, "paper_id": "local:linked01"})
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            rec = data["references"][0]
+            assert rec["status"] == "in_library"
+            assert rec["match_kind"] == "manual"
+            assert rec["matched_paper_id"] == "local:linked01"
+            assert data["counts"]["in_library"] == n_before + 1
+        kinds = [type(e).__name__ for e in bus.history]
+        assert "CitationCoverageUpdated" in kinds
+
+    def test_year_backfill_when_paper_year_none(self, isolated_papergraph_dir):
+        # ref [1] Vaswani ... 2017; paper has no year -> backfilled to 2017.
+        _seed_draft()
+        self._mk_paper("local:linked01", year=None)
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 0, "paper_id": "local:linked01"})
+            assert resp.status_code == 200
+        assert store.PaperMetadata.load("local:linked01").year == 2017
+
+    def test_year_not_overwritten_when_present(self, isolated_papergraph_dir):
+        _seed_draft()
+        self._mk_paper("local:linked01", year=2020)
+        _app, _bus, c = _make_client()
+        with c:
+            c.post("/api/draft/citations/link",
+                   json={"index": 0, "paper_id": "local:linked01"})
+        assert store.PaperMetadata.load("local:linked01").year == 2020
+
+    def test_ref_without_year_leaves_paper_year_none(self, isolated_papergraph_dir):
+        # A bib entry with no parseable year: link recorded, year stays None.
+        draft = "local:noyeardraft"
+        text = ("Intro\n\nReferences\n"
+                "[1] Some Author. A cited work with no year at all here.\n"
+                "[2] Other Author. Another work also lacking any year value.\n"
+                "[3] Third Author. Yet another work missing the year field.\n")
+        store.PaperMetadata(paper_id=draft, title="D", authors=["Me"],
+                            year=2026, added_at="2026-01-01T00:00:00Z").save()
+        store.save_text(draft, text)
+        store.set_draft_paper_id(draft)
+        self._mk_paper("local:linked01", year=None)
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 0, "paper_id": "local:linked01"})
+            assert resp.status_code == 200
+        assert store.PaperMetadata.load("local:linked01").year is None
+
+    def test_unknown_paper_404(self, isolated_papergraph_dir):
+        _seed_draft()
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 0, "paper_id": "local:nope"})
+            assert resp.status_code == 404
+
+    def test_no_draft_400(self, isolated_papergraph_dir):
+        self._mk_paper("local:linked01", year=2000)
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 0, "paper_id": "local:linked01"})
+            assert resp.status_code == 400
+
+    def test_index_out_of_range_400(self, isolated_papergraph_dir):
+        _seed_draft()
+        self._mk_paper("local:linked01", year=2000)
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 99, "paper_id": "local:linked01"})
+            assert resp.status_code == 400
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": -1, "paper_id": "local:linked01"})
+            assert resp.status_code == 400
+
+    def test_link_survives_recompute(self, isolated_papergraph_dir):
+        _seed_draft()
+        self._mk_paper("local:linked01", year=2000)
+        _app, _bus, c = _make_client()
+        with c:
+            c.post("/api/draft/citations/link",
+                   json={"index": 0, "paper_id": "local:linked01"})
+            from research_companion.citations_coverage import compute_coverage
+            p2 = compute_coverage(store.get_draft_paper_id())
+            rec = p2["references"][0]
+            assert rec["status"] == "in_library"
+            assert rec["match_kind"] == "manual"
+            assert rec["matched_paper_id"] == "local:linked01"
+
+    def test_link_reverts_when_paper_deleted(self, isolated_papergraph_dir):
+        _seed_draft()
+        self._mk_paper("local:linked01", year=2000)
+        _app, _bus, c = _make_client()
+        with c:
+            c.post("/api/draft/citations/link",
+                   json={"index": 0, "paper_id": "local:linked01"})
+            store.remove_paper("local:linked01")
+            from research_companion.citations_coverage import compute_coverage
+            p2 = compute_coverage(store.get_draft_paper_id())
+            rec = p2["references"][0]
+            assert rec["status"] != "in_library"
+            assert rec["match_kind"] != "manual"

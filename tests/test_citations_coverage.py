@@ -412,6 +412,70 @@ class TestComputeCoverage:
         assert again["status"] != "in_library"
         assert p2["counts"]["in_library"] == 0
 
+    def test_manual_link_carryover_persists_while_matched_paper_exists(self, isolated_papergraph_dir):
+        # A user manually asserted "this cited ref IS library paper X". That
+        # manual verdict must win over heuristics and survive recompute as long
+        # as the matched paper is still present.
+        draft = _seed_draft()
+        _mk_paper_full("arxiv:9999.22222", "Totally Unrelated Survey Title",
+                       ["Z Someone"], 2015)
+        p1 = cc.compute_coverage(draft)
+        target = next(r for r in p1["references"] if "few-shot learners" in r["raw"])
+        assert target["status"] == "unchecked"  # sanity: no direct match
+
+        target["status"] = "in_library"
+        target["matched_paper_id"] = "arxiv:9999.22222"
+        target["match_kind"] = "manual"
+        cc.save_coverage(p1)
+
+        p2 = cc.compute_coverage(draft)
+        again = next(r for r in p2["references"] if r["raw"] == target["raw"])
+        assert again["status"] == "in_library"
+        assert again["matched_paper_id"] == "arxiv:9999.22222"
+        assert again["match_kind"] == "manual"
+        assert p2["counts"]["in_library"] == 1
+
+    def test_manual_link_reverts_when_matched_paper_deleted(self, isolated_papergraph_dir):
+        # If the manually-linked paper is removed, the stale manual record must
+        # not mask a genuinely-missing reference on recompute (never hide a
+        # missing paper).
+        draft = _seed_draft()
+        _mk_paper_full("arxiv:9999.22222", "Totally Unrelated Survey Title",
+                       ["Z Someone"], 2015)
+        p1 = cc.compute_coverage(draft)
+        target = next(r for r in p1["references"] if "few-shot learners" in r["raw"])
+
+        target["status"] = "in_library"
+        target["matched_paper_id"] = "arxiv:9999.22222"
+        target["match_kind"] = "manual"
+        cc.save_coverage(p1)
+
+        assert store.remove_paper("arxiv:9999.22222") is True
+
+        p2 = cc.compute_coverage(draft)
+        again = next(r for r in p2["references"] if r["raw"] == target["raw"])
+        assert again["status"] != "in_library"
+        assert again["match_kind"] != "manual"
+
+    def test_manual_link_overrides_would_be_unresolved(self, isolated_papergraph_dir):
+        # A title-only ref that heuristics leave unchecked can be manually
+        # linked; the manual verdict overrides on recompute.
+        draft = _seed_draft()
+        _mk_paper_full("arxiv:9999.22222", "Totally Unrelated Survey Title",
+                       ["Z Someone"], 2015)
+        p1 = cc.compute_coverage(draft)
+        target = next(r for r in p1["references"] if "few-shot learners" in r["raw"])
+        # mark it unresolved as a prior network pass would
+        target["status"] = "in_library"
+        target["matched_paper_id"] = "arxiv:9999.22222"
+        target["match_kind"] = "manual"
+        cc.save_coverage(p1)
+
+        p2 = cc.compute_coverage(draft)
+        again = next(r for r in p2["references"] if r["raw"] == target["raw"])
+        assert again["status"] == "in_library"
+        assert again["match_kind"] == "manual"
+
     def test_no_text_returns_none_source_without_caching(self, isolated_papergraph_dir):
         draft = "local:draftnotext"
         store.PaperMetadata(paper_id=draft, title="D", authors=["M"],

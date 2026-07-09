@@ -118,6 +118,12 @@ try:
         authors: list[str] | None = None
         year: int | None = None
 
+    class _LinkCitationBody(_BaseModel):
+        """Manual assertion "cited reference N IS library paper X" for
+        POST /api/draft/citations/link."""
+        index: int
+        paper_id: str
+
     class _ConverseBody(_BaseModel):
         context: dict = {}
         message: str = ""
@@ -144,6 +150,7 @@ except ImportError:
     _CreateViewBody = None  # type: ignore[assignment,misc]
     _PatchViewBody = None  # type: ignore[assignment,misc]
     _PatchPaperBody = None  # type: ignore[assignment,misc]
+    _LinkCitationBody = None  # type: ignore[assignment,misc]
     _ConverseBody = None  # type: ignore[assignment,misc]
     _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
@@ -1092,6 +1099,66 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 status_code=409,
                 detail="A citation resolve job is already running")
         return {"job_id": job_id}
+
+    @app.post("/api/draft/citations/link")
+    async def link_draft_citation(body: _LinkCitationBody) -> dict:
+        """Assert that cited reference `index` IS library paper `paper_id`.
+
+        Records a durable manual link (match_kind="manual") that survives
+        coverage recompute and reverts if the paper is later deleted, and
+        backfills the paper's YEAR (year-only) from the citation so it lands on
+        the timeline. Returns the full updated coverage dict.
+        """
+        from research_companion import store
+        from research_companion.agents.events import CitationCoverageUpdated
+        from research_companion.citations_coverage import (
+            _recount,
+            compute_coverage,
+            is_stale,
+            load_coverage,
+            save_coverage,
+        )
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            raise HTTPException(status_code=400, detail="No draft set")
+
+        meta = await asyncio.to_thread(store.PaperMetadata.load, body.paper_id)
+        if meta is None:
+            raise HTTPException(
+                status_code=404, detail=f"Paper not found: {body.paper_id!r}")
+
+        # Coverage read-modify-write stays inside the shared lock and persists
+        # exactly once so concurrent refresh/resolve jobs cannot clobber it.
+        async with app.state._coverage_lock:
+            payload = await asyncio.to_thread(load_coverage)
+            if await asyncio.to_thread(is_stale, payload, draft_id):
+                payload = await asyncio.to_thread(compute_coverage, draft_id)
+            refs = (payload or {}).get("references") or []
+            if not refs:
+                raise HTTPException(status_code=400, detail="No citations to link")
+            if body.index < 0 or body.index >= len(refs):
+                raise HTTPException(
+                    status_code=400, detail="citation index out of range")
+            rec = refs[body.index]
+            ref_year = rec.get("year")
+            rec["status"] = "in_library"
+            rec["matched_paper_id"] = body.paper_id
+            rec["match_kind"] = "manual"
+            _recount(payload)
+            await asyncio.to_thread(save_coverage, payload)
+
+        # Year-only backfill: never touch title/authors, only fill a missing
+        # year from a plausible citation year.
+        if (meta.year is None and isinstance(ref_year, int)
+                and 1900 <= ref_year <= 2100):
+            await asyncio.to_thread(
+                store.update_paper_metadata, body.paper_id, year=ref_year)
+
+        await bus.publish(CitationCoverageUpdated(
+            draft_paper_id=draft_id, **payload["counts"]))
+        _schedule_coverage_refresh()
+        return payload
 
     # -----------------------------------------------------------------
     # GET /api/draft/alignment
