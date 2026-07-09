@@ -1400,7 +1400,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         from research_companion import store
         from research_companion.lab import scan_pdfs
 
-        folder = Path(body.folder)
+        folder_str = body.folder.strip() if body.folder else ""
+        if not folder_str:
+            raise HTTPException(status_code=400, detail="folder is required")
+        folder = Path(folder_str)
         try:
             pdfs = await asyncio.to_thread(scan_pdfs, folder)
         except ValueError as exc:

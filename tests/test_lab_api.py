@@ -727,6 +727,13 @@ class TestIngestScan:
         resp = c.post("/api/ingest/scan", json={"folder": "/no/such/folder/xyz"})
         assert resp.status_code == 400
 
+    def test_empty_folder_string_returns_400(self, isolated_papergraph_dir):
+        # An empty/blank folder must 400 (like /api/ingest), not silently scan cwd.
+        c = _make_client()
+        for val in ("", "   "):
+            resp = c.post("/api/ingest/scan", json={"folder": val})
+            assert resp.status_code == 400, val
+
     def test_empty_folder(self, isolated_papergraph_dir, tmp_path):
         folder = tmp_path / "pdfs"
         folder.mkdir()
