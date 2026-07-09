@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.10 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.11 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -357,10 +357,12 @@ and a "Do this next" card driven by simple rules.
 
 Type a question in **Ask**; the tool ranks all paper sections and sends only
 the best slices to the model. Answers come back with numbered citation chips
-(hover for a mini-card, click through to the paper), a grounding strip
-("Grounded in 6 sources across 2 papers"), and a warning panel listing any
-quoted span that could not be verified against the sources. Questions can be
-scoped to a single section of your draft.
+(hover for a mini-card; **click through to open the source paper in the
+reader, scrolled to and highlighting the exact passage the answer drew
+from** — verify it yourself, not just "somewhere in this paper"), a
+grounding strip ("Grounded in 6 sources across 2 papers"), and a warning
+panel listing any quoted span that could not be verified against the
+sources. Questions can be scoped to a single section of your draft.
 
 **Hybrid semantic search:** add a free Hugging Face token in Settings and
 retrieval fuses BM25 with embedding similarity. Without the token, ranking
@@ -380,9 +382,10 @@ The floating chat button opens the Companion — a candid senior-colleague
 persona that can discuss any artifact: the review, a section's alignment, a
 specific suggestion (click **Discuss** on it), a gap, or a paper. Answers are
 grounded in retrieved sections with [S#] citations; quotes are verified
-verbatim; unverifiable spans are flagged, not hidden. Conversations persist
-on disk per research. With no review report yet, it degrades to a project
-overview — it always answers.
+verbatim; unverifiable spans are flagged, not hidden. Clicking a citation
+opens the reader at the exact source passage, the same span-jump as Ask.
+Conversations persist on disk per research. With no review report yet, it
+degrades to a project overview — it always answers.
 
 Each thread has a **Clear chat** button that wipes its history and deletes
 the conversation stored on disk — it works even if nothing has been

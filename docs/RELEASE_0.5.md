@@ -284,3 +284,25 @@ recall gap and gives every retrieved span exact provenance.
 **Upgrade notes:** none — purely additive; no store or settings migration.
 Existing papers benefit automatically the next time their sections are
 retrieved.
+
+## 0.5.11 — verifiable answers
+
+0.5.10 gave every chunk exact char-level provenance; 0.5.11 puts that
+provenance to work at the two places you actually read an answer, and
+finishes wiring semantic retrieval down to the same chunk granularity.
+
+- **Clickable citation → reader span jump.** Clicking a `[n]` citation chip
+  in **Ask** or the **Companion** no longer just opens the cited paper — it
+  opens the reader **scrolled to and highlighting the exact passage** the
+  answer drew from, using the citation's absolute character offsets. This is
+  the "verify it yourself" moment for Q&A that the reader (0.5.6) and
+  alignment quotes already had. Falls back to opening at the section, or the
+  paper, when offsets are absent or degenerate (e.g. older data).
+- **Chunk-level embeddings.** Semantic (embedding) retrieval now keys vectors
+  per `(section, chunk)` instead of per section, so each sub-chunk of a long
+  section is scored on its own content instead of inheriting one vector for
+  the whole section. This completes the Phase 2 sub-chunking work
+  (0.5.10) for the embedding path; only active when a Hugging Face token is
+  configured — the BM25 fallback is unchanged.
+
+**Upgrade notes:** none — purely additive; no store or settings migration.
