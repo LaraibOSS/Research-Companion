@@ -18,7 +18,7 @@ try:
     from importlib.metadata import version as _pkg_version
     __version__ = _pkg_version("research-companion")
 except Exception:  # uninstalled source tree
-    __version__ = "0.5.11"
+    __version__ = "0.5.12"
 
 
 def __getattr__(name: str):
