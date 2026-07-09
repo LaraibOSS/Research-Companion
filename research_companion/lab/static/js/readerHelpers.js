@@ -139,6 +139,37 @@ export function resolveActiveSection(payloadSections, targetId, quoteRange) {
  * @param {number[]|null} quoteRange — absolute [start, end]
  * @returns {number[]|null} relative [start, end] or null
  */
+/**
+ * Resolve the effective absolute quote range for the reader from an
+ * rc:open-reader event detail, preferring an explicit [charStart, charEnd]
+ * span (the Q&A citation "verify it yourself" path) over any quote_range the
+ * text payload located.
+ *
+ * A detail range is used only when both offsets are finite numbers and
+ * end > start; zero/degenerate/reversed ranges (e.g. old citations with
+ * char_start == char_end == 0) are ignored and we fall back to the payload
+ * range. Returns null when neither yields a usable range.
+ *
+ * @param {{charStart?: number, charEnd?: number}|null} detail
+ * @param {number[]|null} payloadQuoteRange — from the /text payload (quote_range)
+ * @returns {number[]|null} absolute [start, end] or null
+ */
+export function effectiveQuoteRange(detail, payloadQuoteRange) {
+  const d = detail || {};
+  const start = d.charStart;
+  const end = d.charEnd;
+  if (
+    typeof start === 'number' && typeof end === 'number'
+    && Number.isFinite(start) && Number.isFinite(end)
+    && end > start
+  ) {
+    return [start, end];
+  }
+  return (Array.isArray(payloadQuoteRange) && payloadQuoteRange.length >= 2)
+    ? payloadQuoteRange
+    : null;
+}
+
 export function quoteRangeWithinSection(sectionCharStart, sectionText, quoteRange) {
   if (!Array.isArray(quoteRange) || quoteRange.length < 2) return null;
   const len = typeof sectionText === 'string' ? sectionText.length : 0;

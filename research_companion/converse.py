@@ -588,6 +588,9 @@ def converse(
                 section_id=u["section_id"],
                 section_title=u["section_title"],
                 score=s,
+                char_start=u.get("char_start", 0),
+                char_end=u.get("char_end", 0),
+                chunk_index=u.get("chunk_index", 0),
             )
             for u, s in zip(top_units, top_scores, strict=False)
         ]
@@ -650,6 +653,11 @@ def converse(
             "section_id": s.section_id,
             "section_title": s.section_title,
             "cited": (s.paper_id, s.section_id) in cited_ids,
+            # Absolute source offsets for exact-span reader highlighting
+            # (mirrors /api/ask — Phase 3 Task B).
+            "char_start": s.char_start,
+            "char_end": s.char_end,
+            "chunk_index": s.chunk_index,
         }
         for i, s in enumerate(qa_sources)
     ]

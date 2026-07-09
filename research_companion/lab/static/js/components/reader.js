@@ -3,12 +3,14 @@
  *
  * A wide, modal reading surface (distinct from the 420px drawer). Mounted ONCE
  * from main.js. It is the sole listener for CustomEvent('rc:open-reader',
- * { detail: { paperId, sectionId?, quote?, title? } }) — click surfaces (Task 4)
- * only dispatch the event; all fetch logic lives here.
+ * { detail: { paperId, sectionId?, quote?, charStart?, charEnd?, title? } }) —
+ * click surfaces (Task 4) only dispatch the event; all fetch logic lives here.
  *
  * On open it fetches GET /api/papers/{id}/text?q=<quote>, splits the text into
  * sections via readerHelpers, and renders a section nav + reading column with an
- * optional <mark> around the located quote.
+ * optional <mark> around the highlighted span. When the caller supplies an
+ * explicit absolute [charStart, charEnd] span (e.g. a Q&A citation chip) that
+ * range is highlighted directly — no ?q= locate needed.
  */
 
 import * as store from '../store.js';
@@ -20,6 +22,7 @@ import {
   sectionNav,
   resolveActiveSection,
   quoteRangeWithinSection,
+  effectiveQuoteRange,
   hasReadableText,
 } from '../readerHelpers.js';
 
@@ -173,9 +176,14 @@ function _renderContent(payload, detail) {
   const headerTitle = (payload && payload.title) || detail.title || model.title;
   _panel.setAttribute('aria-label', `Reading: ${headerTitle}`);
 
+  // Effective highlight range: an explicit detail [charStart, charEnd] (the
+  // Q&A citation exact-span path) wins over any quote_range the payload
+  // located; degenerate detail ranges fall back to the payload range.
+  const effectiveRange = effectiveQuoteRange(detail, model.quoteRange);
+
   // Resolve which section to highlight on the RAW (offset-bearing) sections,
   // then confirm the id survives into the model (empty sections may be dropped).
-  let activeId = resolveActiveSection(rawSections, detail.sectionId, model.quoteRange);
+  let activeId = resolveActiveSection(rawSections, detail.sectionId, effectiveRange);
   const modelIds = model.sections.map(s => s.id);
   if (!modelIds.includes(activeId)) activeId = model.sections.length ? model.sections[0].id : null;
 
@@ -222,7 +230,7 @@ function _renderContent(payload, detail) {
     const tag = s.level >= 2 ? 'h4' : 'h3';
     let textHtml;
     const rel = isActive
-      ? quoteRangeWithinSection(charStartById[s.id] || 0, s.text, model.quoteRange)
+      ? quoteRangeWithinSection(charStartById[s.id] || 0, s.text, effectiveRange)
       : null;
     if (rel) {
       const before = escapeHtml(s.text.slice(0, rel[0]));

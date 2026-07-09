@@ -19,6 +19,7 @@ const {
   resolveActiveSection,
   quoteRangeWithinSection,
   hasReadableText,
+  effectiveQuoteRange,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'readerHelpers.js')).href
 );
@@ -224,4 +225,38 @@ test('hasReadableText: false for empty/absent model', () => {
   assert.equal(hasReadableText({ sections: [] }), false);
   assert.equal(hasReadableText({}), false);
   assert.equal(hasReadableText(null), false);
+});
+
+// -----------------------------------------------------------------------
+// effectiveQuoteRange
+// -----------------------------------------------------------------------
+
+test('effectiveQuoteRange: explicit detail range wins over payload', () => {
+  assert.deepEqual(effectiveQuoteRange({ charStart: 12, charEnd: 40 }, [1, 5]), [12, 40]);
+});
+
+test('effectiveQuoteRange: explicit range at offset 0 is honoured', () => {
+  assert.deepEqual(effectiveQuoteRange({ charStart: 0, charEnd: 8 }, null), [0, 8]);
+});
+
+test('effectiveQuoteRange: falls back to payload quote_range when no detail range', () => {
+  assert.deepEqual(effectiveQuoteRange({}, [3, 9]), [3, 9]);
+  assert.deepEqual(effectiveQuoteRange({ quote: 'x' }, [3, 9]), [3, 9]);
+});
+
+test('effectiveQuoteRange: zero/degenerate detail range ignored, falls back', () => {
+  assert.deepEqual(effectiveQuoteRange({ charStart: 0, charEnd: 0 }, [2, 6]), [2, 6]);
+  assert.deepEqual(effectiveQuoteRange({ charStart: 50, charEnd: 50 }, [2, 6]), [2, 6]);
+  assert.deepEqual(effectiveQuoteRange({ charStart: 40, charEnd: 10 }, [2, 6]), [2, 6]);
+});
+
+test('effectiveQuoteRange: non-numeric detail range ignored', () => {
+  assert.deepEqual(effectiveQuoteRange({ charStart: '12', charEnd: '40' }, [2, 6]), [2, 6]);
+  assert.equal(effectiveQuoteRange({ charStart: NaN, charEnd: 40 }, null), null);
+});
+
+test('effectiveQuoteRange: null everywhere is null', () => {
+  assert.equal(effectiveQuoteRange({}, null), null);
+  assert.equal(effectiveQuoteRange(null, null), null);
+  assert.equal(effectiveQuoteRange(null, undefined), null);
 });

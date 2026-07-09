@@ -788,6 +788,33 @@ class TestAsk:
             assert "section_title" in cit
             assert "cited" in cit
 
+    def test_citations_include_char_offsets(self, isolated_papergraph_dir):
+        """Each /api/ask citation carries the absolute source offsets so the
+        reader can highlight the exact span (Phase 3 Task B)."""
+        from research_companion import store
+        paper_id = "arxiv:1111.22222"
+        _make_paper(isolated_papergraph_dir, paper_id, "My Paper")
+        c = _make_client(llm=_fake_qa_llm)
+        resp = c.post("/api/ask", json={"question": "What is this paper about?"})
+        assert resp.status_code == 200
+        citations = resp.json()["citations"]
+        assert citations, "expected at least one citation for a seeded paper"
+        for cit in citations:
+            assert "char_start" in cit
+            assert "char_end" in cit
+            assert "chunk_index" in cit
+            assert isinstance(cit["char_start"], int)
+            assert isinstance(cit["char_end"], int)
+            assert isinstance(cit["chunk_index"], int)
+        # Cross-check the values equal the retrieved source offsets: the seeded
+        # paper has no sections.json, so its whole text is one Full-Text chunk
+        # at [0, len(text)).
+        text = store.load_text(paper_id)
+        first = citations[0]
+        assert first["char_start"] == 0
+        assert first["char_end"] == len(text)
+        assert first["chunk_index"] == 0
+
 
 # ---------------------------------------------------------------------------
 # POST /api/compare
@@ -2457,6 +2484,32 @@ class TestConverseEndpoint:
             assert "section_id" in cit
             assert "section_title" in cit
             assert "cited" in cit
+
+    def test_citations_include_char_offsets(self, isolated_papergraph_dir):
+        """Converse citations mirror /api/ask: they carry absolute source
+        offsets for exact-span reader highlighting (Phase 3 Task B)."""
+        from research_companion import store
+        paper_id = self._seed_review(isolated_papergraph_dir)
+        c = _make_client(llm=_fake_converse_llm)
+        resp = c.post("/api/converse", json={
+            "context": {"type": "review", "id": paper_id},
+            "message": "What is this paper about?",
+        })
+        assert resp.status_code == 200
+        citations = resp.json()["citations"]
+        assert citations, "expected at least one retrieved source"
+        for cit in citations:
+            assert "char_start" in cit
+            assert "char_end" in cit
+            assert "chunk_index" in cit
+            assert isinstance(cit["char_start"], int)
+            assert isinstance(cit["char_end"], int)
+            assert isinstance(cit["chunk_index"], int)
+        text = store.load_text(paper_id)
+        first = citations[0]
+        assert first["char_start"] == 0
+        assert first["char_end"] == len(text)
+        assert first["chunk_index"] == 0
 
     def test_app_state_llm_used(self, isolated_papergraph_dir):
         """When app.state.llm is set, converse endpoint uses it."""

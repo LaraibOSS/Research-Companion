@@ -6,8 +6,10 @@
  *   const cleanup = attachCiteHandlers(containerEl, (n) => citationsArray.find(c => c.n === n));
  *   // call cleanup() when the container is torn down
  *
- * Drawer opening uses the rc:open-paper / __rcPendingPaper handoff so it works
- * even when the library view hasn't mounted yet (landed in d25b1a1).
+ * Clicking a chip dispatches rc:open-reader so the paper reader opens at the
+ * exact source span (using the citation's absolute char offsets) — the
+ * "verify it yourself" moment for Q&A. Falls back to opening at the section
+ * (or the paper) when offsets are absent/degenerate (e.g. old data).
  */
 
 import { escapeHtml } from '../format.js';
@@ -47,18 +49,21 @@ function _showMiniCard(chip, citation) {
   card.style.top = `${rect.bottom + 6}px`;
 }
 
-function _openPaperDrawer(paperId) {
-  // Use the rc:open-paper handoff (landed in d25b1a1).
-  // Setting __rcPendingPaper first handles the arrive-before-mount race.
-  window.__rcPendingPaper = paperId;
-  window.dispatchEvent(new CustomEvent('rc:open-paper', {
-    detail: { paperId },
-    bubbles: false,
+function _openCitationInReader(citation) {
+  // Open the reader at the exact source span. reader.js is mounted once at
+  // boot and is the sole listener for rc:open-reader; it highlights an
+  // explicit [charStart, charEnd] range directly (no ?q= locate). When the
+  // offsets are absent/zero it still opens at the section (sectionId), or the
+  // paper if there's no section either.
+  window.dispatchEvent(new CustomEvent('rc:open-reader', {
+    detail: {
+      paperId: citation.paper_id,
+      sectionId: citation.section_id,
+      charStart: citation.char_start,
+      charEnd: citation.char_end,
+      title: citation.title,
+    },
   }));
-  // Navigate to library so library.js mounts and picks up the pending paper
-  if (window.location.hash !== '#/library') {
-    window.location.hash = '#/library';
-  }
 }
 
 /**
@@ -67,7 +72,8 @@ function _openPaperDrawer(paperId) {
  * @param {HTMLElement} containerEl  — element containing .cite chips
  * @param {(n: number) => object|null} resolveCitation
  *   — called with the chip's data-n value; should return the citation object
- *     { n, paper_id, title, section_title, cited } or null
+ *     { n, paper_id, title, section_id, section_title, cited, char_start,
+ *       char_end } or null
  * @returns {() => void}  cleanup — removes all event listeners
  */
 export function attachCiteHandlers(containerEl, resolveCitation) {
@@ -90,7 +96,7 @@ export function attachCiteHandlers(containerEl, resolveCitation) {
     const citation = resolveCitation(n);
     if (!citation) return;
     _hideMiniCard();
-    _openPaperDrawer(citation.paper_id);
+    _openCitationInReader(citation);
   }
 
   containerEl.addEventListener('mouseover', onMouseover);

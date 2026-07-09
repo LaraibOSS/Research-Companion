@@ -1542,6 +1542,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 "section_id": s.section_id,
                 "section_title": s.section_title,
                 "cited": (s.paper_id, s.section_id) in cited_ids,
+                # Absolute source offsets so the citation chip can open the
+                # reader at the exact evidence span (Phase 3 Task B).
+                "char_start": s.char_start,
+                "char_end": s.char_end,
+                "chunk_index": s.chunk_index,
             }
             for i, s in enumerate(result.sources)
         ]
