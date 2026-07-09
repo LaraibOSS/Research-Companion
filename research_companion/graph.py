@@ -224,6 +224,25 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
             if target is not None and target != meta.paper_id:
                 G.add_edge(meta.paper_id, target, relation="cites")
 
+    # Entity provenance (additive): attach the sorted set of contributing
+    # paper_ids + count to every entity node, derived from its contains-edges.
+    # Node ids and existing attrs/edges are untouched.
+    entity_papers: dict[str, set[str]] = defaultdict(set)
+    for u, v, d in G.edges(data=True):
+        if d.get("relation") != "contains":
+            continue
+        # contains edges run paper -> entity; find the paper endpoint.
+        if G.nodes[u].get("kind") == "paper":
+            paper_node, entity_node = u, v
+        elif G.nodes[v].get("kind") == "paper":
+            paper_node, entity_node = v, u
+        else:
+            continue
+        entity_papers[entity_node].add(paper_node)
+    for nid, pids in entity_papers.items():
+        G.nodes[nid]["papers"] = sorted(pids)
+        G.nodes[nid]["paper_count"] = len(pids)
+
     # co_mentioned edges: when 2 concepts share >= 2 papers.
     concept_ids = list(concept_to_papers.keys())
     for i, a in enumerate(concept_ids):

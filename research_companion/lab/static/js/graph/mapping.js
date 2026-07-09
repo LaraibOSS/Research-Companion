@@ -102,6 +102,28 @@ export function nodeToVis(node) {
 }
 
 /**
+ * Provenance summary for a non-paper entity node: which papers it appears in.
+ * Pure/DOM-free — the caller escapes `label` and each `items` string.
+ *
+ * @param {{ kind?: string, paper_count?: number, papers?: string[] }} node
+ * @param {Map<string, { title?: string }>} [papersMap]  store.papers (id -> paper)
+ * @returns {{ count: number, label: string, items: string[] }|null}
+ *          null for paper/synthetic nodes or nodes lacking provenance.
+ */
+export function entityProvenanceLabel(node, papersMap) {
+  if (!node || node.kind === 'paper') return null;
+  const count = node.paper_count;
+  if (typeof count !== 'number' || count < 1) return null;
+  const label = `Appears in ${count} paper${count === 1 ? '' : 's'}`;
+  const ids = Array.isArray(node.papers) ? node.papers : [];
+  const items = ids.map((id) => {
+    const p = papersMap && typeof papersMap.get === 'function' ? papersMap.get(id) : null;
+    return (p && p.title) ? p.title : id;
+  });
+  return { count, label, items };
+}
+
+/**
  * Convert an API graph edge to a vis-network edge descriptor.
  * No always-on text label; the relation stays available on hover (`title`)
  * and in the edge-click detail panel.

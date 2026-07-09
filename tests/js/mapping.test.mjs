@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
-const { KIND_COLORS, KIND_SHAPES, KIND_SIZES, nodeToVis, edgeToVis } = await import(
+const { KIND_COLORS, KIND_SHAPES, KIND_SIZES, nodeToVis, edgeToVis, entityProvenanceLabel } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'graph', 'mapping.js')).href
 );
 
@@ -96,6 +96,35 @@ test('nodeToVis preserves id and label', () => {
   const vis = nodeToVis(node);
   assert.equal(vis.id, 'my-id');
   assert.equal(vis.label, 'My Result');
+});
+
+// --- entityProvenanceLabel ---
+test('entityProvenanceLabel resolves titles from the papers map, ids otherwise', () => {
+  const papersMap = new Map([['p1', { title: 'First Paper' }]]);
+  const node = { kind: 'concept', paper_count: 2, papers: ['p1', 'p2'] };
+  const prov = entityProvenanceLabel(node, papersMap);
+  assert.equal(prov.count, 2);
+  assert.equal(prov.label, 'Appears in 2 papers');
+  assert.deepEqual(prov.items, ['First Paper', 'p2']);
+});
+
+test('entityProvenanceLabel uses singular for one paper', () => {
+  const node = { kind: 'method', paper_count: 1, papers: ['p1'] };
+  const prov = entityProvenanceLabel(node, new Map());
+  assert.equal(prov.label, 'Appears in 1 paper');
+  assert.deepEqual(prov.items, ['p1']);
+});
+
+test('entityProvenanceLabel returns null for paper nodes and missing provenance', () => {
+  assert.equal(entityProvenanceLabel({ kind: 'paper', paper_count: 3, papers: ['a'] }), null);
+  assert.equal(entityProvenanceLabel({ kind: 'concept' }), null);
+  assert.equal(entityProvenanceLabel(null), null);
+});
+
+test('entityProvenanceLabel tolerates a missing/invalid papers map', () => {
+  const node = { kind: 'dataset', paper_count: 1, papers: ['p9'] };
+  assert.deepEqual(entityProvenanceLabel(node).items, ['p9']);
+  assert.deepEqual(entityProvenanceLabel(node, {}).items, ['p9']);
 });
 
 // --- edgeToVis: quiet edges, no always-on labels ---

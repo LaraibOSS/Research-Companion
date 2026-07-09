@@ -1079,6 +1079,34 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
   color: var(--color-fg);
 }
 
+.graph-detail-provenance {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border, rgba(110, 118, 129, 0.3));
+}
+
+.graph-detail-prov-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-fg);
+}
+
+.graph-detail-prov-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.graph-detail-prov-item {
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  color: var(--color-muted);
+}
+
 .graph-open-library {
   align-self: flex-start;
   margin-top: 4px;

@@ -68,6 +68,58 @@ def test_build_graph_merges_duplicate_concepts():
     assert G.nodes[mid]["label"] == "GraphRAG"
 
 
+def test_entity_nodes_carry_paper_provenance():
+    """Every entity node tracks the sorted set of contributing paper_ids + count."""
+    ext_a = {
+        "concepts": [{"name": "RAG", "definition": "..."}],
+        "methods": [{"name": "GraphRAG", "description": "X"}],
+        "datasets": [{"name": "HotpotQA", "description": "..."}],
+        "claims": [], "results": [], "related_work": [],
+    }
+    ext_b = {
+        "concepts": [{"name": "RAG", "definition": "..."}],
+        "methods": [{"name": "graphrag", "description": "Y"}],
+        "datasets": [], "claims": [], "results": [], "related_work": [],
+    }
+    # Seed out of order to prove the papers list is sorted, not insertion-ordered.
+    _seed_paper("arxiv:2410.00002", "Paper B", ext_b)
+    _seed_paper("arxiv:2410.00001", "Paper A", ext_a)
+
+    G = graph.build_graph()
+
+    # Concept + method shared by both papers -> both ids, sorted.
+    concept_id = graph._node_id("concept", graph._norm("RAG"))
+    assert G.nodes[concept_id]["papers"] == ["arxiv:2410.00001", "arxiv:2410.00002"]
+    assert G.nodes[concept_id]["paper_count"] == 2
+    method_id = graph._node_id("method", graph._norm("GraphRAG"))
+    assert G.nodes[method_id]["papers"] == ["arxiv:2410.00001", "arxiv:2410.00002"]
+    assert G.nodes[method_id]["paper_count"] == 2
+
+    # Single-paper dataset.
+    dataset_id = graph._node_id("dataset", graph._norm("HotpotQA"))
+    assert G.nodes[dataset_id]["papers"] == ["arxiv:2410.00001"]
+    assert G.nodes[dataset_id]["paper_count"] == 1
+
+    # Paper nodes carry no provenance attrs (additive to entities only).
+    assert "paper_count" not in G.nodes["arxiv:2410.00001"]
+    assert "papers" not in G.nodes["arxiv:2410.00001"]
+
+
+def test_serialize_graph_carries_entity_provenance(sample_extraction: dict):
+    """serialize_graph bundles papers/paper_count into each entity node's attrs."""
+    _seed_paper("arxiv:2410.00001", "Paper A", sample_extraction)
+    G = graph.build_graph()
+    data = graph.serialize_graph(G)
+
+    entity = next(n for n in data["nodes"] if n["kind"] == "concept")
+    assert entity["attrs"]["paper_count"] == 1
+    assert entity["attrs"]["papers"] == ["arxiv:2410.00001"]
+
+    paper = next(n for n in data["nodes"] if n["kind"] == "paper")
+    assert "paper_count" not in paper["attrs"]
+    assert "papers" not in paper["attrs"]
+
+
 def test_build_graph_co_mentioned_edges():
     """Two concepts appearing in 2+ papers get a co_mentioned edge."""
     ext = {

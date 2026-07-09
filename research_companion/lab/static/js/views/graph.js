@@ -11,7 +11,7 @@
 import * as store from '../store.js';
 import * as api from '../api.js';
 import { escapeHtml } from '../format.js';
-import { nodeToVis, edgeToVis, KIND_COLORS } from '../graph/mapping.js';
+import { nodeToVis, edgeToVis, KIND_COLORS, entityProvenanceLabel } from '../graph/mapping.js';
 import * as graphEngine from '../graph/graphview.js';
 import {
   buildDraftModel, layoutDraftEgo, makeDraftPredicate, collectPaperEntities,
@@ -1047,6 +1047,21 @@ function _showNodeDetail(node) {
 
   if (attrRows.length > 0) {
     html += `<div class="graph-detail-attrs">${attrRows.join('')}</div>`;
+  }
+
+  // Entity provenance — "Appears in N papers" + the contributing papers
+  // (titles resolved from the store when possible, ids otherwise).
+  const prov = entityProvenanceLabel(node, store.getState().papers);
+  if (prov) {
+    const items = prov.items
+      .map(s => `<li class="graph-detail-prov-item">${escapeHtml(s)}</li>`)
+      .join('');
+    html += `
+      <div class="graph-detail-provenance">
+        <div class="graph-detail-prov-label">${escapeHtml(prov.label)}</div>
+        ${items ? `<ul class="graph-detail-prov-list">${items}</ul>` : ''}
+      </div>
+    `;
   }
 
   // "Open in Library" + "Read paper" for paper nodes
