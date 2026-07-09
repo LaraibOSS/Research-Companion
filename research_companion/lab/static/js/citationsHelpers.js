@@ -153,3 +153,33 @@ export function linkTargetOptions(papers, draftId) {
 
   return decorated.map(({ paperId, label }) => ({ paperId, label }));
 }
+
+/**
+ * Build the option list for the library-drawer reverse picker ("This is a cited
+ * reference…"): every cited reference the user could still link this paper to —
+ * i.e. any reference NOT already resolved to a library paper.
+ *
+ * Titles & years here come from the DRAFT's citations, not the papers
+ * themselves, so labels use the draft-side title/raw + year only.
+ *
+ * @param {object|null} coverage — GET /api/draft/citations payload (or null)
+ * @returns {Array<{ index: number, label: string }>}
+ *   label = "<title|raw truncated ~70> (<year>)" — the " (year)" suffix is
+ *   appended only when a year is present. Preserves entry.index (the coverage
+ *   index the link endpoint expects). Returns [] for null/empty/no-references.
+ */
+export function unlinkedCitationOptions(coverage) {
+  const refs = coverage && Array.isArray(coverage.references) ? coverage.references : [];
+  const out = [];
+  for (const entry of refs) {
+    if (!entry || entry.status === 'in_library') continue;
+    const base = entry.title || entry.raw || '';
+    const text = base.length > 70 ? base.slice(0, 69) + '…' : base;
+    const hasYear = entry.year !== null && entry.year !== undefined && entry.year !== '';
+    out.push({
+      index: entry.index,
+      label: hasYear ? `${text} (${entry.year})` : text,
+    });
+  }
+  return out;
+}

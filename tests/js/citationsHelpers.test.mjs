@@ -23,6 +23,7 @@ const {
   availableEntries,
   groupByStatus,
   linkTargetOptions,
+  unlinkedCitationOptions,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'citationsHelpers.js')).href
 );
@@ -270,6 +271,59 @@ test('linkTargetOptions: accepts a Map (store shape) of papers', () => {
   const opts = linkTargetOptions(map, 'p-draft');
   assert.equal(opts.length, 3);
   assert.ok(!opts.some(o => o.paperId === 'p-draft'));
+});
+
+// -----------------------------------------------------------------------
+// unlinkedCitationOptions — options for the library-drawer reverse picker
+// (v0.5.8 Task 3)
+// -----------------------------------------------------------------------
+
+const UNLINKED_REFS = {
+  references: [
+    { index: 0, title: 'Already In Library', year: 2020, status: 'in_library' },
+    { index: 1, title: 'Available Paper',    year: 2021, status: 'available' },
+    { index: 2, raw: 'Unchecked raw citation text', status: 'unchecked' },
+    { index: 3, title: 'Unresolved Paper',   year: 2019, status: 'unresolved' },
+  ],
+};
+
+test('unlinkedCitationOptions: null / empty / no-references coverage returns []', () => {
+  assert.deepEqual(unlinkedCitationOptions(null), []);
+  assert.deepEqual(unlinkedCitationOptions(undefined), []);
+  assert.deepEqual(unlinkedCitationOptions({}), []);
+  assert.deepEqual(unlinkedCitationOptions({ references: [] }), []);
+});
+
+test('unlinkedCitationOptions: excludes in_library references', () => {
+  const opts = unlinkedCitationOptions(UNLINKED_REFS);
+  assert.ok(!opts.some(o => o.index === 0), 'in_library ref must be excluded');
+});
+
+test('unlinkedCitationOptions: includes available/unchecked/unresolved, index preserved', () => {
+  const opts = unlinkedCitationOptions(UNLINKED_REFS);
+  assert.deepEqual(opts.map(o => o.index), [1, 2, 3]);
+});
+
+test('unlinkedCitationOptions: label appends year when present', () => {
+  const opts = unlinkedCitationOptions(UNLINKED_REFS);
+  const avail = opts.find(o => o.index === 1);
+  assert.equal(avail.label, 'Available Paper (2021)');
+});
+
+test('unlinkedCitationOptions: label omits year when absent, falls back to raw', () => {
+  const opts = unlinkedCitationOptions(UNLINKED_REFS);
+  const unchecked = opts.find(o => o.index === 2);
+  assert.equal(unchecked.label, 'Unchecked raw citation text');
+});
+
+test('unlinkedCitationOptions: truncates long titles to ~70 chars', () => {
+  const longTitle = 'A'.repeat(120);
+  const opts = unlinkedCitationOptions({
+    references: [{ index: 5, title: longTitle, status: 'available' }],
+  });
+  assert.equal(opts.length, 1);
+  assert.ok(opts[0].label.length <= 70, 'label body should be truncated');
+  assert.ok(opts[0].label.endsWith('…'), 'truncated label ends with ellipsis');
 });
 
 // -----------------------------------------------------------------------

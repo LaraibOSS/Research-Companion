@@ -11,6 +11,7 @@ import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../
 import { openModal } from '../components/ingestModal.js';
 import { buildRows, sortRows, draftActionFor } from '../libraryHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
+import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
 let _el = null;
 let _unsubscribe = null;
@@ -534,6 +535,7 @@ async function _openDrawer(paperId, { edit = false } = {}) {
     <div class="drawer-section drawer-actions">
       <div class="drawer-section-title">Actions</div>
       <button class="btn btn-secondary btn-full" id="drawer-edit-meta">Edit metadata</button>
+      <button class="btn btn-secondary btn-full" id="drawer-link-citation">This is a cited reference…</button>
       <button class="btn btn-secondary btn-full" id="drawer-set-draft">${escapeHtml(draftAction.label)}</button>
       <button class="btn btn-secondary btn-full" id="drawer-read">Read</button>
       <button class="btn btn-secondary btn-full" id="drawer-compare">Compare with...</button>
@@ -585,8 +587,139 @@ async function _openDrawer(paperId, { edit = false } = {}) {
     editBtn.addEventListener('click', () => _startMetadataEdit(paperId));
   }
 
+  const linkBtn = content.querySelector('#drawer-link-citation');
+  if (linkBtn) {
+    _setupCitationLinkControl(linkBtn, paperId);
+  }
+
   // Optionally open straight into edit mode (from the "Needs metadata" pill).
   if (edit) _startMetadataEdit(paperId);
+}
+
+// ---------------------------------------------------------------------------
+// Drawer "This is a cited reference…" reverse-link picker (v0.5.8 Task 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Prepare the "This is a cited reference…" button: ensure citation coverage is
+ * loaded (lazy-fetch if absent), then either disable the button when there are
+ * no unlinked citations / no draft, or wire it to toggle the inline picker.
+ * @param {HTMLElement} btn
+ * @param {string} paperId — the paper the drawer is showing
+ */
+async function _setupCitationLinkControl(btn, paperId) {
+  let coverage = store.getState().citationCoverage;
+  if (!coverage) {
+    try {
+      const data = await api.getDraftCitations();
+      if (data) store.setCitationCoverage(data);
+    } catch {
+      // Leave coverage null — the disabled branch below handles it.
+    }
+    coverage = store.getState().citationCoverage;
+  }
+
+  const hasDraft = !!(coverage && coverage.draft_paper_id);
+  const options = unlinkedCitationOptions(coverage);
+  if (!hasDraft || options.length === 0) {
+    btn.disabled = true;
+    btn.title = hasDraft ? 'No unlinked citations' : 'No draft is set';
+    return;
+  }
+
+  btn.addEventListener('click', () => _toggleCitationLinkPicker(btn, paperId));
+}
+
+/**
+ * Toggle the inline picker directly under the button. Mirrors the citationsPanel
+ * "Link…" picker markup/classes.
+ * @param {HTMLElement} btn
+ * @param {string} paperId
+ */
+function _toggleCitationLinkPicker(btn, paperId) {
+  const content = document.getElementById('drawer-content');
+  if (!content) return;
+  const existing = content.querySelector('.citations-link-picker');
+  if (existing) {            // toggle off
+    existing.remove();
+    return;
+  }
+  const options = unlinkedCitationOptions(store.getState().citationCoverage);
+  btn.insertAdjacentElement('afterend', _buildCitationLinkPicker(options, paperId));
+}
+
+/**
+ * Build the disclaimer + <select> picker of unlinked cited references. On
+ * `change`, assert this paper IS the selected reference via api.linkCitation,
+ * refresh coverage + the library snapshot (backfilled year), then re-render the
+ * drawer. Option text uses textContent, so no manual escaping is required.
+ * @param {Array<{ index: number, label: string }>} options
+ * @param {string} paperId
+ * @returns {HTMLElement}
+ */
+function _buildCitationLinkPicker(options, paperId) {
+  const wrap = document.createElement('div');
+  wrap.className = 'citations-link-picker';
+
+  const disclaimer = document.createElement('div');
+  disclaimer.className = 'citations-link-disclaimer';
+  disclaimer.textContent =
+    "Titles & years here come from your draft's citations, not the papers themselves.";
+  wrap.appendChild(disclaimer);
+
+  const select = document.createElement('select');
+  select.className = 'citations-link-select';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Pick the cited reference…';
+  select.appendChild(placeholder);
+  for (const opt of options) {
+    const o = document.createElement('option');
+    o.value = String(opt.index);
+    o.textContent = opt.label;
+    select.appendChild(o);
+  }
+
+  select.addEventListener('change', async () => {
+    if (!select.value) return;             // ignore the placeholder
+    const index = Number(select.value);
+    select.disabled = true;
+    try {
+      const payload = await api.linkCitation(index, paperId);
+      store.setCitationCoverage(payload);
+      // Refresh the library snapshot so any server-side year backfill shows.
+      try {
+        const fresh = await api.getPapers();
+        _refreshPapers(fresh);
+      } catch (e) {
+        console.warn('[library] papers refresh failed', e);
+      }
+      showToast('Linked to citation', 'info');
+      // Re-render the drawer so the new year / removed "Needs metadata" reflect.
+      _openDrawer(paperId);
+    } catch (err) {
+      showToast(err.message || 'Link failed', 'error');
+      select.disabled = false;
+    }
+  });
+
+  wrap.appendChild(select);
+  return wrap;
+}
+
+/**
+ * Merge a fresh GET /api/papers array into the store's papers Map and notify.
+ * Mirrors the merge-and-notify pattern used by the metadata save + citationsPanel.
+ * @param {Array} papers
+ */
+function _refreshPapers(papers) {
+  if (!Array.isArray(papers)) return;
+  const s = store.getState();
+  for (const p of papers) {
+    if (!p || !p.paper_id) continue;
+    s.papers.set(p.paper_id, { ...s.papers.get(p.paper_id), ...p });
+  }
+  store.notify(['papers']);
 }
 
 // ---------------------------------------------------------------------------
