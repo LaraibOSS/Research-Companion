@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.9 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.10 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -365,6 +365,14 @@ scoped to a single section of your draft.
 **Hybrid semantic search:** add a free Hugging Face token in Settings and
 retrieval fuses BM25 with embedding similarity. Without the token, ranking
 is byte-identical to pure BM25 — a tested degradation contract.
+
+**Long sections are chunked, not truncated.** A section longer than roughly
+1200 characters is split into overlapping, boundary-aware sub-chunks before
+retrieval, and each chunk's full text is searchable — content deep in a long
+section is no longer invisible to keyword search. Every retrieved chunk
+carries its exact character span in the paper, so citation chips and the
+reader (section 11) can point to and highlight the precise passage an answer
+drew from, not just "somewhere in this section."
 
 ## 15. The Companion (chat)
 

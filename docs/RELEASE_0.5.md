@@ -256,3 +256,31 @@ local-first are written up in
 **Upgrade notes:** none — purely additive; no store or settings migration. The
 `[docling]` extra is optional; without it ingestion behaves as before except
 that scanned PDFs now fail honestly instead of entering empty.
+
+## 0.5.10 — sharper retrieval
+
+A retrieval unit used to be one whole section, and — a real latent defect —
+its BM25 tokens were built from only the **first 300 characters** of that
+section. A long section's opening paragraph was searchable; everything past
+it was invisible to keyword search no matter how relevant. 0.5.10 fixes the
+recall gap and gives every retrieved span exact provenance.
+
+- **Section-aware sub-chunking** (`research_companion/chunking.py`). Long
+  sections are split into overlapping, boundary-aware windows (~1200 chars,
+  150-char overlap) instead of being kept as one blob. Each chunk prefers to
+  end on a paragraph or sentence boundary rather than an arbitrary hard cut,
+  and a short trailing chunk is merged into its predecessor instead of
+  standing alone. A section at or below the target size still yields exactly
+  one chunk, so short sections are unaffected.
+- **The full-text tokenization fix.** BM25 now tokenizes the **entire text of
+  each chunk**, not the first 300 characters of the section it came from — so
+  content deep in a long section is finally findable by keyword search.
+- **Char-level evidence provenance.** Every chunk carries **absolute**
+  character offsets (`char_start`, `char_end`) into the paper's full text plus
+  a `chunk_index`, so retrieval sources cite precise, verifiable spans instead
+  of "somewhere in this section" — the same offsets the reader (section 11 of
+  the User Manual) uses to highlight exactly what was retrieved.
+
+**Upgrade notes:** none — purely additive; no store or settings migration.
+Existing papers benefit automatically the next time their sections are
+retrieved.
