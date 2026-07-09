@@ -21,18 +21,45 @@ class ParserError(RuntimeError):
     """
 
 
-# Module-level lazy singleton: docling's DocumentConverter is expensive to build
-# (loads models), so we construct it once and reuse it across papers.
+# Module-level lazy singletons: docling's DocumentConverter is expensive to build
+# (loads models), so we construct each variant once and reuse it across papers.
+# _CONVERTER is the normal (default-OCR) converter; _OCR_CONVERTER is a separate
+# converter configured for FORCED full-page OCR (used only as a fallback for
+# scanned/image-only PDFs whose normal extraction yields no usable text — it is
+# slow, so digital PDFs never touch it). The underlying models are shared.
 _CONVERTER = None
+_OCR_CONVERTER = None
 
 
 def _get_converter():
-    """Return the shared DocumentConverter, importing docling on first use."""
+    """Return the shared default DocumentConverter, importing docling on first use."""
     global _CONVERTER
     if _CONVERTER is None:
         from docling.document_converter import DocumentConverter
         _CONVERTER = DocumentConverter()
     return _CONVERTER
+
+
+def _get_ocr_converter():
+    """Return the shared forced-full-page-OCR DocumentConverter (lazy singleton).
+
+    Built with ``PdfPipelineOptions(do_ocr=True, ocr_options.force_full_page_ocr=
+    True)`` — the only configuration empirically shown to recover text from the
+    user's image-only scanned PDFs (docling's default region-based OCR returns
+    nothing on them). Slow (~minutes/paper), so this is a fallback path only.
+    """
+    global _OCR_CONVERTER
+    if _OCR_CONVERTER is None:
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        opts = PdfPipelineOptions()
+        opts.do_ocr = True
+        opts.ocr_options.force_full_page_ocr = True
+        _OCR_CONVERTER = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+        )
+    return _OCR_CONVERTER
 
 
 # Markdown image syntax + docling's HTML image placeholders — stripped so the
@@ -230,11 +257,15 @@ def _extract_meta(doc) -> dict:
 
 
 class DoclingParser:
-    name = "docling"
+    def __init__(self, full_page_ocr: bool = False):
+        # full_page_ocr selects the forced full-page OCR converter (fallback for
+        # scanned PDFs). Default stays the fast, layout-aware normal converter.
+        self.full_page_ocr = full_page_ocr
+        self.name = "docling+ocr" if full_page_ocr else "docling"
 
     def parse(self, pdf_path: Path) -> ParsedDoc:
         try:
-            converter = _get_converter()
+            converter = _get_ocr_converter() if self.full_page_ocr else _get_converter()
             result = converter.convert(str(pdf_path))
             doc = result.document
         except Exception as exc:  # docling runtime / model error -> clear parse failure

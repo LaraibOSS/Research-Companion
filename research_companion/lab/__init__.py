@@ -38,6 +38,13 @@ EMPTY_TEXT_ERROR = (
     "or add the paper's metadata by hand."
 )
 
+# Shown when the forced full-page OCR fallback ran (docling present) but STILL
+# recovered no usable text — the PDF is likely corrupt or genuinely text-free.
+OCR_FAILED_ERROR = (
+    "Could not extract text even with OCR — the PDF may be corrupt or "
+    "contain no recognizable text."
+)
+
 # Module-level lock to serialize graph read/write operations across concurrent tasks.
 _GRAPH_LOCK = asyncio.Lock()
 
@@ -179,7 +186,7 @@ async def ingest_one(
     """
     from research_companion import graph as _graph
     from research_companion import store
-    from research_companion.extract import get_paper_parsed
+    from research_companion.extract import get_paper_parsed, ocr_fallback_parse
     from research_companion.parsers import ParserError, text_quality
     from research_companion.sections import group_extraction_by_section
 
@@ -190,14 +197,25 @@ async def ingest_one(
     # -----------------------------------------------------------------------
     try:
         parsed = await asyncio.to_thread(get_paper_parsed, meta)
-        # Honesty gate: empty/degenerate text (scanned/image-only PDF) must fail
-        # here, never silently proceed to `done` with an empty text.txt.
+        # Honesty gate: empty/degenerate text (scanned/image-only PDF) must not
+        # silently proceed to `done` with an empty text.txt. Before failing, try
+        # a forced full-page OCR fallback — this recovers text from image-only
+        # scans (docling default OCR does not). It is slow, so it only runs on
+        # this failure path; digital PDFs that pass the gate never pay the cost.
         if not text_quality(parsed.text)["ok"]:
-            store.record_failure(path_str, {"stage": "extract", "error": EMPTY_TEXT_ERROR,
-                                            "paper_id": paper_id})
-            await bus.publish(IngestFailed(path=path_str, stage="extract",
-                                           error=EMPTY_TEXT_ERROR, paper_id=paper_id))
-            return False
+            await bus.publish(IngestProgress(done=0, total=0, current="OCR-ing scanned PDF…"))
+            ocr_parsed = await asyncio.to_thread(ocr_fallback_parse, meta)
+            if ocr_parsed is not None and text_quality(ocr_parsed.text)["ok"]:
+                parsed = ocr_parsed  # OCR recovered usable text -> continue as success
+            else:
+                # ocr_parsed is None -> docling not installed (advise install);
+                # otherwise OCR ran but still failed (corrupt/text-free PDF).
+                error = OCR_FAILED_ERROR if ocr_parsed is not None else EMPTY_TEXT_ERROR
+                store.record_failure(path_str, {"stage": "extract", "error": error,
+                                                "paper_id": paper_id})
+                await bus.publish(IngestFailed(path=path_str, stage="extract",
+                                               error=error, paper_id=paper_id))
+                return False
         # Prefer parser-provided (docling) structural sections; fall back to the
         # heuristic sectioner when the parser recovered none.
         paper_sections = None

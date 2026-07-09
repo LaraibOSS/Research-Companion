@@ -99,6 +99,32 @@ def get_paper_parsed(meta: PaperMetadata, *, force: bool = False):
     return doc
 
 
+def ocr_fallback_parse(meta: PaperMetadata):
+    """Re-parse the PDF with Docling FORCED full-page OCR — the fallback for
+    scanned/image-only PDFs whose normal extraction recovered no usable text.
+
+    Returns the OCR ``ParsedDoc`` (its text persisted via ``save_text``), or
+    ``None`` when docling is not importable (so the caller can distinguish
+    "OCR unavailable" from "OCR ran but still failed" and pick an honest error).
+
+    Slow (minutes/paper) — the caller must invoke it only after the normal
+    parse fails the quality gate, never on the digital-PDF happy path. All
+    docling imports stay lazy (inside DoclingParser).
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("docling") is None:
+        return None
+    from research_companion.parsers.docling_parser import DoclingParser
+
+    pdf = pdf_path(meta.paper_id)
+    if pdf is None:
+        raise FileNotFoundError(f"no PDF on disk for {meta.paper_id}")
+    doc = DoclingParser(full_page_ocr=True).parse(pdf)
+    save_text(meta.paper_id, doc.text)
+    return doc
+
+
 # ---------------------------------------------------------------------------
 # LLM call
 # ---------------------------------------------------------------------------

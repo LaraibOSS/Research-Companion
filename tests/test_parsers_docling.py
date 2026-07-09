@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -140,6 +141,140 @@ class TestDoclingMappingMocked:
 
         doc = DoclingParser().parse(pdf)
         assert doc.sections == []  # -> heuristic sectioner runs downstream
+
+
+# ---------------------------------------------------------------------------
+# Forced full-page OCR converter + DoclingParser(full_page_ocr=True)
+# ---------------------------------------------------------------------------
+
+class TestForcedOcrConverter:
+    def test_name_and_default(self):
+        assert DoclingParser().name == "docling"
+        assert DoclingParser().full_page_ocr is False
+        p = DoclingParser(full_page_ocr=True)
+        assert p.name == "docling+ocr"
+        assert p.full_page_ocr is True
+
+    def test_parse_routes_to_ocr_converter(self, tmp_path, monkeypatch):
+        """full_page_ocr=True must use the FORCED-OCR converter, not the default."""
+        called = {"default": 0, "ocr": 0}
+        monkeypatch.setattr(dp, "_get_converter",
+                            lambda: called.__setitem__("default", called["default"] + 1) or _StubConverter(_StubDoc()))
+        monkeypatch.setattr(dp, "_get_ocr_converter",
+                            lambda: called.__setitem__("ocr", called["ocr"] + 1) or _StubConverter(_StubDoc()))
+        pdf = tmp_path / "p.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%%EOF\n")
+
+        DoclingParser(full_page_ocr=True).parse(pdf)
+        assert called == {"default": 0, "ocr": 1}
+
+        called["ocr"] = 0
+        DoclingParser().parse(pdf)  # default routes to the normal converter
+        assert called == {"default": 1, "ocr": 0}
+
+    def test_ocr_converter_configures_force_full_page_ocr(self, monkeypatch):
+        """_get_ocr_converter builds the DocumentConverter with a PDF pipeline whose
+        do_ocr and ocr_options.force_full_page_ocr are True. Docling modules are
+        FAKED via sys.modules so no real docling/torch import or convert happens."""
+        captured = {}
+
+        class _FakeOcrOptions:
+            def __init__(self):
+                self.force_full_page_ocr = False
+
+        class _FakePipelineOptions:
+            def __init__(self):
+                self.do_ocr = False
+                self.ocr_options = _FakeOcrOptions()
+
+        class _FakeInputFormat:
+            PDF = "PDF"
+
+        class _FakeFormatOption:
+            def __init__(self, pipeline_options=None):
+                self.pipeline_options = pipeline_options
+
+        class _FakeConverter:
+            def __init__(self, format_options=None):
+                captured["format_options"] = format_options
+
+        pipe_mod = types.ModuleType("docling.datamodel.pipeline_options")
+        pipe_mod.PdfPipelineOptions = _FakePipelineOptions
+        base_mod = types.ModuleType("docling.datamodel.base_models")
+        base_mod.InputFormat = _FakeInputFormat
+        conv_mod = types.ModuleType("docling.document_converter")
+        conv_mod.DocumentConverter = _FakeConverter
+        conv_mod.PdfFormatOption = _FakeFormatOption
+
+        for name, mod in {
+            "docling": types.ModuleType("docling"),
+            "docling.datamodel": types.ModuleType("docling.datamodel"),
+            "docling.datamodel.pipeline_options": pipe_mod,
+            "docling.datamodel.base_models": base_mod,
+            "docling.document_converter": conv_mod,
+        }.items():
+            monkeypatch.setitem(sys.modules, name, mod)
+
+        monkeypatch.setattr(dp, "_OCR_CONVERTER", None)
+        dp._get_ocr_converter()
+
+        fmt = captured["format_options"]
+        opts = fmt[_FakeInputFormat.PDF].pipeline_options
+        assert opts.do_ocr is True
+        assert opts.ocr_options.force_full_page_ocr is True
+
+
+# ---------------------------------------------------------------------------
+# extract.ocr_fallback_parse — the pipeline OCR-fallback seam (mocked)
+# ---------------------------------------------------------------------------
+
+class TestOcrFallbackParse:
+    def test_returns_none_when_docling_absent(self, monkeypatch):
+        import importlib.util as u
+
+        from research_companion import extract
+
+        real = u.find_spec
+        monkeypatch.setattr(
+            u, "find_spec",
+            lambda name, *a, **k: None if name == "docling" else real(name, *a, **k),
+        )
+        assert extract.ocr_fallback_parse(types.SimpleNamespace(paper_id="local:x")) is None
+
+    def test_parses_with_forced_ocr_when_docling_present(self, monkeypatch, tmp_path):
+        import importlib.util as u
+
+        from research_companion import extract
+        from research_companion.parsers import ParsedDoc
+
+        real = u.find_spec
+        monkeypatch.setattr(
+            u, "find_spec",
+            lambda name, *a, **k: object() if name == "docling" else real(name, *a, **k),
+        )
+
+        captured = {}
+
+        class _StubParser:
+            def __init__(self, full_page_ocr=False):
+                captured["full_page_ocr"] = full_page_ocr
+
+            def parse(self, path):
+                captured["path"] = path
+                return ParsedDoc(text="recovered text from forced OCR")
+
+        monkeypatch.setattr(dp, "DoclingParser", _StubParser)
+
+        pdf = tmp_path / "p.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        monkeypatch.setattr(extract, "pdf_path", lambda pid: pdf)
+        saved = {}
+        monkeypatch.setattr(extract, "save_text", lambda pid, text: saved.update(pid=pid, text=text))
+
+        doc = extract.ocr_fallback_parse(types.SimpleNamespace(paper_id="local:x"))
+        assert captured["full_page_ocr"] is True          # forced full-page OCR
+        assert doc.text == "recovered text from forced OCR"
+        assert saved["text"] == "recovered text from forced OCR"  # persisted
 
 
 # ---------------------------------------------------------------------------

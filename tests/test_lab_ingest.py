@@ -407,13 +407,17 @@ class TestExtractFailure:
 # ---------------------------------------------------------------------------
 
 class TestEmptyTextGate:
-    def test_empty_text_fails_with_scanned_reason(self, tmp_path, isolated_papergraph_dir):
-        """A PDF whose extracted text is empty -> paper FAILS (not done), with the
-        scanned-PDF reason recorded, and extract is never reached."""
-        from research_companion import store
+    def test_empty_text_fails_with_scanned_reason(self, tmp_path, isolated_papergraph_dir, monkeypatch):
+        """A PDF whose extracted text is empty, with OCR unavailable -> paper FAILS
+        (not done), with the scanned-PDF reason recorded, extract never reached."""
+        from research_companion import extract, store
         from research_companion.lab import EMPTY_TEXT_ERROR
 
         _make_pdf(tmp_path, "scanned.pdf")
+
+        # OCR fallback unavailable (docling absent) -> None. Avoids running a real
+        # ~7-minute forced-OCR convert against the stub PDF when docling is installed.
+        monkeypatch.setattr(extract, "ocr_fallback_parse", lambda meta: None)
 
         def add_pdf(path):
             meta = _make_meta("local:scanned")
@@ -477,6 +481,164 @@ class TestEmptyTextGate:
 
         assert len(result.added) == 1
         assert len(result.failed) == 0
+
+
+# ---------------------------------------------------------------------------
+# OCR fallback for scanned PDFs (forced full-page OCR) — all MOCKED, no real OCR
+# ---------------------------------------------------------------------------
+
+class TestOcrFallback:
+    """Stage 2: when normal extraction yields no usable text, a forced full-page
+    OCR fallback is attempted. All docling/OCR is MOCKED via extract.* seams so
+    the gate never runs real OCR (which takes minutes)."""
+
+    def _empty_parsed(self):
+        from research_companion.parsers import ParsedDoc
+        return ParsedDoc(text="")  # scanned/image-only -> fails the quality gate
+
+    def _ocr_parsed(self):
+        from research_companion.parsers import ParsedDoc
+        return ParsedDoc(
+            text=_GOOD_TEXT,
+            sections=[
+                {"section_id": "s1", "title": "Introduction", "level": 1,
+                 "parent": None, "char_start": 0, "char_end": 80},
+                {"section_id": "s2", "title": "Methods", "level": 1,
+                 "parent": None, "char_start": 80, "char_end": len(_GOOD_TEXT)},
+            ],
+        )
+
+    def test_ocr_fallback_recovers_scanned_pdf(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        """Normal parse empty + OCR (mocked) returns good text -> SUCCESS, OCR
+        sections persisted with method='docling'."""
+        from research_companion import extract, store
+
+        _make_pdf(tmp_path, "scanned.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:scan"])
+
+        monkeypatch.setattr(extract, "get_paper_parsed", lambda meta, **kw: self._empty_parsed())
+        ocr_calls = []
+
+        def fake_ocr(meta):
+            ocr_calls.append(meta.paper_id)
+            return self._ocr_parsed()
+
+        monkeypatch.setattr(extract, "ocr_fallback_parse", fake_ocr)
+
+        sectioner_calls = []
+
+        def tracking_sectioner(pid, **kw):
+            sectioner_calls.append(pid)
+            return sect(pid)
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path, bus=bus, add_pdf=add, extractor=ext,
+                sectioner=tracking_sectioner, aligner=None, strengther=None,
+            )
+        )
+
+        assert len(result.added) == 1
+        assert len(result.failed) == 0
+        assert ocr_calls == ["local:scan"]         # OCR fallback WAS invoked
+        assert sectioner_calls == []               # OCR sections win over heuristic
+        saved = store.load_sections("local:scan")
+        assert saved is not None and saved["method"] == "docling"
+        assert [s["section_id"] for s in saved["sections"]] == ["s1", "s2"]
+        # No IngestFailed on the success path.
+        assert [e for e in bus.history if isinstance(e, IngestFailed)] == []
+
+    def test_ocr_fallback_unavailable_fails_with_install_message(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        """Normal parse empty + docling not importable (OCR returns None) -> FAILED
+        with the install-docling message."""
+        from research_companion import extract, store
+        from research_companion.lab import EMPTY_TEXT_ERROR
+
+        _make_pdf(tmp_path, "scanned.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:scan"])
+
+        monkeypatch.setattr(extract, "get_paper_parsed", lambda meta, **kw: self._empty_parsed())
+        monkeypatch.setattr(extract, "ocr_fallback_parse", lambda meta: None)
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path, bus=bus, add_pdf=add, extractor=ext,
+                sectioner=sect, aligner=None, strengther=None,
+            )
+        )
+
+        assert len(result.failed) == 1
+        assert len(result.added) == 0
+        failed = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(failed) == 1
+        assert failed[0].stage == "extract"
+        assert failed[0].error == EMPTY_TEXT_ERROR
+        assert str(sorted(tmp_path.glob("*.pdf"))[0]) in store.list_failures()
+
+    def test_ocr_fallback_ran_but_still_empty_fails(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        """Normal parse empty + OCR ran (docling present) but still returned no
+        usable text -> FAILED with the 'even with OCR' message."""
+        from research_companion import extract
+        from research_companion.lab import OCR_FAILED_ERROR
+
+        _make_pdf(tmp_path, "scanned.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:scan"])
+
+        monkeypatch.setattr(extract, "get_paper_parsed", lambda meta, **kw: self._empty_parsed())
+        # OCR ran (non-None) but recovered nothing usable.
+        monkeypatch.setattr(extract, "ocr_fallback_parse", lambda meta: self._empty_parsed())
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path, bus=bus, add_pdf=add, extractor=ext,
+                sectioner=sect, aligner=None, strengther=None,
+            )
+        )
+
+        assert len(result.failed) == 1
+        assert len(result.added) == 0
+        failed = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert len(failed) == 1
+        assert failed[0].stage == "extract"
+        assert failed[0].error == OCR_FAILED_ERROR
+
+    def test_digital_pdf_does_not_invoke_ocr(
+        self, tmp_path, isolated_papergraph_dir, monkeypatch
+    ):
+        """A digital PDF (good text) must NOT pay the OCR cost: the fallback is
+        never called."""
+        from research_companion import extract
+
+        _make_pdf(tmp_path, "digital.pdf")
+        add, sect, ext, _, _ = _make_fakes(["local:digital"])
+
+        ocr_calls = []
+
+        def fake_ocr(meta):
+            ocr_calls.append(meta.paper_id)
+            raise AssertionError("OCR fallback must not run for a digital PDF")
+
+        monkeypatch.setattr(extract, "ocr_fallback_parse", fake_ocr)
+
+        bus = Bus()
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path, bus=bus, add_pdf=add, extractor=ext,
+                sectioner=sect, aligner=None, strengther=None,
+            )
+        )
+
+        assert len(result.added) == 1
+        assert ocr_calls == []
 
 
 # ---------------------------------------------------------------------------
