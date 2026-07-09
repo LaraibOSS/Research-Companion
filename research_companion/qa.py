@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from research_companion import store
+from research_companion.chunking import chunk_section
 from research_companion.prompts import format_qa_prompt
 from research_companion.rank import tokenize
 from research_companion.sections import Section, group_extraction_by_section, is_boilerplate
@@ -27,6 +28,12 @@ class QASource:
     section_id: str
     section_title: str
     score: float
+    # Provenance for the specific retrieved chunk (additive; defaults keep the
+    # old shape valid). char_start/char_end are ABSOLUTE offsets into the paper
+    # text so the reader can highlight the exact evidence span.
+    char_start: int = 0
+    char_end: int = 0
+    chunk_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -44,13 +51,23 @@ class QAAnswer:
 # ---------------------------------------------------------------------------
 
 def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
-    """Build a list of units, one per (paper x non-boilerplate section).
+    """Build a list of retrieval units, one per (paper x section x sub-chunk).
+
+    Each non-boilerplate section is split into overlapping sub-chunks (see
+    ``research_companion.chunking``); every chunk becomes one unit. A short
+    section yields a single chunk == the whole section.
 
     Each unit has keys:
-        paper_id, paper_title, section_id, section_title, tokens, text
+        paper_id, paper_title, section_id, section_title, tokens, text,
+        entity_labels, char_start, char_end, chunk_index
+
+    ``text`` is the CHUNK text and ``tokens`` are built from the FULL chunk text
+    (plus section title + entity labels) — not a leading slice — so content deep
+    in a long section is now visible to BM25. ``char_start``/``char_end`` are
+    ABSOLUTE offsets into the paper text for provenance/highlighting.
 
     Papers without text.txt are skipped silently.
-    Papers without sections.json contribute one whole-paper unit (section_id "s1",
+    Papers without sections.json contribute whole-paper chunks (section_id "s1",
     section_title "Full Text").
     """
     from research_companion.prompts import extraction_prompt_sha256 as _ext_sha
@@ -96,8 +113,7 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
                 # Text slice for this section
                 text_slice = text[sec.char_start:sec.char_end]
 
-                # Build tokens: section title + entity labels for this section + first 300 chars
-                token_source = sec.title + " "
+                # Entity labels attach to every chunk of this section.
                 entity_labels: list[str] = []
                 if grouped:
                     sec_data = grouped.get(sec.section_id, {})
@@ -105,41 +121,51 @@ def build_section_index(paper_ids: list[str] | None = None) -> list[dict]:
                         for item in sec_data.get(key, []):
                             name = item.get("name", "")
                             if name:
-                                token_source += name + " "
                                 entity_labels.append(name)
-                token_source += text_slice[:300]
-                tokens = tokenize(token_source)
 
-                units.append({
-                    "paper_id": pid,
-                    "paper_title": title,
-                    "section_id": sec.section_id,
-                    "section_title": sec.title,
-                    "tokens": tokens,
-                    "text": text_slice,
-                    "entity_labels": entity_labels,
-                })
+                label_str = " ".join(entity_labels)
+                for chunk in chunk_section(text_slice, sec.char_start):
+                    # Tokenize the FULL chunk (title + entity labels + whole
+                    # chunk text) — the key recall fix.
+                    tokens = tokenize(f"{sec.title} {label_str} {chunk['text']}")
+                    units.append({
+                        "paper_id": pid,
+                        "paper_title": title,
+                        "section_id": sec.section_id,
+                        "section_title": sec.title,
+                        "tokens": tokens,
+                        "text": chunk["text"],
+                        "entity_labels": entity_labels,
+                        "char_start": chunk["char_start"],
+                        "char_end": chunk["char_end"],
+                        "chunk_index": chunk["chunk_index"],
+                    })
         else:
-            # No sections — whole-paper unit
-            token_source = title + " " + text[:300]
+            # No sections — chunk the whole paper text the same way so a big
+            # no-sections paper isn't one giant under-tokenized blob.
             entity_labels: list[str] = []
             if extraction:
                 for key in ("concepts", "methods", "datasets"):
                     for item in extraction.get(key, []):
                         name = item.get("name", "")
                         if name:
-                            token_source += " " + name
                             entity_labels.append(name)
-            tokens = tokenize(token_source)
-            units.append({
-                "paper_id": pid,
-                "paper_title": title,
-                "section_id": "s1",
-                "section_title": "Full Text",
-                "tokens": tokens,
-                "text": text,
-                "entity_labels": entity_labels,
-            })
+
+            label_str = " ".join(entity_labels)
+            for chunk in chunk_section(text, 0):
+                tokens = tokenize(f"{title} {label_str} {chunk['text']}")
+                units.append({
+                    "paper_id": pid,
+                    "paper_title": title,
+                    "section_id": "s1",
+                    "section_title": "Full Text",
+                    "tokens": tokens,
+                    "text": chunk["text"],
+                    "entity_labels": entity_labels,
+                    "char_start": chunk["char_start"],
+                    "char_end": chunk["char_end"],
+                    "chunk_index": chunk["chunk_index"],
+                })
 
     return units
 
@@ -356,6 +382,9 @@ def answer(
             section_id=unit["section_id"],
             section_title=unit["section_title"],
             score=score,
+            char_start=unit.get("char_start", 0),
+            char_end=unit.get("char_end", 0),
+            chunk_index=unit.get("chunk_index", 0),
         )
         for unit, score in zip(top_units, top_scores, strict=False)
     ]

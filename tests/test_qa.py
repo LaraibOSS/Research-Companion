@@ -144,6 +144,37 @@ class TestBuildSectionIndex:
         assert "arxiv:0010" in paper_ids
         assert "arxiv:0011" in paper_ids
 
+    def test_units_carry_char_provenance(self):
+        """Every unit exposes absolute char_start/char_end/chunk_index that
+        reconstruct the chunk from the paper text."""
+        from research_companion.qa import build_section_index
+        intro = "Intro. " * 20  # 140 chars
+        body = "Body sentence here. " * 20  # 400 chars
+        text = intro + body
+        _make_paper("arxiv:PV01", "Prov Paper", text, sections=[
+            {"section_id": "s1", "title": "Introduction", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(intro)},
+            {"section_id": "s2", "title": "Body", "level": 1,
+             "parent": None, "char_start": len(intro), "char_end": len(text)},
+        ])
+        units = build_section_index(["arxiv:PV01"])
+        for u in units:
+            assert "char_start" in u and "char_end" in u and "chunk_index" in u
+            assert text[u["char_start"]:u["char_end"]] == u["text"]
+
+    def test_long_section_produces_multiple_chunks(self):
+        """A long section is sub-chunked into multiple units (chunk_index 0..)."""
+        from research_companion.qa import build_section_index
+        text = "This is a long section. " * 200  # ~4800 chars, one section
+        _make_paper("arxiv:LC01", "Long Paper", text, sections=[
+            {"section_id": "s1", "title": "Content", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text)},
+        ])
+        units = build_section_index(["arxiv:LC01"])
+        assert len(units) > 1
+        assert all(u["section_id"] == "s1" for u in units)
+        assert [u["chunk_index"] for u in units] == list(range(len(units)))
+
 
 # ---------------------------------------------------------------------------
 # answer — retrieval
@@ -193,6 +224,51 @@ class TestAnswer:
         assert len(calls) > 0
         section_ids = [s.section_id for s in result.sources]
         assert "s2" in section_ids
+
+    def test_deep_sentence_is_retrievable(self):
+        """Recall fix: a distinctive sentence FAR past char 300 must be findable.
+
+        The old index tokenized only the first 300 chars of a section, so deep
+        content was invisible to BM25. With full-chunk tokens the deep sentence
+        drives retrieval to the right paper/section chunk.
+        """
+        from research_companion.qa import answer
+        filler = "The system processes data in a general pipeline. " * 40  # ~1960 chars
+        distinctive = "Our method uses quokkaphoton entanglement for calibration. "
+        text = filler[:1500] + distinctive + filler[1500:]
+        _make_paper("arxiv:DEEP1", "Deep Paper", text, sections=[
+            {"section_id": "s1", "title": "Approach", "level": 1,
+             "parent": None, "char_start": 0, "char_end": len(text)},
+        ])
+        # An unrelated paper so retrieval has to discriminate.
+        _make_paper("arxiv:DEEP2", "Other Paper",
+                    "Completely different content about cooking recipes. " * 30,
+                    sections=[{"section_id": "s1", "title": "Food", "level": 1,
+                               "parent": None, "char_start": 0, "char_end": 1560}])
+        fake_llm, calls = self._make_fake_llm("It uses quokkaphoton entanglement [S1].")
+        result = answer("quokkaphoton entanglement calibration", llm=fake_llm,
+                        paper_ids=["arxiv:DEEP1", "arxiv:DEEP2"])
+        assert len(calls) > 0
+        assert result.sources[0].paper_id == "arxiv:DEEP1"
+        # The winning chunk's span must actually contain the deep sentence.
+        top = result.sources[0]
+        assert text[top.char_start:top.char_end].find("quokkaphoton") != -1
+
+    def test_source_carries_char_offsets(self):
+        """answer() sources expose char_start/char_end/chunk_index provenance."""
+        from research_companion.qa import answer
+        _make_paper("arxiv:SP01", "Src Paper",
+                    "Introduction about neural attention networks here.\n",
+                    sections=[{"section_id": "s1", "title": "Intro", "level": 1,
+                               "parent": None, "char_start": 0, "char_end": 51}])
+        fake_llm, _ = self._make_fake_llm("answer [S1]")
+        result = answer("neural attention networks", llm=fake_llm,
+                        paper_ids=["arxiv:SP01"])
+        assert result.sources
+        s = result.sources[0]
+        assert hasattr(s, "char_start") and hasattr(s, "char_end")
+        assert hasattr(s, "chunk_index")
+        assert s.char_end >= s.char_start
 
     def test_cited_parsing(self):
         """[S1], [S3] in answer -> cited list correct."""
