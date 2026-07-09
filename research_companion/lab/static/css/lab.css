@@ -1689,10 +1689,6 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
   gap: 6px;
   font-size: 12px;
 }
-.dock-item-ok    { color: var(--color-ok); }
-.dock-item-fail  { color: var(--color-fail); }
-
-.dock-item-icon { flex-shrink: 0; }
 .dock-item-label {
   flex: 1;
   white-space: nowrap;
