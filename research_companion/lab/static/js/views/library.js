@@ -360,8 +360,12 @@ function _renderList(grid, papers, draftId) {
       ? ` <button class="lib-status-pill lib-status-pill-metadata lib-meta-btn" data-paper-id="${escapeHtml(row.paperId)}" title="Missing authors/year — click to add">Needs metadata</button>`
       : '';
 
+    const ocrPillHtml = row.ocrUsed
+      ? ` <span class="lib-status-pill lib-status-pill-ocr" title="Read via OCR — scanned PDF${row.parseSource ? ' (' + escapeHtml(row.parseSource) + ')' : ''}">OCR</span>`
+      : '';
+
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${retryBtnHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>

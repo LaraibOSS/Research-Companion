@@ -39,6 +39,10 @@ export function renderPaperCard(paper) {
   if (needsMetadata(paper)) {
     badges.push('<span class="badge badge-warn" title="Missing authors/year — open to add">Needs metadata</span>');
   }
+  if (paper.ocr_used) {
+    const src = paper.parse_source || 'OCR';
+    badges.push(`<span class="badge badge-ocr" title="Read via OCR — scanned PDF (${escapeHtml(src)})">OCR</span>`);
+  }
 
   // Stance chips from stance_counts
   const sc = paper.stance_counts || {};

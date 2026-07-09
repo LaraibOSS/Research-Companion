@@ -563,6 +563,11 @@ html, body {
   color: var(--color-warn);
 }
 
+.badge-ocr {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+}
+
 .stance-chip {
   font-size: 12px;
   padding: 2px 6px;
@@ -4199,6 +4204,14 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 }
 .lib-status-pill-metadata:hover {
   background: rgba(210, 153, 34, 0.28);
+}
+
+/* OCR pill — informational blue, not clickable */
+.lib-status-pill-ocr {
+  background: rgba(88, 166, 255, 0.12);
+  color: #58a6ff;
+  text-transform: none;
+  margin-left: var(--space-2);
 }
 
 /* Failed rows — subtle red tint */

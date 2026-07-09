@@ -223,6 +223,22 @@ test('buildRows: null strengthBand when no strength', () => {
   assert.equal(p2Row.strengthScore, null);
 });
 
+test('buildRows carries ocrUsed and parseSource', () => {
+  const papers = [
+    { paper_id: 'p1', title: 'Scanned', ocr_used: true,  parse_source: 'docling+ocr' },
+    { paper_id: 'p2', title: 'Digital',  ocr_used: false, parse_source: 'pypdfium' },
+    { paper_id: 'p3', title: 'Legacy' },  // no fields -> defaults
+  ];
+  const rows = buildRows(papers, null);
+  const byId = Object.fromEntries(rows.map(r => [r.paperId, r]));
+  assert.equal(byId.p1.ocrUsed, true);
+  assert.equal(byId.p1.parseSource, 'docling+ocr');
+  assert.equal(byId.p2.ocrUsed, false);
+  assert.equal(byId.p2.parseSource, 'pypdfium');
+  assert.equal(byId.p3.ocrUsed, false);
+  assert.equal(byId.p3.parseSource, '');
+});
+
 // ---------------------------------------------------------------------------
 // sortRows
 // ---------------------------------------------------------------------------

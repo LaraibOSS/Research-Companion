@@ -114,6 +114,8 @@ export function buildRows(papersMapOrArray, draftId) {
     isDraft:       draftId != null && paper.paper_id === draftId,
     failureReason: paper.failure_reason || null,
     needsMetadata: needsMetadata(paper),
+    ocrUsed:      !!paper.ocr_used,
+    parseSource:  paper.parse_source || '',
   });
 
   const draftRow  = papers.filter(p => draftId != null && p.paper_id === draftId).map(toRow);
