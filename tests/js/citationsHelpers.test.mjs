@@ -22,6 +22,7 @@ const {
   statusChip,
   availableEntries,
   groupByStatus,
+  linkTargetOptions,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'citationsHelpers.js')).href
 );
@@ -214,6 +215,61 @@ test('groupByStatus: empty returns empty', () => {
 
 test('groupByStatus: null returns empty', () => {
   assert.deepEqual(groupByStatus(null), []);
+});
+
+// -----------------------------------------------------------------------
+// linkTargetOptions — options for the "Link…" picker (v0.5.8 Task 2)
+// -----------------------------------------------------------------------
+
+const LINK_PAPERS = [
+  { paper_id: 'p-draft', title: 'My Draft', authors: ['Me'], year: 2024 },
+  { paper_id: 'p-full',  title: 'Complete Paper', authors: ['Ada'], year: 2020 },
+  { paper_id: 'p-noyear', title: 'Needs Year', authors: ['Bob'], year: null },
+  { paper_id: 'p-noauth', title: 'Needs Authors', authors: [], year: 2019 },
+];
+
+test('linkTargetOptions: empty / nullish input returns []', () => {
+  assert.deepEqual(linkTargetOptions([], 'p-draft'), []);
+  assert.deepEqual(linkTargetOptions(null, 'p-draft'), []);
+  assert.deepEqual(linkTargetOptions(undefined, null), []);
+});
+
+test('linkTargetOptions: excludes the draft paper', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft');
+  assert.ok(!opts.some(o => o.paperId === 'p-draft'), 'draft must be excluded');
+  assert.equal(opts.length, 3);
+});
+
+test('linkTargetOptions: label formats year and — for null year', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft');
+  const full = opts.find(o => o.paperId === 'p-full');
+  const noyear = opts.find(o => o.paperId === 'p-noyear');
+  assert.equal(full.label, 'Complete Paper (2020)');
+  assert.equal(noyear.label, 'Needs Year (—)');
+});
+
+test('linkTargetOptions: needs-metadata papers sort first (null year OR no authors)', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft');
+  const ids = opts.map(o => o.paperId);
+  // p-noauth ("Needs Authors") and p-noyear ("Needs Year") need metadata;
+  // A–Z within that group => Needs Authors before Needs Year; p-full last.
+  assert.deepEqual(ids, ['p-noauth', 'p-noyear', 'p-full']);
+});
+
+test('linkTargetOptions: complete papers sorted A–Z after needs-metadata group', () => {
+  const papers = [
+    { paper_id: 'a', title: 'Zebra', authors: ['X'], year: 2001 },
+    { paper_id: 'b', title: 'Apple', authors: ['Y'], year: 2002 },
+  ];
+  const opts = linkTargetOptions(papers, null);
+  assert.deepEqual(opts.map(o => o.paperId), ['b', 'a']);
+});
+
+test('linkTargetOptions: accepts a Map (store shape) of papers', () => {
+  const map = new Map(LINK_PAPERS.map(p => [p.paper_id, p]));
+  const opts = linkTargetOptions(map, 'p-draft');
+  assert.equal(opts.length, 3);
+  assert.ok(!opts.some(o => o.paperId === 'p-draft'));
 });
 
 // -----------------------------------------------------------------------

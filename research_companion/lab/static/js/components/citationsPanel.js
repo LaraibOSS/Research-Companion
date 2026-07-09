@@ -15,6 +15,7 @@ import {
   statusChip,
   availableEntries,
   groupByStatus,
+  linkTargetOptions,
 } from '../citationsHelpers.js';
 import { citationDownloadTargets } from '../activityHelpers.js';
 import { escapeHtml } from '../format.js';
@@ -218,6 +219,19 @@ function _renderRow(entry) {
     ? `<button class="btn btn-accent btn-sm citations-row-add" data-index="${escapeHtml(String(entry.index))}">Add</button>`
     : '';
 
+  // "Link…" is offered for any row not already in the library (unchecked /
+  // unresolved / available). Available rows keep Add alongside it.
+  const linkBtn = entry.status !== 'in_library'
+    ? `<button class="btn btn-secondary btn-sm citations-row-link" data-index="${escapeHtml(String(entry.index))}">Link…</button>`
+    : '';
+
+  // Manually-linked rows: keep the "In library ✓" chip but flag provenance.
+  const manual = entry.match_kind === 'manual';
+  const chipTitle = manual ? ' title="manually linked"' : '';
+  const manualMark = manual
+    ? `<span class="citation-manual-mark" title="manually linked">manually linked</span>`
+    : '';
+
   return `
     <div class="citation-row" data-index="${escapeHtml(String(entry.index))}" title="${rawAttr}">
       <div class="citation-row-main">
@@ -225,8 +239,10 @@ function _renderRow(entry) {
         ${year ? `<span class="citation-row-year">${escapeHtml(String(year))}</span>` : ''}
       </div>
       <div class="citation-row-meta">
-        <span class="citation-chip ${escapeHtml(chip.cls)}">${escapeHtml(chip.label)}</span>
+        <span class="citation-chip ${escapeHtml(chip.cls)}"${chipTitle}>${escapeHtml(chip.label)}</span>
+        ${manualMark}
         ${addBtn}
+        ${linkBtn}
       </div>
     </div>`;
 }
@@ -304,6 +320,105 @@ function _bindEvents(coverage) {
       }
     });
   });
+
+  // Per-row "Link…" buttons — toggle an inline picker under the row.
+  _panel.querySelectorAll('.citations-row-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idxStr = btn.dataset.index;
+      const rowEl = _findRow(idxStr);
+      if (!rowEl) return;
+      const existing = rowEl.querySelector('.citations-link-picker');
+      if (existing) {           // toggle off
+        existing.remove();
+        return;
+      }
+      const refs = coverage && Array.isArray(coverage.references) ? coverage.references : [];
+      const entry = refs.find(r => String(r.index) === idxStr);
+      if (!entry) return;
+      rowEl.appendChild(_buildLinkPicker(entry));
+    });
+  });
+}
+
+/**
+ * Build the inline "Link…" picker for a citation row: a disclaimer line + a
+ * <select> of library papers. Linking on `change` calls the backend, updates
+ * coverage (which re-renders the panel) and refreshes the library snapshot so
+ * the backfilled year shows.
+ * @param {object} entry — the reference entry (has .index)
+ * @returns {HTMLElement}
+ */
+function _buildLinkPicker(entry) {
+  const state = _storeRef.getState();
+  const papers = state.papers instanceof Map
+    ? [...state.papers.values()]
+    : (Array.isArray(state.papers) ? state.papers : []);
+  const options = linkTargetOptions(papers, state.draftId);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'citations-link-picker';
+
+  const disclaimer = document.createElement('div');
+  disclaimer.className = 'citations-link-disclaimer';
+  disclaimer.textContent =
+    "Titles & years here come from your draft's citations, not the papers themselves.";
+  wrap.appendChild(disclaimer);
+
+  const select = document.createElement('select');
+  select.className = 'citations-link-select';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Pick the library paper…';
+  select.appendChild(placeholder);
+  for (const opt of options) {
+    const o = document.createElement('option');
+    o.value = opt.paperId;
+    o.textContent = opt.label;
+    select.appendChild(o);
+  }
+
+  select.addEventListener('change', async () => {
+    const paperId = select.value;
+    if (!paperId) return;                 // ignore the placeholder
+    select.disabled = true;
+    try {
+      const payload = await _apiRef.linkCitation(entry.index, paperId);
+      // Notifies ['citations'] -> panel re-renders (this picker is discarded).
+      _storeRef.setCitationCoverage(payload);
+      // Refresh the library snapshot so the backfilled year shows.
+      try {
+        const fresh = await _apiRef.getPapers();
+        _refreshPapers(fresh);
+      } catch (e) {
+        console.warn('[citationsPanel] library refresh failed', e);
+      }
+      const linked = papers.find(p => p.paper_id === paperId);
+      const title = (linked && linked.title) || paperId;
+      showToast('Linked — ' + title, 'info');
+    } catch (err) {
+      showToast(err.message || 'Link failed', 'error');
+      select.disabled = false;
+    }
+  });
+
+  wrap.appendChild(select);
+  return wrap;
+}
+
+/**
+ * Merge a fresh GET /api/papers array into the store's papers Map and notify.
+ * The store has no setPapers; this mirrors the merge-and-notify pattern used by
+ * the add/patch flows (main.js snapshotRefresher, library.js metadata save).
+ * @param {Array} papers
+ */
+function _refreshPapers(papers) {
+  if (!Array.isArray(papers)) return;
+  const s = _storeRef.getState();
+  for (const p of papers) {
+    if (!p || !p.paper_id) continue;
+    s.papers.set(p.paper_id, { ...s.papers.get(p.paper_id), ...p });
+  }
+  _storeRef.notify(['papers']);
 }
 
 // ---------------------------------------------------------------------------

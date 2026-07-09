@@ -271,6 +271,15 @@ export const getDraftPlacement = () => get('/api/draft/placement');
  */
 export const resolveCitations = () => post('/api/draft/citations/resolve');
 
+/**
+ * POST /api/draft/citations/link — manually link a cited reference to a library
+ * paper. body: { index, paper_id }. Returns the full updated coverage payload
+ * (same shape as GET /api/draft/citations).
+ * 400 no-draft / index out of range | 404 unknown paper.
+ */
+export const linkCitation = (index, paperId) =>
+  post('/api/draft/citations/link', { index, paper_id: paperId });
+
 // ---------------------------------------------------------------------------
 // Background-activity endpoints (W5-ACT)
 // ---------------------------------------------------------------------------

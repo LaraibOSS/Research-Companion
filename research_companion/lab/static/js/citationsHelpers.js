@@ -114,3 +114,42 @@ export function groupByStatus(references) {
   result.push(...other);
   return result;
 }
+
+/**
+ * Build the option list for the citations panel "Link…" picker: every library
+ * paper the user could link a cited reference to.
+ *
+ * @param {Array|Map|null} papers  — store paper objects (array or the papers Map)
+ * @param {string|null} draftId    — the current draft paper_id (excluded)
+ * @returns {Array<{ paperId: string, label: string }>}
+ *   Papers still missing metadata (year == null OR no authors) come first,
+ *   then complete papers; both groups sorted by title A–Z.
+ *   label = "<title> (<year or —>)".
+ */
+export function linkTargetOptions(papers, draftId) {
+  const list = papers instanceof Map
+    ? [...papers.values()]
+    : (Array.isArray(papers) ? papers : []);
+  if (list.length === 0) return [];
+
+  const decorated = list
+    .filter(p => p && p.paper_id && p.paper_id !== draftId)
+    .map(p => {
+      const hasYear = p.year !== null && p.year !== undefined && p.year !== '';
+      const hasAuthors = Array.isArray(p.authors) && p.authors.length > 0;
+      const title = p.title || '';
+      return {
+        paperId: p.paper_id,
+        label: `${title} (${hasYear ? p.year : '—'})`,
+        needsMeta: !hasYear || !hasAuthors,
+        title,
+      };
+    });
+
+  decorated.sort((a, b) => {
+    if (a.needsMeta !== b.needsMeta) return a.needsMeta ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  });
+
+  return decorated.map(({ paperId, label }) => ({ paperId, label }));
+}

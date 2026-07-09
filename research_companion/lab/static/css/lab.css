@@ -4835,6 +4835,31 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 }
 
 /* ---------------------------------------------------------------------------
+ * v0.5.8 — "Link…" inline picker + manual-link marker
+ * --------------------------------------------------------------------------- */
+.citations-link-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+.citations-link-disclaimer {
+  font-size: var(--text-xs);
+  color: var(--color-fg-dim);
+  line-height: 1.4;
+}
+.citations-link-picker select {
+  width: 100%;
+  font-size: var(--text-sm);
+}
+.citation-manual-mark {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
  * W5-C3 — Status chips
  * --------------------------------------------------------------------------- */
 .citation-chip {
