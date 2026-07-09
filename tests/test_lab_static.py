@@ -62,7 +62,6 @@ REQUIRED_STATIC_FILES = [
     "js/views/draft.js",
     "js/views/compare.js",
     "js/views/ask.js",
-    "js/icons.js",
     "js/theme.js",
     "js/settingsHelpers.js",
     "js/views/settings.js",
@@ -407,13 +406,6 @@ def test_index_html_has_nav_spacer():
     """index.html nav rail must have a spacer to push Help+Settings to the bottom."""
     html = _index_text()
     assert 'nav-spacer' in html, 'index.html nav rail missing nav-spacer'
-
-
-@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
-def test_get_static_icons_js_returns_200(lab_client):
-    """GET /static/js/icons.js must return 200."""
-    res = lab_client.get("/static/js/icons.js")
-    assert res.status_code == 200
 
 
 @pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")

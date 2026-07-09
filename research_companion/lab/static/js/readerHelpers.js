@@ -130,16 +130,6 @@ export function resolveActiveSection(payloadSections, targetId, quoteRange) {
 }
 
 /**
- * Translate an absolute quote range into offsets relative to a section's own
- * sliced text, clamped to that text. Returns null when the quote is missing or
- * falls entirely outside the section.
- *
- * @param {number} sectionCharStart — absolute char offset the section starts at
- * @param {string} sectionText      — the section's sliced text
- * @param {number[]|null} quoteRange — absolute [start, end]
- * @returns {number[]|null} relative [start, end] or null
- */
-/**
  * Resolve the effective absolute quote range for the reader from an
  * rc:open-reader event detail, preferring an explicit [charStart, charEnd]
  * span (the Q&A citation "verify it yourself" path) over any quote_range the
@@ -170,6 +160,16 @@ export function effectiveQuoteRange(detail, payloadQuoteRange) {
     : null;
 }
 
+/**
+ * Translate an absolute quote range into offsets relative to a section's own
+ * sliced text, clamped to that text. Returns null when the quote is missing or
+ * falls entirely outside the section.
+ *
+ * @param {number} sectionCharStart — absolute char offset the section starts at
+ * @param {string} sectionText      — the section's sliced text
+ * @param {number[]|null} quoteRange — absolute [start, end]
+ * @returns {number[]|null} relative [start, end] or null
+ */
 export function quoteRangeWithinSection(sectionCharStart, sectionText, quoteRange) {
   if (!Array.isArray(quoteRange) || quoteRange.length < 2) return null;
   const len = typeof sectionText === 'string' ? sectionText.length : 0;
