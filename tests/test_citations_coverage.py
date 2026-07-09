@@ -458,23 +458,31 @@ class TestComputeCoverage:
         assert again["match_kind"] != "manual"
 
     def test_manual_link_overrides_would_be_unresolved(self, isolated_papergraph_dir):
-        # A title-only ref that heuristics leave unchecked can be manually
-        # linked; the manual verdict overrides on recompute.
+        # A prior record can carry status="unresolved" (a previous network
+        # resolution pass found no candidate) while ALSO recording
+        # match_kind="manual" + matched_paper_id (the user manually linked it
+        # regardless). The manual-carryover check in compute_coverage keys
+        # only on match_kind=="manual" + a live matched_paper_id — it must
+        # win over the stale "unresolved" status label and flip the ref to
+        # in_library on recompute.
         draft = _seed_draft()
         _mk_paper_full("arxiv:9999.22222", "Totally Unrelated Survey Title",
                        ["Z Someone"], 2015)
         p1 = cc.compute_coverage(draft)
         target = next(r for r in p1["references"] if "few-shot learners" in r["raw"])
-        # mark it unresolved as a prior network pass would
-        target["status"] = "in_library"
+        assert target["status"] == "unchecked"  # sanity: no direct match
+
+        target["status"] = "unresolved"
         target["matched_paper_id"] = "arxiv:9999.22222"
         target["match_kind"] = "manual"
+        p1["resolved_at"] = "2026-07-07T00:00:00Z"
         cc.save_coverage(p1)
 
         p2 = cc.compute_coverage(draft)
         again = next(r for r in p2["references"] if r["raw"] == target["raw"])
         assert again["status"] == "in_library"
         assert again["match_kind"] == "manual"
+        assert again["matched_paper_id"] == "arxiv:9999.22222"
 
     def test_no_text_returns_none_source_without_caching(self, isolated_papergraph_dir):
         draft = "local:draftnotext"

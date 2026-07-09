@@ -34,6 +34,25 @@ def _make_client():
     return app, bus, TestClient(app)
 
 
+def _wait(cond, timeout=10):
+    """Poll `cond()` until truthy or timeout elapses.
+
+    Coverage refreshes after `/api/draft/citations/link` (and paper add/
+    delete) run as fire-and-forget background tasks that take
+    `app.state._coverage_lock` and rewrite citations_coverage.json. Tests
+    must synchronize on that background work settling (e.g. via a
+    CitationCoverageUpdated event count) rather than racing it with an
+    unlocked direct read/write from the test body. Mirrors the `_wait`
+    helper used by TestAutoDownload below.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 class TestGetDraftCitations:
     def test_no_draft_empty_shape(self, isolated_papergraph_dir):
         _app, _bus, c = _make_client()
@@ -402,29 +421,58 @@ class TestLinkCitation:
             assert resp.status_code == 400
 
     def test_link_survives_recompute(self, isolated_papergraph_dir):
+        # link's own POST already computes+saves the manual link
+        # synchronously; it then schedules a background
+        # _recompute_coverage_bg() (locked) to actually exercise "survives a
+        # recompute". Disable auto-add so that recompute settles after
+        # exactly one more CitationCoverageUpdated publish (no add-job
+        # cascades), then read the settled state through the endpoint
+        # instead of racing the bg write with an unlocked direct
+        # compute_coverage() call from the test body.
+        from research_companion.settings import update_settings
+        update_settings({"auto_add_citations": False})
         _seed_draft()
         self._mk_paper("local:linked01", year=2000)
-        _app, _bus, c = _make_client()
+        _app, bus, c = _make_client()
+
+        def _updates():
+            return sum(1 for e in bus.history
+                       if type(e).__name__ == "CitationCoverageUpdated")
+
         with c:
             c.post("/api/draft/citations/link",
                    json={"index": 0, "paper_id": "local:linked01"})
-            from research_companion.citations_coverage import compute_coverage
-            p2 = compute_coverage(store.get_draft_paper_id())
-            rec = p2["references"][0]
+            assert _wait(lambda: _updates() >= 2)
+            data = c.get("/api/draft/citations").json()
+            rec = data["references"][0]
             assert rec["status"] == "in_library"
             assert rec["match_kind"] == "manual"
             assert rec["matched_paper_id"] == "local:linked01"
 
     def test_link_reverts_when_paper_deleted(self, isolated_papergraph_dir):
+        # Same synchronization concern as test_link_survives_recompute, plus
+        # the deletion must go through the API (like the other
+        # coverage-refresh tests in this file) so it schedules its own
+        # background recompute we can wait on, rather than mutating the
+        # store directly and racing an unlocked compute_coverage() call.
+        from research_companion.settings import update_settings
+        update_settings({"auto_add_citations": False})
         _seed_draft()
         self._mk_paper("local:linked01", year=2000)
-        _app, _bus, c = _make_client()
+        _app, bus, c = _make_client()
+
+        def _updates():
+            return sum(1 for e in bus.history
+                       if type(e).__name__ == "CitationCoverageUpdated")
+
         with c:
             c.post("/api/draft/citations/link",
                    json={"index": 0, "paper_id": "local:linked01"})
-            store.remove_paper("local:linked01")
-            from research_companion.citations_coverage import compute_coverage
-            p2 = compute_coverage(store.get_draft_paper_id())
-            rec = p2["references"][0]
+            assert _wait(lambda: _updates() >= 2)
+            n = _updates()
+            c.delete("/api/papers/local:linked01")
+            assert _wait(lambda: _updates() > n)
+            data = c.get("/api/draft/citations").json()
+            rec = data["references"][0]
             assert rec["status"] != "in_library"
             assert rec["match_kind"] != "manual"
