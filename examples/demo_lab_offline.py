@@ -1,4 +1,4 @@
-"""Zero-key offline demo for the Research Lab.
+"""Zero-key offline demo for the Research Companion.
 
 Replays the fixture event stream (tests/fixtures/lab_events.jsonl) through the
 same Bus + _SeqRecorder shape the Lab server uses, and prints what a connecting
@@ -135,7 +135,7 @@ def main() -> int:
     # Import after env var is set
     from research_companion.agents.bus import Bus
 
-    print("Research Lab offline demo")
+    print("Research Companion offline demo")
     print("=" * 60)
     print(f"Fixture : {_FIXTURE}")
     print(f"Temp dir: {tmp}")
