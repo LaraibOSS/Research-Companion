@@ -713,6 +713,94 @@ class TestIngest:
             data = job_resp.json()
             assert data["status"] in ("running", "done", "failed")
 
+    def test_paths_subset_is_threaded_through(self, isolated_papergraph_dir, tmp_path):
+        """POST /api/ingest with an explicit paths subset ingests only those files."""
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        a = folder / "a.pdf"
+        b = folder / "b.pdf"
+        c_pdf = folder / "c.pdf"
+        for dest in (a, b, c_pdf):
+            dest.write_bytes(_FIXTURE_PDF.read_bytes())
+
+        received = {}
+
+        async def fake_ingest(folder, *, bus, paths=None, **kwargs):
+            received["paths"] = paths
+
+        app = create_lab_app(Bus())
+        app.state.ingest_override = fake_ingest
+
+        with TestClient(app) as c:
+            resp = c.post("/api/ingest", json={"folder": str(folder), "paths": [str(a)]})
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["discovered"] == 1
+            assert data["files"] == ["a.pdf"]
+        assert received["paths"] == [str(a)]
+
+    def test_paths_not_in_folder_are_dropped(self, isolated_papergraph_dir, tmp_path):
+        """Paths outside the scanned folder are dropped (security boundary)."""
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        a = folder / "a.pdf"
+        b = folder / "b.pdf"
+        for dest in (a, b):
+            dest.write_bytes(_FIXTURE_PDF.read_bytes())
+
+        async def fake_ingest(folder, *, bus, paths=None, **kwargs):
+            pass
+
+        app = create_lab_app(Bus())
+        app.state.ingest_override = fake_ingest
+
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/ingest",
+                json={"folder": str(folder), "paths": [str(a), "/evil/x.pdf"]},
+            )
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["discovered"] == 1
+            assert data["files"] == ["a.pdf"]
+
+    def test_paths_all_invalid_returns_400(self, isolated_papergraph_dir, tmp_path):
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        (folder / "a.pdf").write_bytes(_FIXTURE_PDF.read_bytes())
+
+        async def fake_ingest(folder, *, bus, paths=None, **kwargs):
+            pass
+
+        app = create_lab_app(Bus())
+        app.state.ingest_override = fake_ingest
+
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/ingest",
+                json={"folder": str(folder), "paths": ["/nope.pdf"]},
+            )
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == "no valid files selected"
+
+    def test_paths_omitted_ingests_whole_folder(self, isolated_papergraph_dir, tmp_path):
+        folder = tmp_path / "pdfs"
+        folder.mkdir()
+        for name in ("a.pdf", "b.pdf", "c.pdf"):
+            (folder / name).write_bytes(_FIXTURE_PDF.read_bytes())
+
+        async def fake_ingest(folder, *, bus, paths=None, **kwargs):
+            pass
+
+        app = create_lab_app(Bus())
+        app.state.ingest_override = fake_ingest
+
+        with TestClient(app) as c:
+            resp = c.post("/api/ingest", json={"folder": str(folder)})
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["discovered"] == 3
+
 
 # ---------------------------------------------------------------------------
 # POST /api/ingest/scan

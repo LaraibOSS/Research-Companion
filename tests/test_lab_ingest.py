@@ -274,6 +274,38 @@ class TestHappyPath:
         # At least one per file + final
         assert len(progress_events) >= 3
 
+    def test_paths_param_ingests_only_the_given_subset(self, tmp_path, isolated_papergraph_dir):
+        """When paths= is given, ingest exactly those files, even if the folder
+        contains more PDFs (e.g. a caller-selected subset)."""
+        p1 = _make_pdf(tmp_path, "p1.pdf")
+        p2 = _make_pdf(tmp_path, "p2.pdf")
+        _make_pdf(tmp_path, "p3.pdf")  # present in folder, but not selected
+
+        add, sect, ext, _, _ = _make_fakes(["local:aaa", "local:bbb"])
+        bus = Bus()
+
+        result = asyncio.run(
+            ingest_folder(
+                tmp_path,
+                paths=[p1, p2],
+                bus=bus,
+                add_pdf=add,
+                extractor=ext,
+                sectioner=sect,
+                aligner=None,
+                strengther=None,
+            )
+        )
+
+        assert len(result.added) == 2
+
+        progress_events = [e for e in bus.history if isinstance(e, IngestProgress)]
+        assert progress_events[0].total == 2
+
+        added_events = [e for e in bus.history if isinstance(e, PaperAdded)]
+        added_paths = {e.path for e in added_events}
+        assert added_paths == {str(p1), str(p2)}
+
 
 # ---------------------------------------------------------------------------
 # Failure at extract stage

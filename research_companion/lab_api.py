@@ -69,6 +69,7 @@ try:
 
     class _IngestBody(_BaseModel):
         folder: str = ""
+        paths: list[str] | None = None
 
     class _AlignBody(_BaseModel):
         paper_id: str = ""
@@ -1361,9 +1362,22 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if running_ingest_jobs:
             raise HTTPException(status_code=409, detail="An ingest job is already running")
 
+        # Optional caller-selected subset of the scanned folder. Security: only
+        # paths that scan_pdfs(folder) actually returned are ingestable — this
+        # mirrors the existing folder-trust boundary, so arbitrary client
+        # paths outside the folder are silently dropped.
+        ingest_paths = None
+        if body.paths is not None:
+            allowed = {str(p) for p in pdfs}
+            selected = [p for p in body.paths if p in allowed]
+            if not selected:
+                raise HTTPException(status_code=400, detail="no valid files selected")
+            ingest_paths = selected
+        count = len(ingest_paths) if ingest_paths is not None else len(pdfs)
+
         app.state.job_counter += 1
         job_id = f"job-{app.state.job_counter}"
-        ingest_label = f"Ingesting folder ({len(pdfs)} PDFs)…"
+        ingest_label = f"Ingesting folder ({count} PDFs)…"
         app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "ingest",
                                   "label": ingest_label, "target": ""}
 
@@ -1375,7 +1389,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run_ingest():
             await _announce_start(job_id, "ingest", ingest_label)
             try:
-                await ingest_fn(folder, bus=bus)
+                await ingest_fn(folder, bus=bus, paths=ingest_paths)
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "ingest",
                                           "label": ingest_label, "target": ""}
                 _schedule_coverage_refresh()
@@ -1388,8 +1402,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         return {
             "job_id": job_id,
-            "discovered": len(pdfs),
-            "files": [p.name for p in pdfs],
+            "discovered": count,
+            "files": [Path(p).name for p in ingest_paths] if ingest_paths is not None else [p.name for p in pdfs],
         }
 
     # -----------------------------------------------------------------

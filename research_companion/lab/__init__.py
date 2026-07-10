@@ -404,6 +404,7 @@ async def ingest_folder(
     folder,
     *,
     bus,
+    paths: list[str] | None = None,
     add_pdf=None,
     extractor=None,
     sectioner=None,
@@ -419,6 +420,9 @@ async def ingest_folder(
 
     All seams are injectable (tests inject fakes for all of them).
     Failures are per-stage: record_failure, publish IngestFailed, continue.
+
+    *paths*: when given, ingest exactly these paths instead of scanning the
+    folder; caller must have validated they are real PDFs in the folder.
 
     Returns IngestResult with lists of added, skipped, and failed paper path strings.
     """
@@ -455,7 +459,7 @@ async def ingest_folder(
             return None
     _suggester_resolved = _default_suggester() if suggester is _UNSET else suggester
 
-    pdfs = scan_pdfs(Path(folder))
+    pdfs = [Path(p) for p in paths] if paths is not None else scan_pdfs(Path(folder))
     total = len(pdfs)
     result = IngestResult()
 
