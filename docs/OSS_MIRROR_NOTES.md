@@ -8,7 +8,7 @@ different and must NOT be clobbered.
 | | Repo | Role |
 |---|---|---|
 | **Canonical (this repo)** | `Laraib-Hasan-Future/Research-Companion` | Published to **PyPI**; keeps the publish + CI workflows and PyPI-style install docs. This is the source of truth. |
-| **Demo mirror** | `Laraib-Hasan-OSS/Research-Companion` | Private, **source-install only** artifact for the EMNLP System Demo paper. No PyPI, no CI. **Fresh single-commit history** (HEAD `031bb90`, v0.5.16). |
+| **Demo mirror** | `Laraib-Hasan-OSS/Research-Companion` | Private, **source-install only** artifact for the EMNLP System Demo paper. No PyPI, no CI. **Fresh single-commit history** (HEAD `6576cd3`, v0.5.16). |
 
 The mirror was produced by exporting this repo's tracked tree at `a26ea28`
 (v0.5.16), then applying the de-PyPI transforms below. It is a one-way,
