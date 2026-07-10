@@ -387,3 +387,27 @@ skipped **silently**. Now every file is visible, before and during ingest.
 **Upgrade notes:** none — additive endpoint + events; no store or settings
 migration. Ingests started outside the Lab UI (CLI, another tab) fall back to
 the previous added/failed-only dock view.
+
+## 0.5.16 — pick your files, and a proper front door
+
+Two polish passes on the folder-ingest flow and the landing.
+
+- **Choose exactly which PDFs to ingest.** The "Ingest folder" scan-review list
+  now has a checkbox on every file. New files are ticked by default; untick the
+  ones you don't want, or use Select all / none. Files already in your library
+  are shown locked (you already have them). The button reads **"Ingest N
+  selected"** and only the files you picked are ingested — the dock's live
+  per-file list shows exactly that subset. Backed by an optional `paths` list on
+  `POST /api/ingest`, validated to be within the scanned folder.
+- **A professional Research Companion welcome.** With no draft yet, the home
+  screen used to show a blank, never-resolving loading box. It's now a clean,
+  centered **Research Companion** welcome panel: the product name, a one-line
+  value proposition, two clear actions (Add your draft · Ingest a folder), and a
+  subtle Connect → Draft → Papers → Review path. Add a draft and your real
+  dashboard takes over.
+- **Named Research Companion throughout.** The browser title, top bar, API docs
+  title, and CLI help now all say **Research Companion** (the `lab` command name
+  is unchanged).
+
+**Upgrade notes:** none — additive `paths` param, UI-only landing/rename; no
+store or settings migration.

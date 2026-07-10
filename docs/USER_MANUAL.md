@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.15 · 2026-07-09 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.16 · 2026-07-10 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -112,8 +112,11 @@ Click **"+ Add papers"** (top right). Three tabs:
   subfolders) is discovered and processed. The tab **scans the folder first**:
   before anything is ingested you see every PDF listed with a **New** or
   **Already in library** chip and a summary line (e.g. *"12 PDFs — 9 new, 3
-  already in your library"*), then start the run from an **"Ingest N new"**
-  button. During the run the progress dock (bottom-right) shows the full
+  already in your library"*). Each file has a **checkbox** — new files are
+  ticked by default; untick any you don't want (or use Select all / none), while
+  files already in your library are locked. The button reads **"Ingest N
+  selected"** and only the files you picked are ingested. During the run the
+  progress dock (bottom-right) shows the full
   file list live — each file moves **Queued → Reading… → Added ✓ / Failed ✗
   / Skipped** — so you can watch exactly where the pipeline is and which files
   were already in your library. The list scrolls for large folders, and when
