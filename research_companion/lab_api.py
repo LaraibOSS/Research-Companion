@@ -1,6 +1,6 @@
-"""Research Lab REST + SSE server.
+"""Research Companion REST + SSE server.
 
-Single long-running server behind the Research Lab web UI.
+Single long-running server behind the Research Companion web UI.
 
 Design rules (from the approved plan):
 - SINGLE event loop: uvicorn runs foreground; POST handlers spawn asyncio.create_task;
@@ -168,12 +168,12 @@ _PLACEHOLDER_HTML = """\
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Research Lab</title>
+  <title>Research Companion</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
-  <h1>Research Lab</h1>
-  <p>The Research Lab frontend is not yet installed.
+  <h1>Research Companion</h1>
+  <p>The Research Companion frontend is not yet installed.
      Run the Task F1 build to generate the static assets.</p>
   <script>
     // Placeholder EventSource for health check
@@ -384,7 +384,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             with suppress(asyncio.CancelledError):
                 await drain_task
 
-    app = FastAPI(title="Research Lab", lifespan=lifespan)
+    app = FastAPI(title="Research Companion", lifespan=lifespan)
 
     app.state.recorder = recorder
     app.state.bus = bus

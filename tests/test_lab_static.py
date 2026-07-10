@@ -1,4 +1,4 @@
-"""tests/test_lab_static.py — Static asset and endpoint smoke tests for the Research Lab.
+"""tests/test_lab_static.py — Static asset and endpoint smoke tests for the Research Companion.
 
 Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
@@ -200,7 +200,7 @@ def test_get_root_serves_index_html(lab_client):
     """GET / should return the real index.html content."""
     res = lab_client.get("/")
     assert res.status_code == 200
-    assert "Research Lab" in res.text
+    assert "Research Companion" in res.text
     # Must include the module script tag
     assert "main.js" in res.text
 

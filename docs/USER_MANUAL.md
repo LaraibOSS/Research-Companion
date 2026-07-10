@@ -41,7 +41,7 @@ pip install research-companion
 research-companion lab serve
 ```
 
-Your browser opens the **Research Lab** at `http://127.0.0.1:8765`. On first
+Your browser opens **Research Companion** at `http://127.0.0.1:8765`. On first
 launch a four-step onboarding walks you in:
 
 1. **Connect a model** — open Settings, paste an Anthropic or OpenAI API key.

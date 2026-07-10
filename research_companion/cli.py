@@ -1356,7 +1356,7 @@ def _cmd_lab_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_lab_serve(args: argparse.Namespace) -> int:
-    """Start the Research Lab web server (REST + SSE)."""
+    """Start the Research Companion web server (REST + SSE)."""
     try:
         from research_companion.lab_api import serve_lab
     except ImportError:
@@ -1605,7 +1605,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ptl.add_argument("--json", action="store_true", help="JSON output")
     ptl.set_defaults(func=_cmd_timeline)
 
-    plab = sub.add_parser("lab", help="Research Lab commands (folder ingestion, failures)")
+    plab = sub.add_parser("lab", help="Research Companion commands (folder ingestion, failures)")
     lab_sub = plab.add_subparsers(dest="lab_cmd", required=True)
 
     plab_ingest = lab_sub.add_parser("ingest", help="Ingest a folder of PDFs into the knowledge graph")
@@ -1619,7 +1619,7 @@ def _build_parser() -> argparse.ArgumentParser:
     plab_failures.set_defaults(func=_cmd_lab_failures)
 
     plab_serve = lab_sub.add_parser(
-        "serve", help="Start the Research Lab web server (REST + SSE)"
+        "serve", help="Start the Research Companion web server (REST + SSE)"
     )
     plab_serve.add_argument(
         "--port", type=int, default=8765, help="Port to listen on (default: 8765)"

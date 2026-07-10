@@ -102,7 +102,7 @@ class TestIndex:
         resp = c.get("/")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
-        assert "Research Lab" in resp.text
+        assert "Research Companion" in resp.text
 
     def test_serves_existing_index_html(self, isolated_papergraph_dir, tmp_path):
         """When lab/static/index.html exists, its content is served."""
