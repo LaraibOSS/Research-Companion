@@ -123,8 +123,8 @@ export const getFailures = () => get('/api/failures');
 /** GET /api/jobs/{id} */
 export const getJob = (jobId) => get(`/api/jobs/${encodeURIComponent(jobId)}`);
 
-/** POST /api/ingest — body: { folder: string } */
-export const ingest = (folder) => post('/api/ingest', { folder });
+/** POST /api/ingest — body: { folder: string, paths?: string[] } */
+export const ingest = (folder, paths) => post('/api/ingest', paths ? { folder, paths } : { folder });
 
 /**
  * POST /api/ingest/scan — body: { folder: string }

@@ -1546,11 +1546,23 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
   padding: 4px 2px;
   font-size: 12px;
 }
+.ingest-scan-row-locked {
+  opacity: .55;
+}
+.ingest-scan-checkbox {
+  margin: 0 6px 0 0;
+  flex: none;
+}
 .ingest-scan-relpath {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ingest-scan-selectall {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 /* Upload tab (v0.3.1) */

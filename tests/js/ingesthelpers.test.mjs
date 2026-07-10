@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { classifyIngestError, validateUploadFile, MAX_UPLOAD_BYTES, scanSummary, scanRows, manifestItemView } = await import(
+const { classifyIngestError, validateUploadFile, MAX_UPLOAD_BYTES, scanSummary, scanRows, manifestItemView, initialSelection, selectionSummary } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'components', 'ingestHelpers.js')).href
 );
 
@@ -210,4 +210,72 @@ test('manifestItemView: unknown/missing status falls back to queued', () => {
   const view = manifestItemView({});
   assert.equal(view.cls, 'lib-status-pill-queued');
   assert.equal(view.chipLabel, 'Queued');
+});
+
+// ---------------------------------------------------------------------------
+// initialSelection (folder review-step per-file checkboxes, v0.5.16)
+// ---------------------------------------------------------------------------
+
+test('initialSelection: includes only new files\' paths, excludes already-in-library', () => {
+  const files = [
+    { path: '/lib/a.pdf', already_in_library: false },
+    { path: '/lib/b.pdf', already_in_library: true },
+    { path: '/lib/c.pdf', already_in_library: false },
+  ];
+  const sel = initialSelection(files);
+  assert.ok(sel instanceof Set);
+  assert.deepEqual([...sel].sort(), ['/lib/a.pdf', '/lib/c.pdf']);
+});
+
+test('initialSelection: falsy already_in_library (missing/undefined) counts as new', () => {
+  const files = [
+    { path: '/lib/a.pdf' },
+    { path: '/lib/b.pdf', already_in_library: undefined },
+  ];
+  const sel = initialSelection(files);
+  assert.deepEqual([...sel].sort(), ['/lib/a.pdf', '/lib/b.pdf']);
+});
+
+test('initialSelection: empty array -> empty Set', () => {
+  assert.deepEqual(initialSelection([]), new Set());
+});
+
+test('initialSelection: null/undefined -> empty Set', () => {
+  assert.deepEqual(initialSelection(null), new Set());
+  assert.deepEqual(initialSelection(undefined), new Set());
+});
+
+// ---------------------------------------------------------------------------
+// selectionSummary (folder review-step summary line, v0.5.16)
+// ---------------------------------------------------------------------------
+
+test('selectionSummary: computes selectedCount/newCount/alreadyCount for a mixed list', () => {
+  const files = [
+    { path: '/lib/a.pdf', already_in_library: false },
+    { path: '/lib/b.pdf', already_in_library: false },
+    { path: '/lib/c.pdf', already_in_library: true },
+  ];
+  const selected = new Set(['/lib/a.pdf']);
+  assert.deepEqual(selectionSummary(files, selected), { selectedCount: 1, newCount: 2, alreadyCount: 1 });
+});
+
+test('selectionSummary: selectedCount reflects the Set size regardless of file list overlap', () => {
+  const files = [
+    { path: '/lib/a.pdf', already_in_library: false },
+  ];
+  const selected = new Set(['/lib/a.pdf', '/lib/not-in-files.pdf']);
+  assert.deepEqual(selectionSummary(files, selected), { selectedCount: 2, newCount: 1, alreadyCount: 0 });
+});
+
+test('selectionSummary: empty selection -> selectedCount 0', () => {
+  const files = [
+    { path: '/lib/a.pdf', already_in_library: false },
+    { path: '/lib/b.pdf', already_in_library: true },
+  ];
+  assert.deepEqual(selectionSummary(files, new Set()), { selectedCount: 0, newCount: 1, alreadyCount: 1 });
+});
+
+test('selectionSummary: tolerates null/undefined files and selectedSet', () => {
+  assert.deepEqual(selectionSummary(null, null), { selectedCount: 0, newCount: 0, alreadyCount: 0 });
+  assert.deepEqual(selectionSummary(undefined, undefined), { selectedCount: 0, newCount: 0, alreadyCount: 0 });
 });

@@ -78,6 +78,36 @@ export function scanRows(files) {
   return rows;
 }
 
+/**
+ * Compute the default selection for the review-step checkboxes: every New
+ * (not-already-in-library) file's absolute path.
+ *
+ * @param {Array<{path?, already_in_library?}>} [files]
+ * @returns {Set<string>}
+ */
+export function initialSelection(files) {
+  const list = Array.isArray(files) ? files : [];
+  const sel = new Set();
+  for (const f of list) {
+    if (f && !f.already_in_library) sel.add(f.path || '');
+  }
+  return sel;
+}
+
+/**
+ * Summarize the current checkbox selection alongside the scan file list for
+ * the review-step summary line.
+ *
+ * @param {Array<{already_in_library?: boolean}>} [files]
+ * @param {Set<string>} [selectedSet]
+ * @returns {{selectedCount: number, newCount: number, alreadyCount: number}}
+ */
+export function selectionSummary(files, selectedSet) {
+  const { newCount, alreadyCount } = scanSummary(files);
+  const selectedCount = selectedSet instanceof Set ? selectedSet.size : 0;
+  return { selectedCount, newCount, alreadyCount };
+}
+
 // ---------------------------------------------------------------------------
 // Progress-dock manifest row -> status chip mapper
 // ---------------------------------------------------------------------------

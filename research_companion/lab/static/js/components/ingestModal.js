@@ -20,7 +20,7 @@ import * as api from '../api.js';
 import * as store from '../store.js';
 import { showToast } from './toast.js';
 import { escapeHtml } from '../format.js';
-import { classifyIngestError, validateUploadFile, scanSummary, scanRows } from './ingestHelpers.js';
+import { classifyIngestError, validateUploadFile, scanSummary, scanRows, initialSelection, selectionSummary } from './ingestHelpers.js';
 
 let _overlay = null;
 let _modal = null;
@@ -29,10 +29,10 @@ let _lastOpts = {};
 
 // Folder tab's local scan/review state. Reset whenever the dialog is
 // (re)opened or the tab changes, so a stale file list never shows.
-let _folderState = { step: 'scan', folder: '', scanResult: null };
+let _folderState = { step: 'scan', folder: '', scanResult: null, selected: new Set() };
 
 function _resetFolderState() {
-  _folderState = { step: 'scan', folder: '', scanResult: null };
+  _folderState = { step: 'scan', folder: '', scanResult: null, selected: new Set() };
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ function _renderFolderScanStep(body) {
 
     try {
       const res = await api.scanFolder(folder);
-      _folderState = { step: 'review', folder, scanResult: res };
+      _folderState = { step: 'review', folder, scanResult: res, selected: initialSelection(res.files) };
       _renderModal('folder', _lastOpts);
     } catch (err) {
       scanBtn.disabled = false;
@@ -296,14 +296,20 @@ function _renderFolderScanStep(body) {
 
 function _renderFolderReviewStep(body) {
   const scanResult = _folderState.scanResult || { discovered: 0, already: 0, files: [] };
-  const summary = scanSummary(scanResult.files);
+  const selected = _folderState.selected;
+  const summary = selectionSummary(scanResult.files, selected);
   const rows = scanRows(scanResult.files);
+  const newTotal = summary.newCount;
 
-  const summaryLine = `${summary.total} PDF${summary.total !== 1 ? 's' : ''} — `
-    + `${summary.newCount} new, ${summary.alreadyCount} already in your library`;
+  const summaryLine = `${summary.newCount + summary.alreadyCount} PDF${(summary.newCount + summary.alreadyCount) !== 1 ? 's' : ''} — `
+    + `${summary.selectedCount} selected · ${summary.newCount} new · ${summary.alreadyCount} already in your library`;
 
   const rowsHtml = rows.map(row => `
-    <div class="ingest-scan-row">
+    <div class="ingest-scan-row${row.already ? ' ingest-scan-row-locked' : ''}">
+      <input type="checkbox" class="ingest-scan-checkbox"
+        ${row.already ? 'disabled' : `data-path="${escapeHtml(row.path)}"`}
+        ${!row.already && selected.has(row.path) ? 'checked' : ''}
+        ${row.already ? 'title="Already in your library"' : ''}>
       <span class="ingest-scan-relpath" title="${escapeHtml(row.relPath)}">${escapeHtml(row.relPath)}</span>
       ${row.already
         ? '<span class="badge badge-muted">Already in library</span>'
@@ -314,15 +320,21 @@ function _renderFolderReviewStep(body) {
   body.innerHTML = `
     <div class="ingest-form">
       <div class="ingest-scan-summary">${escapeHtml(summaryLine)}</div>
+      ${newTotal > 0 ? `
+        <div class="ingest-scan-selectall">
+          <button class="btn btn-sm" id="ingest-folder-select-all-btn">Select all</button>
+          <button class="btn btn-sm" id="ingest-folder-select-none-btn">Select none</button>
+        </div>
+      ` : ''}
       <div class="ingest-scan-list">${rowsHtml || '<div class="muted">No PDFs found.</div>'}</div>
       <div class="ingest-error-line" id="ingest-folder-review-error" style="display:none"></div>
-      ${summary.newCount === 0
+      ${newTotal === 0
         ? '<div class="ingest-hint-line">All files are already in your library</div>'
         : ''}
       <div class="ingest-form-actions">
         <button class="btn" id="ingest-folder-back-btn">Back</button>
-        <button class="btn btn-accent" id="ingest-folder-confirm-btn"${summary.newCount === 0 ? ' disabled' : ''}>
-          Ingest ${summary.newCount} new
+        <button class="btn btn-accent" id="ingest-folder-confirm-btn"${summary.selectedCount === 0 ? ' disabled' : ''}>
+          Ingest ${summary.selectedCount} selected
         </button>
       </div>
     </div>
@@ -331,18 +343,46 @@ function _renderFolderReviewStep(body) {
   const errLine    = body.querySelector('#ingest-folder-review-error');
   const backBtn    = body.querySelector('#ingest-folder-back-btn');
   const confirmBtn = body.querySelector('#ingest-folder-confirm-btn');
+  const list       = body.querySelector('.ingest-scan-list');
+  const selectAllBtn  = body.querySelector('#ingest-folder-select-all-btn');
+  const selectNoneBtn = body.querySelector('#ingest-folder-select-none-btn');
 
   backBtn.addEventListener('click', () => {
     _folderState = { ..._folderState, step: 'scan' };
     _renderModal('folder', _lastOpts);
   });
 
+  list.addEventListener('change', (e) => {
+    const cb = e.target.closest('.ingest-scan-checkbox[data-path]');
+    if (!cb) return;
+    if (cb.checked) _folderState.selected.add(cb.dataset.path);
+    else _folderState.selected.delete(cb.dataset.path);
+    _renderModal('folder', _lastOpts);
+  });
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', () => {
+      for (const row of rows) {
+        if (!row.already) _folderState.selected.add(row.path);
+      }
+      _renderModal('folder', _lastOpts);
+    });
+  }
+  if (selectNoneBtn) {
+    selectNoneBtn.addEventListener('click', () => {
+      for (const row of rows) {
+        if (!row.already) _folderState.selected.delete(row.path);
+      }
+      _renderModal('folder', _lastOpts);
+    });
+  }
+
   confirmBtn.addEventListener('click', async () => {
     errLine.style.display = 'none';
     confirmBtn.disabled = true;
     try {
-      await api.ingest(_folderState.folder);
-      store.startIngestManifest(scanResult.files);
+      await api.ingest(_folderState.folder, [..._folderState.selected]);
+      store.startIngestManifest(scanResult.files.filter(f => _folderState.selected.has(f.path)));
       closeModal();
     } catch (err) {
       confirmBtn.disabled = false;
