@@ -47,6 +47,16 @@ regenerable snapshot — not a fork with shared history.
    (Tests assert against the imported constant, not a literal, so no test edit
    was needed.)
 
+**Dangling references to the omitted files, cleaned up in the mirror**
+7b. Because the docs below (§8) were removed, their in-repo references were also
+   scrubbed in the mirror: the in-app Help panel's `DOCS_PATH`
+   (`research_companion/lab/static/js/components/helpPanel.js`) → `docs/USER_MANUAL.pdf`
+   (was `docs/RESEARCH_COMPANION_GUIDE.pdf`); `docs/USER_MANUAL.md` dropped its
+   `docs/superpowers/specs/` pointer and the `RESEARCH_COMPANION_GUIDE.pdf`
+   companion-doc line; `docs/DEVELOPER_GUIDE.md` dropped its
+   `docs/superpowers/specs/…` decision-report pointer; and a
+   `refcheck/validate.py` comment dropped its `NOVELTY_ENGINE_SPEC` reference.
+
 **Files/folders omitted from the mirror entirely**
 8. `paper/` (LaTeX + figures + video script + user-study protocol),
    `docs/superpowers/` (internal SDD plans/specs),
@@ -72,5 +82,5 @@ regenerable snapshot — not a fork with shared history.
   back any of the de-PyPI edits (URLs, source-install docs, removed workflows,
   the `-e ".[docling]"` message) — they would break PyPI packaging here.
 
-_Mirror HEAD at last sync: `Laraib-Hasan-OSS/Research-Companion` @ `031bb90`
+_Mirror HEAD at last sync: `Laraib-Hasan-OSS/Research-Companion` @ `1dc83cc`
 (2026-07-10)._
