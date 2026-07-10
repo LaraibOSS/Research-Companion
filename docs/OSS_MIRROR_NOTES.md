@@ -66,6 +66,12 @@ regenerable snapshot — not a fork with shared history.
    Kept in the mirror: `research_companion/`, `tests/`, `eval/`, `examples/`,
    `docs/USER_MANUAL.*`, `docs/DEVELOPER_GUIDE.md`, `docs/RELEASE_0.*.md`,
    `LICENSE`, `pyproject.toml`, `README.md`, `.gitignore`, `.gitattributes`.
+   **Exception:** the demo-video script from `paper/VIDEO_SCRIPT.md` WAS ported
+   into the mirror as `docs/DEMO_VIDEO_SCRIPT.md` — adapted for OSS (source
+   install shot instead of `pip install research-companion`, closing frame shows
+   the OSS repo URL not the PyPI line, refreshed test count, `paper/main.tex`
+   reference dropped), and linked from the README's Documentation list. The
+   canonical PyPI version stays at `paper/VIDEO_SCRIPT.md` here.
 9. Fresh single-commit history (no commit history carried from this repo).
 
 ---
@@ -82,5 +88,5 @@ regenerable snapshot — not a fork with shared history.
   back any of the de-PyPI edits (URLs, source-install docs, removed workflows,
   the `-e ".[docling]"` message) — they would break PyPI packaging here.
 
-_Mirror HEAD at last sync: `Laraib-Hasan-OSS/Research-Companion` @ `1dc83cc`
+_Mirror HEAD at last sync: `Laraib-Hasan-OSS/Research-Companion` @ `6576cd3`
 (2026-07-10)._
