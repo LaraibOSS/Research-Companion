@@ -3,7 +3,7 @@
  * W3-F2.
  *
  * Zones:
- *   0/1  Hero (or onboarding if no draft + tour not dismissed)
+ *   0/1  Hero (draft) or the "Research Companion" welcome hero (no draft)
  *   2    Next-best-action strip (up to 3 cards)
  *   3    Top-3 open suggestions compact list
  *   4    Journey sparkline + timeline
@@ -13,10 +13,10 @@ import * as store from '../store.js';
 import * as api from '../api.js';
 import { selectNextActions } from '../nextAction.js';
 import { mergeJourney, sparklinePath, severityDonut } from '../journeyHelpers.js';
-import { onboardingStep, renderOnboarding } from '../components/onboarding.js';
 import { openModal } from '../components/ingestModal.js';
 import { escapeHtml, timeAgo } from '../format.js';
 import { explainerBanner } from '../components/explainer.js';
+import { emptyHeroModel } from '../homeHelpers.js';
 
 let _el = null;
 let _unsub = null;
@@ -56,17 +56,13 @@ function _render() {
   const { draftId, papers, suggestions, suggestionCounts, settings, journey, failures, citationCoverage } = state;
 
   const draft = draftId ? papers.get(draftId) : null;
-  const tourDismissed = _localStorage('rc.tourDismissed');
-  const showOnboarding = (!draftId || !_hasPapers(papers, draftId)) && !tourDismissed;
 
-  // Zone 1 — hero or onboarding
+  // Zone 1 — hero (draft) or welcome hero (no draft)
   let zone1Html;
-  if (showOnboarding) {
-    zone1Html = `<div id="home-zone1-ob"></div>`;
-  } else if (draft) {
+  if (draft) {
     zone1Html = _heroHtml(draft, papers, suggestions, suggestionCounts, journey);
   } else {
-    zone1Html = _skeletonHtml('home-hero', 80);
+    zone1Html = _emptyHeroHtml(state);
   }
 
   // Zone 2 — NBA strip
@@ -99,15 +95,14 @@ function _render() {
       ${zone4Html}
     </div>`;
 
-  // Wire zone 1 onboarding if needed
-  if (showOnboarding) {
-    const obEl = _el.querySelector('#home-zone1-ob');
-    if (obEl) {
-      renderOnboarding(state, obEl, {
-        openIngest: (tab, opts) => openModal(tab, opts),
-        onDismiss: () => _render(),
-      });
-    }
+  // Wire zone 1 welcome hero buttons if needed
+  if (!draft) {
+    _el.querySelector('#home-hero-draft')?.addEventListener('click', () => {
+      openModal('upload', { draft: true });
+    });
+    _el.querySelector('#home-hero-folder')?.addEventListener('click', () => {
+      openModal('folder');
+    });
   }
 
   // Wire NBA card clicks
@@ -197,6 +192,38 @@ function _heroHtml(draft, papers, suggestions, suggestionCounts, journey) {
           <span class="home-stat-label">Addressed</span>
         </div>
       </div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Empty (no-draft) welcome hero
+// ---------------------------------------------------------------------------
+
+const _STEP_CAPTIONS = [
+  { key: 'connect', label: '① Connect' },
+  { key: 'add_draft', label: '② Draft' },
+  { key: 'ingest', label: '③ Papers' },
+  { key: 'meet_suggestions', label: '④ Review' },
+];
+
+function _emptyHeroHtml(state) {
+  const model = emptyHeroModel(state);
+  // meet_suggestions and done both map onto the "Review" caption.
+  const activeCaptionKey = model.activeStep === 'done' ? 'meet_suggestions' : model.activeStep;
+
+  const stepsHtml = _STEP_CAPTIONS
+    .map(s => `<span class="${s.key === activeCaptionKey ? 'is-active' : ''}">${s.label}</span>`)
+    .join(' · ');
+
+  return `
+    <div class="home-empty-hero">
+      <div class="home-empty-hero-brand"><span class="home-empty-hero-mark">◆</span> <span>${escapeHtml(model.heading)}</span></div>
+      <p class="home-empty-hero-sub">${escapeHtml(model.subline)}</p>
+      <div class="home-empty-hero-actions">
+        <button class="btn btn-accent" id="home-hero-draft">★ Add your draft</button>
+        <button class="btn" id="home-hero-folder">Ingest a folder</button>
+      </div>
+      <div class="home-empty-hero-steps">${stepsHtml}</div>
     </div>`;
 }
 
@@ -324,7 +351,7 @@ function _journeyHtml(journey) {
     : '';
 
   const timelineHtml = merged.length === 0
-    ? `<p class="muted" style="font-size:13px">No journey events yet.</p>`
+    ? `<p class="muted" style="font-size:13px">Your research journey will appear here.</p>`
     : merged.map(entry => `
       <div class="home-journey-entry ${escapeHtml(entry.icon)}">
         <div class="home-journey-dot"></div>
@@ -341,27 +368,4 @@ function _journeyHtml(journey) {
       ${sparklineHtml}
       <div class="home-journey-list">${timelineHtml}</div>
     </div>`;
-}
-
-// ---------------------------------------------------------------------------
-// Skeleton
-// ---------------------------------------------------------------------------
-
-function _skeletonHtml(cls, height) {
-  return `<div class="${cls} home-skeleton" style="height:${height}px"></div>`;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function _localStorage(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
-}
-
-function _hasPapers(papers, draftId) {
-  for (const [id, p] of papers) {
-    if (id !== draftId && !p.is_draft) return true;
-  }
-  return false;
 }
