@@ -20,7 +20,7 @@ import * as api from '../api.js';
 import * as store from '../store.js';
 import { showToast } from './toast.js';
 import { escapeHtml } from '../format.js';
-import { classifyIngestError, validateUploadFile, scanSummary, scanRows, initialSelection, selectionSummary } from './ingestHelpers.js';
+import { classifyIngestError, validateUploadFile, scanRows, initialSelection, selectionSummary } from './ingestHelpers.js';
 
 let _overlay = null;
 let _modal = null;
