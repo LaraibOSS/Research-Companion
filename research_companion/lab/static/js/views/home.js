@@ -17,6 +17,8 @@ import { openModal } from '../components/ingestModal.js';
 import { escapeHtml, timeAgo } from '../format.js';
 import { explainerBanner } from '../components/explainer.js';
 import { emptyHeroModel } from '../homeHelpers.js';
+import { confirmDialog } from '../components/confirmDialog.js';
+import { shouldSuggestNewResearch } from '../researchNudgeHelpers.js';
 
 let _el = null;
 let _unsub = null;
@@ -43,6 +45,34 @@ export function mount(el) {
 export function unmount() {
   if (_unsub) { _unsub(); _unsub = null; }
   _el = null;
+}
+
+// ---------------------------------------------------------------------------
+// Draft-add with "new research" nudge
+// ---------------------------------------------------------------------------
+
+/**
+ * Start adding a draft. If the current research already holds papers or a
+ * draft, first offer to create a fresh research so each draft stays isolated.
+ * Non-blocking: "Add to current" always proceeds with the upload modal.
+ */
+async function _addDraftWithNudge() {
+  const state = store.getState();
+  if (shouldSuggestNewResearch(state)) {
+    const startNew = await confirmDialog({
+      title: 'Start a new research for this draft?',
+      message: 'This research already has papers. Keeping each draft in its own '
+        + 'research keeps its graph, alignment and suggestions focused. You can '
+        + 'also add the draft to the current research.',
+      confirmLabel: 'Create new research',
+      cancelLabel: 'Add to current',
+    });
+    if (startNew) {
+      window.location.hash = '#/researches';
+      return;
+    }
+  }
+  openModal('upload', { draft: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +128,7 @@ function _render() {
   // Wire zone 1 welcome hero buttons if needed
   if (!draft) {
     _el.querySelector('#home-hero-draft')?.addEventListener('click', () => {
-      openModal('upload', { draft: true });
+      _addDraftWithNudge();
     });
     _el.querySelector('#home-hero-folder')?.addEventListener('click', () => {
       openModal('folder');
@@ -119,7 +149,7 @@ function _render() {
       } else if (action === 'open-ingest') {
         openModal('upload');
       } else if (action === 'open-ingest-draft') {
-        openModal('upload', { draft: true });
+        _addDraftWithNudge();
       } else if (action === 'open-citations') {
         window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
       }
