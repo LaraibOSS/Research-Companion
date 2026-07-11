@@ -27,6 +27,28 @@ Beta Author. The second blank-separated entry title. Conf, 2020.
 
 Gamma Author. The third blank-separated entry title. Conf, 2021."""
 
+# Line-numbered, double-spaced, wrapped author-year references (ACL/arXiv
+# preprint style). Margin numbers 100-108 sit at line ends; publication years
+# (2021/2022/2023) sit mid-line and must be preserved.
+_LINE_NUMBERED = """Alice Smith, Bob Jones, and Carol Lee. 2021. A 100
+great paper about retrie- 101
+val systems. arXiv preprint arXiv:2101.00001. 102
+Dan Poe and Eve Ray. 2022. Another solid 103
+paper on memory models. arXiv preprint 104
+arXiv:2202.00002. 105
+Frank Ng, Grace Oh, and Heidi Pu. 2023. Yet 106
+more useful work in this space. arXiv 107
+preprint arXiv:2303.00003. 108"""
+
+# A normal author-year bibliography whose lines END in a publication year — must
+# NOT be misread as line-numbered (the year guard prevents a false positive).
+_NORMAL_YEAR_END = """Alice Smith. A first paper title of sufficient length. Journal A, 2018
+Bob Jones. A second paper title of sufficient length. Conf B, 2019
+Carol Lee. A third paper title of sufficient length. Journal C, 2020
+Dan Poe. A fourth paper title of sufficient length. Conf D, 2021
+Eve Ray. A fifth paper title of sufficient length. Journal E, 2022
+Frank Ng. A sixth paper title of sufficient length. Conf F, 2023"""
+
 
 def _mk_paper(paper_id: str, title: str) -> None:
     store.PaperMetadata(paper_id=paper_id, title=title, authors=["A"],
@@ -100,6 +122,38 @@ class TestSplitBibliography:
         assert entries == [] or len(entries) >= 3  # must NOT return 3 mis-split entries as bracketed
         if entries:
             assert not entries[0].startswith("[90]")
+
+
+class TestLineNumberedSplitter:
+    def test_detects_line_numbered_block(self):
+        assert cc._looks_line_numbered(_LINE_NUMBERED) is True
+
+    def test_normal_year_end_not_misclassified(self):
+        # Lines ending in a publication year must NOT count as margin numbers.
+        assert cc._looks_line_numbered(_NORMAL_YEAR_END) is False
+
+    def test_gate_defers_on_normal_bibliographies(self):
+        # The gated strategy returns None for every non-line-numbered shape, so
+        # the generic strategies keep handling them unchanged (no regression).
+        assert cc._split_line_numbered_author_year(_BRACKETED) is None
+        assert cc._split_line_numbered_author_year(_BLANKSEP) is None
+        assert cc._split_line_numbered_author_year(_NORMAL_YEAR_END) is None
+
+    def test_splits_at_arxiv_terminators_and_preserves_years(self):
+        entries = cc.split_bibliography(_LINE_NUMBERED)
+        assert len(entries) == 3
+        # margin numbers stripped, arXiv ids kept, years preserved, wraps rejoined
+        assert "arXiv:2101.00001" in entries[0]
+        assert "2021" in entries[0] and "Alice Smith" in entries[0]
+        assert "retrieval systems" in entries[0]  # de-hyphenated "retrie- val"
+        assert "100" not in entries[0] and "102" not in entries[0]
+        assert "arXiv:2303.00003" in entries[2] and "2023" in entries[2]
+
+    def test_normal_bibliographies_still_split_correctly(self):
+        # Regression: the generic strategies still win for their shapes.
+        assert len(cc.split_bibliography(_BRACKETED)) == 4
+        assert len(cc.split_bibliography(_DOTTED)) == 3
+        assert len(cc.split_bibliography(_BLANKSEP)) == 3
 
 
 # ---------------------------------------------------------------------------

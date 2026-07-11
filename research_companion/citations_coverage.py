@@ -42,7 +42,7 @@ from research_companion.store import PaperMetadata, make_arxiv_id, make_doi_id, 
 # ---------------------------------------------------------------------------
 
 _REFS_HEADING_RE = re.compile(
-    r"^\s*(?:\d+\.?\s+)?(references|bibliography)\s*$", re.IGNORECASE)
+    r"^\s*(?:\d+\.?\s+)?(references|bibliography)\s*(?:\d{1,4})?\s*$", re.IGNORECASE)
 _SECTION_TITLE_RE = re.compile(r"references|bibliograph", re.IGNORECASE)
 _AFTER_REFS_HEADING_RE = re.compile(
     r"^\s*(?:\d+\.?\s+)?(appendix|appendices|acknowledg\w*|supplementary)\b",
@@ -127,15 +127,104 @@ def _finish(parts: list[str]) -> list[str]:
     return out[:_MAX_ENTRIES]
 
 
+# Line-numbered / double-spaced author-year references (e.g. ACL/arXiv
+# preprints) defeat the generic strategies below: margin line-numbers pollute
+# every line and the blank-line strategy over-splits. This gated strategy
+# handles that ONE signature and returns None otherwise (so normal
+# bibliographies are untouched — no regression).
+_TRAIL_NUM_RE = re.compile(r"\s+(\d{1,4})\s*$")
+_LEAD_NUM_RE = re.compile(r"^\s*(\d{1,4})\s+")
+_PURE_NUM_RE = re.compile(r"^\s*(\d{1,4})\s*$")
+_ARXIV_ID_RE = re.compile(r"[Aa]r[Xx]iv:\s*\d{4}\.\d{4,5}")
+_TAIL_SECTION_RE = re.compile(
+    r"\b(?:ethics statement|acknowledge?ments?|appendix|appendices|"
+    r"limitations|impact statement|supplementary)\b", re.IGNORECASE)
+
+
+def _is_year(n: int) -> bool:
+    return 1900 <= n <= 2099
+
+
+def _margin_match(regex, line):
+    """Return a regex match for a margin line-number, but NOT when the number is
+    a 19xx/20xx publication year (so real years are never treated as noise)."""
+    m = regex.search(line) if regex is _TRAIL_NUM_RE else regex.match(line)
+    return m if (m and not _is_year(int(m.group(1)))) else None
+
+
+def _looks_line_numbered(block: str) -> bool:
+    """True when a large fraction of lines carry margin line-numbers — the
+    signature of a line-numbered preprint whose references need special handling.
+    Publication years at a line end do NOT count, so normal bibliographies whose
+    entries end in a year are not misclassified."""
+    lines = [ln for ln in block.splitlines() if ln.strip()]
+    if len(lines) < 6:
+        return False
+    if re.search(r"(?m)^\s*\[\d{1,3}\]\s", block):  # bracket-numbered — not this
+        return False
+    marg = sum(
+        1 for ln in lines
+        if _margin_match(_TRAIL_NUM_RE, ln) or _margin_match(_LEAD_NUM_RE, ln)
+        or (_PURE_NUM_RE.match(ln) and not _is_year(int(_PURE_NUM_RE.match(ln).group(1))))
+    )
+    return marg >= 0.3 * len(lines)
+
+
+def _split_line_numbered_author_year(block: str) -> list[str] | None:
+    """Split a line-numbered, double-spaced author-year reference block.
+
+    Returns None unless the block matches the line-numbered signature, so the
+    generic strategies handle everything else. Strips margin line-numbers (never
+    touching 19xx/20xx years), de-hyphenates wrapped words, drops trailing
+    non-reference matter, then splits entries at their arXiv-id terminators (the
+    reliable boundary in these arXiv-heavy bibliographies)."""
+    if not _looks_line_numbered(block):
+        return None
+    cleaned = []
+    for ln in block.splitlines():
+        pm = _PURE_NUM_RE.match(ln)
+        if pm and not _is_year(int(pm.group(1))):
+            continue  # a bare margin-number line
+        lead = _margin_match(_LEAD_NUM_RE, ln)
+        if lead:
+            ln = ln[lead.end():]
+        trail = _margin_match(_TRAIL_NUM_RE, ln)
+        if trail:
+            ln = ln[:trail.start()]
+        if ln.strip():
+            cleaned.append(ln.strip())
+    joined = " ".join(cleaned)
+    joined = re.sub(r"(\w)-\s+(\w)", r"\1\2", joined)  # rejoin hyphenated line wraps
+    tail = _TAIL_SECTION_RE.search(joined)
+    if tail and tail.start() > 200:
+        joined = joined[:tail.start()].strip()
+    parts, last = [], 0
+    for m in _ARXIV_ID_RE.finditer(joined):
+        end = m.end() + (1 if joined[m.end():m.end() + 1] == "." else 0)
+        parts.append(joined[last:end].strip())
+        last = end
+    if last < len(joined):
+        parts.append(joined[last:].strip())
+    entries = [p for p in parts if _MIN_ENTRY_LEN <= len(p) <= _MAX_ENTRY_LEN]
+    return entries[:_MAX_ENTRIES] if len(entries) >= _MIN_ENTRIES else None
+
+
 def split_bibliography(block: str) -> list[str]:
     """Split a References block into individual entries.
 
     Strategies in order (each must yield >= 3 plausible entries):
-    bracket-numbered [n] -> dot-numbered n. -> blank-line blocks ->
-    year-anchored accumulation. Returns [] when nothing works.
+    line-numbered author-year (gated) -> bracket-numbered [n] -> dot-numbered n.
+    -> blank-line blocks -> year-anchored accumulation. Returns [] when nothing
+    works.
     """
     if not block or not block.strip():
         return []
+
+    # Gated: line-numbered / double-spaced author-year preprints. Returns None
+    # (defers to the generic strategies) for every other bibliography shape.
+    special = _split_line_numbered_author_year(block)
+    if special is not None:
+        return special
 
     # A: bracket-numbered
     marks = list(re.finditer(r"(?m)^\s*\[(\d{1,3})\]", block))
