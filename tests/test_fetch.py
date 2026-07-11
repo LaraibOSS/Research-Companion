@@ -100,8 +100,11 @@ def test_add_paper_routes_arxiv_vs_local(monkeypatch: pytest.MonkeyPatch,
     )
     monkeypatch.setattr(fetch, "_download_pdf", lambda url, timeout=60.0: fake_pdf_bytes)
 
+    # Distinct bytes from the arXiv download: this is a genuinely different paper,
+    # so cross-namespace dedup (find_existing_paper_for) must not merge them —
+    # the point of this test is routing (arXiv input -> arxiv id, path -> local id).
     pdf = tmp_path / "local.pdf"
-    pdf.write_bytes(fake_pdf_bytes)
+    pdf.write_bytes(fake_pdf_bytes + b"a genuinely different local paper")
 
     arxiv_meta = fetch.add_paper("2410.05779")
     local_meta = fetch.add_paper(str(pdf))

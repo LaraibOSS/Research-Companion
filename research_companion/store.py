@@ -321,6 +321,53 @@ def make_s2_id(s2_id: str) -> str:
     return f"s2:{s2_id.strip()}"
 
 
+# arXiv id (new-style YYMM.NNNNN) / DOI embedded in a filename — folder exports
+# are commonly named like "author2025_title_arXiv-2501.13956.pdf".
+_ARXIV_IN_NAME_RE = re.compile(r"\b(\d{4}\.\d{4,5})\b")
+_DOI_IN_NAME_RE = re.compile(r"\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)", re.IGNORECASE)
+
+
+def find_existing_paper_for(pdf_bytes: bytes, *, filename: str | None = None) -> str | None:
+    """Return the id of a library paper that is the SAME work as this PDF, else None.
+
+    Cross-namespace dedup so the same paper added via arXiv/DOI and again as a
+    local PDF isn't duplicated. Checks, cheapest first:
+      1. exact content id (``local:<hash>``) already in the library;
+      2. an arXiv id / DOI found in *filename* that matches an existing paper;
+      3. a byte-identical stored PDF among non-local papers (arXiv/DOI/S2) —
+         local papers are keyed by content hash, so step 1 already covers them.
+    Never creates directories (unlike ``paper_dir``)."""
+    def _dir(pid: str) -> Path:
+        return papers_dir() / _id_to_dirname(pid)
+
+    target = make_local_id(pdf_bytes)
+    tdir = _dir(target)
+    if (tdir / "metadata.json").exists() and (tdir / "paper.pdf").exists():
+        return target
+
+    if filename:
+        name = str(filename)
+        for m in _ARXIV_IN_NAME_RE.finditer(name):
+            cand = make_arxiv_id(m.group(1))
+            if (_dir(cand) / "metadata.json").exists():
+                return cand
+        for m in _DOI_IN_NAME_RE.finditer(name):
+            cand = make_doi_id(m.group(1))
+            if (_dir(cand) / "metadata.json").exists():
+                return cand
+
+    for p in list_papers():
+        if p.paper_id.startswith("local:"):
+            continue  # id IS the content hash — step 1 already handled it
+        pdf = _dir(p.paper_id) / "paper.pdf"
+        try:
+            if pdf.exists() and make_local_id(pdf.read_bytes()) == target:
+                return p.paper_id
+        except OSError:
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Paper metadata + extraction records
 # ---------------------------------------------------------------------------

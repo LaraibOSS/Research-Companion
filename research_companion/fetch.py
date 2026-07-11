@@ -27,6 +27,7 @@ import httpx
 
 from research_companion.store import (
     PaperMetadata,
+    find_existing_paper_for,
     make_arxiv_id,
     make_doi_id,
     make_local_id,
@@ -373,11 +374,16 @@ def add_local_pdf_bytes(pdf_bytes: bytes, *, source: str = "", title: str | None
     if not pdf_bytes or not pdf_bytes.startswith(b"%PDF-"):
         raise FetchError(f"file does not look like a PDF: {source or '<bytes>'}")
 
-    paper_id = make_local_id(pdf_bytes)
-    existing = PaperMetadata.load(paper_id)
-    if existing is not None and (paper_dir(paper_id) / "paper.pdf").exists():
-        return existing
+    # Dedup across id namespaces: the same work may already be in the library as
+    # an arXiv/DOI paper (added via URL) or an identical local copy. Reuse it
+    # instead of creating a second entry.
+    existing_id = find_existing_paper_for(pdf_bytes, filename=source)
+    if existing_id is not None:
+        existing = PaperMetadata.load(existing_id)
+        if existing is not None:
+            return existing
 
+    paper_id = make_local_id(pdf_bytes)
     save_pdf(paper_id, pdf_bytes)
 
     meta = PaperMetadata(

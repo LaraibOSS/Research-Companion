@@ -261,3 +261,43 @@ def test_update_paper_metadata_blank_title_keeps_old(isolated_papergraph_dir):
 
 def test_update_paper_metadata_unknown_id_returns_none(isolated_papergraph_dir):
     assert store.update_paper_metadata("local:missing", title="X") is None
+
+
+# ---------------------------------------------------------------------------
+# find_existing_paper_for — cross-namespace duplicate detection
+# ---------------------------------------------------------------------------
+
+def _seed_arxiv_with_pdf(paper_id: str, pdf_bytes: bytes) -> None:
+    store.save_pdf(paper_id, pdf_bytes)
+    store.PaperMetadata(paper_id=paper_id, title="Seed", authors=["A"], year=2025,
+                        added_at="2026-01-01T00:00:00Z").save()
+
+
+def test_find_existing_paper_for_content_match_across_namespace(fake_pdf_bytes):
+    """A local PDF byte-identical to an existing arXiv paper resolves to it."""
+    aid = "arxiv:2501.13956"
+    _seed_arxiv_with_pdf(aid, fake_pdf_bytes)
+    assert store.find_existing_paper_for(fake_pdf_bytes) == aid
+
+
+def test_find_existing_paper_for_arxiv_id_in_filename(fake_pdf_bytes):
+    """Different bytes but the filename carries an arXiv id already in library."""
+    aid = "arxiv:2501.13956"
+    _seed_arxiv_with_pdf(aid, fake_pdf_bytes)
+    got = store.find_existing_paper_for(fake_pdf_bytes + b"x",
+                                        filename="zep_arXiv-2501.13956.pdf")
+    assert got == aid
+
+
+def test_find_existing_paper_for_returns_none_for_new(fake_pdf_bytes):
+    _seed_arxiv_with_pdf("arxiv:2501.13956", fake_pdf_bytes)
+    assert store.find_existing_paper_for(fake_pdf_bytes + b"unique",
+                                         filename="brand_new_paper.pdf") is None
+
+
+def test_find_existing_paper_for_does_not_create_dirs(fake_pdf_bytes):
+    """The read-only check must not leave empty paper directories behind."""
+    before = {d.name for d in store.papers_dir().iterdir()} if store.papers_dir().exists() else set()
+    store.find_existing_paper_for(fake_pdf_bytes + b"z", filename="x_arXiv-9999.99999.pdf")
+    after = {d.name for d in store.papers_dir().iterdir()} if store.papers_dir().exists() else set()
+    assert after == before

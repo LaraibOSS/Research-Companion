@@ -3030,6 +3030,24 @@ class TestUploadPaper:
             mine = next(p for p in papers if p["paper_id"] == data["paper_id"])
             assert "draft" in mine["title"].lower() or mine["title"]
 
+    def test_upload_dedups_against_existing_arxiv_paper(self, isolated_papergraph_dir):
+        """Uploading a PDF identical to an existing arXiv paper must not create a
+        second 'local:' entry — it returns duplicate:True pointing at the arXiv id."""
+        from research_companion import store
+        aid = "arxiv:2501.13956"
+        store.save_pdf(aid, _UPLOAD_PDF)
+        store.PaperMetadata(paper_id=aid, title="Zep", authors=["A"], year=2025,
+                            added_at="2026-01-01T00:00:00Z").save()
+        app, c = self._client()
+        with c:
+            resp = self._post(c, filename="zep.pdf")  # bytes == the arXiv paper's PDF
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["duplicate"] is True
+            assert data["paper_id"] == aid
+            ids = [p["paper_id"] for p in c.get("/api/papers").json()]
+            assert not any(i.startswith("local:") for i in ids)
+
     def test_upload_title_from_filename(self, isolated_papergraph_dir):
         from research_companion.store import PaperMetadata
         app, c = self._client()

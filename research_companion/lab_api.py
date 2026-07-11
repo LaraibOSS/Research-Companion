@@ -539,7 +539,6 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     async def upload_paper(request: Request, filename: str = "",
                            set_draft: bool = False) -> Any:
         from research_companion import fetch, store
-        from research_companion.store import PaperMetadata, paper_dir
 
         # Cheap pre-check before buffering the body
         try:
@@ -566,20 +565,20 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         stem = safe[:-4] if safe.lower().endswith(".pdf") else safe
         title = (stem.strip() or "Uploaded PDF")[:120]
 
-        # Duplicate content: same sha id already fully in the store
-        paper_id = store.make_local_id(body)
-        existing = PaperMetadata.load(paper_id)
-        if existing is not None and (paper_dir(paper_id) / "paper.pdf").exists():
+        # Duplicate: same content OR same arXiv id/DOI already in the library
+        # (across id namespaces — e.g. this PDF is a copy of an arXiv paper).
+        existing_id = store.find_existing_paper_for(body, filename=safe)
+        if existing_id is not None:
             if set_draft:
-                await _apply_draft(paper_id)
+                await _apply_draft(existing_id)
             return JSONResponse(status_code=200, content={
-                "job_id": None, "paper_id": paper_id,
+                "job_id": None, "paper_id": existing_id,
                 "duplicate": True, "draft_set": set_draft,
             })
 
         meta = await asyncio.to_thread(
             fetch.add_local_pdf_bytes, body,
-            source=f"upload://{safe or paper_id}", title=title,
+            source=f"upload://{safe or store.make_local_id(body)}", title=title,
         )
         # Metadata exists on disk now, so the draft can be set before the
         # background pipeline runs — no race by construction.
@@ -1430,9 +1429,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             for p in pdfs:
                 already = False
                 try:
-                    pid = store.make_local_id(p.read_bytes())
-                    meta = store.PaperMetadata.load(pid)
-                    already = meta is not None and (store.paper_dir(pid) / "paper.pdf").exists()
+                    # Cross-namespace dedup: also flags a file already held as an
+                    # arXiv/DOI paper, not just a byte-identical local copy.
+                    already = store.find_existing_paper_for(
+                        p.read_bytes(), filename=p.name) is not None
                 except Exception:
                     already = False
                 try:
