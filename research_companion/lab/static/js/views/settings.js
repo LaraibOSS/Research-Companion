@@ -15,6 +15,7 @@
 
 import * as api from '../api.js';
 import * as store from '../store.js';
+import { navigateBack } from '../router.js';
 import { themeVars, applyTheme } from '../theme.js';
 import { buildSettingsPatch, validateSettings } from '../settingsHelpers.js';
 import { showToast } from '../components/toast.js';
@@ -23,6 +24,7 @@ import { tip } from '../glossary.js';
 
 let _el = null;
 let _settings = null; // last loaded settings snapshot
+let _onKeydown = null; // Escape handler, removed on unmount
 
 // ---------------------------------------------------------------------------
 // mount / unmount
@@ -32,10 +34,17 @@ export function mount(el) {
   _el = el;
   _settings = null;
   el.innerHTML = `<div class="settings-view"><p class="muted" style="padding:var(--space-4)">Loading settings…</p></div>`;
+  // Escape closes Settings, matching the drawer/modal convention.
+  _onKeydown = (e) => { if (e.key === 'Escape') navigateBack(); };
+  document.addEventListener('keydown', _onKeydown);
   _load();
 }
 
 export function unmount() {
+  if (_onKeydown) {
+    document.removeEventListener('keydown', _onKeydown);
+    _onKeydown = null;
+  }
   _el = null;
   _settings = null;
 }
@@ -71,7 +80,10 @@ function _render(s) {
 
   _el.innerHTML = `
 <div class="settings-view">
-  <h1>Settings</h1>
+  <div class="settings-header">
+    <h1>Settings</h1>
+    <button class="drawer-close settings-close" id="settings-close" aria-label="Close settings" title="Close">&times;</button>
+  </div>
 
   <!-- 1. Model provider -->
   <div class="settings-card" id="sc-model">
@@ -213,6 +225,10 @@ function _render(s) {
 // ---------------------------------------------------------------------------
 
 function _wireEvents(s) {
+  // Close button — return to the previous view (full-page view has no backdrop)
+  const closeBtn = _el.querySelector('#settings-close');
+  if (closeBtn) closeBtn.addEventListener('click', () => navigateBack());
+
   // Track local appearance state for instant apply
   const localAppearance = {
     theme: s.theme || 'dark',

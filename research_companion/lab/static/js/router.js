@@ -12,6 +12,7 @@
 
 const _registry = new Map();
 let _currentRoute = null;
+let _previousRoute = null;
 let _viewEl = null;
 
 /**
@@ -50,6 +51,21 @@ export function navigate(route) {
   window.location.hash = '#' + route;
 }
 
+/**
+ * Navigate back to the previously-mounted route (falling back to '/home').
+ * Used by full-page views (e.g. Settings) that need a "close" affordance:
+ * they have nothing to dismiss, so closing means returning where you came from.
+ * We track the previous route ourselves rather than using history.back() because
+ * a view may be the first one loaded (deep link / refresh), where history.back()
+ * would leave the app entirely.
+ */
+export function navigateBack() {
+  const target = (_previousRoute && _previousRoute !== _currentRoute)
+    ? _previousRoute
+    : '/home';
+  navigate(target);
+}
+
 function _render() {
   const { route } = _parseHash();
 
@@ -71,6 +87,7 @@ function _render() {
 
   // Mount new view
   const handler = _registry.get(route) || _registry.get('/home');
+  if (_currentRoute && _currentRoute !== route) _previousRoute = _currentRoute;
   _currentRoute = route;
   if (handler && typeof handler.mount === 'function' && _viewEl) {
     try { handler.mount(_viewEl); } catch (e) { console.error('[router] mount error', e); }
