@@ -3793,7 +3793,9 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 
 /* Gap row */
 .tl-gap-row {
-  position: relative;
+  /* NOT an offset parent: gap diamonds carry canvas-absolute Y (gapLane.y) and
+     must position against .tl-canvas-inner, like the row labels. */
+  position: static;
 }
 
 /* Gap diamond markers on the canvas */
@@ -3837,7 +3839,11 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 
 /* Lane rows */
 .tl-lane-row {
-  position: relative;
+  /* NOT an offset parent: dots/segments carry canvas-absolute Y (lane.y). They
+     must position against the full-height .tl-canvas-inner (same coordinate
+     space as the row labels), not this 56px row — otherwise each dot is pushed
+     down by its row's flow offset and escapes the grid. */
+  position: static;
 }
 
 /* Track dots */
@@ -5084,6 +5090,38 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   color: var(--color-muted);
   font-style: italic;
   white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * Citation Placement panel — the rows carry a title + a detail sentence + one
+ * button per cited section, unlike the Citations panel (title + short year).
+ * Stack them vertically and let long paper-ids / section titles wrap or
+ * ellipsize so nothing overflows the fixed-width drawer. Scoped to
+ * #placement-panel so the Citations panel is unaffected.
+ * --------------------------------------------------------------------------- */
+#placement-panel .citation-row-main {
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+}
+#placement-panel .citation-row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#placement-panel .citation-row-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#placement-panel .placement-read-row .draft-read-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#placement-panel .citation-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------------------------------------------------------------------------

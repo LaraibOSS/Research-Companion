@@ -35,7 +35,12 @@ let _selectedGap = null;     // { gap, paperEntry, inDraft }
 let _detailPanel = null;     // right panel DOM element
 let _canvasWrap  = null;     // scrollable canvas wrapper
 
-const OPTS = { yearWidth: 140, laneHeight: 56, labelWidth: 180 };
+// yearStripH is the height of the year-header strip that sits ABOVE the canvas
+// but NOT above the labels column. Row labels must be pushed down by it so the
+// labels share the same vertical origin as the dots/segments (which live in
+// .tl-canvas-inner, below the strip). Single source of truth for both the strip
+// markup height and the label offset so they can never drift apart.
+const OPTS = { yearWidth: 140, laneHeight: 56, labelWidth: 180, yearStripH: 32 };
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -349,11 +354,15 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
   }
 
   // ---- Lane labels (sticky left) ----
+  // Offset by the year-strip height so labels align with the dots, which live in
+  // .tl-canvas-inner (below the strip). Without this the "Gaps" label hides
+  // behind the year header and every label sits above its row's dots.
+  const labelTop = (y) => y - 10 + OPTS.yearStripH;
   let labels = '';
   // Gap label
-  labels += `<div class="tl-lane-label tl-gap-lane-label" style="top:${layout.gapLane.y - 10}px">Gaps</div>`;
+  labels += `<div class="tl-lane-label tl-gap-lane-label" style="top:${labelTop(layout.gapLane.y)}px">Gaps</div>`;
   for (const lane of layout.lanes) {
-    labels += `<div class="tl-lane-label" data-kind="${escapeHtml(lane.kind)}" style="top:${lane.y - 10}px">${escapeHtml(lane.label)}</div>`;
+    labels += `<div class="tl-lane-label" data-kind="${escapeHtml(lane.kind)}" style="top:${labelTop(lane.y)}px">${escapeHtml(lane.label)}</div>`;
   }
 
   const canvasHeight = layout.lanes.length > 0
@@ -364,12 +373,12 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
   // via scrollLeft without fighting the overflow container (Fix MEDIUM-3).
   return `
     <div class="tl-canvas-outer">
-      <div class="tl-labels-col" style="width:${OPTS.labelWidth}px;height:${canvasHeight}px">
+      <div class="tl-labels-col" style="width:${OPTS.labelWidth}px;height:${canvasHeight + OPTS.yearStripH}px">
         ${labels}
       </div>
       <div class="tl-canvas-right" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-        <div class="tl-year-strip" style="overflow:hidden;flex-shrink:0;height:32px;position:relative">
-          <div class="tl-year-header" style="width:${innerW}px;height:32px;position:relative">
+        <div class="tl-year-strip" style="overflow:hidden;flex-shrink:0;height:${OPTS.yearStripH}px;position:relative">
+          <div class="tl-year-header" style="width:${innerW}px;height:${OPTS.yearStripH}px;position:relative">
             ${yearCells}
           </div>
         </div>
