@@ -1581,6 +1581,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             raise HTTPException(status_code=400, detail="question required")
 
         resolved_llm = app.state.llm
+        if resolved_llm is None:
+            # Prose answer -> json_mode=False. Uses the settings-aware provider
+            # (OpenAI/Anthropic per Settings) instead of qa.answer's env-only
+            # fallback, which defaults to anthropic and 500s when only OpenAI
+            # is configured.
+            resolved_llm = _resolve_llm(json_mode=False)
 
         result = await asyncio.to_thread(
             answer,

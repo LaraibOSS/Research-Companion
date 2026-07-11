@@ -970,6 +970,36 @@ class TestAsk:
         assert "grounding" in data
         assert "paper_ids" in data["grounding"]
 
+    def test_ask_resolves_llm_when_state_llm_is_none(self, isolated_papergraph_dir, monkeypatch):
+        """Regression: in the running server app.state.llm is None, so /api/ask must
+        resolve an LLM from saved Settings itself. Previously it passed llm=None to
+        qa.answer, whose env-only fallback defaults to anthropic and 500s when only
+        OpenAI is configured (the reported "Ask tab internal server error")."""
+        import research_companion.qa as qa
+        _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "My Paper")
+
+        captured = {}
+
+        class _FakeResult:
+            answer = "ok"
+            sources: list = []
+            cited: list = []
+            unverified_quotes: list = []
+            grounding_node_ids: list = []
+
+        def _fake_answer(question, *, llm=None, section_id=None):
+            captured["llm"] = llm
+            return _FakeResult()
+
+        monkeypatch.setattr(qa, "answer", _fake_answer)
+
+        c = _make_client()  # llm=None, exactly like the production server
+        resp = c.post("/api/ask", json={"question": "What is this about?"})
+        assert resp.status_code == 200
+        # The endpoint must have resolved a real LLM callable, not passed None.
+        assert captured["llm"] is not None
+        assert callable(captured["llm"])
+
     def test_citations_have_correct_shape(self, isolated_papergraph_dir):
         _make_paper(isolated_papergraph_dir, "arxiv:1111.22222", "My Paper")
         c = _make_client(llm=_fake_qa_llm)
