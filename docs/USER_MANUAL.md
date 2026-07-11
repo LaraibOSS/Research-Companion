@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.16 · 2026-07-10 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.5.17 · 2026-07-11 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -42,7 +42,9 @@ research-companion lab serve
 ```
 
 Your browser opens **Research Companion** at `http://127.0.0.1:8765`. On first
-launch a four-step onboarding walks you in:
+launch a **"Get set up"** dialog prompts for your LLM key (required) and an
+optional Hugging Face token for semantic search, and a four-step onboarding
+walks you in:
 
 1. **Connect a model** — open Settings, paste an Anthropic or OpenAI API key.
    Keys are stored in a local `.env` file (never in JSON, never committed),
@@ -444,6 +446,9 @@ A tab opened mid-work picks up running tasks immediately. Idle = invisible.
 - **Citations** — "Automatically download papers cited by your draft"
   (default on).
 - **About** — replay the intro tour; links to docs.
+
+Close Settings with the **×** button (top-right) or **Escape** — it returns you
+to the view you came from.
 
 ## 19. CLI reference
 

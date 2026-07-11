@@ -411,3 +411,45 @@ Two polish passes on the folder-ingest flow and the landing.
 
 **Upgrade notes:** none — additive `paths` param, UI-only landing/rename; no
 store or settings migration.
+
+## 0.5.17 — reliability & UX pass
+
+Ported from a parallel dev branch (all changes TDD'd; +38 Python / +23 JS tests).
+
+**Reliability & correctness**
+- **Ingestion can't take the server down.** Docling's OCR stack can crash
+  *natively* (`std::bad_alloc` / segfault) on low-memory machines and used to
+  kill the whole Lab mid-ingest. Docling now runs in an **isolated subprocess**:
+  a crash or timeout is caught and ingestion falls back to the fast pypdfium
+  reader; a truly unreadable PDF fails with a clear message. Docling keeps full
+  capability (OCR on) when it works.
+- **Accurate citation coverage.** A truncated/failed Docling parse now falls back
+  to pypdfium (references preserved), and a new parser handles **line-numbered
+  ACL/arXiv bibliographies** — so *"Analysis covers N of M cited references"* is
+  correct instead of undercounting.
+- **Author-year citation-placement.** Placement checking now parses narrative and
+  parenthetical author-year styles (`et al.`, semicolon lists, accents, `2020a/b`)
+  and matches them to your library by first-author surname + year — previously
+  only numbered `[n]` citations were supported.
+- **Cross-source de-duplication.** The same paper added via arXiv *and* as a local
+  PDF (or a re-ingested folder) is recognised by content hash / an arXiv-id·DOI in
+  the filename / byte-identical PDF, so the library stops filling with duplicates.
+- **Reliable draft ingest in a migrated "Main" workspace.** One corrupt/legacy
+  JSON file no longer aborts the ingest graph stage; a successful re-ingest clears
+  the stale failure.
+- **Ask (Q&A) tab fix.** No longer 500s under an OpenAI-only configuration — it
+  resolves the model from your Settings like the other endpoints.
+
+**UI & UX**
+- First-launch **"Get set up"** dialog prompting for the LLM key (required) and HF
+  token (optional), with a soft note when only the HF token is missing.
+- **Settings page can be closed** — a × button and Escape return to the previous view.
+- **"Start a new research" nudge** when adding a draft to a research that already
+  has papers, so drafts land in their own workspace.
+- Clearer **duplicate-upload feedback** (*"Already in your library as '<title>'"*).
+- Citation-Placement panel long-id wrapping and **Timeline alignment** fixes; the
+  Timeline density row reads **"N papers" / "Papers / year"**; honest counts and
+  labels throughout (Library "N papers", coverage "cited references", Home
+  "Related papers").
+
+**Upgrade notes:** none — additive fixes/features; no store or settings migration.
