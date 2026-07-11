@@ -345,11 +345,12 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
       </div>`;
   }
 
-  // ---- Density row ----
+  // ---- Density row (papers published per year) ----
   let densityTicks = '';
   for (const d of layout.paperDensity) {
+    const label = `${d.count} ${d.count === 1 ? 'paper' : 'papers'}`;
     densityTicks += `<div class="tl-density-tick" style="left:${_relX(d.x)}px">
-      <span class="tl-density-count">${escapeHtml(String(d.count))}</span>
+      <span class="tl-density-count">${escapeHtml(label)}</span>
     </div>`;
   }
 
@@ -364,6 +365,9 @@ function _buildCanvasHtml(layout, titleMap, gapIndex) {
   for (const lane of layout.lanes) {
     labels += `<div class="tl-lane-label" data-kind="${escapeHtml(lane.kind)}" style="top:${labelTop(lane.y)}px">${escapeHtml(lane.label)}</div>`;
   }
+  // Density-row label (the per-year paper counts sit below the last lane).
+  const densityRowTop = OPTS.laneHeight + layout.lanes.length * OPTS.laneHeight;
+  labels += `<div class="tl-lane-label tl-density-lane-label" style="top:${labelTop(densityRowTop + 14)}px">Papers / year</div>`;
 
   const canvasHeight = layout.lanes.length > 0
     ? layout.lanes[layout.lanes.length - 1].y + OPTS.laneHeight
