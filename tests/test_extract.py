@@ -336,21 +336,38 @@ def test_prefer_complete_text_survives_pypdfium_error(monkeypatch, tmp_path):
     assert out.meta["parse_source"] == "docling"
 
 
-def test_parse_pdf_falls_back_when_primary_parser_raises(monkeypatch, tmp_path):
-    """Docling raising (e.g. OOM/bad_alloc) must fall back to pypdfium, not fail."""
+class _DoclingNamed:
+    name = "docling"
+    def parse(self, _pdf):  # never reached — docling goes through the subprocess
+        raise AssertionError("docling parse should run via subprocess, not in-process")
+
+
+def test_parse_pdf_falls_back_when_docling_subprocess_fails(monkeypatch, tmp_path):
+    """A Docling failure/crash in the subprocess must fall back to pypdfium, not fail."""
     fuller = ParsedDoc(text="y" * 20000)
 
-    class BoomDocling:
-        name = "docling"
-        def parse(self, _pdf):
-            raise RuntimeError("std::bad_alloc")
+    def _boom(_pdf, **_kw):
+        raise extract_parser_error("std::bad_alloc (exit 139)")
 
-    monkeypatch.setattr("research_companion.parsers.get_parser", lambda name=None: BoomDocling())
+    monkeypatch.setattr("research_companion.parsers.get_parser", lambda name=None: _DoclingNamed())
+    monkeypatch.setattr(extract, "_run_docling_subprocess", _boom)
     monkeypatch.setattr("research_companion.parsers.pypdfium.PypdfiumParser", _fake_pyp(fuller))
     out = extract._parse_pdf(tmp_path / "p.pdf")
     assert out is fuller
     assert "pypdfium" in out.meta["parse_source"]
     assert "error" in out.meta["parse_source"]
+
+
+def test_parse_pdf_uses_docling_subprocess_when_it_succeeds(monkeypatch, tmp_path):
+    """When the Docling subprocess succeeds, its result is used (subject to the
+    truncation guard, which keeps it when pypdfium isn't dramatically fuller)."""
+    docling_doc = ParsedDoc(text="d" * 20000, meta={})
+    monkeypatch.setattr("research_companion.parsers.get_parser", lambda name=None: _DoclingNamed())
+    monkeypatch.setattr(extract, "_run_docling_subprocess", lambda _pdf, **_kw: docling_doc)
+    monkeypatch.setattr("research_companion.parsers.pypdfium.PypdfiumParser",
+                        _fake_pyp(ParsedDoc(text="p" * 20500)))  # not dramatically fuller
+    out = extract._parse_pdf(tmp_path / "p.pdf")
+    assert out is docling_doc
 
 
 def test_parse_pdf_pypdfium_primary_is_untouched(monkeypatch, tmp_path):
@@ -359,3 +376,48 @@ def test_parse_pdf_pypdfium_primary_is_untouched(monkeypatch, tmp_path):
     out = extract._parse_pdf(tmp_path / "p.pdf")
     assert out is doc
     assert out.meta["parse_source"] == "pypdfium"
+
+
+def extract_parser_error(msg):
+    from research_companion.parsers.docling_parser import ParserError
+    return ParserError(msg)
+
+
+def test_run_docling_subprocess_raises_on_nonzero_exit(monkeypatch, tmp_path):
+    import subprocess
+
+    from research_companion.parsers.docling_parser import ParserError
+
+    class _R:
+        returncode = 139  # native crash
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
+    with pytest.raises(ParserError):
+        extract._run_docling_subprocess(tmp_path / "p.pdf")
+
+
+def test_run_docling_subprocess_reconstructs_parsed_doc(monkeypatch, tmp_path):
+    import json as _json
+    import subprocess
+
+    def _fake_run(cmd, **kwargs):
+        # cmd = [python, -m, worker, pdf, out_path, ocr]; write the worker's output.
+        out_path = cmd[4]
+        from pathlib import Path as _P
+        _P(out_path).write_text(_json.dumps({
+            "text": "hello", "sections": [{"title": "S"}], "tables": [],
+            "figures": [], "meta": {"parser": "docling"},
+        }), encoding="utf-8")
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    doc = extract._run_docling_subprocess(tmp_path / "p.pdf")
+    assert doc.text == "hello"
+    assert doc.sections == [{"title": "S"}]
+
+
+def test_docling_worker_module_imports():
+    import importlib
+    m = importlib.import_module("research_companion.parsers._docling_worker")
+    assert hasattr(m, "main")

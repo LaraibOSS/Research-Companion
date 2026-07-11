@@ -114,12 +114,65 @@ def _parse_pdf(pdf: Path):
         doc.meta.setdefault("parse_source", primary_name)
         return doc
     try:
-        primary = parser.parse(pdf)
+        # Docling can crash NATIVELY (std::bad_alloc/segfault in RapidOCR/torch),
+        # which a try/except can't catch — so run it in an isolated subprocess.
+        primary = _run_docling_subprocess(pdf)
     except Exception:
-        # Layout-aware parse failed hard — recover with pypdfium rather than
+        # Docling failed/crashed/timed out — recover with pypdfium rather than
         # failing the paper. If pypdfium also fails, that error propagates.
         return _pypdfium_parse(pdf, f"pypdfium (fallback from {primary_name} error)")
     return _prefer_complete_text(primary, pdf, primary_name)
+
+
+# Docling conversion can take minutes with OCR; cap it so a hung child can't
+# stall ingest forever (a timeout is treated as a Docling failure -> pypdfium).
+_DOCLING_TIMEOUT_S = 600
+
+
+def _run_docling_subprocess(pdf: Path, *, full_page_ocr: bool = False,
+                            timeout: int = _DOCLING_TIMEOUT_S):
+    """Run one Docling conversion in a child process and return its ParsedDoc.
+
+    Isolates Docling's native crashes (bad_alloc/segfault): a crashed child exits
+    non-zero, which we surface as ParserError so the caller can fall back to
+    pypdfium instead of the whole server dying. Raises ParserError on non-zero
+    exit, timeout, or a malformed result."""
+    import subprocess
+    import sys
+    import tempfile
+
+    from research_companion.parsers.base import ParsedDoc
+    from research_companion.parsers.docling_parser import ParserError
+
+    fd, out_path = tempfile.mkstemp(suffix=".json", prefix="rc_docling_")
+    os.close(fd)
+    try:
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "research_companion.parsers._docling_worker",
+                 str(pdf), out_path, "1" if full_page_ocr else "0"],
+                capture_output=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ParserError(f"docling subprocess timed out after {timeout}s") from exc
+        if proc.returncode != 0:
+            raise ParserError(
+                f"docling subprocess failed (exit {proc.returncode})")
+        try:
+            data = json.loads(Path(out_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ParserError(f"docling subprocess produced no valid output: {exc}") from exc
+        return ParsedDoc(
+            text=data.get("text", ""),
+            sections=data.get("sections", []),
+            tables=data.get("tables", []),
+            figures=data.get("figures", []),
+            meta=data.get("meta", {}),
+        )
+    finally:
+        import contextlib
+        with contextlib.suppress(OSError):
+            os.remove(out_path)
 
 
 # Truncation-guard thresholds. Docling legitimately drops headers/footers/margin
@@ -189,12 +242,17 @@ def ocr_fallback_parse(meta: PaperMetadata):
 
     if importlib.util.find_spec("docling") is None:
         return None
-    from research_companion.parsers.docling_parser import DoclingParser
 
     pdf = pdf_path(meta.paper_id)
     if pdf is None:
         raise FileNotFoundError(f"no PDF on disk for {meta.paper_id}")
-    doc = DoclingParser(full_page_ocr=True).parse(pdf)
+    # Forced full-page OCR is the crashiest path — isolate it in the subprocess
+    # too. A native crash / timeout there returns None (honest OCR-failed) rather
+    # than taking down the server.
+    try:
+        doc = _run_docling_subprocess(pdf, full_page_ocr=True)
+    except Exception:
+        return None
     save_text(meta.paper_id, doc.text)
     return doc
 

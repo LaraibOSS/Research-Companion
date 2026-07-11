@@ -255,15 +255,13 @@ class TestOcrFallbackParse:
 
         captured = {}
 
-        class _StubParser:
-            def __init__(self, full_page_ocr=False):
-                captured["full_page_ocr"] = full_page_ocr
+        def _fake_sub(pdf, *, full_page_ocr=False, **_kw):
+            captured["full_page_ocr"] = full_page_ocr
+            captured["pdf"] = pdf
+            return ParsedDoc(text="recovered text from forced OCR")
 
-            def parse(self, path):
-                captured["path"] = path
-                return ParsedDoc(text="recovered text from forced OCR")
-
-        monkeypatch.setattr(dp, "DoclingParser", _StubParser)
+        # OCR now runs in an isolated subprocess; patch the wrapper, not the parser.
+        monkeypatch.setattr(extract, "_run_docling_subprocess", _fake_sub)
 
         pdf = tmp_path / "p.pdf"
         pdf.write_bytes(b"%PDF-1.4\n%%EOF\n")
@@ -275,6 +273,28 @@ class TestOcrFallbackParse:
         assert captured["full_page_ocr"] is True          # forced full-page OCR
         assert doc.text == "recovered text from forced OCR"
         assert saved["text"] == "recovered text from forced OCR"  # persisted
+
+    def test_returns_none_when_ocr_subprocess_crashes(self, monkeypatch, tmp_path):
+        """A native OCR crash (isolated in the subprocess) must yield None, not raise."""
+        import importlib.util as u
+
+        from research_companion import extract
+        from research_companion.parsers.docling_parser import ParserError
+
+        real = u.find_spec
+        monkeypatch.setattr(
+            u, "find_spec",
+            lambda name, *a, **k: object() if name == "docling" else real(name, *a, **k),
+        )
+        pdf = tmp_path / "p.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        monkeypatch.setattr(extract, "pdf_path", lambda pid: pdf)
+
+        def _boom(_pdf, **_kw):
+            raise ParserError("docling subprocess failed (exit 139)")
+        monkeypatch.setattr(extract, "_run_docling_subprocess", _boom)
+
+        assert extract.ocr_fallback_parse(types.SimpleNamespace(paper_id="local:x")) is None
 
 
 # ---------------------------------------------------------------------------
