@@ -172,11 +172,20 @@ function _renderModal(activeTab = 'upload', opts = {}) {
       uploadBtn.textContent = 'Uploading…';
       try {
         const res = await api.uploadPaper(_file, checkbox.checked);
-        if (res.draft_set) {
+        if (res.duplicate) {
+          // Already in the library (same content, or same arXiv id/DOI). Name it
+          // so a deduped upload never looks like a silent failure.
+          const title = store.getState().papers.get(res.paper_id)?.title;
+          const named = title ? ` as “${title}”` : '';
+          if (res.draft_set) {
+            store.setDraft(res.paper_id);
+            showToast(`Already in your library${named} — set as your draft ★`, 'info');
+          } else {
+            showToast(`Already in your library${named}`, 'info');
+          }
+        } else if (res.draft_set) {
           store.setDraft(res.paper_id);
           showToast('Saved as your draft ★', 'info');
-        } else if (res.duplicate) {
-          showToast('Already in your library', 'info');
         } else {
           showToast(`Paper queued — job ${res.job_id}`, 'info');
         }

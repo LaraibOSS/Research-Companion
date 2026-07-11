@@ -70,7 +70,9 @@ export function bannerText(counts, source) {
   if (source && source !== 'bibliography') {
     return `Based on ${counts.total} related-work mentions (full bibliography not detected)`;
   }
-  return `Analysis covers ${counts.in_library} of ${counts.total} cited papers`;
+  // "cited references" (not "papers") so this reads as draft-bibliography
+  // coverage, distinct from the Library's paper total.
+  return `Analysis covers ${counts.in_library} of ${counts.total} cited references`;
 }
 
 /**

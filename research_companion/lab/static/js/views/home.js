@@ -213,9 +213,9 @@ function _heroHtml(draft, papers, suggestions, suggestionCounts, journey) {
           <span class="home-stat-value">${open}</span>
           <span class="home-stat-label">Open</span>
         </div>
-        <div class="home-stat-block">
+        <div class="home-stat-block" title="Papers in this research besides your draft">
           <span class="home-stat-value">${paperCount}</span>
-          <span class="home-stat-label">Papers</span>
+          <span class="home-stat-label">Related papers</span>
         </div>
         <div class="home-stat-block">
           <span class="home-stat-value">${addressed}/${total}</span>

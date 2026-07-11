@@ -77,6 +77,7 @@ function _render() {
           <button class="lib-view-btn${_viewMode === 'list' ? ' lib-view-btn-active' : ''}"
                   id="lib-view-list" title="List view" aria-pressed="${_viewMode === 'list'}">☰</button>
         </div>
+        <span id="lib-count" class="lib-count muted" title="Papers in this research (incl. your draft)"></span>
       </div>
       <div class="filter-chips" id="lib-filters">
         <button class="chip chip-active" data-filter="all">All</button>
@@ -193,6 +194,12 @@ function _renderGrid() {
   if (!grid) return;
 
   const state = store.getState();
+  // Authoritative library total (all papers in this research, any status,
+  // including the draft) — the reference count for the whole tool.
+  const totalCount = state.papers.size;
+  const countEl = _el.querySelector('#lib-count');
+  if (countEl) countEl.textContent = `${totalCount} paper${totalCount === 1 ? '' : 's'}`;
+
   let papers = [...state.papers.values()];
 
   // Filter

@@ -355,6 +355,9 @@ function _bindEvents(list, storeRef, apiRef) {
   _panel.querySelectorAll('.suggestion-discuss').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.id;
+      // Close this panel first so the converse panel (which opens on rc:discuss)
+      // isn't stacked behind it on the right edge.
+      _close();
       window.dispatchEvent(new CustomEvent('rc:discuss', {
         detail: { type: 'suggestions', id },
       }));

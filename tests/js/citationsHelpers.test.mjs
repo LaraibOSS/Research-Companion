@@ -102,22 +102,22 @@ test('missingCount: zeros returns 0', () => {
 
 test('bannerText: returns correct string', () => {
   const text = bannerText({ total: 12, in_library: 5 });
-  assert.equal(text, 'Analysis covers 5 of 12 cited papers');
+  assert.equal(text, 'Analysis covers 5 of 12 cited references');
 });
 
 test('bannerText: zero totals', () => {
   const text = bannerText({ total: 0, in_library: 0 });
-  assert.equal(text, 'Analysis covers 0 of 0 cited papers');
+  assert.equal(text, 'Analysis covers 0 of 0 cited references');
 });
 
-test('bannerText: bibliography source keeps "cited papers" wording', () => {
+test('bannerText: bibliography source uses "cited references" wording', () => {
   const text = bannerText({ total: 17, in_library: 5 }, 'bibliography');
-  assert.equal(text, 'Analysis covers 5 of 17 cited papers');
+  assert.equal(text, 'Analysis covers 5 of 17 cited references');
 });
 
-test('bannerText: related_work fallback is labelled as related-work, not cited papers', () => {
+test('bannerText: related_work fallback is labelled as related-work, not cited references', () => {
   const text = bannerText({ total: 12, in_library: 0 }, 'related_work');
-  assert.ok(!/cited papers/.test(text), 'must not say "cited papers"');
+  assert.ok(!/cited references/.test(text), 'must not say "cited references"');
   assert.ok(/related-work/.test(text), 'must mention related-work');
   assert.ok(/bibliography not detected/.test(text));
   assert.ok(/\b12\b/.test(text));
@@ -125,7 +125,7 @@ test('bannerText: related_work fallback is labelled as related-work, not cited p
 
 test('bannerText: none source also uses the related-work wording', () => {
   const text = bannerText({ total: 3, in_library: 0 }, 'none');
-  assert.ok(!/cited papers/.test(text));
+  assert.ok(!/cited references/.test(text));
 });
 
 // -----------------------------------------------------------------------

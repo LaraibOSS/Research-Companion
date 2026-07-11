@@ -421,6 +421,13 @@ html, body {
   align-items: center;
 }
 
+/* Authoritative library paper count, right-aligned in the add row. */
+.lib-count {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
 .add-input {
   flex: 1;
   background: var(--color-bg);
@@ -3323,7 +3330,9 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-3);
-  z-index: 350;
+  /* Above the suggestions panel (380) so "Discuss" opens in front, not behind;
+     stays below the library drawer/overlay (400/500). */
+  z-index: 390;
   display: none;
   flex-direction: column;
   overflow: hidden;

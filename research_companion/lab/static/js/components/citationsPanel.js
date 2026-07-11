@@ -153,8 +153,8 @@ function _buildHtml(coverage, downloadTargets = new Set()) {
 
   // Header title
   const headerTitle = counts.total > 0
-    ? `Cited papers — ${counts.in_library} of ${counts.total} in library`
-    : 'Cited papers';
+    ? `Cited references — ${counts.in_library} of ${counts.total} in library`
+    : 'Cited references';
 
   // Related-work amber note
   const relatedWorkNote = source === 'related_work'
