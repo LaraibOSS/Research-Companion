@@ -2150,6 +2150,82 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
 }
 #no-key-banner.visible { display: flex; }
 
+/* Soft tone: the LLM key is present, only the optional HF token is missing. */
+#no-key-banner.soft {
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+#no-key-banner.soft a { color: var(--color-accent); }
+
+/* ---------------------------------------------------------------------------
+ * Welcome dialog + generic confirm dialog (first-launch key prompt, nudges)
+ * --------------------------------------------------------------------------- */
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.welcome-dialog {
+  position: relative;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+  width: 100%;
+  max-width: 520px;
+  padding: 24px 24px 20px;
+}
+.welcome-dialog-sm { max-width: 440px; }
+.welcome-close { position: absolute; top: 12px; right: 12px; }
+.welcome-title {
+  font-size: var(--text-lg, 18px);
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--color-fg);
+}
+.welcome-sub {
+  margin: 0 0 16px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.welcome-keys { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.welcome-key {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  background: var(--color-bg);
+}
+.welcome-key-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.welcome-key-name { font-weight: 600; color: var(--color-fg); font-size: 13px; }
+.welcome-key-desc { color: var(--color-muted); font-size: 12px; line-height: 1.4; }
+.welcome-req, .welcome-opt {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+.welcome-req { background: rgba(210,153,34,0.15); color: var(--color-warn); }
+.welcome-opt { background: var(--color-panel); color: var(--color-muted); border: 1px solid var(--color-border); }
+.welcome-status { font-size: 11px; font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
+.welcome-status-ok { color: var(--color-ok, #3fb950); }
+.welcome-status-missing { color: var(--color-muted); }
+.welcome-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.welcome-actions .btn { text-decoration: none; }
+
 /* When banner is visible, main view must shift down — add extra row */
 .app:has(#no-key-banner.visible) {
   grid-template-rows: var(--topbar-h) auto 1fr;
@@ -2183,6 +2259,19 @@ sup.cite:hover { background: rgba(88,166,255,0.15); }
   font-weight: 700;
   margin: 0 0 var(--space-2) 0;
   color: var(--color-fg);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Close button sits inline in the header, not absolutely positioned. */
+.settings-close {
+  position: static;
+  flex: 0 0 auto;
 }
 
 .settings-card {

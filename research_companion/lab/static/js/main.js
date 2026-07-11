@@ -41,6 +41,8 @@ import * as suggestionsView from './views/suggestions.js';
 import * as researchesView from './views/researches.js';
 import { openHelpPanel } from './components/helpPanel.js';
 import { mountWorkspaceSwitcher } from './components/workspaceSwitcher.js';
+import { openWelcomeDialog } from './components/welcomeDialog.js';
+import { noKeyBannerModel, shouldShowWelcome, WELCOME_SEEN_KEY } from './keyPromptHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Register routes
@@ -80,6 +82,12 @@ async function boot() {
       // Server theme wins — override localStorage
       const t = themeVars(settings);
       applyTheme(t);
+      // First-launch key prompt: show once, or whenever the LLM key is missing.
+      let seen = false;
+      try { seen = localStorage.getItem(WELCOME_SEEN_KEY) === '1'; } catch { /* noop */ }
+      if (shouldShowWelcome(settings, { seen })) {
+        openWelcomeDialog(settings);
+      }
     }
   } catch (err) {
     console.warn('[boot] failed to load snapshots:', err);
@@ -285,8 +293,10 @@ async function boot() {
   store.subscribe('suggestions', updateBell);
   updateBell();
 
-  // No-key amber banner
+  // No-key banner: blocking (amber) when the LLM key is missing, softer when
+  // only the optional Hugging Face token is missing.
   const noKeyBanner = document.getElementById('no-key-banner');
+  const noKeyText = document.getElementById('no-key-text');
   const noKeyLink = document.getElementById('no-key-link');
   if (noKeyLink) {
     noKeyLink.addEventListener('click', (e) => {
@@ -298,14 +308,13 @@ async function boot() {
   function updateNoKeyBanner() {
     if (!noKeyBanner) return;
     const { settings } = store.getState();
-    if (!settings || !settings.keys) {
-      noKeyBanner.classList.remove('visible');
-      return;
+    const model = noKeyBannerModel(settings);
+    noKeyBanner.classList.toggle('visible', model.visible);
+    noKeyBanner.classList.toggle('soft', model.tone === 'soft');
+    if (model.visible) {
+      if (noKeyText) noKeyText.textContent = model.message + ' → ';
+      if (noKeyLink) noKeyLink.textContent = model.linkText;
     }
-    const provider = settings.provider || 'anthropic';
-    const keyName = provider === 'openai' ? 'openai_api_key' : 'anthropic_api_key';
-    const keySet = settings.keys[keyName] && settings.keys[keyName].set;
-    noKeyBanner.classList.toggle('visible', !keySet);
   }
   store.subscribe('settings', updateNoKeyBanner);
   updateNoKeyBanner();
