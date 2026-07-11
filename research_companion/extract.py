@@ -85,7 +85,7 @@ def get_paper_parsed(meta: PaperMetadata, *, force: bool = False):
     conversion (docling) to at most once per paper while still surfacing its
     sections/tables/figures on the fresh-parse path.
     """
-    from research_companion.parsers import ParsedDoc, get_parser
+    from research_companion.parsers import ParsedDoc
 
     if not force:
         cached = load_text(meta.paper_id)
@@ -94,9 +94,83 @@ def get_paper_parsed(meta: PaperMetadata, *, force: bool = False):
     pdf = pdf_path(meta.paper_id)
     if pdf is None:
         raise FileNotFoundError(f"no PDF on disk for {meta.paper_id}")
-    doc = get_parser().parse(pdf)
+    doc = _parse_pdf(pdf)
     save_text(meta.paper_id, doc.text)
     return doc
+
+
+def _parse_pdf(pdf: Path):
+    """Parse *pdf* with the configured parser, guarding against a layout-aware
+    parser (docling) that either RAISES (e.g. OOM/``bad_alloc`` on a complex
+    PDF) or silently TRUNCATES it. In both cases we fall back to the robust
+    pypdfium default instead of failing the whole paper. ``ParsedDoc.meta
+    ['parse_source']`` records what actually produced the text."""
+    from research_companion.parsers import get_parser
+
+    parser = get_parser()
+    primary_name = getattr(parser, "name", "") or ""
+    if primary_name == "pypdfium":
+        doc = parser.parse(pdf)
+        doc.meta.setdefault("parse_source", primary_name)
+        return doc
+    try:
+        primary = parser.parse(pdf)
+    except Exception:
+        # Layout-aware parse failed hard — recover with pypdfium rather than
+        # failing the paper. If pypdfium also fails, that error propagates.
+        return _pypdfium_parse(pdf, f"pypdfium (fallback from {primary_name} error)")
+    return _prefer_complete_text(primary, pdf, primary_name)
+
+
+# Truncation-guard thresholds. Docling legitimately drops headers/footers/margin
+# line-numbers, so it is normally a bit SHORTER than pypdfium — the guard must
+# fire only on a dramatic shortfall (a whole-page/section drop), never on that
+# normal trim. The observed truncation was 12.7k vs 33k chars (ratio 0.39).
+_TRUNCATION_RATIO = 0.6
+_TRUNCATION_MIN_GAP = 4000
+
+
+def _is_truncated(primary_len: int, fallback_len: int) -> bool:
+    """True when the primary parse recovered dramatically less text than the
+    pypdfium fallback — both a large absolute gap AND below the ratio."""
+    if fallback_len <= 0:
+        return False
+    return (fallback_len - primary_len) > _TRUNCATION_MIN_GAP and (
+        primary_len < _TRUNCATION_RATIO * fallback_len
+    )
+
+
+def _pypdfium_parse(pdf: Path, parse_source: str):
+    """Parse *pdf* with pypdfium, tagging its provenance in ``meta``."""
+    from research_companion.parsers.pypdfium import PypdfiumParser
+
+    doc = PypdfiumParser().parse(pdf)
+    doc.meta["parse_source"] = parse_source
+    return doc
+
+
+def _prefer_complete_text(primary_doc, pdf: Path, primary_name: str):
+    """Return the fuller of *primary_doc* and a pypdfium re-parse of *pdf*.
+
+    Keeps the primary (docling) result unless pypdfium recovered dramatically
+    more text (see ``_is_truncated``), in which case the primary parse almost
+    certainly truncated the document. Records the actual parser in ``meta`` so
+    the pipeline can report honest provenance. Any pypdfium error leaves the
+    primary result untouched."""
+    from research_companion.parsers.pypdfium import PypdfiumParser
+
+    primary_len = len((primary_doc.text or "").strip())
+    try:
+        fallback = PypdfiumParser().parse(pdf)
+    except Exception:
+        primary_doc.meta.setdefault("parse_source", primary_name)
+        return primary_doc
+    fb_len = len((fallback.text or "").strip())
+    if _is_truncated(primary_len, fb_len):
+        fallback.meta["parse_source"] = f"pypdfium (fallback from {primary_name} truncation)"
+        return fallback
+    primary_doc.meta.setdefault("parse_source", primary_name)
+    return primary_doc
 
 
 def ocr_fallback_parse(meta: PaperMetadata):

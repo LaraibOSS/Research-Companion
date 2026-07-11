@@ -44,12 +44,32 @@ export function missingCount(counts) {
 }
 
 /**
- * Generate the human-readable banner summary text.
+ * The coverage payload's source, defaulting to 'none'.
+ * 'bibliography' = parsed from the draft's reference list; 'related_work' =
+ * fell back to the LLM's related-work mentions (bibliography not detected).
  *
- * @param {{ total: number, in_library: number }} counts
+ * @param {object|null|undefined} coverage
  * @returns {string}
  */
-export function bannerText(counts) {
+export function coverageSource(coverage) {
+  return (coverage && coverage.source) || 'none';
+}
+
+/**
+ * Generate the human-readable banner summary text.
+ *
+ * When the coverage did NOT come from a parsed bibliography (source is
+ * 'related_work' or 'none'), the count is the LLM's related-work mentions, not
+ * the reference list — so it must not be labelled "cited papers".
+ *
+ * @param {{ total: number, in_library: number }} counts
+ * @param {string} [source] — coverage source ('bibliography' | 'related_work' | 'none')
+ * @returns {string}
+ */
+export function bannerText(counts, source) {
+  if (source && source !== 'bibliography') {
+    return `Based on ${counts.total} related-work mentions (full bibliography not detected)`;
+  }
   return `Analysis covers ${counts.in_library} of ${counts.total} cited papers`;
 }
 

@@ -33,7 +33,7 @@ import { mountConversePanel } from './components/conversePanel.js';
 import { mountCitationsPanel } from './components/citationsPanel.js';
 import { mountPlacementPanel } from './components/placementPanel.js';
 import { mountReader } from './components/reader.js';
-import { bannerText, coverageCounts, missingCount } from './citationsHelpers.js';
+import { bannerText, coverageCounts, missingCount, coverageSource } from './citationsHelpers.js';
 import { needsMetadata, metadataBannerText } from './libraryHelpers.js';
 import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
@@ -374,7 +374,7 @@ async function boot() {
       } else if (isResolving(activeJobs)) {
         citationsBannerText.textContent = 'Checking references…';
       } else {
-        citationsBannerText.textContent = bannerText(counts);
+        citationsBannerText.textContent = bannerText(counts, coverageSource(citationCoverage));
       }
     }
   }

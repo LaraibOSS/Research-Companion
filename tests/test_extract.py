@@ -266,3 +266,96 @@ def test_extract_paper_backfills_on_fresh_llm(monkeypatch: pytest.MonkeyPatch,
     assert reloaded.year == 2021
     assert reloaded.authors == ["A. One", "B. Two"]
     assert reloaded.title == "Real Paper"
+
+
+# ---------------------------------------------------------------------------
+# Truncation guard: prefer pypdfium when a layout-aware parser (docling) drops
+# large amounts of text (e.g. line-numbered two-column papers). See extract.py.
+# ---------------------------------------------------------------------------
+
+from research_companion.parsers.base import ParsedDoc  # noqa: E402
+
+
+def test_is_truncated_fires_on_dramatic_shortfall():
+    # The observed real case: docling 12,710 vs pypdfium 32,999 chars.
+    assert extract._is_truncated(12710, 32999) is True
+
+
+def test_is_truncated_ignores_normal_trim():
+    # Docling normally a bit shorter (strips headers/footers/line numbers).
+    assert extract._is_truncated(30000, 33000) is False
+
+
+def test_is_truncated_requires_large_absolute_gap():
+    # Ratio below 0.6 but a tiny absolute gap must NOT trip the guard.
+    assert extract._is_truncated(100, 300) is False
+
+
+def test_is_truncated_handles_empty_fallback():
+    assert extract._is_truncated(0, 0) is False
+
+
+def _fake_pyp(doc):
+    class _FakePyp:
+        name = "pypdfium"
+        def parse(self, _pdf):
+            return doc
+    return _FakePyp
+
+
+def test_prefer_complete_text_swaps_to_pypdfium_on_truncation(monkeypatch, tmp_path):
+    primary = ParsedDoc(text="x" * 12000, sections=[{"title": "S"}])
+    fuller = ParsedDoc(text="y" * 33000)
+    monkeypatch.setattr("research_companion.parsers.pypdfium.PypdfiumParser", _fake_pyp(fuller))
+    out = extract._prefer_complete_text(primary, tmp_path / "p.pdf", "docling")
+    assert out is fuller
+    assert "pypdfium" in out.meta["parse_source"]
+    assert "docling" in out.meta["parse_source"]
+
+
+def test_prefer_complete_text_keeps_primary_when_not_truncated(monkeypatch, tmp_path):
+    primary = ParsedDoc(text="x" * 30000)
+    shorter = ParsedDoc(text="y" * 31000)
+    monkeypatch.setattr("research_companion.parsers.pypdfium.PypdfiumParser", _fake_pyp(shorter))
+    out = extract._prefer_complete_text(primary, tmp_path / "p.pdf", "docling")
+    assert out is primary
+    assert out.meta["parse_source"] == "docling"
+
+
+def test_prefer_complete_text_survives_pypdfium_error(monkeypatch, tmp_path):
+    primary = ParsedDoc(text="x" * 100)
+
+    class _Boom:
+        name = "pypdfium"
+        def parse(self, _pdf):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("research_companion.parsers.pypdfium.PypdfiumParser", _Boom)
+    out = extract._prefer_complete_text(primary, tmp_path / "p.pdf", "docling")
+    assert out is primary
+    assert out.meta["parse_source"] == "docling"
+
+
+def test_parse_pdf_falls_back_when_primary_parser_raises(monkeypatch, tmp_path):
+    """Docling raising (e.g. OOM/bad_alloc) must fall back to pypdfium, not fail."""
+    fuller = ParsedDoc(text="y" * 20000)
+
+    class BoomDocling:
+        name = "docling"
+        def parse(self, _pdf):
+            raise RuntimeError("std::bad_alloc")
+
+    monkeypatch.setattr("research_companion.parsers.get_parser", lambda name=None: BoomDocling())
+    monkeypatch.setattr("research_companion.parsers.pypdfium.PypdfiumParser", _fake_pyp(fuller))
+    out = extract._parse_pdf(tmp_path / "p.pdf")
+    assert out is fuller
+    assert "pypdfium" in out.meta["parse_source"]
+    assert "error" in out.meta["parse_source"]
+
+
+def test_parse_pdf_pypdfium_primary_is_untouched(monkeypatch, tmp_path):
+    doc = ParsedDoc(text="hello world")
+    monkeypatch.setattr("research_companion.parsers.get_parser", lambda name=None: _fake_pyp(doc)())
+    out = extract._parse_pdf(tmp_path / "p.pdf")
+    assert out is doc
+    assert out.meta["parse_source"] == "pypdfium"

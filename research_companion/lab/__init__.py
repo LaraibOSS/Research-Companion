@@ -230,7 +230,9 @@ async def ingest_one(
             meta.save()
         elif not getattr(meta, "ocr_used", False):
             from research_companion.parsers import get_parser
-            meta.parse_source = get_parser().name
+            # Honor the actual parser recorded by get_paper_parsed (it may have
+            # fallen back from docling to pypdfium on a truncated layout parse).
+            meta.parse_source = (parsed.meta or {}).get("parse_source") or get_parser().name
             meta.ocr_used = False
             meta.save()
         # Prefer parser-provided (docling) structural sections; fall back to the

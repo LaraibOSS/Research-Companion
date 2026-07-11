@@ -24,6 +24,7 @@ const {
   groupByStatus,
   linkTargetOptions,
   unlinkedCitationOptions,
+  coverageSource,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'citationsHelpers.js')).href
 );
@@ -107,6 +108,38 @@ test('bannerText: returns correct string', () => {
 test('bannerText: zero totals', () => {
   const text = bannerText({ total: 0, in_library: 0 });
   assert.equal(text, 'Analysis covers 0 of 0 cited papers');
+});
+
+test('bannerText: bibliography source keeps "cited papers" wording', () => {
+  const text = bannerText({ total: 17, in_library: 5 }, 'bibliography');
+  assert.equal(text, 'Analysis covers 5 of 17 cited papers');
+});
+
+test('bannerText: related_work fallback is labelled as related-work, not cited papers', () => {
+  const text = bannerText({ total: 12, in_library: 0 }, 'related_work');
+  assert.ok(!/cited papers/.test(text), 'must not say "cited papers"');
+  assert.ok(/related-work/.test(text), 'must mention related-work');
+  assert.ok(/bibliography not detected/.test(text));
+  assert.ok(/\b12\b/.test(text));
+});
+
+test('bannerText: none source also uses the related-work wording', () => {
+  const text = bannerText({ total: 3, in_library: 0 }, 'none');
+  assert.ok(!/cited papers/.test(text));
+});
+
+// -----------------------------------------------------------------------
+// coverageSource
+// -----------------------------------------------------------------------
+
+test('coverageSource: reads .source', () => {
+  assert.equal(coverageSource({ source: 'bibliography' }), 'bibliography');
+  assert.equal(coverageSource({ source: 'related_work' }), 'related_work');
+});
+
+test('coverageSource: defaults to none', () => {
+  assert.equal(coverageSource(null), 'none');
+  assert.equal(coverageSource({}), 'none');
 });
 
 // -----------------------------------------------------------------------
