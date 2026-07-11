@@ -49,6 +49,50 @@ class TestBibliographyIsNumbered:
         assert cp._bibliography_is_numbered(block) is False
 
 
+class TestParseAuthorYearMarkers:
+    def _pairs(self, body):
+        return {(sn, yr) for _off, sn, yr in cp._parse_author_year_markers(body)}
+
+    def test_narrative_et_al(self):
+        assert ("smith", 2020) in self._pairs("As Smith et al. (2020) show, ...")
+
+    def test_narrative_and(self):
+        assert ("smith", 2019) in self._pairs("Smith and Jones (2019) argue ...")
+
+    def test_parenthetical_single(self):
+        assert ("garcia", 2021) in self._pairs("prior work (Garcia, 2021).")
+
+    def test_parenthetical_multiple_semicolons(self):
+        pairs = self._pairs("(Smith et al., 2020; Jones, 2019)")
+        assert ("smith", 2020) in pairs and ("jones", 2019) in pairs
+
+    def test_year_suffix_reduced_to_int(self):
+        assert ("lee", 2020) in self._pairs("Lee (2020a) and later work")
+
+    def test_parens_without_year_ignored(self):
+        assert self._pairs("a normal aside (see figure 3) with no year") == set()
+
+    def test_accented_surname_normalized(self):
+        # "Gutiérrez" -> normalized surname loses the accent (matches library norm).
+        assert ("gutirrez", 2024) in self._pairs("Gutiérrez et al. (2024)")
+
+
+class TestLibraryAuthorYearIndex:
+    def test_indexes_by_first_author_surname_and_year(self, isolated_papergraph_dir):
+        store.PaperMetadata(paper_id="local:x", title="T", authors=["Alice Smith", "Bob Lee"],
+                            year=2019, added_at="2026-01-01T00:00:00Z").save()
+        idx = cp._library_author_year_index()
+        assert idx.get(("smith", 2019)) == "local:x"
+
+    def test_skips_papers_without_author_or_year(self, isolated_papergraph_dir):
+        store.PaperMetadata(paper_id="local:y", title="T", authors=[],
+                            year=2020, added_at="2026-01-01T00:00:00Z").save()
+        store.PaperMetadata(paper_id="local:z", title="T", authors=["Al Ray"],
+                            year=None, added_at="2026-01-01T00:00:00Z").save()
+        idx = cp._library_author_year_index()
+        assert all(pid not in ("local:y", "local:z") for pid in idx.values())
+
+
 class TestRefsCharStart:
     def test_finds_last_refs_section(self):
         payload = {"sections": [
@@ -202,25 +246,60 @@ class TestComputePlacement:
         assert cp.is_stale(loaded, _DRAFT_ID) is False
 
 
-class TestNotApplicable:
-    def test_non_numbered_bibliography(self, isolated_papergraph_dir):
-        author_year = (
-            "Introduction\nWe cite Smith (2019) and Jones (2020).\n\n"
-            "References\n"
-            "Alpha Author. A first title long enough here. 2019.\n\n"
-            "Beta Author. A second title long enough here. 2020.\n\n"
-            "Gamma Author. A third title long enough here. 2021.\n"
-        )
+_AY_DRAFT_TEXT = (
+    "Introduction\n"
+    "We build on Smith et al. (2019).\n\n"
+    "Methods\n"
+    "Our approach follows (Jones, 2020).\n\n"
+    "References\n"
+    "Alice Smith. A first title long enough here. 2019.\n\n"
+    "Bob Jones. A second title long enough here. 2020.\n\n"
+    "Gamma Author. A third title long enough here. 2021.\n"
+)
+
+
+def _seed_author_year_draft() -> None:
+    _mk_paper(_DRAFT_ID, "My Draft")
+    store.PaperMetadata(paper_id="local:smith", title="A first title long enough here",
+                        authors=["Alice Smith"], year=2019, added_at="2026-01-01T00:00:00Z").save()
+    store.PaperMetadata(paper_id="local:jones", title="A second title long enough here",
+                        authors=["Bob Jones"], year=2020, added_at="2026-01-01T00:00:00Z").save()
+    store.save_text(_DRAFT_ID, _AY_DRAFT_TEXT)
+    store.set_draft_paper_id(_DRAFT_ID)
+    _save_sections_for(_AY_DRAFT_TEXT)
+
+
+class TestAuthorYearPlacement:
+    def test_author_year_cites_are_matched_and_placed(self, isolated_papergraph_dir):
+        _seed_author_year_draft()
+        # Smith is cited in Introduction (s1) but most relevant to Methods (s2).
+        _save_alignment("local:smith", [
+            {"section_id": "s2", "section_title": "Methods", "relation": "strengthens",
+             "relevance": 0.8, "rationale": "", "evidence": []},
+        ])
+        payload = cp.compute_placement(_DRAFT_ID)
+        assert payload["applicable"] is True
+        by = {pl["paper_id"]: pl for pl in payload["placements"]}
+        assert "local:smith" in by and "local:jones" in by
+        assert {c["section_id"] for c in by["local:smith"]["cited_sections"]} == {"s1"}
+        assert by["local:smith"]["status"] == "misplaced"
+        assert {c["section_id"] for c in by["local:jones"]["cited_sections"]} == {"s2"}
+        assert by["local:jones"]["status"] == "unknown"  # no alignment record
+
+    def test_author_year_unmatched_is_not_applicable(self, isolated_papergraph_dir):
+        # Author-year bibliography, but the cited works are not in the library.
         _mk_paper(_DRAFT_ID, "My Draft")
-        store.save_text(_DRAFT_ID, author_year)
+        store.save_text(_DRAFT_ID, _AY_DRAFT_TEXT)
         store.set_draft_paper_id(_DRAFT_ID)
-        # No sections saved: find_references_block falls back to the raw
-        # "References" heading, so the block is still located.
+        _save_sections_for(_AY_DRAFT_TEXT)
         payload = cp.compute_placement(_DRAFT_ID)
         assert payload["applicable"] is False
-        assert "not numbered" in payload["reason"].lower()
+        assert "not numbered" not in payload["reason"].lower()
+        assert "librar" in payload["reason"].lower()
         assert payload["placements"] == []
 
+
+class TestNotApplicable:
     def test_no_bibliography_at_all(self, isolated_papergraph_dir):
         _mk_paper(_DRAFT_ID, "My Draft")
         store.save_text(_DRAFT_ID, "Introduction\nJust prose, no citations here.\n")

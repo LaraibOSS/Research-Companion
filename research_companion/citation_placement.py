@@ -11,10 +11,12 @@ against where the alignment engine (``alignment.py``) judges the paper most
 relevant. It then flags "you cited X in Methods, but it's most relevant to
 Related Work".
 
-Scope (v1): numbered bibliographies only. Author-year markers such as
-"(Smith et al., 2020)" have no parser and are ambiguous, so drafts without a
-numbered bibliography return ``applicable=False`` with a ``reason`` rather than a
-misleading empty result.
+Styles: numbered ``[n]`` markers (mapped to the bibliography by ordinal) and
+author-year markers ("(Smith et al., 2020)" / "Smith et al. (2020)"), which are
+resolved to a library paper by first-author surname + year. Author-year parsing
+is heuristic; when no in-text author-year cite can be matched to the library the
+report is ``applicable=False`` with a ``reason`` rather than a misleading empty
+result.
 
 Note: alignment only ranks a candidate's top-5 lexically-relevant sections, so a
 section absent from a candidate's alignment list is *unranked*, not known to be
@@ -37,6 +39,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from research_companion.refcheck.matching import _last_name
 from research_companion.sections import Section, section_for_offset
 from research_companion.store import papergraph_dir
 
@@ -55,6 +58,20 @@ _MIN_ENTRIES = 3  # matches citations_coverage; a numbered bib needs a few entri
 # In-text numbered citation markers: [3], [3,4], [3-5], [3, 4, 7].
 # Inner group is digits plus separators (comma, whitespace, hyphen, en-dash).
 _MARKER_RE = re.compile(r"\[([0-9][0-9,\s–\-]*)\]")
+
+# In-text author-year markers. _NAME allows accented/hyphenated surnames.
+_NAME = r"[A-Z][A-Za-zÀ-ɏ'’.\-]+"
+_AY_YEAR = r"(?:19|20)\d{2}[a-z]?"
+# Narrative: "Smith et al. (2020)", "Smith and Jones (2020)", "Smith (2020)".
+_AY_NARRATIVE_RE = re.compile(
+    rf"({_NAME})"
+    rf"(?:\s+et\s+al\.?|\s+and\s+{_NAME}|\s*&\s*{_NAME})?"
+    rf"\s*\(({_AY_YEAR})\)"
+)
+# Parenthetical group that contains at least one year: "(Smith et al., 2020; Jones, 2019)".
+_AY_PAREN_RE = re.compile(r"\(([^()]*\b(?:19|20)\d{2}[a-z]?[^()]*)\)")
+# A single clause inside a parenthetical: leading surname ... year.
+_AY_CLAUSE_RE = re.compile(rf"({_NAME})[^;]*?\b({_AY_YEAR})\b")
 
 # References/bibliography section title (mirrors citations_coverage).
 _REFS_TITLE_RE = re.compile(r"references|bibliograph", re.IGNORECASE)
@@ -96,6 +113,42 @@ def _bibliography_is_numbered(block: str) -> bool:
             if len(marks) == 1 or increasing >= (len(marks) - 1) * 0.7:
                 return True
     return False
+
+
+def _parse_author_year_markers(body: str) -> list[tuple[int, str, int]]:
+    """Return (char_offset, normalized_surname, year) for in-text author-year
+    citations — both narrative ("Smith et al. (2020)") and parenthetical
+    ("(Smith et al., 2020; Jones, 2019)"). Heuristic; year suffixes (2020a) are
+    reduced to the int year. Duplicates are harmless downstream (idempotent)."""
+    out: list[tuple[int, str, int]] = []
+    for m in _AY_NARRATIVE_RE.finditer(body):
+        sn = _last_name(m.group(1))
+        if sn:
+            out.append((m.start(), sn, int(m.group(2)[:4])))
+    for pm in _AY_PAREN_RE.finditer(body):
+        for clause in pm.group(1).split(";"):
+            cm = _AY_CLAUSE_RE.search(clause)
+            if cm:
+                sn = _last_name(cm.group(1))
+                if sn:
+                    out.append((pm.start(), sn, int(cm.group(2)[:4])))
+    return out
+
+
+def _library_author_year_index() -> dict[tuple[str, int], str]:
+    """Map (first-author surname, year) -> library paper_id, from clean library
+    metadata. Used to resolve in-text author-year cites to a cited paper. First
+    match wins on a (surname, year) collision (best-effort, rare)."""
+    from research_companion import store
+
+    idx: dict[tuple[str, int], str] = {}
+    for p in store.list_papers():
+        if not p.authors or p.year is None:
+            continue
+        sn = _last_name(p.authors[0])
+        if sn:
+            idx.setdefault((sn, int(p.year)), p.paper_id)
+    return idx
 
 
 def _refs_char_start(sections_payload: dict | None) -> int | None:
@@ -199,72 +252,13 @@ def _section_titles(cited_sections: list[dict]) -> str:
     return ", ".join(cs["title"] for cs in cited_sections) or "an unlabelled section"
 
 
-def compute_placement(draft_id: str) -> dict:
-    """Compute + persist the citation-placement report for a draft. Offline.
+def _build_placements(cited: dict[str, dict[str, str]], draft_id: str, text: str) -> dict:
+    """Judge each cited paper against its alignment relevance and build+persist the
+    placement payload. Shared by the numbered and author-year citation paths.
 
-    Reuses citations_coverage for the bibliography->library mapping and
-    store.load_alignment for per-section relevance. Never hits the network.
-    """
-    from research_companion import citations_coverage as cc
+    ``cited`` maps paper_id -> {section_id: title} for every in-library paper the
+    draft cites and the sections it was cited in."""
     from research_companion import store
-
-    text = store.load_text(draft_id)
-    if not text:
-        return empty_placement(draft_id)
-
-    sections_payload = store.load_sections(draft_id)
-    sections = [
-        Section(**s) for s in (sections_payload or {}).get("sections", [])
-        if isinstance(s, dict)
-    ]
-
-    # Bibliography -> library mapping (reused, computed if stale).
-    coverage = cc.load_coverage()
-    if cc.is_stale(coverage, draft_id):
-        coverage = cc.compute_coverage(draft_id)
-
-    if coverage.get("source") != "bibliography":
-        payload = _base_payload(
-            draft_id, text, applicable=False,
-            reason="The draft has no parsed numbered bibliography. Placement "
-                   "checking supports numbered [n] citation styles only.",
-        )
-        save_placement(payload)
-        return payload
-
-    block = cc.find_references_block(text, sections_payload)
-    if not block or not _bibliography_is_numbered(block):
-        payload = _base_payload(
-            draft_id, text, applicable=False,
-            reason="The draft's bibliography is not numbered. Author-year "
-                   "citation styles are not supported yet.",
-        )
-        save_placement(payload)
-        return payload
-
-    references = coverage.get("references", [])
-
-    # Scan only the body (everything before the References section).
-    refs_start = _refs_char_start(sections_payload)
-    body = text[:refs_start] if refs_start is not None else text
-
-    # paper_id -> {section_id: title} where it is cited
-    cited: dict[str, dict[str, str]] = {}
-    for m in _MARKER_RE.finditer(body):
-        nums = _expand_marker(m.group(1))
-        if not nums:
-            continue
-        sec = section_for_offset(sections, m.start())
-        for n in nums:
-            idx = n - 1  # in-text [1] -> references[0]
-            if idx < 0 or idx >= len(references):
-                continue
-            pid = references[idx].get("matched_paper_id")
-            if not pid:
-                continue  # cited paper not in library — can't judge placement
-            entry = cited.setdefault(pid, {})
-            if sec is not None:
-                entry[sec.section_id] = sec.title
 
     papers = {p.paper_id: p for p in store.list_papers()}
     placements: list[dict] = []
@@ -323,3 +317,88 @@ def compute_placement(draft_id: str) -> dict:
     _recount(payload)
     save_placement(payload)
     return payload
+
+
+def compute_placement(draft_id: str) -> dict:
+    """Compute + persist the citation-placement report for a draft. Offline.
+
+    Reuses citations_coverage for the bibliography->library mapping and
+    store.load_alignment for per-section relevance. Never hits the network.
+    """
+    from research_companion import citations_coverage as cc
+    from research_companion import store
+
+    text = store.load_text(draft_id)
+    if not text:
+        return empty_placement(draft_id)
+
+    sections_payload = store.load_sections(draft_id)
+    sections = [
+        Section(**s) for s in (sections_payload or {}).get("sections", [])
+        if isinstance(s, dict)
+    ]
+
+    # Bibliography -> library mapping (reused, computed if stale).
+    coverage = cc.load_coverage()
+    if cc.is_stale(coverage, draft_id):
+        coverage = cc.compute_coverage(draft_id)
+
+    if coverage.get("source") != "bibliography":
+        payload = _base_payload(
+            draft_id, text, applicable=False,
+            reason="The draft has no parsed numbered bibliography. Placement "
+                   "checking supports numbered [n] citation styles only.",
+        )
+        save_placement(payload)
+        return payload
+
+    block = cc.find_references_block(text, sections_payload)
+
+    # Scan only the body (everything before the References section) so the
+    # bibliography's own markers are never counted as in-text citations.
+    refs_start = _refs_char_start(sections_payload)
+    body = text[:refs_start] if refs_start is not None else text
+
+    # paper_id -> {section_id: title} where it is cited.
+    cited: dict[str, dict[str, str]] = {}
+
+    if block and _bibliography_is_numbered(block):
+        # Numbered [n] style: map each marker to references[n-1] -> library paper.
+        references = coverage.get("references", [])
+        for m in _MARKER_RE.finditer(body):
+            nums = _expand_marker(m.group(1))
+            if not nums:
+                continue
+            sec = section_for_offset(sections, m.start())
+            for n in nums:
+                idx = n - 1  # in-text [1] -> references[0]
+                if idx < 0 or idx >= len(references):
+                    continue
+                pid = references[idx].get("matched_paper_id")
+                if not pid:
+                    continue  # cited paper not in library — can't judge placement
+                entry = cited.setdefault(pid, {})
+                if sec is not None:
+                    entry[sec.section_id] = sec.title
+    else:
+        # Author-year style: resolve each in-text (surname, year) to a library
+        # paper by first-author surname + year.
+        ay_index = _library_author_year_index()
+        for offset, surname, year in _parse_author_year_markers(body):
+            pid = ay_index.get((surname, year))
+            if not pid:
+                continue  # cited work not in the library — can't judge placement
+            sec = section_for_offset(sections, offset)
+            entry = cited.setdefault(pid, {})
+            if sec is not None:
+                entry[sec.section_id] = sec.title
+        if not cited:
+            payload = _base_payload(
+                draft_id, text, applicable=False,
+                reason="No in-text author-year citations could be matched to your "
+                       "library. Add the cited papers, or check their authors/years.",
+            )
+            save_placement(payload)
+            return payload
+
+    return _build_placements(cited, draft_id, text)

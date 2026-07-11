@@ -127,7 +127,7 @@ function _buildHtml(placement) {
     ? `Citation placement — ${counts.misplaced} to review of ${counts.total}`
     : 'Citation placement';
 
-  // Not applicable: numbered-bibliography scope note (honest, not a fake empty).
+  // Not applicable: honest scope/coverage note (not a fake empty result).
   const notApplicable = placement && placement.applicable === false;
   const reason = (placement && placement.reason) || '';
 
@@ -138,7 +138,7 @@ function _buildHtml(placement) {
     bodyHtml = `<div class="citations-empty">${escapeHtml(msg)}</div>`;
   } else if (placements.length === 0) {
     bodyHtml = `<div class="citations-empty">${escapeHtml(
-      'No numbered in-text citations found to check.')}</div>`;
+      'No in-text citations found to check.')}</div>`;
   } else {
     bodyHtml = groupByStatus(placements).map(_renderRow).join('');
   }
