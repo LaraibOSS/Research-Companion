@@ -193,6 +193,18 @@ def test_load_graph_reads_edges_keyed_file(tmp_path):
     assert G.has_edge("a", "b")
 
 
+def test_load_graph_corrupt_json_returns_empty(tmp_path):
+    """A corrupt/legacy graph.json must degrade to an empty graph, not raise.
+
+    The ingest graph stage reads the prior graph as its delta baseline; a bad
+    migrated graph.json in 'Main' would otherwise throw and fail the ingest."""
+    p = tmp_path / "graph.json"
+    p.write_text("not valid json }{", encoding="utf-8")
+    G = graph.load_graph(p)
+    assert G.number_of_nodes() == 0
+    assert G.number_of_edges() == 0
+
+
 def test_list_papers_tie_break_is_deterministic():
     """Equal added_at must not fall back to filesystem iteration order (differs
     by OS): ties break by paper_id ascending, so first-seen labels are stable."""

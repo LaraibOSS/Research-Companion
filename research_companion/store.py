@@ -430,7 +430,15 @@ def load_extraction(paper_id: str, *, prompt_sha: str) -> dict[str, Any] | None:
     p = paper_dir(paper_id) / "extraction.json"
     if not p.exists():
         return None
-    payload = json.loads(p.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        # Corrupt/legacy file: treat as a cache miss rather than aborting the
+        # caller (build_graph iterates every paper — one bad file must not fail
+        # an unrelated draft's ingest in a migrated 'Main').
+        return None
+    if not isinstance(payload, dict):
+        return None
     if payload.get("prompt_sha256") != prompt_sha:
         return None
     return payload.get("extraction")
@@ -702,11 +710,25 @@ def record_failure(key: str, info: dict) -> None:
     p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def clear_failure(key: str) -> None:
-    """Remove a failure entry by key. No-op if absent."""
+def clear_failure(key: str, *, paper_id: str | None = None) -> None:
+    """Remove a failure entry by key. No-op if nothing matched.
+
+    When ``paper_id`` is given, also drops any entry whose recorded ``paper_id``
+    matches — a paper may have been recorded under a different key on an earlier
+    attempt (e.g. a folder path vs. an ``upload://`` key), and failure lookups
+    match by paper_id OR key, so a stale entry under the old key would otherwise
+    keep pinning the paper to 'failed' after a successful re-ingest.
+    """
     failures = list_failures()
-    if key in failures:
-        del failures[key]
+    to_remove = {k for k in failures if k == key}
+    if paper_id is not None:
+        to_remove |= {
+            k for k, info in failures.items()
+            if isinstance(info, dict) and info.get("paper_id") == paper_id
+        }
+    if to_remove:
+        for k in to_remove:
+            del failures[k]
         p = failed_json_path()
         p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
 

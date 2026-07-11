@@ -396,7 +396,7 @@ async def ingest_one(
     # -----------------------------------------------------------------------
     # Stage 8: clear failure, signal success
     # -----------------------------------------------------------------------
-    store.clear_failure(path_str)
+    store.clear_failure(path_str, paper_id=paper_id)
     return True
 
 

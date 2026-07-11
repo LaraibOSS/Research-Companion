@@ -445,7 +445,13 @@ def load_graph(path=None) -> nx.Graph:
     p = path or graph_json_path()
     if not p.exists():
         return nx.Graph()
-    data = json.loads(p.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        # Corrupt/legacy graph.json: degrade to an empty graph rather than raise.
+        # The ingest graph stage uses this only as the delta baseline, so an
+        # empty baseline is safe (the graph is rebuilt from extractions anyway).
+        return nx.Graph()
     # networkx >= 3.6 writes an "edges" key by default; our writer pins "links",
     # but tolerate either so stores written by other tool versions still load.
     edges_key = "links" if "links" in data else "edges"

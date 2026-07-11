@@ -304,6 +304,28 @@ def test_clear_failure_noop_on_absent_key():
     assert store.list_failures() == {}
 
 
+def test_clear_failure_also_removes_entries_matching_paper_id():
+    """clear_failure(key, paper_id=...) drops any entry whose paper_id matches.
+
+    A paper can be recorded under one key (e.g. a folder path) and later
+    re-ingested under a different key (e.g. 'upload://draft.pdf'). Failure
+    lookups (_build_paper_summary, retry_paper) match by paper_id OR key, so
+    clearing only the exact key leaves a stale entry that pins the paper to
+    'failed' forever. Clearing by paper_id too fixes that.
+    """
+    pid = "local:abc123def456"
+    store.record_failure("/some/folder/draft.pdf", {"paper_id": pid, "error": "old"})
+    store.record_failure("upload://draft.pdf", {"paper_id": pid, "error": "new"})
+    store.record_failure("unrelated", {"paper_id": "local:other", "error": "keep"})
+
+    store.clear_failure("upload://draft.pdf", paper_id=pid)
+
+    remaining = store.list_failures()
+    assert "upload://draft.pdf" not in remaining
+    assert "/some/folder/draft.pdf" not in remaining  # cleared by paper_id match
+    assert "unrelated" in remaining  # different paper_id, untouched
+
+
 def test_list_failures_empty_when_file_missing():
     """list_failures() returns {} if failed.json does not exist."""
     result = store.list_failures()

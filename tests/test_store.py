@@ -122,6 +122,20 @@ def test_extraction_cache_key_on_prompt_sha(sample_extraction: dict):
     assert store.load_extraction(paper_id, prompt_sha="def456") is None
 
 
+def test_load_extraction_corrupt_json_returns_none():
+    """A corrupt/legacy extraction.json must be treated as a cache miss, not raise.
+
+    build_graph() calls load_extraction() for every paper in the workspace; a
+    single malformed file (e.g. from a pre-0.4 migrated 'Main') would otherwise
+    throw and abort the whole graph stage, failing an unrelated draft's ingest.
+    """
+    paper_id = "arxiv:2410.05779"
+    d = store.paper_dir(paper_id)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "extraction.json").write_text("not valid json }{", encoding="utf-8")
+    assert store.load_extraction(paper_id, prompt_sha="abc123") is None
+
+
 def test_list_and_remove_paper():
     a = store.PaperMetadata(paper_id="arxiv:2410.00001", title="A", authors=[],
                             added_at="2026-04-01T10:00:00")

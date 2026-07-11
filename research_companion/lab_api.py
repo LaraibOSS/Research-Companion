@@ -656,8 +656,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             await _announce_start(job_id, "retry", retry_label)
             try:
                 await coro
-                # clear_failure only on success — failure entry kept/updated on error
-                store.clear_failure(matched_key)
+                # clear_failure only on success — failure entry kept/updated on error.
+                # Pass paper_id so stale entries recorded under a different key
+                # (e.g. an earlier folder-path attempt) are cleared too.
+                store.clear_failure(matched_key, paper_id=paper_id)
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry",
                                           "label": retry_label, "target": ""}
                 _schedule_coverage_refresh()
