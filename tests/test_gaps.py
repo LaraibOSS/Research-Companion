@@ -23,6 +23,7 @@ from research_companion.gaps import (
     GapError,
     _gap_id,
     _papers_sha,
+    _relevance_score,
     extract_all_gaps,
     extract_gaps,
     gaps_for_suggestions,
@@ -84,6 +85,38 @@ def _make_sections_with_limitations(text: str) -> list[dict]:
         {"section_id": "s2", "title": "Limitations", "level": 1,
          "parent": None, "char_start": idx, "char_end": len(text)},
     ]
+
+
+# ---------------------------------------------------------------------------
+# 0. Mode-independent relevance normalization
+# ---------------------------------------------------------------------------
+
+class TestRelevanceScore:
+    def test_none_and_empty_are_zero(self):
+        assert _relevance_score(None) == 0.0
+        assert _relevance_score({}) == 0.0
+
+    def test_hybrid_score_passes_through(self):
+        # Hybrid scores are already min-max fused into [0, 1].
+        assert _relevance_score({"mode": "hybrid", "score": 0.42}) == 0.42
+        assert _relevance_score({"mode": "hybrid", "score": 1.0}) == 1.0
+
+    def test_bm25_raw_score_saturates_into_unit_interval(self):
+        # Raw, unbounded BM25 -> s / (s + 1), always in [0, 1).
+        assert _relevance_score({"mode": "bm25", "score": 1.0}) == 0.5
+        assert _relevance_score({"mode": "bm25", "score": 0.0}) == 0.0
+        big = _relevance_score({"mode": "bm25", "score": 1000.0})
+        assert 0.99 < big < 1.0
+
+    def test_extreme_thresholds_behave_consistently_across_modes(self):
+        # threshold 0.0 passes any positive match; threshold 999 filters all,
+        # regardless of mode -> the gating decision no longer flips with the
+        # HF token, only the recall does.
+        for top in ({"mode": "hybrid", "score": 0.8},
+                    {"mode": "bm25", "score": 12.0}):
+            s = _relevance_score(top)
+            assert s >= 0.0
+            assert s < 999.0
 
 
 # ---------------------------------------------------------------------------
