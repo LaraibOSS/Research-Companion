@@ -3,96 +3,80 @@
 Phased plan derived from `RESEARCH_EVALUATOR_PLAN.md` (evidence), `COMPETITOR_ARCHITECTURES.md` (what to borrow/beat), and `NOVELTY_ENGINE_SPEC.md` (Tier-1 detail).
 
 Legend: 🟢 ship first · 🟡 differentiator · 🔵 reach/moat
+Status: ✅ shipped · 🟠 partial · ⬜ not started
+
+> **Status note (v0.5.17).** Most of Phase 1–2 shipped, but under a different
+> module layout than the original plan named. The plan referenced a dedicated
+> `novelty/` package (`contributions.py`, `retrieval.py`, `verify.py`,
+> `compare.py`); in practice the work landed as a **multi-agent pipeline** under
+> `research_companion/agents/` plus supporting top-level modules. The mapping
+> below records where each item actually lives so the roadmap tracks the code.
 
 ---
 
 ## Phase 1 — Novelty MVP (the wedge)
-*Goal: a researcher runs `papergraph novelty <paper>` and gets a cited, evidence-verified novelty assessment + a clean bibliography check.*
+*Goal: a researcher gets a cited, evidence-verified novelty assessment + a clean bibliography check.*
 
-- 🟢 **#1 Reference validator** (`refcheck/`) — validate the paper's own bibliography against CrossRef/OpenAlex/S2/arXiv/DBLP; flag suspect/unverified refs. LLM-free, ship first.
-- 🟢 **#2 Contribution extraction** (`novelty/contributions.py`) — extract `ContributionClaim`s + per-claim prior-work queries; new SHA-cached prompt.
-- 🟢 **#3 Multi-source prior-art retrieval** (`novelty/retrieval.py`) — OpenAlex/arXiv/CrossRef/DBLP behind one interface + canonical-ID dedup + temporal filter.
-- 🟢 **#4 Evidence verifier** (`novelty/verify.py`) — anchor-match every quote vs fulltext; demote unverified. *Gate before report.*
-- 🟡 **#5 Contribution-level comparison** (`novelty/compare.py`) — claim × {prior art, papergraph neighborhood}; polarity-typed matches; two-stage retrieve-then-LLM.
-- 🟡 **#6 Novelty report + graph view + CLI** — aggregate verdicts, interactive graph via `viz.py`, `papergraph novelty` command.
+- ✅ 🟢 **#1 Reference validator** — validates the paper's bibliography against CrossRef/OpenAlex/S2/arXiv/DBLP; flags suspect/unverified refs. LLM-free. → `research_companion/refcheck/` (`parse.py`, `retrieval.py`, `matching.py`, `validate.py`); CLI `research-companion refcheck`.
+- ✅ 🟢 **#2 Contribution extraction** — extracts contribution/problem claims + evidence. → `research_companion/agents/problem.py` (`ProblemStatementAgent`) + `research_companion/extract.py`.
+- ✅ 🟢 **#3 Multi-source prior-art retrieval** — OpenAlex/arXiv/CrossRef/DBLP + canonical-ID dedup + temporal filter. → `research_companion/agents/priorart.py` + `research_companion/refcheck/retrieval.py`.
+- ✅ 🟢 **#4 Evidence verifier** — anchor/exact→normalized→fuzzy quote match vs fulltext; unverified quotes demoted. → `research_companion/rebuttal/verify.py` (`verify_quote`, `locate_quote`).
+- ✅ 🟡 **#5 Contribution-level comparison** — claim × prior art / papergraph neighborhood; polarity-typed matches. → `research_companion/agents/novelty.py` (`NoveltyAgent`) + `research_companion/compare.py`.
+- ✅ 🟡 **#6 Novelty report + graph view + CLI** — aggregated verdicts, interactive graph, CLI. → `research_companion/report.py`, `research_companion/viz.py`, CLI `review` / `compare`; lab dashboard.
 
 ## Phase 2 — Reviewer critique + venue fit
-- 🟡 **#7 Scope/venue-fit checker** — match contributions+abstract against target venue scope & recent accepted papers (KG retrieval). *Targets the #1–2 desk-rejection cause.*
-- 🟡 **#8 Reviewer-style critique engine** — AgentReview 5-phase multi-agent pass: methodology, rationale, discussion, fatal-flaw detection, with adversarial self-check to counter LLM leniency.
-- 🟡 **#9 Severity-ranked actionable report** — OpenJudge Criticality-Verification pattern: rank issues so authors fix what matters first.
-- 🟡 **#10 Framing/structure advisor** — IMRaD section parse (GraphMind pattern) + section-by-section guidance.
+- ⬜ 🟡 **#7 Scope/venue-fit checker** — match contributions+abstract against target venue scope & recent accepted papers (KG retrieval). *Targets the #1–2 desk-rejection cause.* **Not started** — no venue/scope model exists yet. Highest-value remaining Phase 2 item.
+- ✅ 🟡 **#8 Reviewer-style critique engine** — multi-agent pass (methodology/rationale/discussion/fatal-flaw) with confidence scoring. → `research_companion/agents/orchestrator.py` coordinating `novelty` / `priorart` / `citation` / `problem` / `confidence` agents; CLI `review`.
+- 🟠 🟡 **#9 Severity-ranked actionable report** — **partial.** Per-claim confidence + uncertainty bands ship (`research_companion/agents/confidence.py`, `score_claim`; Confidence column in `report.py`), but issues are **not yet ranked by severity/criticality** so authors can fix what matters first. Remaining: an explicit severity classifier over findings.
+- ✅ 🟡 **#10 Framing/structure advisor** — IMRaD section parse + section-by-section guidance. → `research_companion/sections.py` + `research_companion/alignment.py`; CLI `align`.
 
 ## Phase 3 — Universal reach + integrity
-- 🔵 **#11 Cross-discipline venue knowledge base** — encode venue requirements beyond CS/biomed (hardest, least-solved; needs its own design pass).
-- 🔵 **#12 Reproducibility / data-availability checker** — data/code links, methods completeness; reporting checklists (EQUATOR/PRISMA/CONSORT) where applicable.
-- 🔵 **#13 Plagiarism / ethics-declaration checks** — round out the 10-reason rejection taxonomy.
-- 🔵 **#14 Accuracy benchmark** — human-labeled validation set; measure novelty-verdict precision/recall vs reviewers.
+- ⬜ 🔵 **#11 Cross-discipline venue knowledge base** — encode venue requirements beyond CS/biomed. Hardest, least-solved; needs its own design pass. **Not started** (blocks #7 beyond CS).
+- ⬜ 🔵 **#12 Reproducibility / data-availability checker** — data/code links, methods completeness; EQUATOR/PRISMA/CONSORT where applicable. **Not started.**
+- ⬜ 🔵 **#13 Plagiarism / ethics-declaration checks** — round out the 10-reason rejection taxonomy. **Not started.**
+- ✅ 🔵 **#14 Accuracy benchmark** — labeled validation harness measuring verdict quality vs reviewers. → `research_companion/eval/` (`novelty_openreview.py`, `citation_pr.py`, `pvalue.py`) + `research_companion/agents/benchmark.py`; results in `eval/results/`.
 
 ---
 
-## Importable issues
+## What's genuinely open
 
-To create these as real GitHub issues, point me at the repo you own (`gh repo set-default`) and I'll run the block below. They're authored so each maps to one spec component and is independently shippable.
+The wedge (Phase 1) and most of the reviewer pipeline (Phase 2) are shipped. The
+remaining, independently-shippable work:
+
+1. **#7 Scope/venue-fit checker** (🟡, biggest lever) — targets the top desk-rejection cause.
+2. **#9 Severity ranking** (🟠, finish the partial) — layer a criticality classifier over existing findings.
+3. **#11 Cross-discipline venue KB** (🔵) — design pass first; unblocks #7 outside CS/biomed.
+4. **#12 Reproducibility checker** (🔵).
+5. **#13 Plagiarism / ethics checks** (🔵).
+
+### Importable issues (remaining only)
+
+To create these as GitHub issues, point at the repo you own (`gh repo set-default`) and run:
 
 ```bash
-# Phase 1
-gh issue create --title "Reference validator (deterministic, LLM-free)" \
-  --label "phase-1,tier-1" \
-  --body "Validate the paper's bibliography against CrossRef/OpenAlex/S2/arXiv/DBLP. Per-ref status verified/suspect/unverified with reason. Deterministic pre-filters; escalate only ambiguous refs. See docs/NOVELTY_ENGINE_SPEC.md Component 5. Tests: golden good/bad bibliographies."
-
-gh issue create --title "Contribution-claim extraction" \
-  --label "phase-1,tier-1" \
-  --body "Add CONTRIBUTION_PROMPT (SHA-cached) extracting ContributionClaim{text,kind,evidence_quote,evidence_location,prior_work_query}. Reuse extract.py LLM plumbing. Spec: Component 1. Tests: golden files on examples/."
-
-gh issue create --title "Multi-source prior-art retrieval + canonical dedup" \
-  --label "phase-1,tier-1" \
-  --body "PriorArtRetriever protocol; OpenAlex/arXiv/CrossRef/DBLP impls + wrap existing S2. canonical_id=md5(normalize_title); temporal year_max filter; cache raw responses. Spec: Component 2. Tests: mock APIs, deterministic dedup/temporal."
-
-gh issue create --title "Evidence verifier (anti-hallucination gate)" \
-  --label "phase-1,tier-1,quality" \
-  --body "verify_quote(quote,fulltext): exact→normalized→anchor/fuzzy match + location. Unverified claims demoted, never shown as fact. Spec: Component 4. Pure-function unit tests."
-
-gh issue create --title "Contribution-level novelty comparison" \
-  --label "phase-1,tier-1" \
-  --body "Compare each claim vs retrieved prior art AND papergraph neighborhood (via chat.py _bfs/_render_subgraph). Polarity-typed matches (extends/supports/contrasts/refutes/mentions). Two-stage retrieve-then-LLM. NoveltyVerdict output. Spec: Component 3."
-
-gh issue create --title "Novelty report + graph view + CLI" \
-  --label "phase-1,tier-1" \
-  --body "Aggregate verdicts into cited per-claim report; interactive graph via viz.py colored by polarity; 'papergraph novelty <id> --venue <slug>'. Spec: Component 6. Integration test on one example paper."
-
-# Phase 2
 gh issue create --title "Scope/venue-fit checker" --label "phase-2,tier-1" \
-  --body "Match contributions+abstract against target venue scope & recent accepted papers. Targets #1-2 desk-rejection cause."
-gh issue create --title "Reviewer-style critique engine (multi-agent)" --label "phase-2,tier-2" \
-  --body "AgentReview 5-phase pass with adversarial self-check vs LLM leniency. Methodology/rationale/discussion/fatal-flaw."
+  --body "Match contributions+abstract against target venue scope & recent accepted papers. Targets #1-2 desk-rejection cause. Build on agents/priorart.py retrieval + KG neighborhood."
 gh issue create --title "Severity-ranked actionable report" --label "phase-2,tier-2" \
-  --body "OpenJudge Criticality-Verification: classify issues by severity."
-gh issue create --title "Framing/structure advisor (IMRaD)" --label "phase-2,tier-2" \
-  --body "IMRaD section classification + section-by-section framing guidance."
-
-# Phase 3
+  --body "Classify findings by severity/criticality on top of the existing confidence scores (agents/confidence.py) so authors fix what matters first. OpenJudge Criticality-Verification pattern."
 gh issue create --title "Cross-discipline venue knowledge base" --label "phase-3,tier-3,research" \
-  --body "Encode venue requirements beyond CS/biomed. Hardest gap; needs design pass."
+  --body "Encode venue requirements beyond CS/biomed. Hardest gap; needs a design pass. Unblocks the venue-fit checker outside CS."
 gh issue create --title "Reproducibility / data-availability checker" --label "phase-3,tier-3" \
   --body "Data/code links, methods completeness, EQUATOR/PRISMA/CONSORT where applicable."
 gh issue create --title "Plagiarism / ethics-declaration checks" --label "phase-3,tier-3" \
   --body "Round out the 10-reason rejection taxonomy."
-gh issue create --title "Novelty-accuracy benchmark" --label "phase-3,tier-3,quality" \
-  --body "Human-labeled validation set; measure verdict precision/recall vs human reviewers."
 ```
 
-## Known issues carried past v0.3.0 (from the release review)
+## Known issues carried past v0.3.0 — RESOLVED
 
-- **settings.embed_model is persisted but not consumed** — retrieval and ingest use
-  the built-in default model. Changing it in config has no effect today; worse, an
-  embeddings.json written under a non-default model makes the ingest backfill skip
-  re-embedding while ranking silently falls back to BM25. Either wire the setting
-  through `qa`/`converse`/ingest or drop it from the Settings surface.
-- **Gap-relevance threshold means different things in BM25 vs hybrid mode** — the
-  0.35 prefilter compares against raw BM25 scores when degraded but min–max-fused
-  0–1 scores when an HF token is present (a singleton candidate normalizes to 0.5),
-  so toggling the token changes gap→suggestion gating semantics, not just recall.
-  Normalize the degraded score or use mode-specific thresholds.
-- **publish.yml re-runs hard-fail on existing PyPI files** — no `--skip-existing`;
-  the tag↔version consistency check prevents the common cause, but a re-run of a
-  successful job will fail at upload.
+All three carried-forward issues were fixed in the roadmap-known-issues pass:
+
+- ✅ **settings.embed_model is persisted but not consumed** — now wired through
+  `qa`/`converse` ranking and the embedding backfill (arg → settings →
+  `DEFAULT_EMBED_MODEL`); the "needs backfill" check is model-aware, so switching
+  models re-embeds rather than silently falling back to BM25.
+- ✅ **Gap-relevance threshold meant different things in BM25 vs hybrid mode** —
+  `gaps._relevance_score()` now normalizes the prefilter score to a
+  mode-independent `[0, 1]` (hybrid passes through; raw BM25 saturates via
+  `s/(s+1)`), so `sim_threshold` has consistent meaning with or without an HF token.
+- ✅ **publish.yml re-runs hard-fail on existing PyPI files** — `twine upload`
+  now uses `--skip-existing`, making re-runs of a successful publish idempotent.
