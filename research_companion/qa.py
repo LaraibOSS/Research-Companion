@@ -287,6 +287,7 @@ def answer(
     model: str | None = None,
     embed_query=None,
     backfill=None,
+    embed_model: str | None = None,
 ) -> QAAnswer:
     """Answer *question* using hybrid (BM25 + optional embedding) retrieval.
 
@@ -297,7 +298,12 @@ def answer(
         char_budget: Max total chars for the sources_block (None -> settings default).
         embed_query: Callable(str) -> vector for hybrid ranking; None -> auto (HF token).
         backfill:   Callable(paper_id) embedding backfiller; None -> real; only invoked
-                    when hybrid retrieval is possible.
+                    when hybrid retrieval is possible. The real backfiller embeds under
+                    the resolved embed_model.
+        embed_model: Embedding model for backfill + ranking; None -> settings
+                    ("embed_model") -> DEFAULT_EMBED_MODEL. Switching it re-embeds papers
+                    whose cache was written under a different model rather than silently
+                    falling back to BM25.
         section_id: If set, scope query context to the configured draft's section with this id.
                     The draft's own units are excluded from retrieval.
                     Extra query tokens come from that draft section's BM25 tokens.
@@ -307,7 +313,9 @@ def answer(
         model:      Model override when llm is None; defaults from RESEARCH_COMPANION_MODEL.
     """
     # --- 0. Resolve retrieval knobs from settings when unspecified ---------------
-    if k_sections is None or char_budget is None:
+    from research_companion.embed import DEFAULT_EMBED_MODEL
+
+    if k_sections is None or char_budget is None or embed_model is None:
         try:
             from research_companion.settings import get_settings
 
@@ -318,6 +326,8 @@ def answer(
             k_sections = int(_s.get("k_sections", 6))
         if char_budget is None:
             char_budget = int(_s.get("char_budget", 8000))
+        if embed_model is None:
+            embed_model = str(_s.get("embed_model") or DEFAULT_EMBED_MODEL)
 
     # --- 1. Build index & determine query tokens --------------------------------
     all_units = build_section_index(paper_ids)
@@ -350,21 +360,26 @@ def answer(
 
     if embed_query is not None or _os.environ.get("HF_TOKEN"):
         if backfill is None:
-            from research_companion.embed import embed_paper_sections as backfill  # type: ignore[assignment]
+            from research_companion.embed import embed_paper_sections
+
+            def backfill(pid: str) -> None:  # embeds under the resolved model
+                embed_paper_sections(pid, model=embed_model)
         seen: set[str] = set()
         for u in retrieval_units:
             pid = u.get("paper_id", "")
             if pid in seen:
                 continue
             seen.add(pid)
-            if store.load_embeddings(pid) is None:
+            # Model-aware: a cache written under a different model reads as missing,
+            # so switching embed_model re-embeds instead of falling back to BM25.
+            if store.load_embeddings(pid, embed_model=embed_model) is None:
                 try:
                     backfill(pid)
                 except Exception:
                     continue
 
     ranked = rank_units(question, q_tokens, retrieval_units,
-                        k=k_sections, embed_query=embed_query)
+                        k=k_sections, embed_query=embed_query, embed_model=embed_model)
     if not ranked:
         return QAAnswer(_NO_MATERIAL_MSG, [], [], [], 0)
 

@@ -530,12 +530,15 @@ def converse(
         )
 
     # --- 1. Resolve settings defaults ----------------------------------------
+    from research_companion.embed import DEFAULT_EMBED_MODEL
+
+    try:
+        from research_companion.settings import get_settings
+        _s = get_settings()
+    except Exception:
+        _s = {}
+    embed_model = str(_s.get("embed_model") or DEFAULT_EMBED_MODEL)
     if k_sections is None or char_budget is None:
-        try:
-            from research_companion.settings import get_settings
-            _s = get_settings()
-        except Exception:
-            _s = {}
         if k_sections is None:
             k_sections = int(_s.get("k_sections", 6))
         if char_budget is None:
@@ -565,15 +568,17 @@ def converse(
                 if pid in seen:
                     continue
                 seen.add(pid)
-                if _store.load_embeddings(pid) is None:
+                # Model-aware: a cache under a different model reads as missing,
+                # so switching embed_model re-embeds instead of degrading to BM25.
+                if _store.load_embeddings(pid, embed_model=embed_model) is None:
                     try:
                         from research_companion.embed import embed_paper_sections
-                        embed_paper_sections(pid)
+                        embed_paper_sections(pid, model=embed_model)
                     except Exception:
                         continue
 
         ranked = rank_units(retrieval_query, q_tokens, all_units,
-                            k=k_sections, embed_query=embed_query)
+                            k=k_sections, embed_query=embed_query, embed_model=embed_model)
     else:
         ranked = []
 
