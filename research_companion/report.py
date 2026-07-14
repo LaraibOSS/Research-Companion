@@ -116,6 +116,124 @@ def _section_confidence(data: dict) -> str:
     return html_out
 
 
+_SEVERITY_COLORS = {"critical": "#c62828", "major": "#ef6c00", "minor": "#f9a825"}
+
+
+def _section_severity(data: dict) -> str:
+    """Render severity lane: per-tier counts + ranked findings, worst first."""
+    findings = data.get("findings")
+    if not findings:
+        return ""
+    counts = data.get("counts", {})
+    html_out = "      <h3>Ranked Findings</h3>\n"
+    html_out += (
+        f"      <p><strong>{counts.get('critical', 0)} critical</strong> &middot; "
+        f"{counts.get('major', 0)} major &middot; "
+        f"{counts.get('minor', 0)} minor</p>\n"
+    )
+    for f in findings:
+        sev = f.get("severity", "")
+        color = _SEVERITY_COLORS.get(sev, "#999")
+        title = _escape(f.get("title", ""))
+        subject = _escape(f.get("subject", ""))
+        html_out += f"      <div style=\"margin: 10px 0; padding: 8px; border-left: 4px solid {color};\">\n"
+        html_out += f"        <strong style=\"color: {color};\">[{_escape(sev.upper())}]</strong> {title}\n"
+        if subject:
+            html_out += f"        <div style=\"color: #666; font-size: 0.9em;\">{subject}</div>\n"
+        html_out += "      </div>\n"
+    return html_out
+
+
+_FIT_COLORS = {"strong": "#2e7d32", "moderate": "#f9a825",
+               "weak": "#ef6c00", "out_of_scope": "#c62828"}
+
+
+def _section_venuefit(data: dict) -> str:
+    """Render venue-fit lane: fit verdict, overlap, reasons, alternatives."""
+    if data.get("skipped") or "fit" not in data:
+        return ""
+    fit = data.get("fit", "")
+    color = _FIT_COLORS.get(fit, "#999")
+    name = _escape(data.get("venue_name", data.get("venue", "")))
+    discipline = _escape(str(data.get("discipline", "")).replace("_", " "))
+    conf = data.get("confidence", 0)
+    overlap = data.get("topic_overlap", 0)
+    html_out = f"      <h3>Venue Fit: {name}</h3>\n"
+    if discipline:
+        html_out += f"      <p style=\"color: #666;\">Discipline: {discipline}</p>\n"
+    html_out += (
+        f"      <p><strong style=\"color: {color};\">{_escape(fit.replace('_', ' ').upper())}</strong> "
+        f"(confidence {conf:.2f}, topic overlap {overlap:.2f})</p>\n"
+    )
+    rationale = _escape(data.get("rationale", ""))
+    if rationale:
+        html_out += f"      <p>{rationale}</p>\n"
+    checklists = data.get("checklists") or []
+    if checklists:
+        html_out += ("      <p><strong>Required checklists:</strong> "
+                     f"{_escape(', '.join(checklists))}</p>\n")
+    reasons = data.get("reasons") or []
+    if reasons:
+        html_out += "      <ul>\n"
+        for r in reasons:
+            html_out += f"        <li>{_escape(r)}</li>\n"
+        html_out += "      </ul>\n"
+    alts = data.get("suggested_alternatives") or []
+    if alts:
+        html_out += ("      <p><strong>Consider instead:</strong> "
+                     f"{_escape(', '.join(alts))}</p>\n")
+    return html_out
+
+
+_LEVEL_COLORS = {"high": "#2e7d32", "medium": "#f9a825", "low": "#c62828"}
+
+
+def _section_reproducibility(data: dict) -> str:
+    """Render reproducibility lane: level, artifact links, and gaps."""
+    if "level" not in data:
+        return ""
+    level = data.get("level", "")
+    color = _LEVEL_COLORS.get(level, "#999")
+    code = data.get("code_links", []) or []
+    data_links = data.get("data_links", []) or []
+    html_out = "      <h3>Reproducibility</h3>\n"
+    html_out += (
+        f"      <p><strong style=\"color: {color};\">{_escape(level.upper())}</strong> "
+        f"&middot; {len(code)} code link(s) &middot; {len(data_links)} data link(s) "
+        f"&middot; availability statement: {'yes' if data.get('has_availability_statement') else 'no'}</p>\n"
+    )
+    checklists = data.get("checklists") or []
+    if checklists:
+        html_out += (f"      <p><strong>Checklists:</strong> "
+                     f"{_escape(', '.join(checklists))}</p>\n")
+    missing = data.get("missing") or []
+    if missing:
+        html_out += "      <p><strong>Gaps:</strong></p>\n      <ul>\n"
+        for m in missing:
+            html_out += f"        <li>{_escape(m)}</li>\n"
+        html_out += "      </ul>\n"
+    return html_out
+
+
+def _section_ethics(data: dict) -> str:
+    """Render ethics lane: present declarations + expected-but-missing ones."""
+    if "declarations" not in data:
+        return ""
+    present = data.get("present") or []
+    missing = data.get("missing_expected") or []
+    html_out = "      <h3>Integrity Declarations</h3>\n"
+    if present:
+        pretty = ", ".join(p.replace("_", " ") for p in present)
+        html_out += f"      <p><strong>Present:</strong> {_escape(pretty)}</p>\n"
+    if missing:
+        pretty = ", ".join(m.replace("_", " ") for m in missing)
+        html_out += ("      <p style=\"color: #ef6c00;\"><strong>Expected but missing:"
+                     f"</strong> {_escape(pretty)}</p>\n")
+    if not present and not missing:
+        html_out += "      <p>All expected declarations present.</p>\n"
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -183,7 +301,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["ingest", "citation", "priorart", "novelty", "confidence", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "reproducibility", "ethics", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -210,7 +328,15 @@ def render_report_html(report: dict) -> str:
         else:
             data = lane.get("data", {})
             # Render lane-specific sections based on data shape
-            if name == "ingest":
+            if name == "severity":
+                section = _section_severity(data)
+                if section:
+                    lane_cards += section
+            elif name == "venuefit":
+                section = _section_venuefit(data)
+                if section:
+                    lane_cards += section
+            elif name == "ingest":
                 section = _section_ingest(data)
                 if section:
                     lane_cards += section
@@ -228,6 +354,14 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "confidence":
                 section = _section_confidence(data)
+                if section:
+                    lane_cards += section
+            elif name == "reproducibility":
+                section = _section_reproducibility(data)
+                if section:
+                    lane_cards += section
+            elif name == "ethics":
+                section = _section_ethics(data)
                 if section:
                     lane_cards += section
             elif name == "benchmark":

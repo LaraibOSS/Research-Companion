@@ -43,6 +43,25 @@ class GapError(Exception):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _relevance_score(top: dict | None) -> float:
+    """Map a rank_units top result to a mode-independent relevance in [0, 1].
+
+    ``rank_units`` scores are scaled differently per mode: hybrid scores are
+    min-max fused into [0, 1], while degraded (bm25-only, no HF token) scores
+    are raw, unbounded BM25. Comparing a single ``sim_threshold`` against both
+    meant toggling the HF token silently changed the gap->suggestion gating
+    scale, not just recall. We saturate the raw bm25 score via ``s / (s + 1)``
+    so the threshold has consistent meaning in either mode; hybrid scores pass
+    through unchanged.
+    """
+    if not top:
+        return 0.0
+    if top.get("mode") == "hybrid":
+        return float(top.get("score", 0.0))
+    raw = float(top.get("score", 0.0))
+    return raw / (raw + 1.0) if raw > 0.0 else 0.0
+
+
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -356,7 +375,7 @@ def resolve_gaps(
                 embed_query=embed_query,
             )
 
-            best_score = ranked[0]["score"] if ranked else 0.0
+            best_score = _relevance_score(ranked[0] if ranked else None)
 
             if best_score < sim_threshold:
                 # Below threshold: no LLM call — status open
@@ -616,7 +635,7 @@ def gaps_for_suggestions(
                     k=1,
                     embed_query=embed_query,
                 )
-                best_score = ranked[0]["score"] if ranked else 0.0
+                best_score = _relevance_score(ranked[0] if ranked else None)
                 relevant = best_score >= sim_threshold
             except Exception:  # noqa: BLE001
                 relevant = False

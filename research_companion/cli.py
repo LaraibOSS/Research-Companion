@@ -622,11 +622,15 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.bus import Bus
     from research_companion.agents.citation import CitationAgent
     from research_companion.agents.confidence import ConfidenceAgent
+    from research_companion.agents.ethics import EthicsAgent
     from research_companion.agents.events import EventLog
     from research_companion.agents.ingest import IngestAgent
     from research_companion.agents.novelty import NoveltyAgent
     from research_companion.agents.orchestrator import run_agents
     from research_companion.agents.priorart import PriorArtAgent
+    from research_companion.agents.reproducibility import ReproducibilityAgent
+    from research_companion.agents.severity import SeverityAgent
+    from research_companion.agents.venuefit import VenueFitAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
     runs_dir = papergraph_dir() / "runs"
@@ -635,11 +639,16 @@ def _cmd_review(args: argparse.Namespace) -> int:
     # and time_ns() to avoid same-second collisions.
     log_path = runs_dir / f"{_id_to_dirname(args.paper_id)}-{time.time_ns()}.jsonl"
 
-    agents = [IngestAgent(), CitationAgent(), PriorArtAgent()]
+    agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
+              ReproducibilityAgent(), EthicsAgent()]
     if not args.fast:
-        agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent()]
+        agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
+    if getattr(args, "venue", None):
+        agents.append(VenueFitAgent())
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
+    if getattr(args, "venue", None):
+        ctx.data["_venue"] = args.venue
 
     if getattr(args, "serve", False):
         try:
@@ -1541,6 +1550,9 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--fast", action="store_true",
                      help="Skip LLM lanes (novelty, confidence, benchmark)")
     prv.add_argument("--report", help="Write report.html + report.json to this directory")
+    prv.add_argument("--venue",
+                     help="Target venue slug/name for a scope/venue-fit check "
+                          "(e.g. neurips, icml, acl). See docs for supported venues.")
     prv.add_argument("--serve", action="store_true",
                      help="Start a live dashboard while agents run")
     prv.add_argument("--port", type=int, default=8501,

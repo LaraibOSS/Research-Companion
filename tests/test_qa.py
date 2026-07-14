@@ -755,6 +755,63 @@ class TestHybridIntegration:
         assert "arxiv:h2" in backfilled and "arxiv:h1" not in backfilled
         assert res.answer == "ok"
 
+    def test_embed_model_setting_threaded(self, monkeypatch):
+        """settings.embed_model reaches both the backfiller and rank_units."""
+        self._corpus()
+        monkeypatch.setenv("HF_TOKEN", "x")  # enable the hybrid/backfill path
+        import research_companion.settings as settings_mod
+        monkeypatch.setattr(
+            settings_mod, "get_settings",
+            lambda: {"k_sections": 6, "char_budget": 8000,
+                     "embed_model": "custom/model-v2"})
+
+        seen_backfill: list[str] = []
+        import research_companion.embed as embed_mod
+        monkeypatch.setattr(
+            embed_mod, "embed_paper_sections",
+            lambda pid, *, model=None, **kw: seen_backfill.append(model))
+
+        seen_rank: dict = {}
+        import research_companion.retrieve as retrieve_mod
+        real_rank = retrieve_mod.rank_units
+
+        def spy_rank(*a, **k):
+            seen_rank["embed_model"] = k.get("embed_model")
+            return real_rank(*a, **k)
+
+        monkeypatch.setattr(retrieve_mod, "rank_units", spy_rank)
+
+        from research_companion.qa import answer
+        answer("graph retrieval", llm=lambda p: "ok", embed_query=lambda q: [1.0])
+
+        assert seen_backfill and all(m == "custom/model-v2" for m in seen_backfill)
+        assert seen_rank["embed_model"] == "custom/model-v2"
+
+    def test_model_switch_reembeds_stale_cache(self, monkeypatch):
+        """A cache written under a different model is re-embedded, not skipped."""
+        self._corpus()
+        monkeypatch.setenv("HF_TOKEN", "x")
+        # h1 cached under the OLD (default) model.
+        store.save_embeddings("arxiv:h1", {
+            "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "vectors": {"s1": {"text_sha256": "x", "vector": [1.0]}}})
+        import research_companion.settings as settings_mod
+        monkeypatch.setattr(
+            settings_mod, "get_settings",
+            lambda: {"embed_model": "custom/new-model"})
+
+        backfilled: list[str] = []
+        import research_companion.embed as embed_mod
+        monkeypatch.setattr(
+            embed_mod, "embed_paper_sections",
+            lambda pid, *, model=None, **kw: backfilled.append(pid))
+
+        from research_companion.qa import answer
+        answer("graph retrieval", llm=lambda p: "ok", embed_query=lambda q: [1.0])
+
+        # Under the new model, h1's old-model cache reads as missing -> re-embedded.
+        assert "arxiv:h1" in backfilled
+
     def test_grounding_node_ids(self, monkeypatch):
         monkeypatch.delenv("HF_TOKEN", raising=False)
         self._corpus()
