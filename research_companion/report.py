@@ -116,6 +116,34 @@ def _section_confidence(data: dict) -> str:
     return html_out
 
 
+_SEVERITY_COLORS = {"critical": "#c62828", "major": "#ef6c00", "minor": "#f9a825"}
+
+
+def _section_severity(data: dict) -> str:
+    """Render severity lane: per-tier counts + ranked findings, worst first."""
+    findings = data.get("findings")
+    if not findings:
+        return ""
+    counts = data.get("counts", {})
+    html_out = "      <h3>Ranked Findings</h3>\n"
+    html_out += (
+        f"      <p><strong>{counts.get('critical', 0)} critical</strong> &middot; "
+        f"{counts.get('major', 0)} major &middot; "
+        f"{counts.get('minor', 0)} minor</p>\n"
+    )
+    for f in findings:
+        sev = f.get("severity", "")
+        color = _SEVERITY_COLORS.get(sev, "#999")
+        title = _escape(f.get("title", ""))
+        subject = _escape(f.get("subject", ""))
+        html_out += f"      <div style=\"margin: 10px 0; padding: 8px; border-left: 4px solid {color};\">\n"
+        html_out += f"        <strong style=\"color: {color};\">[{_escape(sev.upper())}]</strong> {title}\n"
+        if subject:
+            html_out += f"        <div style=\"color: #666; font-size: 0.9em;\">{subject}</div>\n"
+        html_out += "      </div>\n"
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -183,7 +211,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["ingest", "citation", "priorart", "novelty", "confidence", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "ingest", "citation", "priorart", "novelty", "confidence", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -210,7 +238,11 @@ def render_report_html(report: dict) -> str:
         else:
             data = lane.get("data", {})
             # Render lane-specific sections based on data shape
-            if name == "ingest":
+            if name == "severity":
+                section = _section_severity(data)
+                if section:
+                    lane_cards += section
+            elif name == "ingest":
                 section = _section_ingest(data)
                 if section:
                     lane_cards += section

@@ -33,3 +33,24 @@ def test_render_report_html_escapes_and_marks_failures():
     assert "FAILED" in html_out and "LLM unavailable" in html_out
     assert "Fake &lt;Paper&gt;" in html_out
     assert html_out.lstrip().lower().startswith("<!doctype html")
+
+
+def test_render_report_html_shows_ranked_severity_findings():
+    results = {
+        "severity": AgentResult(agent="severity", ok=True, data={
+            "counts": {"critical": 1, "major": 1, "minor": 0},
+            "findings": [
+                {"severity": "critical", "category": "unsupported_claim",
+                 "title": "Claimed contribution has no verifiable evidence",
+                 "subject": "Our method beats SOTA", "evidence": {}, "rank": 0},
+                {"severity": "major", "category": "unverified_reference",
+                 "title": "Reference could not be found in any database",
+                 "subject": "Ghost et al.", "evidence": {}, "rank": 1},
+            ]}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Ranked Findings" in html_out
+    assert "1 critical" in html_out
+    assert "[CRITICAL]" in html_out and "[MAJOR]" in html_out
+    # Severity section renders before the (absent here) other lanes.
+    assert "Our method beats SOTA" in html_out
