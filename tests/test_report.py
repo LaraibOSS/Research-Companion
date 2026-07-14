@@ -78,3 +78,19 @@ def test_render_report_html_hides_skipped_venue_fit():
     }
     html_out = render_report_html(build_report_json("local:x", "P", results))
     assert "Venue Fit" not in html_out
+
+
+def test_render_report_html_shows_reproducibility():
+    results = {
+        "reproducibility": AgentResult(agent="reproducibility", ok=True, data={
+            "code_links": ["https://github.com/a/b"], "data_links": [],
+            "has_availability_statement": True,
+            "signals": {"hyperparameters": True}, "checklists": ["model_card"],
+            "level": "medium",
+            "missing": ["No public data/artifact repository link found"]}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Reproducibility" in html_out
+    assert "MEDIUM" in html_out
+    assert "model_card" in html_out
+    assert "No public data/artifact repository link found" in html_out

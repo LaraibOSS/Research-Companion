@@ -178,6 +178,36 @@ def _section_venuefit(data: dict) -> str:
     return html_out
 
 
+_LEVEL_COLORS = {"high": "#2e7d32", "medium": "#f9a825", "low": "#c62828"}
+
+
+def _section_reproducibility(data: dict) -> str:
+    """Render reproducibility lane: level, artifact links, and gaps."""
+    if "level" not in data:
+        return ""
+    level = data.get("level", "")
+    color = _LEVEL_COLORS.get(level, "#999")
+    code = data.get("code_links", []) or []
+    data_links = data.get("data_links", []) or []
+    html_out = "      <h3>Reproducibility</h3>\n"
+    html_out += (
+        f"      <p><strong style=\"color: {color};\">{_escape(level.upper())}</strong> "
+        f"&middot; {len(code)} code link(s) &middot; {len(data_links)} data link(s) "
+        f"&middot; availability statement: {'yes' if data.get('has_availability_statement') else 'no'}</p>\n"
+    )
+    checklists = data.get("checklists") or []
+    if checklists:
+        html_out += (f"      <p><strong>Checklists:</strong> "
+                     f"{_escape(', '.join(checklists))}</p>\n")
+    missing = data.get("missing") or []
+    if missing:
+        html_out += "      <p><strong>Gaps:</strong></p>\n      <ul>\n"
+        for m in missing:
+            html_out += f"        <li>{_escape(m)}</li>\n"
+        html_out += "      </ul>\n"
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -245,7 +275,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "reproducibility", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -298,6 +328,10 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "confidence":
                 section = _section_confidence(data)
+                if section:
+                    lane_cards += section
+            elif name == "reproducibility":
+                section = _section_reproducibility(data)
                 if section:
                     lane_cards += section
             elif name == "benchmark":
