@@ -1,12 +1,16 @@
-"""Tests for the venue registry + deterministic overlap prefilter."""
+"""Tests for the venue KB, lookup, overlap prefilter, and discipline model."""
 from __future__ import annotations
 
 from research_companion.venues import (
     VENUES,
     Venue,
     get_venue,
+    infer_discipline,
+    list_disciplines,
     list_venues,
+    suggest_alternatives,
     topic_overlap,
+    venues_for_discipline,
 )
 
 
@@ -16,6 +20,15 @@ class TestRegistry:
             assert v.slug and v.name and v.scope
             assert v.kind in {"conference", "journal"}
             assert isinstance(v.topics, tuple)
+            assert isinstance(v.checklists, tuple)
+            assert isinstance(v.desk_reject_rules, tuple)
+            assert v.discipline
+
+    def test_kb_is_cross_discipline(self):
+        disciplines = set(list_disciplines())
+        # CS/ML plus at least biomedical, physics, and a general/multidisciplinary tier.
+        assert {"machine_learning", "biomedical", "physics"} <= disciplines
+        assert len(disciplines) >= 6
 
     def test_get_venue_by_slug(self):
         assert get_venue("neurips") is VENUES["neurips"]
@@ -23,6 +36,10 @@ class TestRegistry:
     def test_get_venue_by_name_case_insensitive(self):
         assert get_venue("NeurIPS") is VENUES["neurips"]
         assert get_venue("  icml ") is VENUES["icml"]
+
+    def test_get_venue_by_alias(self):
+        assert get_venue("nips") is VENUES["neurips"]
+        assert get_venue("lancet") is VENUES["the-lancet"]
 
     def test_get_venue_unknown_is_none(self):
         assert get_venue("does-not-exist") is None
@@ -32,6 +49,36 @@ class TestRegistry:
         slugs = [v.slug for v in list_venues()]
         assert slugs == sorted(slugs)
         assert "neurips" in slugs
+
+
+class TestDisciplineModel:
+    def test_venues_for_discipline(self):
+        ml = {v.slug for v in venues_for_discipline("machine_learning")}
+        assert {"neurips", "icml", "iclr"} <= ml
+        assert "the-lancet" not in ml
+
+    def test_infer_discipline_biomed(self):
+        terms = ["A randomized clinical trial in patients with disease"]
+        disc, score = infer_discipline(terms)
+        assert disc == "biomedical"
+        assert score > 0.0
+
+    def test_infer_discipline_ml(self):
+        disc, _ = infer_discipline(["deep learning neural network optimization"])
+        assert disc == "machine_learning"
+
+    def test_infer_discipline_no_overlap(self):
+        disc, score = infer_discipline(["zzzz qqqq"])
+        assert disc is None and score == 0.0
+
+    def test_suggest_alternatives_in_discipline(self):
+        alts = suggest_alternatives(
+            VENUES["neurips"], ["deep learning representation optimization"], limit=2)
+        assert len(alts) <= 2
+        assert "NeurIPS" not in alts  # excludes the venue itself
+        # alternatives are drawn from the same (ML) discipline
+        ml_names = {v.name for v in venues_for_discipline("machine_learning")}
+        assert all(a in ml_names for a in alts)
 
 
 class TestTopicOverlap:

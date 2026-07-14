@@ -1,0 +1,176 @@
+{
+  "_comment": "Cross-discipline venue knowledge base for the venue-fit checker (docs/ROADMAP.md #11). Add venues here (no code change needed). Fields: slug (unique), name, kind (conference|journal), discipline, scope (LLM-facing blurb), topics (lowercase keywords for the deterministic overlap prefilter; multi-word entries are matched as phrases), checklists (reporting standards a submission is expected to follow), desk_reject_rules (common desk-reject triggers), aliases (alternative names for lookup).",
+  "venues": [
+    {
+      "slug": "neurips", "name": "NeurIPS", "kind": "conference",
+      "discipline": "machine_learning",
+      "scope": "Neural information processing systems: machine learning theory and practice, deep learning, optimization, probabilistic methods, reinforcement learning, and neuroscience-inspired computation.",
+      "topics": ["machine learning", "deep learning", "neural network", "optimization", "reinforcement learning", "probabilistic", "representation learning", "generative model", "theory"],
+      "checklists": ["NeurIPS Paper Checklist", "datasheet for datasets"],
+      "desk_reject_rules": ["9-page main-text limit (excl. references)", "double-blind: no author-identifying info", "must include the paper checklist"],
+      "aliases": ["nips"]
+    },
+    {
+      "slug": "icml", "name": "ICML", "kind": "conference",
+      "discipline": "machine_learning",
+      "scope": "International Conference on Machine Learning: novel machine-learning algorithms, theory, and their application across domains.",
+      "topics": ["machine learning", "deep learning", "optimization", "theory", "reinforcement learning", "kernel", "bayesian", "generalization"],
+      "checklists": ["NeurIPS-style reproducibility checklist"],
+      "desk_reject_rules": ["8-page main-text limit (excl. references)", "double-blind submission"],
+      "aliases": []
+    },
+    {
+      "slug": "iclr", "name": "ICLR", "kind": "conference",
+      "discipline": "machine_learning",
+      "scope": "International Conference on Learning Representations: representation learning and deep learning, including architectures, training methods, and empirical analysis.",
+      "topics": ["representation learning", "deep learning", "neural network", "self-supervised", "transformer", "embedding", "generative model"],
+      "checklists": ["reproducibility statement"],
+      "desk_reject_rules": ["9-page main-text limit at submission", "double-blind: anonymized PDF"],
+      "aliases": []
+    },
+    {
+      "slug": "aaai", "name": "AAAI", "kind": "conference",
+      "discipline": "machine_learning",
+      "scope": "Association for the Advancement of Artificial Intelligence: broad artificial intelligence including learning, reasoning, planning, knowledge representation, and multi-agent systems.",
+      "topics": ["artificial intelligence", "machine learning", "reasoning", "planning", "knowledge representation", "search", "multi-agent", "constraint"],
+      "checklists": ["reproducibility checklist"],
+      "desk_reject_rules": ["7-page main-text limit (excl. references)", "double-blind submission"],
+      "aliases": []
+    },
+    {
+      "slug": "acl", "name": "ACL", "kind": "conference",
+      "discipline": "nlp",
+      "scope": "Association for Computational Linguistics: natural language processing, computational linguistics, and language technologies.",
+      "topics": ["nlp", "natural language processing", "language model", "parsing", "machine translation", "semantics", "text", "linguistics", "dialogue"],
+      "checklists": ["ACL Responsible NLP Checklist", "limitations section (required)"],
+      "desk_reject_rules": ["8-page limit for long papers (excl. references)", "mandatory Limitations section", "anonymized submission"],
+      "aliases": []
+    },
+    {
+      "slug": "emnlp", "name": "EMNLP", "kind": "conference",
+      "discipline": "nlp",
+      "scope": "Empirical Methods in Natural Language Processing: empirical and data-driven approaches to NLP problems.",
+      "topics": ["nlp", "natural language processing", "language model", "text", "information extraction", "question answering", "summarization"],
+      "checklists": ["ACL Responsible NLP Checklist", "limitations section (required)"],
+      "desk_reject_rules": ["8-page limit for long papers (excl. references)", "mandatory Limitations section"],
+      "aliases": []
+    },
+    {
+      "slug": "cvpr", "name": "CVPR", "kind": "conference",
+      "discipline": "computer_vision",
+      "scope": "Computer Vision and Pattern Recognition: image and video understanding, recognition, 3D vision, and visual learning.",
+      "topics": ["computer vision", "image", "video", "detection", "segmentation", "recognition", "3d", "visual", "scene understanding"],
+      "checklists": ["reproducibility / broader-impact statement"],
+      "desk_reject_rules": ["8-page main-text limit (excl. references)", "double-blind submission"],
+      "aliases": []
+    },
+    {
+      "slug": "kdd", "name": "KDD", "kind": "conference",
+      "discipline": "data_mining_ir",
+      "scope": "Knowledge Discovery and Data Mining: data mining, applied machine learning at scale, and knowledge discovery from large datasets.",
+      "topics": ["data mining", "knowledge discovery", "recommendation", "graph mining", "scalable", "clustering", "anomaly detection", "time series"],
+      "checklists": ["reproducibility (code + data) statement"],
+      "desk_reject_rules": ["page limit per track", "anonymized submission for the research track"],
+      "aliases": []
+    },
+    {
+      "slug": "sigir", "name": "SIGIR", "kind": "conference",
+      "discipline": "data_mining_ir",
+      "scope": "Information Retrieval: search, ranking, recommendation, and evaluation of information access systems.",
+      "topics": ["information retrieval", "search", "ranking", "recommendation", "relevance", "query", "evaluation"],
+      "checklists": ["reproducibility of retrieval experiments"],
+      "desk_reject_rules": ["page limit per track", "double-blind for full papers"],
+      "aliases": []
+    },
+    {
+      "slug": "nature-medicine", "name": "Nature Medicine", "kind": "journal",
+      "discipline": "biomedical",
+      "scope": "Biomedical and clinical research of broad significance: translational medicine, clinical trials, disease mechanisms, and therapeutics.",
+      "topics": ["clinical", "disease", "patients", "therapeutic", "biomarker", "trial", "medicine", "in vivo", "cohort"],
+      "checklists": ["CONSORT (trials)", "STROBE (observational)", "PRISMA (systematic reviews)", "Nature reporting summary"],
+      "desk_reject_rules": ["out-of-scope non-clinical work", "missing ethics/IRB approval for human studies", "missing trial registration for clinical trials"],
+      "aliases": []
+    },
+    {
+      "slug": "the-lancet", "name": "The Lancet", "kind": "journal",
+      "discipline": "biomedical",
+      "scope": "Clinical medicine and global health: randomized controlled trials, epidemiology, public health, and clinical practice.",
+      "topics": ["clinical", "trial", "epidemiology", "public health", "patients", "mortality", "intervention", "randomized"],
+      "checklists": ["CONSORT (trials)", "PRISMA (reviews)", "STROBE (observational)"],
+      "desk_reject_rules": ["non-clinical / basic-science-only work", "missing trial registration", "missing ethics approval and informed consent"],
+      "aliases": ["lancet"]
+    },
+    {
+      "slug": "bioinformatics", "name": "Bioinformatics (OUP)", "kind": "journal",
+      "discipline": "biomedical",
+      "scope": "Computational and statistical methods for molecular biology: algorithms, tools, and analysis for genomics, proteomics, and systems biology.",
+      "topics": ["genomics", "sequence", "protein", "algorithm", "computational biology", "gene expression", "phylogenetic", "annotation"],
+      "checklists": ["software/data availability statement"],
+      "desk_reject_rules": ["no novel computational method", "software not made available", "out-of-scope wet-lab-only study"],
+      "aliases": []
+    },
+    {
+      "slug": "prl", "name": "Physical Review Letters", "kind": "journal",
+      "discipline": "physics",
+      "scope": "Short, high-impact letters across all of physics: condensed matter, particle physics, quantum information, gravitation, and statistical physics.",
+      "topics": ["physics", "quantum", "condensed matter", "particle", "gravitation", "statistical mechanics", "phase transition", "spectroscopy"],
+      "checklists": ["data availability statement"],
+      "desk_reject_rules": ["exceeds the letter length limit", "insufficient broad impact for a Letter", "incremental over prior work"],
+      "aliases": ["physical review letters"]
+    },
+    {
+      "slug": "nature-physics", "name": "Nature Physics", "kind": "journal",
+      "discipline": "physics",
+      "scope": "Significant advances across physics with broad interest: fundamental and applied physics, quantum technologies, and materials.",
+      "topics": ["physics", "quantum", "materials", "photonics", "topological", "superconductivity", "nanoscale"],
+      "checklists": ["Nature reporting summary", "code/data availability"],
+      "desk_reject_rules": ["narrow / incremental result", "out-of-scope for a broad physics audience"],
+      "aliases": []
+    },
+    {
+      "slug": "psych-science", "name": "Psychological Science", "kind": "journal",
+      "discipline": "psychology",
+      "scope": "Empirical psychological science across cognitive, social, developmental, and clinical psychology, emphasizing methodological rigor.",
+      "topics": ["psychology", "cognition", "behavior", "participants", "experiment", "social", "perception", "development"],
+      "checklists": ["preregistration", "open-data / open-materials badges", "APA reporting standards (JARS)"],
+      "desk_reject_rules": ["underpowered studies", "no open-data/preregistration statement", "out-of-scope non-psychological work"],
+      "aliases": []
+    },
+    {
+      "slug": "aer", "name": "American Economic Review", "kind": "journal",
+      "discipline": "economics",
+      "scope": "General-interest economics: theory, applied microeconomics and macroeconomics, and empirical economics of broad significance.",
+      "topics": ["economics", "market", "welfare", "policy", "equilibrium", "econometric", "wages", "monetary", "causal"],
+      "checklists": ["AEA data and code availability policy"],
+      "desk_reject_rules": ["data/code not archived per AEA policy", "narrow field-journal scope", "no identification strategy for empirical claims"],
+      "aliases": []
+    },
+    {
+      "slug": "nature", "name": "Nature", "kind": "journal",
+      "discipline": "general",
+      "scope": "Multidisciplinary science of outstanding significance and broad interest across the natural sciences.",
+      "topics": ["science", "discovery", "mechanism", "novel", "broad significance"],
+      "checklists": ["Nature reporting summary", "code and data availability", "discipline-specific checklist (CONSORT/PRISMA/etc.)"],
+      "desk_reject_rules": ["insufficient broad significance", "incremental advance", "missing reporting summary"],
+      "aliases": []
+    },
+    {
+      "slug": "science", "name": "Science (AAAS)", "kind": "journal",
+      "discipline": "general",
+      "scope": "Multidisciplinary science reporting major advances of broad interest across all fields.",
+      "topics": ["science", "discovery", "mechanism", "novel", "broad interest"],
+      "checklists": ["data and materials availability", "discipline-specific reporting standards"],
+      "desk_reject_rules": ["narrow / specialist scope", "incremental result", "missing data-availability statement"],
+      "aliases": []
+    },
+    {
+      "slug": "pnas", "name": "PNAS", "kind": "journal",
+      "discipline": "general",
+      "scope": "Proceedings of the National Academy of Sciences: high-impact research across biological, physical, and social sciences.",
+      "topics": ["science", "biological", "physical", "social", "mechanism", "significance"],
+      "checklists": ["data availability statement", "discipline-specific checklist"],
+      "desk_reject_rules": ["insufficient significance for a broad audience", "missing data-availability statement"],
+      "aliases": []
+    }
+  ]
+}
