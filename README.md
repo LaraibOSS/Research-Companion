@@ -382,8 +382,8 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 - **v0.4** — Organized research: isolated workspaces per research with lossless migration, Researches overview + switcher, library list view with live status and draft relations, deterministic draft-centric graph mode.
 - **v0.5** — Citation coverage (your draft's bibliography as ground truth), robust pluggable ingestion with Docling OCR isolated in a subprocess, sub-chunk retrieval with char-span provenance, verifiable answers (jump to the exact source span), KG entity provenance, folder ingest with per-file selection, and a reliability/UX pass (0.5.17).
 - **v0.6** — Reviewer-grade integrity checks: venue-fit checker with a cross-discipline venue knowledge base, severity-ranked findings, a reproducibility/data-availability checker, and an integrity-declaration detector; plus a statistical-soundness checker (Statcheck + GRIM, 0.6.1) and interoperability (BibTeX/RIS export, `.bib` import, LaTeX `\cite` resolution, 0.6.2).
-- **v0.7 (current)** — MCP trust-layer server (`research-companion mcp serve`) exposing four deterministic, key-free verification tools (`verify_citation`, `ground_claim`, `citation_coverage`, `search_library`) to any MCP-capable agent.
-- **Next** — cost-gated MCP tools (`ask_library` / `review_draft`, 0.7.1), domain connectors (PubMed / Europe PMC / DBLP), and plagiarism / near-duplicate detection. See [docs/ROADMAP.md](docs/ROADMAP.md).
+- **v0.7 (current)** — MCP trust-layer server (`research-companion mcp serve`) exposing four deterministic, key-free verification tools to any MCP-capable agent (0.7.0); plus near-duplicate detection (`check-overlap`: local shingling overlap vs your library, with an opt-in consent-gated external seam, 0.7.1).
+- **Future** — cost-gated MCP tools (`ask_library` / `review_draft`), domain connectors (PubMed / Europe PMC / DBLP), and semantic (paraphrase) overlap. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Contributing
 

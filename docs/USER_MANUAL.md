@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.7.0 · 2026-07-14 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.7.1 · 2026-07-14 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -357,12 +357,13 @@ pre-submission review with a live dashboard:
 | statsoundness | Recomputes reported p-values from the test statistic + df (Statcheck) and checks reported means for arithmetic plausibility (GRIM) | consistent / inconsistent / decision-flip per test; impossible means |
 | reproducibility | Deterministic scan for public code/data links, availability statements, methods-completeness, and EQUATOR/PRISMA/CONSORT mentions | high / medium / low reproducibility level + the specific gaps |
 | ethics | Detects integrity declarations (funding, conflict-of-interest, ethics/IRB, informed consent, author contributions) | which declarations are present / missing |
+| overlap | Flags passages that near-duplicate another paper in your **own library** (deterministic shingling; local-only) | overlapping passages with the matched paper + char spans |
 | severity | Classifies all of the above signals critical / major / minor | a worst-first ranked list at the top of the report |
 | venuefit | *(with `--venue <slug>`)* matches contributions + abstract against the venue's scope via a deterministic topic-overlap prefilter grounding an LLM verdict | strong / moderate / weak / out-of-scope + desk-reject risk |
 | rebuttal | (own command) grounds point-by-point reviewer responses in retrieved passages | replies with honesty badges |
 
-`statsoundness`, `reproducibility`, and `ethics` are deterministic and **always
-on**; `severity` runs in the full pass; `venuefit` runs when you pass `--venue` (e.g.
+`statsoundness`, `reproducibility`, `ethics`, and `overlap` are deterministic and
+**always on**; `severity` runs in the full pass; `venuefit` runs when you pass `--venue` (e.g.
 `--venue neurips`). Venue scope, checklists, and desk-reject rules come from a
 knowledge base you can extend without code — see [VENUE_KB.md](VENUE_KB.md).
 
@@ -479,6 +480,7 @@ research-companion review <paper-id> [--serve] [--venue <slug>]  # the full revi
 research-companion rebuttal <paper-id> <reviews>    # grounded reviewer responses
 research-companion refcheck <paper-id>              # citation validator standalone
 research-companion check-stats <paper-id>           # recompute p-values + GRIM (Statcheck)
+research-companion check-overlap <paper-id>         # near-duplicate passages vs your library
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
 research-companion import-bib <file.bib>            # import a Zotero/Mendeley .bib into the library
 research-companion cite-tex <file.tex> [--bib f.bib]  # resolve a LaTeX draft's \cite keys

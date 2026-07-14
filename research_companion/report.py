@@ -259,6 +259,26 @@ def _section_statsoundness(data: dict) -> str:
     return html_out
 
 
+def _section_overlap(data: dict) -> str:
+    """Render near-duplicate lane: passages overlapping another library paper."""
+    if "summary" not in data:
+        return ""
+    summary = data.get("summary", {})
+    findings = data.get("findings", []) or []
+    html_out = "      <h3>Near-duplicate passages</h3>\n"
+    html_out += f"      <p>{_escape(summary.get('text', ''))}</p>\n"
+    if findings:
+        html_out += "      <ul>\n"
+        for f in findings[:20]:
+            pct = round(float(f.get("score", 0.0)) * 100)
+            snippet = _escape(str(f.get("snippet", "")))
+            html_out += (f"        <li>{pct}% overlap with "
+                         f"{_escape(f.get('matched_paper_id', ''))}: "
+                         f"&ldquo;{snippet}&hellip;&rdquo;</li>\n")
+        html_out += "      </ul>\n"
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -326,7 +346,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -391,6 +411,10 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "ethics":
                 section = _section_ethics(data)
+                if section:
+                    lane_cards += section
+            elif name == "overlap":
+                section = _section_overlap(data)
                 if section:
                     lane_cards += section
             elif name == "benchmark":

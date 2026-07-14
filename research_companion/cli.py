@@ -627,6 +627,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.ingest import IngestAgent
     from research_companion.agents.novelty import NoveltyAgent
     from research_companion.agents.orchestrator import run_agents
+    from research_companion.agents.overlap import OverlapAgent
     from research_companion.agents.priorart import PriorArtAgent
     from research_companion.agents.reproducibility import ReproducibilityAgent
     from research_companion.agents.severity import SeverityAgent
@@ -641,7 +642,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     log_path = runs_dir / f"{_id_to_dirname(args.paper_id)}-{time.time_ns()}.jsonl"
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
-              StatSoundnessAgent(), ReproducibilityAgent(), EthicsAgent()]
+              StatSoundnessAgent(), ReproducibilityAgent(), EthicsAgent(), OverlapAgent()]
     if not args.fast:
         agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
     if getattr(args, "venue", None):
@@ -1282,6 +1283,59 @@ def _cmd_import_bib(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check_overlap(args: argparse.Namespace) -> int:
+    from research_companion.overlap import (
+        check_external,
+        get_external_provider,
+        near_duplicate_passages,
+    )
+    from research_companion.store import list_papers, load_text
+
+    target = load_text(args.paper_id)
+    if target is None:
+        print(
+            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    corpus = [
+        (p.paper_id, load_text(p.paper_id) or "")
+        for p in list_papers()
+        if p.paper_id != args.paper_id
+    ]
+    result = near_duplicate_passages(target, corpus)
+
+    external = None
+    if args.external:
+        # Passing --external is the explicit consent to send text to the provider.
+        external = check_external(target, provider=get_external_provider(), consent=True)
+
+    if args.json:
+        payload = {"paper_id": args.paper_id, **result}
+        if external is not None:
+            payload["external"] = external
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    for f in result["findings"]:
+        pct = round(float(f["score"]) * 100)
+        print(f"XX [{pct}% overlap] with {f['matched_paper_id']}: "
+              f"\"{f['snippet'][:120]}...\"")
+    print(f"\nSummary: {result['summary']['text']}")
+
+    if args.external:
+        if external and external.get("enabled"):
+            print(f"\nExternal ({external['provider']}): {len(external['matches'])} match(es).")
+            for m in external["matches"]:
+                print(f"  - {m}")
+        else:
+            reason = external.get("reason", "disabled") if external else "disabled"
+            print(f"\nExternal check not run: {reason}. Register a provider with "
+                  "research_companion.overlap.register_external_provider(...).")
+    return 0
+
+
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
     from research_companion.mcp_server import serve
 
@@ -1690,6 +1744,15 @@ def _build_parser() -> argparse.ArgumentParser:
     pcs.add_argument("paper_id", help="ID of a paper already added/ingested")
     pcs.add_argument("--json", action="store_true", help="JSON output")
     pcs.set_defaults(func=_cmd_check_stats)
+
+    pco = sub.add_parser("check-overlap",
+                         help="Flag passages that near-duplicate another paper in your library")
+    pco.add_argument("paper_id", help="ID of a paper already added/ingested")
+    pco.add_argument("--external", action="store_true",
+                     help="Also run a registered external similarity provider (consent implied; "
+                          "sends text off-machine — none is configured by default)")
+    pco.add_argument("--json", action="store_true", help="JSON output")
+    pco.set_defaults(func=_cmd_check_overlap)
 
     peb = sub.add_parser("export-bib",
                          help="Export the library to BibTeX or RIS")
