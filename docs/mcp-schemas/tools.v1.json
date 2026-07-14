@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "server": "research-companion",
+  "description": "Deterministic, key-free verification tools exposed by the Research Companion MCP trust-layer server (v0.7.0). Costed/keyed tools (ask_library, review_draft) are deferred to v0.7.1.",
+  "tools": {
+    "verify_citation": {
+      "description": "Validate a citation against authoritative records (CrossRef/OpenAlex/arXiv).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "description": "Cited work title."},
+          "doi": {"type": "string", "description": "Cited DOI (optional)."},
+          "arxiv_id": {"type": "string", "description": "Cited arXiv id (optional)."},
+          "raw": {"type": "string", "description": "Raw reference string (used when structured fields are absent)."}
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "enum": ["verified", "suspect", "unverified"]},
+          "reasons": {"type": "array", "items": {"type": "string"}},
+          "matched": {"type": ["object", "null"]},
+          "reference": {"type": "object"}
+        },
+        "required": ["status", "reasons", "reference"]
+      }
+    },
+    "ground_claim": {
+      "description": "Check that a quote appears verbatim in a stored paper's text (exact/whitespace-normalized, never semantic).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "quote": {"type": "string"},
+          "paper_id": {"type": "string"}
+        },
+        "required": ["quote", "paper_id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "grounded": {"type": "boolean"},
+          "paper_id": {"type": "string"},
+          "match_kind": {"type": "string", "enum": ["exact", "normalized", ""]},
+          "char_start": {"type": ["integer", "null"]},
+          "char_end": {"type": ["integer", "null"]}
+        },
+        "required": ["grounded", "paper_id"]
+      }
+    },
+    "citation_coverage": {
+      "description": "Report how much of a draft paper's bibliography is present in the local library.",
+      "input": {
+        "type": "object",
+        "properties": {"paper_id": {"type": "string"}},
+        "required": ["paper_id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "paper_id": {"type": "string"},
+          "counts": {"type": "object"},
+          "references": {"type": "array"}
+        },
+        "required": ["paper_id", "counts"]
+      }
+    },
+    "search_library": {
+      "description": "BM25 keyword search over the local library; returns grounded snippets with char-span provenance.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "k": {"type": "integer", "default": 6}
+        },
+        "required": ["query"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paper_id": {"type": "string"},
+                "paper_title": {"type": "string"},
+                "section_title": {"type": "string"},
+                "snippet": {"type": "string"},
+                "char_start": {"type": ["integer", "null"]},
+                "char_end": {"type": ["integer", "null"]},
+                "score": {"type": "number"},
+                "mode": {"type": "string"}
+              }
+            }
+          }
+        },
+        "required": ["query", "results"]
+      }
+    }
+  }
+}

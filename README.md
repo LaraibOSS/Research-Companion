@@ -42,7 +42,7 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 - [Developer Guide](docs/DEVELOPER_GUIDE.md) — how the ingestion pipeline works end to end (parsing, quality gate/OCR, sectioning, chunking, retrieval) and how to extend or test it.
 - [Roadmap](docs/ROADMAP.md) — what's shipped and what's next.
 - [Guide & Critical Analysis](docs/RESEARCH_COMPANION_GUIDE.pdf) — what the tool does well, with evidence, and where it honestly falls short.
-- Release notes: [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
+- Release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
 
 ## What's new in 0.6
 
@@ -381,8 +381,9 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 - **v0.3** — True-companion release: guided home/journey with next-best-action, suggestions engine with revision tracking, talk-to-the-analysis converse panel, temporal timeline + gap analysis, hybrid semantic search (HF Inference API with exact BM25 fallback), saved subgraphs, in-UI settings/keys, themes, PyPI packaging; 0.3.1 added direct PDF upload with a draft-first flow.
 - **v0.4** — Organized research: isolated workspaces per research with lossless migration, Researches overview + switcher, library list view with live status and draft relations, deterministic draft-centric graph mode.
 - **v0.5** — Citation coverage (your draft's bibliography as ground truth), robust pluggable ingestion with Docling OCR isolated in a subprocess, sub-chunk retrieval with char-span provenance, verifiable answers (jump to the exact source span), KG entity provenance, folder ingest with per-file selection, and a reliability/UX pass (0.5.17).
-- **v0.6 (current)** — Reviewer-grade integrity checks: venue-fit checker with a cross-discipline venue knowledge base, severity-ranked findings, a reproducibility/data-availability checker, and an integrity-declaration detector.
-- **Next** — statistical-soundness checker (Statcheck + GRIM), interoperability (Zotero / BibTeX / LaTeX), and an MCP trust-layer server exposing the verification tools to external agents. See [docs/ROADMAP.md](docs/ROADMAP.md).
+- **v0.6** — Reviewer-grade integrity checks: venue-fit checker with a cross-discipline venue knowledge base, severity-ranked findings, a reproducibility/data-availability checker, and an integrity-declaration detector; plus a statistical-soundness checker (Statcheck + GRIM, 0.6.1) and interoperability (BibTeX/RIS export, `.bib` import, LaTeX `\cite` resolution, 0.6.2).
+- **v0.7 (current)** — MCP trust-layer server (`research-companion mcp serve`) exposing four deterministic, key-free verification tools (`verify_citation`, `ground_claim`, `citation_coverage`, `search_library`) to any MCP-capable agent.
+- **Next** — cost-gated MCP tools (`ask_library` / `review_draft`, 0.7.1), domain connectors (PubMed / Europe PMC / DBLP), and plagiarism / near-duplicate detection. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Contributing
 
