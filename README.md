@@ -37,10 +37,23 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 
 ## Documentation
 
+- **[Full Documentation](docs/DOCUMENTATION.md)** ([PDF](docs/DOCUMENTATION.pdf)) — the single consolidated reference: overview, architecture, every feature, CLI, agents, Lab UI, tech stack, and roadmap, all in one place.
 - **[User Manual](docs/USER_MANUAL.md)** ([PDF](docs/USER_MANUAL.pdf)) — every feature, how to use it, and how to read outputs honestly.
 - [Developer Guide](docs/DEVELOPER_GUIDE.md) — how the ingestion pipeline works end to end (parsing, quality gate/OCR, sectioning, chunking, retrieval) and how to extend or test it.
+- [Roadmap](docs/ROADMAP.md) — what's shipped and what's next.
 - [Guide & Critical Analysis](docs/RESEARCH_COMPANION_GUIDE.pdf) — what the tool does well, with evidence, and where it honestly falls short.
-- Release notes: [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
+- Release notes: [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
+
+## What's new in 0.6
+
+The review team learned to answer three more of a reviewer's questions — deterministically, with the same evidence-first discipline as the rest of the tool. A `review` now also tells you **whether the paper fits its target venue**, **which problems to fix first**, **whether the work is reproducible**, and **whether the required integrity declarations are present**:
+
+- **Venue-fit checker** (`research-companion review <paper> --venue neurips`) — matches your contributions and abstract against a target venue's scope using a deterministic topic-overlap prefilter that grounds an LLM fit verdict (strong / moderate / weak / out-of-scope) plus a desk-reject risk. Backed by a **cross-discipline venue knowledge base** (`research_companion/data/venues.json`, 19 venues across 9 disciplines) that you extend by editing JSON — no code change (see [docs/VENUE_KB.md](docs/VENUE_KB.md)).
+- **Severity-ranked findings** — the review's signals (novelty, unverified evidence, citation health, confidence) are now classified **critical / major / minor** and surfaced worst-first at the top of the report, so you know what to fix first.
+- **Reproducibility checker** — a deterministic scan for public code/data links, availability statements, methods-completeness signals, and EQUATOR/PRISMA/CONSORT checklist mentions → a high / medium / low reproducibility level with the specific gaps.
+- **Integrity-declaration detector** — checks for the declarations venues increasingly require (funding, conflict-of-interest, ethics/IRB approval, informed consent, author contributions) and reports what's missing.
+
+All four are **deterministic and LLM-free at the core** (the venue-fit verdict is the only LLM step, and it's grounded by the deterministic overlap). See the [Release Notes](docs/RELEASE_0.6.md).
 
 ## What's new in 0.5
 
@@ -366,8 +379,10 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 - **v0.1** — CLI, arXiv + DOI + Semantic Scholar + local PDFs, graph viz, chat with citations, search, export (markdown/obsidian/csv/json), cost estimation.
 - **v0.2** — Research Lab UI (live graph, SSE, section-wise subgraphs, draft alignment, evidence-strength colours, Ask, Compare, folder ingest).
 - **v0.3** — True-companion release: guided home/journey with next-best-action, suggestions engine with revision tracking, talk-to-the-analysis converse panel, temporal timeline + gap analysis, hybrid semantic search (HF Inference API with exact BM25 fallback), saved subgraphs, in-UI settings/keys, themes, PyPI packaging; 0.3.1 added direct PDF upload with a draft-first flow.
-- **v0.4 (current)** — Organized research: isolated workspaces per research with lossless migration, Researches overview + switcher, library list view with live status and draft relations, deterministic draft-centric graph mode.
-- **v0.5** — MCP server so Claude desktop can query research-companion directly; live arXiv watch (`research-companion watch cs.CL --since today`); hosted cloud version for non-technical users.
+- **v0.4** — Organized research: isolated workspaces per research with lossless migration, Researches overview + switcher, library list view with live status and draft relations, deterministic draft-centric graph mode.
+- **v0.5** — Citation coverage (your draft's bibliography as ground truth), robust pluggable ingestion with Docling OCR isolated in a subprocess, sub-chunk retrieval with char-span provenance, verifiable answers (jump to the exact source span), KG entity provenance, folder ingest with per-file selection, and a reliability/UX pass (0.5.17).
+- **v0.6 (current)** — Reviewer-grade integrity checks: venue-fit checker with a cross-discipline venue knowledge base, severity-ranked findings, a reproducibility/data-availability checker, and an integrity-declaration detector.
+- **Next** — statistical-soundness checker (Statcheck + GRIM), interoperability (Zotero / BibTeX / LaTeX), and an MCP trust-layer server exposing the verification tools to external agents. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Contributing
 
@@ -375,7 +390,7 @@ PRs welcome. Issues even more welcome. The codebase is intentionally small (MIT-
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q   # 1,250+ Python tests
+python -m pytest -q   # 1,780+ Python tests
 node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs \
   tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs \
   tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs \
