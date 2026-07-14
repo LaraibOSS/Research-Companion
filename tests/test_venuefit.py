@@ -1,7 +1,19 @@
-"""Tests for the venue-fit prompt + pure verdict normalization."""
+"""Tests for the venue-fit prompt + pure verdict normalization + agent."""
 from __future__ import annotations
 
-from research_companion.agents.venuefit import VALID_FITS, normalize_verdict
+import json
+
+import pytest
+
+from research_companion import store
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
+from research_companion.agents.venuefit import (
+    VALID_FITS,
+    VenueFitAgent,
+    normalize_verdict,
+)
 from research_companion.prompts import format_venuefit_prompt, venuefit_prompt_sha256
 
 
@@ -67,3 +79,60 @@ class TestNormalizeVerdict:
             venue_slug="x", venue_name="X", overlap=0.3)
         assert v["reasons"] == []
         assert v["suggested_alternatives"] == []
+
+
+class TestVenueFitAgent:
+    @pytest.mark.asyncio
+    async def test_skips_when_no_venue(self):
+        ctx = AgentContext(paper_id="local:v0", bus=Bus(), data={})
+        result = await VenueFitAgent().run(ctx)
+        assert result.ok and result.data["skipped"] is True
+
+    @pytest.mark.asyncio
+    async def test_skips_unknown_venue(self):
+        ctx = AgentContext(paper_id="local:v0", bus=Bus(),
+                           data={"_venue": "no-such-venue"})
+        result = await VenueFitAgent().run(ctx)
+        assert result.ok and result.data["skipped"] is True
+        assert "unknown venue" in result.data["reason"]
+
+    @pytest.mark.asyncio
+    async def test_happy_path_with_injected_llm(self):
+        pid = "local:vf1"
+        store.PaperMetadata(paper_id=pid, title="A deep learning method",
+                            authors=[], abstract="We train a neural network.").save()
+        store.save_text(pid, "We train a neural network for representation learning.")
+
+        captured = {}
+
+        def _llm(prompt: str) -> str:
+            captured["prompt"] = prompt
+            return json.dumps({"fit": "strong", "confidence": 0.9,
+                               "rationale": "on-topic", "reasons": ["deep learning"],
+                               "suggested_alternatives": []})
+
+        ctx = AgentContext(paper_id=pid, bus=Bus(), data={
+            "_venue": "iclr", "_llm": _llm,
+            "_extraction": {"concepts": [{"name": "representation learning"}],
+                            "claims": []},
+        })
+        result = await VenueFitAgent().run(ctx)
+
+        assert result.ok
+        assert result.data["fit"] == "strong"
+        assert result.data["venue"] == "iclr"
+        assert result.data["topic_overlap"] > 0.0  # ICLR topics present
+        assert "ICLR" in captured["prompt"]
+        kinds = [e.kind for e in ctx.bus.history if isinstance(e, events.Finding)]
+        assert "venue_fit" in kinds
+
+    @pytest.mark.asyncio
+    async def test_bad_llm_json_fails_lane(self):
+        pid = "local:vf2"
+        store.PaperMetadata(paper_id=pid, title="T", authors=[]).save()
+        store.save_text(pid, "body")
+        ctx = AgentContext(paper_id=pid, bus=Bus(), data={
+            "_venue": "neurips", "_llm": lambda p: "not json",
+            "_extraction": {"concepts": [], "claims": []}})
+        result = await VenueFitAgent().run(ctx)
+        assert result.ok is False and result.error
