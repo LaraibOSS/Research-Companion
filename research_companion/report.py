@@ -144,6 +144,40 @@ def _section_severity(data: dict) -> str:
     return html_out
 
 
+_FIT_COLORS = {"strong": "#2e7d32", "moderate": "#f9a825",
+               "weak": "#ef6c00", "out_of_scope": "#c62828"}
+
+
+def _section_venuefit(data: dict) -> str:
+    """Render venue-fit lane: fit verdict, overlap, reasons, alternatives."""
+    if data.get("skipped") or "fit" not in data:
+        return ""
+    fit = data.get("fit", "")
+    color = _FIT_COLORS.get(fit, "#999")
+    name = _escape(data.get("venue_name", data.get("venue", "")))
+    conf = data.get("confidence", 0)
+    overlap = data.get("topic_overlap", 0)
+    html_out = f"      <h3>Venue Fit: {name}</h3>\n"
+    html_out += (
+        f"      <p><strong style=\"color: {color};\">{_escape(fit.replace('_', ' ').upper())}</strong> "
+        f"(confidence {conf:.2f}, topic overlap {overlap:.2f})</p>\n"
+    )
+    rationale = _escape(data.get("rationale", ""))
+    if rationale:
+        html_out += f"      <p>{rationale}</p>\n"
+    reasons = data.get("reasons") or []
+    if reasons:
+        html_out += "      <ul>\n"
+        for r in reasons:
+            html_out += f"        <li>{_escape(r)}</li>\n"
+        html_out += "      </ul>\n"
+    alts = data.get("suggested_alternatives") or []
+    if alts:
+        html_out += ("      <p><strong>Consider instead:</strong> "
+                     f"{_escape(', '.join(alts))}</p>\n")
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -211,7 +245,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "ingest", "citation", "priorart", "novelty", "confidence", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -240,6 +274,10 @@ def render_report_html(report: dict) -> str:
             # Render lane-specific sections based on data shape
             if name == "severity":
                 section = _section_severity(data)
+                if section:
+                    lane_cards += section
+            elif name == "venuefit":
+                section = _section_venuefit(data)
                 if section:
                     lane_cards += section
             elif name == "ingest":

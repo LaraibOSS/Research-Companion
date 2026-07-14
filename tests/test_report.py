@@ -54,3 +54,27 @@ def test_render_report_html_shows_ranked_severity_findings():
     assert "[CRITICAL]" in html_out and "[MAJOR]" in html_out
     # Severity section renders before the (absent here) other lanes.
     assert "Our method beats SOTA" in html_out
+
+
+def test_render_report_html_shows_venue_fit():
+    results = {
+        "venuefit": AgentResult(agent="venuefit", ok=True, data={
+            "venue": "iclr", "venue_name": "ICLR", "fit": "out_of_scope",
+            "confidence": 0.8, "topic_overlap": 0.1,
+            "rationale": "Not a learning-representations paper.",
+            "reasons": ["no ML contribution"],
+            "suggested_alternatives": ["CHI"], "desk_reject_risk": True}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Venue Fit: ICLR" in html_out
+    assert "OUT OF SCOPE" in html_out
+    assert "Consider instead:" in html_out and "CHI" in html_out
+
+
+def test_render_report_html_hides_skipped_venue_fit():
+    results = {
+        "venuefit": AgentResult(agent="venuefit", ok=True,
+                                data={"skipped": True, "reason": "no target venue specified"}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Venue Fit" not in html_out
