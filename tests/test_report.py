@@ -94,3 +94,18 @@ def test_render_report_html_shows_reproducibility():
     assert "MEDIUM" in html_out
     assert "model_card" in html_out
     assert "No public data/artifact repository link found" in html_out
+
+
+def test_render_report_html_shows_ethics_declarations():
+    results = {
+        "ethics": AgentResult(agent="ethics", ok=True, data={
+            "declarations": {"funding": True, "conflict_of_interest": False},
+            "present": ["funding"],
+            "absent": ["conflict_of_interest"],
+            "missing_expected": ["conflict_of_interest"]}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Integrity Declarations" in html_out
+    assert "funding" in html_out
+    assert "Expected but missing" in html_out
+    assert "conflict of interest" in html_out

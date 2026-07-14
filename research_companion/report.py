@@ -208,6 +208,25 @@ def _section_reproducibility(data: dict) -> str:
     return html_out
 
 
+def _section_ethics(data: dict) -> str:
+    """Render ethics lane: present declarations + expected-but-missing ones."""
+    if "declarations" not in data:
+        return ""
+    present = data.get("present") or []
+    missing = data.get("missing_expected") or []
+    html_out = "      <h3>Integrity Declarations</h3>\n"
+    if present:
+        pretty = ", ".join(p.replace("_", " ") for p in present)
+        html_out += f"      <p><strong>Present:</strong> {_escape(pretty)}</p>\n"
+    if missing:
+        pretty = ", ".join(m.replace("_", " ") for m in missing)
+        html_out += ("      <p style=\"color: #ef6c00;\"><strong>Expected but missing:"
+                     f"</strong> {_escape(pretty)}</p>\n")
+    if not present and not missing:
+        html_out += "      <p>All expected declarations present.</p>\n"
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -275,7 +294,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "reproducibility", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "reproducibility", "ethics", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -332,6 +351,10 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "reproducibility":
                 section = _section_reproducibility(data)
+                if section:
+                    lane_cards += section
+            elif name == "ethics":
+                section = _section_ethics(data)
                 if section:
                     lane_cards += section
             elif name == "benchmark":
