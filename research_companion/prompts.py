@@ -695,3 +695,54 @@ def format_gap_resolution_prompt(*, gap_statement: str, candidate_excerpts: str)
 
 def gap_resolution_prompt_sha256() -> str:
     return hashlib.sha256(GAP_RESOLUTION_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Venue-fit prompt (agents/venuefit.py). SHA-cached.
+# Judges whether a paper matches a target venue's scope.
+# ---------------------------------------------------------------------------
+
+VENUE_FIT_PROMPT = """You are assessing whether a paper is a good fit for a target publication venue.
+
+Target venue: <<VENUE_NAME>>
+Venue scope:
+<<VENUE_SCOPE>>
+
+Paper abstract:
+<<ABSTRACT>>
+
+Paper contributions:
+<<CONTRIBUTIONS_BLOCK>>
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "fit": "strong|moderate|weak|out_of_scope",
+  "confidence": 0.0,
+  "rationale": "one or two sentences grounded ONLY in the venue scope and paper above",
+  "reasons": ["short bullet grounded in the scope/paper"],
+  "suggested_alternatives": ["venue name, only if fit is weak or out_of_scope"]
+}
+
+Rules:
+- fit must be exactly one of: strong, moderate, weak, out_of_scope.
+- Base the judgement ONLY on the venue scope and the paper text above.
+- confidence is your certainty in the fit, 0.0-1.0.
+- suggested_alternatives is [] unless fit is weak or out_of_scope.
+- Return ONLY valid JSON. Output starts with { and ends with }."""
+
+
+def format_venuefit_prompt(
+    *, venue_name: str, venue_scope: str, abstract: str, contributions_block: str
+) -> str:
+    """Substitute placeholders in VENUE_FIT_PROMPT."""
+    return (
+        VENUE_FIT_PROMPT
+        .replace("<<VENUE_NAME>>", venue_name)
+        .replace("<<VENUE_SCOPE>>", venue_scope)
+        .replace("<<ABSTRACT>>", abstract)
+        .replace("<<CONTRIBUTIONS_BLOCK>>", contributions_block)
+    )
+
+
+def venuefit_prompt_sha256() -> str:
+    return hashlib.sha256(VENUE_FIT_PROMPT.encode("utf-8")).hexdigest()
