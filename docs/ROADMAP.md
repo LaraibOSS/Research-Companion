@@ -6,7 +6,7 @@ Legend: 🟢 ship first · 🟡 differentiator · 🔵 reach/moat
 Status: ✅ shipped · 🟠 partial · ⬜ not started
 
 > **Status note.** Phase 1 and Phase 2 are complete; Phase 3 is mostly complete
-> (only #11 and the plagiarism half of #13 remain). The work landed as a
+> (only the plagiarism half of #13 remains). The work landed as a
 > **multi-agent pipeline** under `research_companion/agents/` plus supporting
 > top-level modules, not the dedicated `novelty/` package the original plan
 > named. The mapping below records where each item actually lives so the roadmap
@@ -31,7 +31,7 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 - ✅ 🟡 **#10 Framing/structure advisor** — IMRaD section parse + section-by-section guidance. → `research_companion/sections.py` + `research_companion/alignment.py`; CLI `align`.
 
 ## Phase 3 — Universal reach + integrity
-- ⬜ 🔵 **#11 Cross-discipline venue knowledge base** — encode venue requirements beyond CS/biomed. Hardest, least-solved; needs its own design pass. **Not started** — extends the CS/ML `venues.py` registry from #7 into a data-driven KB.
+- ✅ 🔵 **#11 Cross-discipline venue knowledge base** — data-driven KB (`research_companion/data/venues.json`, 19 venues across 9 disciplines: ML, NLP, vision, data-mining/IR, biomedical, physics, psychology, economics, general) with per-venue scope, reporting checklists, and desk-reject rules; loaded by `venues.py` with a discipline model (`infer_discipline`, `suggest_alternatives`, `venues_for_discipline`). Feeds the venue-fit checker (#7) beyond CS/biomed and grounds its verdicts in real venue requirements. Extending it needs no code change — see `docs/VENUE_KB.md`.
 - ✅ 🔵 **#12 Reproducibility / data-availability checker** — deterministic scan for public code/data links, availability statements, methods-completeness signals, and EQUATOR/PRISMA/CONSORT-family checklists → high/medium/low level + gaps. → `research_companion/reproducibility.py` + `research_companion/agents/reproducibility.py` (`ReproducibilityAgent`); rendered in `report.py`.
 - 🟠 🔵 **#13 Plagiarism / ethics-declaration checks** — **partial.** Integrity-declaration detection ships (funding, conflict-of-interest, author contributions, ethics/IRB approval, informed consent). → `research_companion/ethics.py` + `research_companion/agents/ethics.py` (`EthicsAgent`); rendered in `report.py`. **Deferred:** true plagiarism/near-duplicate detection, which needs an external similarity corpus/service.
 - ✅ 🔵 **#14 Accuracy benchmark** — labeled validation harness measuring verdict quality vs reviewers. → `research_companion/eval/` (`novelty_openreview.py`, `citation_pr.py`, `pvalue.py`) + `research_companion/agents/benchmark.py`; results in `eval/results/`.
@@ -40,19 +40,20 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 
 ## What's genuinely open
 
-Phase 1 and **all of Phase 2** are shipped; Phase 3 is mostly shipped. What
-remains:
+Phase 1, **all of Phase 2**, and **most of Phase 3** are shipped. The only
+remaining item:
 
-1. **#11 Cross-discipline venue KB** (🔵) — design pass first; turns the CS/ML `venues.py` registry into a data-driven, multi-discipline KB (unblocks #7 outside CS/biomed).
-2. **#13 Plagiarism / near-duplicate detection** (🔵, finish the partial) — the declaration side ships; true plagiarism needs an external similarity corpus/service. Design the integration boundary before building.
+1. **#13 Plagiarism / near-duplicate detection** (🔵, finish the partial) — the declaration side ships (`ethics.py`); true plagiarism needs an external similarity corpus/service. Design the integration boundary and privacy model before building.
+
+Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with
+more venues/disciplines as needed — this is expected maintenance, not a blocking
+roadmap item.
 
 ### Importable issues (remaining only)
 
 To create these as GitHub issues, point at the repo you own (`gh repo set-default`) and run:
 
 ```bash
-gh issue create --title "Cross-discipline venue knowledge base" --label "phase-3,tier-3,research" \
-  --body "Turn the CS/ML venues.py registry into a data-driven, multi-discipline KB (scope, checklists, desk-reject rules per venue). Unblocks the venue-fit checker (#7) outside CS/biomed. Hardest gap; needs a design pass."
 gh issue create --title "Plagiarism / near-duplicate detection" --label "phase-3,tier-3,research" \
   --body "Declaration detection ships (ethics.py). Add true plagiarism/near-duplicate detection via an external similarity corpus/service; design the integration boundary and privacy model first."
 ```
