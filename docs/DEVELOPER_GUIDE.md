@@ -223,3 +223,39 @@ Workspace-level files (`config.json`, `settings.json`, `failed.json`,
 - Provenance everywhere: keep absolute char offsets flowing from sections →
   chunks → citations so answers can be verified against the source span.
 - Keep heavy/optional imports lazy so a base install stays lean and offline.
+
+---
+
+## 11. The review-side deterministic checks (the "add a checker" pattern)
+
+The review team's integrity checks — reference validation, statistical soundness
+(planned), reproducibility, ethics declarations, severity ranking, venue-fit — all
+follow one repeatable shape. If you are adding a new deterministic check, copy it:
+
+1. **A pure logic module** — network-free, LLM-free, fully unit-testable, with
+   char-span provenance where it flags text. Examples:
+   `research_companion/refcheck/` (bibliography validation),
+   `research_companion/reproducibility.py` (code/data-availability scan),
+   `research_companion/ethics.py` (integrity-declaration detection),
+   `research_companion/venues.py` (venue KB + `topic_overlap`, loaded from the
+   packaged `research_companion/data/venues.json` — extend the KB by editing JSON,
+   no code change).
+2. **A thin `Agent`** in `research_companion/agents/` that wraps the pure module,
+   reads the paper from the blackboard, publishes a `Finding` on the `Bus`, and
+   returns its result in `AgentResult.data`. Model it on
+   `agents/benchmark.py` (deterministic) — e.g. `agents/reproducibility.py`,
+   `agents/ethics.py`, `agents/severity.py` (`rank_findings`),
+   `agents/venuefit.py`. Wire it into the `review` DAG in `cli.py::_cmd_review`
+   (always-on for cheap deterministic checks; gate behind a flag only when it costs
+   an LLM call or a required argument, as `venuefit` does behind `--venue`).
+3. **Report rendering** — extend `report.py` (`build_report_json` + the HTML) with
+   the check's section. `severity.rank_findings()` classifies the collected signals
+   critical/major/minor and renders them worst-first at the top.
+4. **Tests** — deterministic golden tests per module (`tests/test_reproducibility.py`,
+   `tests/test_ethics.py`, `tests/test_severity.py`, `tests/test_venues.py`,
+   `tests/test_venuefit.py`) plus an agent-wiring test
+   (`tests/test_agents_*.py`) and a `report.py` inclusion test.
+
+The honesty line is binding: report only what you compute (a "reporting
+inconsistency" or a "missing declaration", never "misconduct" or "plagiarism");
+skip ambiguous cases rather than guess.

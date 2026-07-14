@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.5.17 · 2026-07-11 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.6.0 · 2026-07-14 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -342,7 +342,7 @@ actually says.
   empty-state — *"No extracted text — use View original PDF"* — instead of a
   blank pane, so you always have a way to reach the source.
 
-## 12. The six-lane review
+## 12. The review team
 
 `research-companion review <paper-id> --serve --report out/` runs the full
 pre-submission review with a live dashboard:
@@ -354,7 +354,16 @@ pre-submission review with a live dashboard:
 | novelty | Extracts your claimed contributions with verbatim quotes; compares against prior art; verifies every quote | per-claim verdicts: novel / incremental / overlaps / anticipated |
 | confidence | Deterministic score per claim from three signals (evidence verification 1.0, novelty confidence 0.8, citation health 0.6) | e.g. `0.72 ± 0.15` — the band widens when signals disagree |
 | benchmark | Mines the graph and related work for evaluation benchmarks | suggested benchmarks you may be expected to report |
+| reproducibility | Deterministic scan for public code/data links, availability statements, methods-completeness, and EQUATOR/PRISMA/CONSORT mentions | high / medium / low reproducibility level + the specific gaps |
+| ethics | Detects integrity declarations (funding, conflict-of-interest, ethics/IRB, informed consent, author contributions) | which declarations are present / missing |
+| severity | Classifies all of the above signals critical / major / minor | a worst-first ranked list at the top of the report |
+| venuefit | *(with `--venue <slug>`)* matches contributions + abstract against the venue's scope via a deterministic topic-overlap prefilter grounding an LLM verdict | strong / moderate / weak / out-of-scope + desk-reject risk |
 | rebuttal | (own command) grounds point-by-point reviewer responses in retrieved passages | replies with honesty badges |
+
+`reproducibility` and `ethics` are deterministic and **always on**; `severity`
+runs in the full pass; `venuefit` runs when you pass `--venue` (e.g.
+`--venue neurips`). Venue scope, checklists, and desk-reject rules come from a
+knowledge base you can extend without code — see [VENUE_KB.md](VENUE_KB.md).
 
 Lanes run concurrently with failure isolation: one failing lane degrades the
 report, never the run. `--fast` runs only LLM-free lanes. Every run appends
@@ -465,7 +474,7 @@ research-companion ask "question"                   # token-efficient, citation-
 research-companion set-draft <paper-id>             # anchor your draft
 research-companion align <paper-id>                 # one alignment verdict
 research-companion compare <A> <B>                  # side-by-side comparison
-research-companion review <paper-id> [--serve]      # the six-lane review (+ dashboard)
+research-companion review <paper-id> [--serve] [--venue <slug>]  # the full review (+ dashboard, venue-fit)
 research-companion rebuttal <paper-id> <reviews>    # grounded reviewer responses
 research-companion refcheck <paper-id>              # citation validator standalone
 research-companion discover <topic> [--expand]      # find new papers via Semantic Scholar
