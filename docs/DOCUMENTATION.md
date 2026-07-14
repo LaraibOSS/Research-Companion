@@ -1,6 +1,6 @@
 # Research Companion — Full Documentation
 
-**Version 0.6.0 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.6.1 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This is the single consolidated reference for Research Companion: what it is, how
 it is built, every feature it ships, and where it is going. For task-oriented
@@ -185,6 +185,7 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `export [--format md\|csv\|json\|obsidian]` | Export the graph to portable formats |
 | `discover [topic] [--expand] [--add]` | Semantic Scholar topic search / citation expansion |
 | `refcheck <id> [--json]` | Validate references vs CrossRef/OpenAlex |
+| `check-stats <id> [--json]` | Recompute reported p-values (Statcheck) + GRIM mean check |
 | `review <id> [--fast] [--report DIR] [--serve] [--venue SLUG]` | Run the review team |
 | `rebuttal <id> [--reviews FILE] [--tone …]` | Grounded point-by-point reviewer replies |
 | `set-draft [id] [--clear] [--show]` | Designate/clear/show the draft paper |
@@ -205,6 +206,7 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `NoveltyAgent` | novelty | **LLM** | per-claim novelty verdicts + verified evidence |
 | `ConfidenceAgent` | confidence | deterministic | per-claim confidence score + uncertainty band |
 | `BenchmarkAgent` | benchmark | deterministic | suggested evaluation benchmarks |
+| `StatSoundnessAgent` | statsoundness | deterministic | recomputed p-values + GRIM mean checks |
 | `ReproducibilityAgent` | reproducibility | deterministic | reproducibility level (high/med/low) + gaps |
 | `EthicsAgent` | ethics | deterministic | present / missing integrity declarations |
 | `SeverityAgent` | severity | deterministic | findings ranked critical/major/minor |
@@ -214,8 +216,9 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `TrackerAgent` | tracker | deterministic | new-related-work sweep (library-level) |
 
 Dependencies are declared via `depends_on`; `review` wires ingest + citation +
-priorart + reproducibility + ethics always-on, adds novelty + confidence +
-benchmark + severity unless `--fast`, and adds venuefit when `--venue` is given.
+priorart + statsoundness + reproducibility + ethics always-on, adds novelty +
+confidence + benchmark + severity unless `--fast`, and adds venuefit when
+`--venue` is given.
 
 ### 5.3 The Research Lab UI
 
@@ -286,17 +289,16 @@ benchmark + severity unless `--fast`, and adds venuefit when `--venue` is given.
 
 ## 8. Roadmap — where this is going
 
-Shipped through **0.6.0**: the full novelty MVP (Phase 1), reviewer critique +
-venue fit (Phase 2), and most of universal reach + integrity (Phase 3 — venue KB,
-reproducibility, integrity declarations). See [ROADMAP.md](ROADMAP.md).
+Shipped through **0.6.1**: the full novelty MVP (Phase 1), reviewer critique +
+venue fit (Phase 2), most of universal reach + integrity (Phase 3 — venue KB,
+reproducibility, integrity declarations), and a deterministic **statistical
+soundness** checker (Statcheck + GRIM: recompute reported p-values from the test
+statistic + df, flag arithmetically impossible means; a `StatSoundnessAgent`
+always-on in `review`, a report section, and a `check-stats` CLI — reporting a
+"reporting inconsistency," never misconduct). See [ROADMAP.md](ROADMAP.md).
 
 Planned next releases (deterministic-first, platform-last):
 
-- **0.6.1 — Statistical soundness** — a deterministic Statcheck + GRIM checker
-  (recompute reported p-values from test statistics + df; flag arithmetically
-  impossible means) with self-contained distributions (no heavy deps), a
-  `StatSoundnessAgent`, report + Lab panel, and a `check-stats` CLI. Reports a
-  "reporting inconsistency," never misconduct.
 - **0.6.2 — Interoperability** — BibTeX/RIS export, Zotero import/export, and
   LaTeX `.tex`+`.bib` ingest so LaTeX-native drafts get coverage/placement without
   a PDF.

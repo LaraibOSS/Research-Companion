@@ -630,6 +630,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.priorart import PriorArtAgent
     from research_companion.agents.reproducibility import ReproducibilityAgent
     from research_companion.agents.severity import SeverityAgent
+    from research_companion.agents.statsoundness import StatSoundnessAgent
     from research_companion.agents.venuefit import VenueFitAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
@@ -640,7 +641,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     log_path = runs_dir / f"{_id_to_dirname(args.paper_id)}-{time.time_ns()}.jsonl"
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
-              ReproducibilityAgent(), EthicsAgent()]
+              StatSoundnessAgent(), ReproducibilityAgent(), EthicsAgent()]
     if not args.fast:
         agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
     if getattr(args, "venue", None):
@@ -1192,6 +1193,41 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check_stats(args: argparse.Namespace) -> int:
+    from research_companion.statcheck import check_stats
+    from research_companion.store import load_text
+
+    text = load_text(args.paper_id)
+    if text is None:
+        print(
+            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    report = check_stats(text)
+    if args.json:
+        report["paper_id"] = args.paper_id
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    findings = report["findings"]
+    if not findings:
+        print("research-companion: no parseable statistics found (nothing to check).")
+        return 0
+
+    symbol = {"consistent": "OK ", "inconsistent": "?? ",
+              "decision_inconsistent": "XX ", "impossible_mean": "XX "}
+    for f in findings:
+        sym = symbol.get(f["status"], "?? ")
+        if f.get("test_type") == "mean":
+            print(f"{sym}[{f['status']}] mean={f['mean']} N={f['n']}")
+        else:
+            print(f"{sym}[{f['status']}] {f['raw']}  (recomputed p~{f['recomputed_p']})")
+    print(f"\nSummary: {report['summary']['text']}")
+    return 0
+
+
 # Test seam for gaps command: tests monkeypatch this to inject LLM.
 # Key "llm": callable(prompt: str) -> str
 GAPS_CONTEXT_OVERRIDES: dict = {}
@@ -1542,6 +1578,12 @@ def _build_parser() -> argparse.ArgumentParser:
     prc.add_argument("paper_id", help="ID of a paper already built (see `research-companion list`)")
     prc.add_argument("--json", action="store_true", help="JSON output")
     prc.set_defaults(func=_cmd_refcheck)
+
+    pcs = sub.add_parser("check-stats",
+                         help="Recompute reported p-values and check means (Statcheck + GRIM)")
+    pcs.add_argument("paper_id", help="ID of a paper already added/ingested")
+    pcs.add_argument("--json", action="store_true", help="JSON output")
+    pcs.set_defaults(func=_cmd_check_stats)
 
     prv = sub.add_parser("review",
                          help="Run the agent team over a paper (ingest, citations, prior art)")

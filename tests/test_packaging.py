@@ -93,11 +93,11 @@ def test_pyproject_has_server_extra():
     assert any("uvicorn" in d for d in server_deps), "server extra must include uvicorn"
 
 
-def test_pyproject_version_is_0_6_0():
-    """pyproject.toml version must be 0.6.0."""
+def test_pyproject_version_is_0_6_1():
+    """pyproject.toml version must be 0.6.1."""
     data = _load_pyproject()
-    assert data["project"]["version"] == "0.6.0", (
-        f"Expected version 0.6.0, got {data['project']['version']!r}"
+    assert data["project"]["version"] == "0.6.1", (
+        f"Expected version 0.6.1, got {data['project']['version']!r}"
     )
 
 
