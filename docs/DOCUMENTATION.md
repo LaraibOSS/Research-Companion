@@ -1,6 +1,6 @@
 # Research Companion — Full Documentation
 
-**Version 0.6.2 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.7.0 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This is the single consolidated reference for Research Companion: what it is, how
 it is built, every feature it ships, and where it is going. For task-oriented
@@ -189,6 +189,7 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `export-bib [--format bibtex\|ris] [-o FILE]` | Export the library as BibTeX/RIS |
 | `import-bib <file.bib>` | Import a Zotero/Mendeley `.bib` into the library |
 | `cite-tex <file.tex> [--bib FILE]` | Resolve a LaTeX draft's `\cite` keys against a `.bib` |
+| `mcp serve [--transport stdio\|sse]` | Run the MCP trust-layer server (verification tools for external agents) |
 | `review <id> [--fast] [--report DIR] [--serve] [--venue SLUG]` | Run the review team |
 | `rebuttal <id> [--reviews FILE] [--tone …]` | Grounded point-by-point reviewer replies |
 | `set-draft [id] [--clear] [--show]` | Designate/clear/show the draft paper |
@@ -259,6 +260,11 @@ confidence + benchmark + severity unless `--fast`, and adds venuefit when
 - **Interoperability** — BibTeX/RIS export of the library (`export-bib`), `.bib`
   import from Zotero/Mendeley (`import-bib`), and LaTeX `\cite`-key resolution
   against a `.bib` (`cite-tex`) — deterministic, in `research_companion/interop/`.
+- **MCP trust-layer** — `research-companion mcp serve` exposes four deterministic,
+  key-free tools (`verify_citation`, `ground_claim`, `citation_coverage`,
+  `search_library`) to external agents over MCP. Logic in
+  `research_companion/mcp_tools.py`; SDK wiring in `mcp_server.py` (optional `[mcp]`
+  extra, lazily imported); versioned schemas in `docs/mcp-schemas/`.
 
 ---
 
@@ -268,7 +274,8 @@ confidence + benchmark + severity unless `--fast`, and adds venuefit when
 - **Runtime deps:** `anthropic>=0.40`, `openai>=1.40`, `pypdfium2>=4`,
   `httpx>=0.27`, `networkx>=3.0`, `jinja2>=3.1`, `feedparser>=6.0`.
 - **Optional extras:** `server`/`demo` = `fastapi>=0.110` + `uvicorn>=0.29`;
-  `docling` = `docling>=2`; `dev` = pytest, pytest-asyncio, ruff, fastapi, uvicorn.
+  `docling` = `docling>=2`; `mcp` = `mcp>=1.0` (the MCP trust-layer server);
+  `dev` = pytest, pytest-asyncio, ruff, fastapi, uvicorn.
 - **Entry point:** `research-companion = research_companion.cli:main`.
 - **Version:** single source of truth in `pyproject.toml`; `__init__.py` reads
   installed metadata so `--version` never drifts.
@@ -295,21 +302,20 @@ confidence + benchmark + severity unless `--fast`, and adds venuefit when
 
 ## 8. Roadmap — where this is going
 
-Shipped through **0.6.2**: the full novelty MVP (Phase 1), reviewer critique +
+Shipped through **0.7.0**: the full novelty MVP (Phase 1), reviewer critique +
 venue fit (Phase 2), most of universal reach + integrity (Phase 3 — venue KB,
 reproducibility, integrity declarations), a deterministic **statistical soundness**
-checker (Statcheck + GRIM), and **interoperability** (`research_companion/interop/`:
-BibTeX/RIS export of the library, `.bib` import from Zotero/Mendeley, and LaTeX
-`\cite`-key resolution against a `.bib` — the `export-bib`, `import-bib`, and
-`cite-tex` CLI commands). See [ROADMAP.md](ROADMAP.md).
+checker (Statcheck + GRIM), **interoperability** (`research_companion/interop/`:
+BibTeX/RIS export, `.bib` import, LaTeX `\cite`-key resolution), and the **MCP
+trust-layer server** (`research_companion/mcp_server.py`, optional `[mcp]` extra,
+`research-companion mcp serve`) exposing four deterministic, key-free tools —
+`verify_citation`, `ground_claim`, `citation_coverage`, `search_library` — so any
+MCP-capable agent can *verify* against the library. See [ROADMAP.md](ROADMAP.md).
 
-Planned next releases (deterministic-first, platform-last):
+Planned next releases:
 
-- **0.7.0 — MCP trust-layer** — an MCP server exposing the verification tools
-  (citation checking, claim grounding, coverage, library search, and the
-  stats/reproducibility/ethics checks) to external agents; deterministic key-free
-  tools first, cost-gated LLM tools next; domain connectors (PubMed/Europe
-  PMC/DBLP) alongside.
+- **0.7.1 — Cost-gated MCP tools** — `ask_library` / `review_draft` behind an
+  explicit budget/keys boundary; domain connectors (PubMed/Europe PMC/DBLP).
 - **0.7.x — Plagiarism / near-duplicate detection** — completing the one open
   Phase-3 item, behind its own design gate (external similarity corpus + privacy
   model). The integrity-*declaration* side already ships.

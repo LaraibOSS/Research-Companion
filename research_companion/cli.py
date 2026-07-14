@@ -1282,6 +1282,19 @@ def _cmd_import_bib(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp_serve(args: argparse.Namespace) -> int:
+    from research_companion.mcp_server import serve
+
+    try:
+        serve(transport=args.transport)
+    except ImportError as exc:
+        print(f"research-companion: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:  # pragma: no cover - interactive
+        return 0
+    return 0
+
+
 def _cmd_cite_tex(args: argparse.Namespace) -> int:
     from pathlib import Path
 
@@ -1696,6 +1709,15 @@ def _build_parser() -> argparse.ArgumentParser:
     pct.add_argument("--bib", help="Path to a .bib file to resolve the cited keys against")
     pct.add_argument("--json", action="store_true", help="JSON output")
     pct.set_defaults(func=_cmd_cite_tex)
+
+    pmcp = sub.add_parser("mcp",
+                          help="MCP trust-layer server (expose verification tools to agents)")
+    mcp_sub = pmcp.add_subparsers(dest="mcp_cmd", required=True)
+    pmcp_serve = mcp_sub.add_parser("serve",
+                                    help="Start the MCP server (deterministic, key-free tools)")
+    pmcp_serve.add_argument("--transport", default="stdio", choices=["stdio", "sse"],
+                            help="MCP transport (default: stdio)")
+    pmcp_serve.set_defaults(func=_cmd_mcp_serve)
 
     prv = sub.add_parser("review",
                          help="Run the agent team over a paper (ingest, citations, prior art)")

@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.6.2 · 2026-07-14 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.7.0 · 2026-07-14 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior
@@ -482,6 +482,7 @@ research-companion check-stats <paper-id>           # recompute p-values + GRIM 
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
 research-companion import-bib <file.bib>            # import a Zotero/Mendeley .bib into the library
 research-companion cite-tex <file.tex> [--bib f.bib]  # resolve a LaTeX draft's \cite keys
+research-companion mcp serve                        # MCP server exposing verification to agents
 research-companion discover <topic> [--expand]      # find new papers via Semantic Scholar
 research-companion gaps | timeline                  # gap analysis / temporal view
 research-companion export <format>                  # markdown, CSV, JSON, Obsidian vault
