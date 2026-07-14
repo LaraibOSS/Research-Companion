@@ -21,9 +21,11 @@ class TestPrompt:
     def test_placeholders_substituted(self):
         p = format_venuefit_prompt(
             venue_name="NeurIPS", venue_scope="ML scope",
+            requirements_block="Reporting checklists: X",
             abstract="We do X.", contributions_block="- C1")
         assert "NeurIPS" in p and "ML scope" in p
         assert "We do X." in p and "- C1" in p
+        assert "Reporting checklists: X" in p
         assert "<<" not in p  # every placeholder replaced
 
     def test_sha_stable_and_hex(self):
@@ -41,13 +43,22 @@ class TestNormalizeVerdict:
 
     def test_happy_path(self):
         v = normalize_verdict(self._raw(), venue_slug="neurips",
-                              venue_name="NeurIPS", overlap=0.66)
+                              venue_name="NeurIPS", overlap=0.66,
+                              discipline="machine_learning",
+                              checklists=("NeurIPS Paper Checklist",))
         assert v["fit"] == "strong"
         assert v["venue"] == "neurips" and v["venue_name"] == "NeurIPS"
+        assert v["discipline"] == "machine_learning"
+        assert v["checklists"] == ["NeurIPS Paper Checklist"]
         assert v["confidence"] == 0.8
         assert v["topic_overlap"] == 0.66
         assert v["reasons"] == ["on-topic"]
         assert v["desk_reject_risk"] is False
+
+    def test_defaults_when_kb_fields_omitted(self):
+        v = normalize_verdict(self._raw(), venue_slug="x", venue_name="X", overlap=0.0)
+        assert v["discipline"] == "general"
+        assert v["checklists"] == []
 
     def test_unknown_fit_falls_back_to_out_of_scope(self):
         v = normalize_verdict(self._raw(fit="perfect"), venue_slug="x",
@@ -121,10 +132,36 @@ class TestVenueFitAgent:
         assert result.ok
         assert result.data["fit"] == "strong"
         assert result.data["venue"] == "iclr"
+        assert result.data["discipline"] == "machine_learning"
+        assert result.data["checklists"]  # KB checklists surfaced
         assert result.data["topic_overlap"] > 0.0  # ICLR topics present
         assert "ICLR" in captured["prompt"]
+        assert "desk-reject" in captured["prompt"].lower()  # requirements block present
         kinds = [e.kind for e in ctx.bus.history if isinstance(e, events.Finding)]
         assert "venue_fit" in kinds
+
+    @pytest.mark.asyncio
+    async def test_risky_fit_fills_in_discipline_alternatives(self):
+        pid = "local:vf3"
+        store.PaperMetadata(paper_id=pid, title="A deep learning study",
+                            authors=[], abstract="We train neural networks.").save()
+        store.save_text(pid, "deep learning representation optimization")
+
+        def _llm(prompt: str) -> str:
+            # Weak fit, and the model offers NO alternatives.
+            return json.dumps({"fit": "weak", "confidence": 0.6,
+                               "rationale": "borderline", "reasons": [],
+                               "suggested_alternatives": []})
+
+        ctx = AgentContext(paper_id=pid, bus=Bus(), data={
+            "_venue": "neurips", "_llm": _llm,
+            "_extraction": {"concepts": [{"name": "deep learning"}], "claims": []}})
+        result = await VenueFitAgent().run(ctx)
+
+        assert result.ok and result.data["desk_reject_risk"] is True
+        # Agent backfilled in-discipline (ML) alternatives.
+        assert result.data["suggested_alternatives"]
+        assert "NeurIPS" not in result.data["suggested_alternatives"]
 
     @pytest.mark.asyncio
     async def test_bad_llm_json_fails_lane(self):

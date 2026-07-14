@@ -66,6 +66,7 @@ include = ["research_companion*"]
 
 [tool.setuptools.package-data]
 research_companion = [
+    "data/*.json",
     "templates/*.html",
     "templates/*.css",
     "templates/*.js",
