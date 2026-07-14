@@ -11,6 +11,34 @@ by a deterministic topic-overlap prefilter).
 
 ---
 
+## 0.6.2 — Interoperability (BibTeX · RIS · Zotero · LaTeX)
+
+Research Companion now fits into the workflows researchers already use. All of
+this is deterministic and dependency-free.
+
+- **Export your library** — `research-companion export-bib [--format bibtex|ris]
+  [-o FILE]` writes the library as BibTeX (default) or RIS, ready to drop into a
+  paper or a reference manager. Cite keys are the familiar `FirstauthorSurnameYear`
+  with a/b/... disambiguation.
+- **Import a `.bib`** — `research-companion import-bib <file.bib>` brings entries
+  from a Zotero / Mendeley / Overleaf export into the library as metadata-only
+  papers (deduplicated by cite key). The parser is robust to quoted values, nested
+  protective braces, and `@comment`/`@string` blocks.
+- **LaTeX drafts without a PDF** — `research-companion cite-tex <file.tex>
+  [--bib refs.bib]` reads every `\cite`-family key from a `.tex` source (ignoring
+  commented-out lines and de-duplicating) and, given a `.bib`, reports coverage:
+  which cited keys resolve to a bibliography entry, which are missing, and which
+  bib entries are never cited — the citation-coverage signal for LaTeX-native
+  drafts.
+- Modules: `research_companion/interop/` (`bibtex.py`, `ris.py`, `latex.py`).
+  Tests: `tests/test_interop_*.py`.
+
+**Upgrade notes:** none — additive; no new dependencies. Imported `.bib` entries
+are metadata-only (no text), so they appear in the library but are not analyzed
+until a PDF/source is added.
+
+---
+
 ## 0.6.1 — Statistical soundness (Statcheck + GRIM)
 
 A new deterministic, LLM-free checker recomputes a paper's reported statistics and

@@ -1,6 +1,6 @@
 # Research Companion — Full Documentation
 
-**Version 0.6.1 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.6.2 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This is the single consolidated reference for Research Companion: what it is, how
 it is built, every feature it ships, and where it is going. For task-oriented
@@ -186,6 +186,9 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `discover [topic] [--expand] [--add]` | Semantic Scholar topic search / citation expansion |
 | `refcheck <id> [--json]` | Validate references vs CrossRef/OpenAlex |
 | `check-stats <id> [--json]` | Recompute reported p-values (Statcheck) + GRIM mean check |
+| `export-bib [--format bibtex\|ris] [-o FILE]` | Export the library as BibTeX/RIS |
+| `import-bib <file.bib>` | Import a Zotero/Mendeley `.bib` into the library |
+| `cite-tex <file.tex> [--bib FILE]` | Resolve a LaTeX draft's `\cite` keys against a `.bib` |
 | `review <id> [--fast] [--report DIR] [--serve] [--venue SLUG]` | Run the review team |
 | `rebuttal <id> [--reviews FILE] [--tone …]` | Grounded point-by-point reviewer replies |
 | `set-draft [id] [--clear] [--show]` | Designate/clear/show the draft paper |
@@ -253,6 +256,9 @@ confidence + benchmark + severity unless `--fast`, and adds venuefit when
 - **Rebuttal** — splits reviews, groups duplicate concerns, quotes only real
   passages (unground spans flagged), assembles a planned-revisions changelog.
 - **Reports** — self-contained `report.html` + `report.json`; live SSE dashboard.
+- **Interoperability** — BibTeX/RIS export of the library (`export-bib`), `.bib`
+  import from Zotero/Mendeley (`import-bib`), and LaTeX `\cite`-key resolution
+  against a `.bib` (`cite-tex`) — deterministic, in `research_companion/interop/`.
 
 ---
 
@@ -289,19 +295,16 @@ confidence + benchmark + severity unless `--fast`, and adds venuefit when
 
 ## 8. Roadmap — where this is going
 
-Shipped through **0.6.1**: the full novelty MVP (Phase 1), reviewer critique +
+Shipped through **0.6.2**: the full novelty MVP (Phase 1), reviewer critique +
 venue fit (Phase 2), most of universal reach + integrity (Phase 3 — venue KB,
-reproducibility, integrity declarations), and a deterministic **statistical
-soundness** checker (Statcheck + GRIM: recompute reported p-values from the test
-statistic + df, flag arithmetically impossible means; a `StatSoundnessAgent`
-always-on in `review`, a report section, and a `check-stats` CLI — reporting a
-"reporting inconsistency," never misconduct). See [ROADMAP.md](ROADMAP.md).
+reproducibility, integrity declarations), a deterministic **statistical soundness**
+checker (Statcheck + GRIM), and **interoperability** (`research_companion/interop/`:
+BibTeX/RIS export of the library, `.bib` import from Zotero/Mendeley, and LaTeX
+`\cite`-key resolution against a `.bib` — the `export-bib`, `import-bib`, and
+`cite-tex` CLI commands). See [ROADMAP.md](ROADMAP.md).
 
 Planned next releases (deterministic-first, platform-last):
 
-- **0.6.2 — Interoperability** — BibTeX/RIS export, Zotero import/export, and
-  LaTeX `.tex`+`.bib` ingest so LaTeX-native drafts get coverage/placement without
-  a PDF.
 - **0.7.0 — MCP trust-layer** — an MCP server exposing the verification tools
   (citation checking, claim grounding, coverage, library search, and the
   stats/reproducibility/ethics checks) to external agents; deterministic key-free

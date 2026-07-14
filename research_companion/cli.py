@@ -1228,6 +1228,99 @@ def _cmd_check_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export_bib(args: argparse.Namespace) -> int:
+    from research_companion.interop import papers_to_bibtex, papers_to_ris
+    from research_companion.store import list_papers
+
+    papers = list_papers()
+    if not papers:
+        print("research-companion: library is empty; nothing to export.")
+        return 0
+    content = papers_to_ris(papers) if args.format == "ris" else papers_to_bibtex(papers)
+    if args.output:
+        from pathlib import Path
+        Path(args.output).write_text(content, encoding="utf-8")
+        print(f"Wrote {len(papers)} entries to {args.output} ({args.format}).")
+    else:
+        print(content, end="")
+    return 0
+
+
+def _cmd_import_bib(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from research_companion.interop import parse_bibtex
+    from research_companion.store import PaperMetadata, paper_dir
+
+    path = Path(args.file)
+    if not path.exists():
+        print(f"research-companion: no such file: {args.file}", file=sys.stderr)
+        return 1
+    entries = parse_bibtex(path.read_text(encoding="utf-8", errors="ignore"))
+    if not entries:
+        print("research-companion: no BibTeX entries found in that file.")
+        return 0
+
+    added, skipped = 0, 0
+    for e in entries:
+        pid = f"bibtex:{e['key']}"
+        if (paper_dir(pid) / "metadata.json").exists():
+            skipped += 1
+            continue
+        source = e.get("url") or (f"https://doi.org/{e['doi']}" if e.get("doi") else "")
+        PaperMetadata(
+            paper_id=pid,
+            title=e.get("title", "") or e["key"],
+            authors=e.get("authors", []) or [],
+            year=e.get("year"),
+            source_url=source,
+            parse_source="bibtex",
+        ).save()
+        added += 1
+    print(f"Imported {added} entries ({skipped} already present) as metadata-only "
+          f"library papers.")
+    return 0
+
+
+def _cmd_cite_tex(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from research_companion.interop import extract_cite_keys, resolve_tex_citations
+
+    tex_path = Path(args.tex_file)
+    if not tex_path.exists():
+        print(f"research-companion: no such file: {args.tex_file}", file=sys.stderr)
+        return 1
+    tex = tex_path.read_text(encoding="utf-8", errors="ignore")
+
+    if not args.bib:
+        keys = extract_cite_keys(tex)
+        if args.json:
+            print(json.dumps({"cited_keys": keys}, indent=2))
+        else:
+            print(f"{len(keys)} distinct cite keys:")
+            for k in keys:
+                print(f"  {k}")
+        return 0
+
+    bib_path = Path(args.bib)
+    if not bib_path.exists():
+        print(f"research-companion: no such file: {args.bib}", file=sys.stderr)
+        return 1
+    res = resolve_tex_citations(tex, bib_path.read_text(encoding="utf-8", errors="ignore"))
+    if args.json:
+        print(json.dumps(res, indent=2))
+        return 0
+    print(f"Coverage: {res['coverage']}")
+    if res["missing"]:
+        print("\nCited but missing from the .bib:")
+        for k in res["missing"]:
+            print(f"  {k}")
+    if res["unused"]:
+        print(f"\n{len(res['unused'])} bib entries are never cited.")
+    return 0
+
+
 # Test seam for gaps command: tests monkeypatch this to inject LLM.
 # Key "llm": callable(prompt: str) -> str
 GAPS_CONTEXT_OVERRIDES: dict = {}
@@ -1584,6 +1677,25 @@ def _build_parser() -> argparse.ArgumentParser:
     pcs.add_argument("paper_id", help="ID of a paper already added/ingested")
     pcs.add_argument("--json", action="store_true", help="JSON output")
     pcs.set_defaults(func=_cmd_check_stats)
+
+    peb = sub.add_parser("export-bib",
+                         help="Export the library to BibTeX or RIS")
+    peb.add_argument("--format", choices=["bibtex", "ris"], default="bibtex",
+                     help="Bibliography format (default: bibtex)")
+    peb.add_argument("-o", "--output", help="Write to this file (default: stdout)")
+    peb.set_defaults(func=_cmd_export_bib)
+
+    pib = sub.add_parser("import-bib",
+                         help="Import a .bib file (e.g. a Zotero/Mendeley export) into the library")
+    pib.add_argument("file", help="Path to a .bib file")
+    pib.set_defaults(func=_cmd_import_bib)
+
+    pct = sub.add_parser("cite-tex",
+                         help="Read \\cite keys from a .tex draft; resolve them against a .bib")
+    pct.add_argument("tex_file", help="Path to a .tex file")
+    pct.add_argument("--bib", help="Path to a .bib file to resolve the cited keys against")
+    pct.add_argument("--json", action="store_true", help="JSON output")
+    pct.set_defaults(func=_cmd_cite_tex)
 
     prv = sub.add_parser("review",
                          help="Run the agent team over a paper (ingest, citations, prior art)")
