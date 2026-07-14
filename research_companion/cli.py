@@ -627,9 +627,11 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.ingest import IngestAgent
     from research_companion.agents.novelty import NoveltyAgent
     from research_companion.agents.orchestrator import run_agents
+    from research_companion.agents.overlap import OverlapAgent
     from research_companion.agents.priorart import PriorArtAgent
     from research_companion.agents.reproducibility import ReproducibilityAgent
     from research_companion.agents.severity import SeverityAgent
+    from research_companion.agents.statsoundness import StatSoundnessAgent
     from research_companion.agents.venuefit import VenueFitAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
@@ -640,7 +642,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     log_path = runs_dir / f"{_id_to_dirname(args.paper_id)}-{time.time_ns()}.jsonl"
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
-              ReproducibilityAgent(), EthicsAgent()]
+              StatSoundnessAgent(), ReproducibilityAgent(), EthicsAgent(), OverlapAgent()]
     if not args.fast:
         agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
     if getattr(args, "venue", None):
@@ -1192,6 +1194,200 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check_stats(args: argparse.Namespace) -> int:
+    from research_companion.statcheck import check_stats
+    from research_companion.store import load_text
+
+    text = load_text(args.paper_id)
+    if text is None:
+        print(
+            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    report = check_stats(text)
+    if args.json:
+        report["paper_id"] = args.paper_id
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    findings = report["findings"]
+    if not findings:
+        print("research-companion: no parseable statistics found (nothing to check).")
+        return 0
+
+    symbol = {"consistent": "OK ", "inconsistent": "?? ",
+              "decision_inconsistent": "XX ", "impossible_mean": "XX "}
+    for f in findings:
+        sym = symbol.get(f["status"], "?? ")
+        if f.get("test_type") == "mean":
+            print(f"{sym}[{f['status']}] mean={f['mean']} N={f['n']}")
+        else:
+            print(f"{sym}[{f['status']}] {f['raw']}  (recomputed p~{f['recomputed_p']})")
+    print(f"\nSummary: {report['summary']['text']}")
+    return 0
+
+
+def _cmd_export_bib(args: argparse.Namespace) -> int:
+    from research_companion.interop import papers_to_bibtex, papers_to_ris
+    from research_companion.store import list_papers
+
+    papers = list_papers()
+    if not papers:
+        print("research-companion: library is empty; nothing to export.")
+        return 0
+    content = papers_to_ris(papers) if args.format == "ris" else papers_to_bibtex(papers)
+    if args.output:
+        from pathlib import Path
+        Path(args.output).write_text(content, encoding="utf-8")
+        print(f"Wrote {len(papers)} entries to {args.output} ({args.format}).")
+    else:
+        print(content, end="")
+    return 0
+
+
+def _cmd_import_bib(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from research_companion.interop import parse_bibtex
+    from research_companion.store import PaperMetadata, paper_dir
+
+    path = Path(args.file)
+    if not path.exists():
+        print(f"research-companion: no such file: {args.file}", file=sys.stderr)
+        return 1
+    entries = parse_bibtex(path.read_text(encoding="utf-8", errors="ignore"))
+    if not entries:
+        print("research-companion: no BibTeX entries found in that file.")
+        return 0
+
+    added, skipped = 0, 0
+    for e in entries:
+        pid = f"bibtex:{e['key']}"
+        if (paper_dir(pid) / "metadata.json").exists():
+            skipped += 1
+            continue
+        source = e.get("url") or (f"https://doi.org/{e['doi']}" if e.get("doi") else "")
+        PaperMetadata(
+            paper_id=pid,
+            title=e.get("title", "") or e["key"],
+            authors=e.get("authors", []) or [],
+            year=e.get("year"),
+            source_url=source,
+            parse_source="bibtex",
+        ).save()
+        added += 1
+    print(f"Imported {added} entries ({skipped} already present) as metadata-only "
+          f"library papers.")
+    return 0
+
+
+def _cmd_check_overlap(args: argparse.Namespace) -> int:
+    from research_companion.overlap import (
+        check_external,
+        get_external_provider,
+        near_duplicate_passages,
+    )
+    from research_companion.store import list_papers, load_text
+
+    target = load_text(args.paper_id)
+    if target is None:
+        print(
+            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    corpus = [
+        (p.paper_id, load_text(p.paper_id) or "")
+        for p in list_papers()
+        if p.paper_id != args.paper_id
+    ]
+    result = near_duplicate_passages(target, corpus)
+
+    external = None
+    if args.external:
+        # Passing --external is the explicit consent to send text to the provider.
+        external = check_external(target, provider=get_external_provider(), consent=True)
+
+    if args.json:
+        payload = {"paper_id": args.paper_id, **result}
+        if external is not None:
+            payload["external"] = external
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    for f in result["findings"]:
+        pct = round(float(f["score"]) * 100)
+        print(f"XX [{pct}% overlap] with {f['matched_paper_id']}: "
+              f"\"{f['snippet'][:120]}...\"")
+    print(f"\nSummary: {result['summary']['text']}")
+
+    if args.external:
+        if external and external.get("enabled"):
+            print(f"\nExternal ({external['provider']}): {len(external['matches'])} match(es).")
+            for m in external["matches"]:
+                print(f"  - {m}")
+        else:
+            reason = external.get("reason", "disabled") if external else "disabled"
+            print(f"\nExternal check not run: {reason}. Register a provider with "
+                  "research_companion.overlap.register_external_provider(...).")
+    return 0
+
+
+def _cmd_mcp_serve(args: argparse.Namespace) -> int:
+    from research_companion.mcp_server import serve
+
+    try:
+        serve(transport=args.transport)
+    except ImportError as exc:
+        print(f"research-companion: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:  # pragma: no cover - interactive
+        return 0
+    return 0
+
+
+def _cmd_cite_tex(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from research_companion.interop import extract_cite_keys, resolve_tex_citations
+
+    tex_path = Path(args.tex_file)
+    if not tex_path.exists():
+        print(f"research-companion: no such file: {args.tex_file}", file=sys.stderr)
+        return 1
+    tex = tex_path.read_text(encoding="utf-8", errors="ignore")
+
+    if not args.bib:
+        keys = extract_cite_keys(tex)
+        if args.json:
+            print(json.dumps({"cited_keys": keys}, indent=2))
+        else:
+            print(f"{len(keys)} distinct cite keys:")
+            for k in keys:
+                print(f"  {k}")
+        return 0
+
+    bib_path = Path(args.bib)
+    if not bib_path.exists():
+        print(f"research-companion: no such file: {args.bib}", file=sys.stderr)
+        return 1
+    res = resolve_tex_citations(tex, bib_path.read_text(encoding="utf-8", errors="ignore"))
+    if args.json:
+        print(json.dumps(res, indent=2))
+        return 0
+    print(f"Coverage: {res['coverage']}")
+    if res["missing"]:
+        print("\nCited but missing from the .bib:")
+        for k in res["missing"]:
+            print(f"  {k}")
+    if res["unused"]:
+        print(f"\n{len(res['unused'])} bib entries are never cited.")
+    return 0
+
+
 # Test seam for gaps command: tests monkeypatch this to inject LLM.
 # Key "llm": callable(prompt: str) -> str
 GAPS_CONTEXT_OVERRIDES: dict = {}
@@ -1542,6 +1738,49 @@ def _build_parser() -> argparse.ArgumentParser:
     prc.add_argument("paper_id", help="ID of a paper already built (see `research-companion list`)")
     prc.add_argument("--json", action="store_true", help="JSON output")
     prc.set_defaults(func=_cmd_refcheck)
+
+    pcs = sub.add_parser("check-stats",
+                         help="Recompute reported p-values and check means (Statcheck + GRIM)")
+    pcs.add_argument("paper_id", help="ID of a paper already added/ingested")
+    pcs.add_argument("--json", action="store_true", help="JSON output")
+    pcs.set_defaults(func=_cmd_check_stats)
+
+    pco = sub.add_parser("check-overlap",
+                         help="Flag passages that near-duplicate another paper in your library")
+    pco.add_argument("paper_id", help="ID of a paper already added/ingested")
+    pco.add_argument("--external", action="store_true",
+                     help="Also run a registered external similarity provider (consent implied; "
+                          "sends text off-machine — none is configured by default)")
+    pco.add_argument("--json", action="store_true", help="JSON output")
+    pco.set_defaults(func=_cmd_check_overlap)
+
+    peb = sub.add_parser("export-bib",
+                         help="Export the library to BibTeX or RIS")
+    peb.add_argument("--format", choices=["bibtex", "ris"], default="bibtex",
+                     help="Bibliography format (default: bibtex)")
+    peb.add_argument("-o", "--output", help="Write to this file (default: stdout)")
+    peb.set_defaults(func=_cmd_export_bib)
+
+    pib = sub.add_parser("import-bib",
+                         help="Import a .bib file (e.g. a Zotero/Mendeley export) into the library")
+    pib.add_argument("file", help="Path to a .bib file")
+    pib.set_defaults(func=_cmd_import_bib)
+
+    pct = sub.add_parser("cite-tex",
+                         help="Read \\cite keys from a .tex draft; resolve them against a .bib")
+    pct.add_argument("tex_file", help="Path to a .tex file")
+    pct.add_argument("--bib", help="Path to a .bib file to resolve the cited keys against")
+    pct.add_argument("--json", action="store_true", help="JSON output")
+    pct.set_defaults(func=_cmd_cite_tex)
+
+    pmcp = sub.add_parser("mcp",
+                          help="MCP trust-layer server (expose verification tools to agents)")
+    mcp_sub = pmcp.add_subparsers(dest="mcp_cmd", required=True)
+    pmcp_serve = mcp_sub.add_parser("serve",
+                                    help="Start the MCP server (deterministic, key-free tools)")
+    pmcp_serve.add_argument("--transport", default="stdio", choices=["stdio", "sse"],
+                            help="MCP transport (default: stdio)")
+    pmcp_serve.set_defaults(func=_cmd_mcp_serve)
 
     prv = sub.add_parser("review",
                          help="Run the agent team over a paper (ingest, citations, prior art)")

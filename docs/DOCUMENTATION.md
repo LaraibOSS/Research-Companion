@@ -1,6 +1,6 @@
 # Research Companion — Full Documentation
 
-**Version 0.6.0 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.7.1 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
 
 This is the single consolidated reference for Research Companion: what it is, how
 it is built, every feature it ships, and where it is going. For task-oriented
@@ -185,6 +185,12 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `export [--format md\|csv\|json\|obsidian]` | Export the graph to portable formats |
 | `discover [topic] [--expand] [--add]` | Semantic Scholar topic search / citation expansion |
 | `refcheck <id> [--json]` | Validate references vs CrossRef/OpenAlex |
+| `check-stats <id> [--json]` | Recompute reported p-values (Statcheck) + GRIM mean check |
+| `check-overlap <id> [--external] [--json]` | Near-duplicate passages vs the library (external is opt-in/consent-gated) |
+| `export-bib [--format bibtex\|ris] [-o FILE]` | Export the library as BibTeX/RIS |
+| `import-bib <file.bib>` | Import a Zotero/Mendeley `.bib` into the library |
+| `cite-tex <file.tex> [--bib FILE]` | Resolve a LaTeX draft's `\cite` keys against a `.bib` |
+| `mcp serve [--transport stdio\|sse]` | Run the MCP trust-layer server (verification tools for external agents) |
 | `review <id> [--fast] [--report DIR] [--serve] [--venue SLUG]` | Run the review team |
 | `rebuttal <id> [--reviews FILE] [--tone …]` | Grounded point-by-point reviewer replies |
 | `set-draft [id] [--clear] [--show]` | Designate/clear/show the draft paper |
@@ -205,6 +211,8 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `NoveltyAgent` | novelty | **LLM** | per-claim novelty verdicts + verified evidence |
 | `ConfidenceAgent` | confidence | deterministic | per-claim confidence score + uncertainty band |
 | `BenchmarkAgent` | benchmark | deterministic | suggested evaluation benchmarks |
+| `StatSoundnessAgent` | statsoundness | deterministic | recomputed p-values + GRIM mean checks |
+| `OverlapAgent` | overlap | deterministic | near-duplicate passages vs the local library |
 | `ReproducibilityAgent` | reproducibility | deterministic | reproducibility level (high/med/low) + gaps |
 | `EthicsAgent` | ethics | deterministic | present / missing integrity declarations |
 | `SeverityAgent` | severity | deterministic | findings ranked critical/major/minor |
@@ -214,8 +222,9 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `TrackerAgent` | tracker | deterministic | new-related-work sweep (library-level) |
 
 Dependencies are declared via `depends_on`; `review` wires ingest + citation +
-priorart + reproducibility + ethics always-on, adds novelty + confidence +
-benchmark + severity unless `--fast`, and adds venuefit when `--venue` is given.
+priorart + statsoundness + reproducibility + ethics + overlap always-on, adds
+novelty + confidence + benchmark + severity unless `--fast`, and adds venuefit when
+`--venue` is given.
 
 ### 5.3 The Research Lab UI
 
@@ -250,6 +259,20 @@ benchmark + severity unless `--fast`, and adds venuefit when `--venue` is given.
 - **Rebuttal** — splits reviews, groups duplicate concerns, quotes only real
   passages (unground spans flagged), assembles a planned-revisions changelog.
 - **Reports** — self-contained `report.html` + `report.json`; live SSE dashboard.
+- **Interoperability** — BibTeX/RIS export of the library (`export-bib`), `.bib`
+  import from Zotero/Mendeley (`import-bib`), and LaTeX `\cite`-key resolution
+  against a `.bib` (`cite-tex`) — deterministic, in `research_companion/interop/`.
+- **MCP trust-layer** — `research-companion mcp serve` exposes four deterministic,
+  key-free tools (`verify_citation`, `ground_claim`, `citation_coverage`,
+  `search_library`) to external agents over MCP. Logic in
+  `research_companion/mcp_tools.py`; SDK wiring in `mcp_server.py` (optional `[mcp]`
+  extra, lazily imported); versioned schemas in `docs/mcp-schemas/`.
+- **Near-duplicate detection** — `research-companion check-overlap` flags passages
+  that near-duplicate another paper in your **own library** (deterministic k-word
+  shingling + containment, `research_companion/overlap.py`), with char-span
+  provenance. Local-only by default; an opt-in, consent-gated external-provider seam
+  (`check-overlap --external`) exists for web-corpus checking but ships no provider
+  and sends nothing off-machine without an explicitly registered provider + consent.
 
 ---
 
@@ -259,7 +282,8 @@ benchmark + severity unless `--fast`, and adds venuefit when `--venue` is given.
 - **Runtime deps:** `anthropic>=0.40`, `openai>=1.40`, `pypdfium2>=4`,
   `httpx>=0.27`, `networkx>=3.0`, `jinja2>=3.1`, `feedparser>=6.0`.
 - **Optional extras:** `server`/`demo` = `fastapi>=0.110` + `uvicorn>=0.29`;
-  `docling` = `docling>=2`; `dev` = pytest, pytest-asyncio, ruff, fastapi, uvicorn.
+  `docling` = `docling>=2`; `mcp` = `mcp>=1.0` (the MCP trust-layer server);
+  `dev` = pytest, pytest-asyncio, ruff, fastapi, uvicorn.
 - **Entry point:** `research-companion = research_companion.cli:main`.
 - **Version:** single source of truth in `pyproject.toml`; `__init__.py` reads
   installed metadata so `--version` never drifts.
@@ -286,28 +310,22 @@ benchmark + severity unless `--fast`, and adds venuefit when `--venue` is given.
 
 ## 8. Roadmap — where this is going
 
-Shipped through **0.6.0**: the full novelty MVP (Phase 1), reviewer critique +
-venue fit (Phase 2), and most of universal reach + integrity (Phase 3 — venue KB,
-reproducibility, integrity declarations). See [ROADMAP.md](ROADMAP.md).
+Shipped through **0.7.1**: the full novelty MVP (Phase 1), reviewer critique +
+venue fit (Phase 2), universal reach + integrity (Phase 3 — venue KB,
+reproducibility, integrity declarations), a deterministic **statistical soundness**
+checker (Statcheck + GRIM), **interoperability** (BibTeX/RIS export, `.bib` import,
+LaTeX `\cite`-key resolution), the **MCP trust-layer server** (four deterministic
+key-free tools), and **near-duplicate detection** (`check-overlap`: local shingling
+overlap vs your library, with an opt-in consent-gated external seam). This completes
+the roadmap's integrity track. See [ROADMAP.md](ROADMAP.md).
 
-Planned next releases (deterministic-first, platform-last):
+Future work (undated):
 
-- **0.6.1 — Statistical soundness** — a deterministic Statcheck + GRIM checker
-  (recompute reported p-values from test statistics + df; flag arithmetically
-  impossible means) with self-contained distributions (no heavy deps), a
-  `StatSoundnessAgent`, report + Lab panel, and a `check-stats` CLI. Reports a
-  "reporting inconsistency," never misconduct.
-- **0.6.2 — Interoperability** — BibTeX/RIS export, Zotero import/export, and
-  LaTeX `.tex`+`.bib` ingest so LaTeX-native drafts get coverage/placement without
-  a PDF.
-- **0.7.0 — MCP trust-layer** — an MCP server exposing the verification tools
-  (citation checking, claim grounding, coverage, library search, and the
-  stats/reproducibility/ethics checks) to external agents; deterministic key-free
-  tools first, cost-gated LLM tools next; domain connectors (PubMed/Europe
-  PMC/DBLP) alongside.
-- **0.7.x — Plagiarism / near-duplicate detection** — completing the one open
-  Phase-3 item, behind its own design gate (external similarity corpus + privacy
-  model). The integrity-*declaration* side already ships.
+- **Cost-gated MCP tools** — `ask_library` / `review_draft` behind an explicit
+  budget/keys boundary (the v2 MCP schema).
+- **Domain connectors** — PubMed / Europe PMC / DBLP.
+- **Semantic (paraphrase) overlap** — embedding-based near-duplicate, beyond the
+  current lexical shingling.
 
 **Out of scope (non-goals):** misconduct/fraud claims, semantic entailment,
 autonomous code execution, cloud/multi-user, GRIMMER/SPRITE (SD-level) and full

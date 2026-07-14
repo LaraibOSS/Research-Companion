@@ -234,6 +234,51 @@ def _section_ethics(data: dict) -> str:
     return html_out
 
 
+def _section_statsoundness(data: dict) -> str:
+    """Render statistical-soundness lane: recomputed p-values + GRIM means."""
+    if "summary" not in data:
+        return ""
+    summary = data.get("summary", {})
+    findings = data.get("findings", []) or []
+    problems = [f for f in findings if f.get("status") not in ("consistent", None)]
+    html_out = "      <h3>Statistical Soundness</h3>\n"
+    html_out += f"      <p>{_escape(summary.get('text', ''))}</p>\n"
+    if problems:
+        html_out += "      <ul>\n"
+        for f in problems:
+            status = str(f.get("status", "")).replace("_", " ")
+            if f.get("test_type") == "mean":
+                desc = (f"Reported mean {f.get('mean')} with N={f.get('n')} is "
+                        f"arithmetically impossible (GRIM)")
+            else:
+                desc = (f"{f.get('test_type')}: reported p{f.get('p_operator')}"
+                        f"{f.get('p_reported')}, recomputed p≈{f.get('recomputed_p')} "
+                        f"({status})")
+            html_out += f"        <li>{_escape(desc)}</li>\n"
+        html_out += "      </ul>\n"
+    return html_out
+
+
+def _section_overlap(data: dict) -> str:
+    """Render near-duplicate lane: passages overlapping another library paper."""
+    if "summary" not in data:
+        return ""
+    summary = data.get("summary", {})
+    findings = data.get("findings", []) or []
+    html_out = "      <h3>Near-duplicate passages</h3>\n"
+    html_out += f"      <p>{_escape(summary.get('text', ''))}</p>\n"
+    if findings:
+        html_out += "      <ul>\n"
+        for f in findings[:20]:
+            pct = round(float(f.get("score", 0.0)) * 100)
+            snippet = _escape(str(f.get("snippet", "")))
+            html_out += (f"        <li>{pct}% overlap with "
+                         f"{_escape(f.get('matched_paper_id', ''))}: "
+                         f"&ldquo;{snippet}&hellip;&rdquo;</li>\n")
+        html_out += "      </ul>\n"
+    return html_out
+
+
 def _section_benchmark(data: dict) -> str:
     """Render benchmark lane section."""
     if "suggestions" not in data:
@@ -301,7 +346,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "reproducibility", "ethics", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -356,12 +401,20 @@ def render_report_html(report: dict) -> str:
                 section = _section_confidence(data)
                 if section:
                     lane_cards += section
+            elif name == "statsoundness":
+                section = _section_statsoundness(data)
+                if section:
+                    lane_cards += section
             elif name == "reproducibility":
                 section = _section_reproducibility(data)
                 if section:
                     lane_cards += section
             elif name == "ethics":
                 section = _section_ethics(data)
+                if section:
+                    lane_cards += section
+            elif name == "overlap":
+                section = _section_overlap(data)
                 if section:
                     lane_cards += section
             elif name == "benchmark":

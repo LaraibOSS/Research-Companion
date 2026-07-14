@@ -11,6 +11,69 @@ by a deterministic topic-overlap prefilter).
 
 ---
 
+## 0.6.2 — Interoperability (BibTeX · RIS · Zotero · LaTeX)
+
+Research Companion now fits into the workflows researchers already use. All of
+this is deterministic and dependency-free.
+
+- **Export your library** — `research-companion export-bib [--format bibtex|ris]
+  [-o FILE]` writes the library as BibTeX (default) or RIS, ready to drop into a
+  paper or a reference manager. Cite keys are the familiar `FirstauthorSurnameYear`
+  with a/b/... disambiguation.
+- **Import a `.bib`** — `research-companion import-bib <file.bib>` brings entries
+  from a Zotero / Mendeley / Overleaf export into the library as metadata-only
+  papers (deduplicated by cite key). The parser is robust to quoted values, nested
+  protective braces, and `@comment`/`@string` blocks.
+- **LaTeX drafts without a PDF** — `research-companion cite-tex <file.tex>
+  [--bib refs.bib]` reads every `\cite`-family key from a `.tex` source (ignoring
+  commented-out lines and de-duplicating) and, given a `.bib`, reports coverage:
+  which cited keys resolve to a bibliography entry, which are missing, and which
+  bib entries are never cited — the citation-coverage signal for LaTeX-native
+  drafts.
+- Modules: `research_companion/interop/` (`bibtex.py`, `ris.py`, `latex.py`).
+  Tests: `tests/test_interop_*.py`.
+
+**Upgrade notes:** none — additive; no new dependencies. Imported `.bib` entries
+are metadata-only (no text), so they appear in the library but are not analyzed
+until a PDF/source is added.
+
+---
+
+## 0.6.1 — Statistical soundness (Statcheck + GRIM)
+
+A new deterministic, LLM-free checker recomputes a paper's reported statistics and
+flags where the numbers don't add up — the same evidence-first discipline as the
+rest of the review, applied to reported results.
+
+- **Statcheck-style NHST recomputation** — extracts reported `t`, `F`, `χ²`, `r`,
+  and `z` tests with their degrees of freedom and reported p-value, recomputes the
+  p-value from the statistic + df, and classifies each as **consistent**,
+  **inconsistent**, or **decision-inconsistent** (the reported significance
+  decision flips at α = .05). Rounding of the reported statistic is folded into a
+  plausible-p interval, and an unknown tail is accepted if the report is consistent
+  under either one- or two-tailed testing — so borderline reporting is never
+  mis-flagged.
+- **GRIM test** — checks that a reported mean is arithmetically achievable for the
+  stated sample size; flags impossible means. Conservative: only means explicitly
+  tied to an N are checked, and large-N cases (where any value is reachable) are
+  reported possible.
+- **Self-contained math** — the t/F/χ²/normal tail probabilities are computed from
+  the standard library via the regularized incomplete beta/gamma functions, so
+  **no SciPy/NumPy dependency** is added and results are fully reproducible
+  (validated against known critical values).
+- **Surfaces** — an always-on `StatSoundnessAgent` (`research_companion/agents/
+  statsoundness.py`) in the review pipeline, a "Statistical Soundness" section in
+  the report, and a standalone CLI: `research-companion check-stats <paper-id>
+  [--json]`.
+- **Honesty line** — findings are labeled a *reporting inconsistency*, never
+  "error" or "misconduct"; anything unparseable is skipped rather than guessed.
+- Modules: `research_companion/statcheck/` (`distributions.py`, `extract.py`,
+  `grim.py`, `check.py`). Tests: `tests/test_statcheck_*.py` (+33).
+
+**Upgrade notes:** none — additive; no new dependencies, no store/settings migration.
+
+---
+
 ## 0.6.0 — Reviewer-grade integrity checks
 
 ### Venue-fit checker
