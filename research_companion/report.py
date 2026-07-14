@@ -155,9 +155,12 @@ def _section_venuefit(data: dict) -> str:
     fit = data.get("fit", "")
     color = _FIT_COLORS.get(fit, "#999")
     name = _escape(data.get("venue_name", data.get("venue", "")))
+    discipline = _escape(str(data.get("discipline", "")).replace("_", " "))
     conf = data.get("confidence", 0)
     overlap = data.get("topic_overlap", 0)
     html_out = f"      <h3>Venue Fit: {name}</h3>\n"
+    if discipline:
+        html_out += f"      <p style=\"color: #666;\">Discipline: {discipline}</p>\n"
     html_out += (
         f"      <p><strong style=\"color: {color};\">{_escape(fit.replace('_', ' ').upper())}</strong> "
         f"(confidence {conf:.2f}, topic overlap {overlap:.2f})</p>\n"
@@ -165,6 +168,10 @@ def _section_venuefit(data: dict) -> str:
     rationale = _escape(data.get("rationale", ""))
     if rationale:
         html_out += f"      <p>{rationale}</p>\n"
+    checklists = data.get("checklists") or []
+    if checklists:
+        html_out += ("      <p><strong>Required checklists:</strong> "
+                     f"{_escape(', '.join(checklists))}</p>\n")
     reasons = data.get("reasons") or []
     if reasons:
         html_out += "      <ul>\n"
