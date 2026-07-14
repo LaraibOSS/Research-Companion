@@ -627,6 +627,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.novelty import NoveltyAgent
     from research_companion.agents.orchestrator import run_agents
     from research_companion.agents.priorart import PriorArtAgent
+    from research_companion.agents.severity import SeverityAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
     runs_dir = papergraph_dir() / "runs"
@@ -637,7 +638,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
 
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent()]
     if not args.fast:
-        agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent()]
+        agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
 

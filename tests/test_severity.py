@@ -1,8 +1,14 @@
 """Tests for the deterministic severity classifier (agents/severity.py)."""
 from __future__ import annotations
 
+import pytest
+
+from research_companion.agents import events
+from research_companion.agents.base import AgentContext
+from research_companion.agents.bus import Bus
 from research_companion.agents.severity import (
     SEVERITY_RANK,
+    SeverityAgent,
     rank_findings,
     summarize,
 )
@@ -111,3 +117,35 @@ class TestOrderingAndSummary:
     def test_summarize_counts(self):
         counts = summarize(self._mixed())
         assert counts == {"critical": 1, "major": 3, "minor": 2}
+
+
+class TestSeverityAgent:
+    @pytest.mark.asyncio
+    async def test_agent_ranks_and_emits_findings(self):
+        ctx = AgentContext(paper_id="local:x", bus=Bus(), data={})
+        ctx.data["novelty"] = {"claims": [
+            {"text": "unsupported+overlap", "verdict": "overlaps",
+             "evidence_verified": False}]}
+        ctx.data["citation"] = {"references": [
+            {"title": "ghost", "status": "unverified", "reasons": []}]}
+        ctx.data["confidence"] = {"claims": [{"text": "lowconf", "score": 0.1}]}
+
+        result = await SeverityAgent().run(ctx)
+        assert result.ok
+        assert result.data["counts"]["critical"] == 1
+        assert result.data["findings"][0]["severity"] == "critical"
+
+        ranked = [e for e in ctx.bus.history
+                  if isinstance(e, events.Finding) and e.kind == "ranked_finding"]
+        report = [e for e in ctx.bus.history
+                  if isinstance(e, events.Finding) and e.kind == "severity_report"]
+        assert len(ranked) == len(result.data["findings"])
+        assert len(report) == 1
+
+    @pytest.mark.asyncio
+    async def test_agent_handles_missing_lanes(self):
+        ctx = AgentContext(paper_id="local:x", bus=Bus(), data={})
+        result = await SeverityAgent().run(ctx)
+        assert result.ok
+        assert result.data["findings"] == []
+        assert result.data["counts"] == {"critical": 0, "major": 0, "minor": 0}
