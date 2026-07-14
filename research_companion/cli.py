@@ -622,6 +622,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.bus import Bus
     from research_companion.agents.citation import CitationAgent
     from research_companion.agents.confidence import ConfidenceAgent
+    from research_companion.agents.ethics import EthicsAgent
     from research_companion.agents.events import EventLog
     from research_companion.agents.ingest import IngestAgent
     from research_companion.agents.novelty import NoveltyAgent
@@ -638,7 +639,8 @@ def _cmd_review(args: argparse.Namespace) -> int:
     # and time_ns() to avoid same-second collisions.
     log_path = runs_dir / f"{_id_to_dirname(args.paper_id)}-{time.time_ns()}.jsonl"
 
-    agents = [IngestAgent(), CitationAgent(), PriorArtAgent(), ReproducibilityAgent()]
+    agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
+              ReproducibilityAgent(), EthicsAgent()]
     if not args.fast:
         agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
     if getattr(args, "venue", None):
