@@ -5,12 +5,12 @@ Phased plan derived from `RESEARCH_EVALUATOR_PLAN.md` (evidence), `COMPETITOR_AR
 Legend: 🟢 ship first · 🟡 differentiator · 🔵 reach/moat
 Status: ✅ shipped · 🟠 partial · ⬜ not started
 
-> **Status note (v0.5.17).** Most of Phase 1–2 shipped, but under a different
-> module layout than the original plan named. The plan referenced a dedicated
-> `novelty/` package (`contributions.py`, `retrieval.py`, `verify.py`,
-> `compare.py`); in practice the work landed as a **multi-agent pipeline** under
-> `research_companion/agents/` plus supporting top-level modules. The mapping
-> below records where each item actually lives so the roadmap tracks the code.
+> **Status note.** Phase 1 and Phase 2 are complete; Phase 3 is mostly complete
+> (only the plagiarism half of #13 remains). The work landed as a
+> **multi-agent pipeline** under `research_companion/agents/` plus supporting
+> top-level modules, not the dedicated `novelty/` package the original plan
+> named. The mapping below records where each item actually lives so the roadmap
+> tracks the code.
 
 ---
 
@@ -24,46 +24,38 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 - ✅ 🟡 **#5 Contribution-level comparison** — claim × prior art / papergraph neighborhood; polarity-typed matches. → `research_companion/agents/novelty.py` (`NoveltyAgent`) + `research_companion/compare.py`.
 - ✅ 🟡 **#6 Novelty report + graph view + CLI** — aggregated verdicts, interactive graph, CLI. → `research_companion/report.py`, `research_companion/viz.py`, CLI `review` / `compare`; lab dashboard.
 
-## Phase 2 — Reviewer critique + venue fit
-- ⬜ 🟡 **#7 Scope/venue-fit checker** — match contributions+abstract against target venue scope & recent accepted papers (KG retrieval). *Targets the #1–2 desk-rejection cause.* **Not started** — no venue/scope model exists yet. Highest-value remaining Phase 2 item.
+## Phase 2 — Reviewer critique + venue fit — COMPLETE
+- ✅ 🟡 **#7 Scope/venue-fit checker** — matches contributions+abstract against a venue's scope with a deterministic topic-overlap prefilter grounding an LLM fit verdict (strong/moderate/weak/out_of_scope + desk-reject risk). → `research_companion/venues.py` (CS/ML registry + `topic_overlap`) + `research_companion/agents/venuefit.py` (`VenueFitAgent`, `normalize_verdict`); CLI `review --venue <slug>`. Cross-discipline coverage tracked as #11.
 - ✅ 🟡 **#8 Reviewer-style critique engine** — multi-agent pass (methodology/rationale/discussion/fatal-flaw) with confidence scoring. → `research_companion/agents/orchestrator.py` coordinating `novelty` / `priorart` / `citation` / `problem` / `confidence` agents; CLI `review`.
-- 🟠 🟡 **#9 Severity-ranked actionable report** — **partial.** Per-claim confidence + uncertainty bands ship (`research_companion/agents/confidence.py`, `score_claim`; Confidence column in `report.py`), but issues are **not yet ranked by severity/criticality** so authors can fix what matters first. Remaining: an explicit severity classifier over findings.
+- ✅ 🟡 **#9 Severity-ranked actionable report** — findings are now classified into critical/major/minor and ranked worst-first (OpenJudge Criticality-Verification pattern) on top of the existing confidence scores. → `research_companion/agents/severity.py` (`rank_findings`, `SeverityAgent`); rendered at the top of `report.py`.
 - ✅ 🟡 **#10 Framing/structure advisor** — IMRaD section parse + section-by-section guidance. → `research_companion/sections.py` + `research_companion/alignment.py`; CLI `align`.
 
 ## Phase 3 — Universal reach + integrity
-- ⬜ 🔵 **#11 Cross-discipline venue knowledge base** — encode venue requirements beyond CS/biomed. Hardest, least-solved; needs its own design pass. **Not started** (blocks #7 beyond CS).
-- ⬜ 🔵 **#12 Reproducibility / data-availability checker** — data/code links, methods completeness; EQUATOR/PRISMA/CONSORT where applicable. **Not started.**
-- ⬜ 🔵 **#13 Plagiarism / ethics-declaration checks** — round out the 10-reason rejection taxonomy. **Not started.**
+- ✅ 🔵 **#11 Cross-discipline venue knowledge base** — data-driven KB (`research_companion/data/venues.json`, 19 venues across 9 disciplines: ML, NLP, vision, data-mining/IR, biomedical, physics, psychology, economics, general) with per-venue scope, reporting checklists, and desk-reject rules; loaded by `venues.py` with a discipline model (`infer_discipline`, `suggest_alternatives`, `venues_for_discipline`). Feeds the venue-fit checker (#7) beyond CS/biomed and grounds its verdicts in real venue requirements. Extending it needs no code change — see `docs/VENUE_KB.md`.
+- ✅ 🔵 **#12 Reproducibility / data-availability checker** — deterministic scan for public code/data links, availability statements, methods-completeness signals, and EQUATOR/PRISMA/CONSORT-family checklists → high/medium/low level + gaps. → `research_companion/reproducibility.py` + `research_companion/agents/reproducibility.py` (`ReproducibilityAgent`); rendered in `report.py`.
+- 🟠 🔵 **#13 Plagiarism / ethics-declaration checks** — **partial.** Integrity-declaration detection ships (funding, conflict-of-interest, author contributions, ethics/IRB approval, informed consent). → `research_companion/ethics.py` + `research_companion/agents/ethics.py` (`EthicsAgent`); rendered in `report.py`. **Deferred:** true plagiarism/near-duplicate detection, which needs an external similarity corpus/service.
 - ✅ 🔵 **#14 Accuracy benchmark** — labeled validation harness measuring verdict quality vs reviewers. → `research_companion/eval/` (`novelty_openreview.py`, `citation_pr.py`, `pvalue.py`) + `research_companion/agents/benchmark.py`; results in `eval/results/`.
 
 ---
 
 ## What's genuinely open
 
-The wedge (Phase 1) and most of the reviewer pipeline (Phase 2) are shipped. The
-remaining, independently-shippable work:
+Phase 1, **all of Phase 2**, and **most of Phase 3** are shipped. The only
+remaining item:
 
-1. **#7 Scope/venue-fit checker** (🟡, biggest lever) — targets the top desk-rejection cause.
-2. **#9 Severity ranking** (🟠, finish the partial) — layer a criticality classifier over existing findings.
-3. **#11 Cross-discipline venue KB** (🔵) — design pass first; unblocks #7 outside CS/biomed.
-4. **#12 Reproducibility checker** (🔵).
-5. **#13 Plagiarism / ethics checks** (🔵).
+1. **#13 Plagiarism / near-duplicate detection** (🔵, finish the partial) — the declaration side ships (`ethics.py`); true plagiarism needs an external similarity corpus/service. Design the integration boundary and privacy model before building.
+
+Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with
+more venues/disciplines as needed — this is expected maintenance, not a blocking
+roadmap item.
 
 ### Importable issues (remaining only)
 
 To create these as GitHub issues, point at the repo you own (`gh repo set-default`) and run:
 
 ```bash
-gh issue create --title "Scope/venue-fit checker" --label "phase-2,tier-1" \
-  --body "Match contributions+abstract against target venue scope & recent accepted papers. Targets #1-2 desk-rejection cause. Build on agents/priorart.py retrieval + KG neighborhood."
-gh issue create --title "Severity-ranked actionable report" --label "phase-2,tier-2" \
-  --body "Classify findings by severity/criticality on top of the existing confidence scores (agents/confidence.py) so authors fix what matters first. OpenJudge Criticality-Verification pattern."
-gh issue create --title "Cross-discipline venue knowledge base" --label "phase-3,tier-3,research" \
-  --body "Encode venue requirements beyond CS/biomed. Hardest gap; needs a design pass. Unblocks the venue-fit checker outside CS."
-gh issue create --title "Reproducibility / data-availability checker" --label "phase-3,tier-3" \
-  --body "Data/code links, methods completeness, EQUATOR/PRISMA/CONSORT where applicable."
-gh issue create --title "Plagiarism / ethics-declaration checks" --label "phase-3,tier-3" \
-  --body "Round out the 10-reason rejection taxonomy."
+gh issue create --title "Plagiarism / near-duplicate detection" --label "phase-3,tier-3,research" \
+  --body "Declaration detection ships (ethics.py). Add true plagiarism/near-duplicate detection via an external similarity corpus/service; design the integration boundary and privacy model first."
 ```
 
 ## Known issues carried past v0.3.0 — RESOLVED

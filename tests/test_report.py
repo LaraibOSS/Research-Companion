@@ -33,3 +33,81 @@ def test_render_report_html_escapes_and_marks_failures():
     assert "FAILED" in html_out and "LLM unavailable" in html_out
     assert "Fake &lt;Paper&gt;" in html_out
     assert html_out.lstrip().lower().startswith("<!doctype html")
+
+
+def test_render_report_html_shows_ranked_severity_findings():
+    results = {
+        "severity": AgentResult(agent="severity", ok=True, data={
+            "counts": {"critical": 1, "major": 1, "minor": 0},
+            "findings": [
+                {"severity": "critical", "category": "unsupported_claim",
+                 "title": "Claimed contribution has no verifiable evidence",
+                 "subject": "Our method beats SOTA", "evidence": {}, "rank": 0},
+                {"severity": "major", "category": "unverified_reference",
+                 "title": "Reference could not be found in any database",
+                 "subject": "Ghost et al.", "evidence": {}, "rank": 1},
+            ]}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Ranked Findings" in html_out
+    assert "1 critical" in html_out
+    assert "[CRITICAL]" in html_out and "[MAJOR]" in html_out
+    # Severity section renders before the (absent here) other lanes.
+    assert "Our method beats SOTA" in html_out
+
+
+def test_render_report_html_shows_venue_fit():
+    results = {
+        "venuefit": AgentResult(agent="venuefit", ok=True, data={
+            "venue": "iclr", "venue_name": "ICLR", "discipline": "machine_learning",
+            "fit": "out_of_scope", "confidence": 0.8, "topic_overlap": 0.1,
+            "rationale": "Not a learning-representations paper.",
+            "reasons": ["no ML contribution"], "checklists": ["reproducibility statement"],
+            "suggested_alternatives": ["CHI"], "desk_reject_risk": True}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Venue Fit: ICLR" in html_out
+    assert "OUT OF SCOPE" in html_out
+    assert "machine learning" in html_out  # discipline shown
+    assert "Required checklists:" in html_out
+    assert "Consider instead:" in html_out and "CHI" in html_out
+
+
+def test_render_report_html_hides_skipped_venue_fit():
+    results = {
+        "venuefit": AgentResult(agent="venuefit", ok=True,
+                                data={"skipped": True, "reason": "no target venue specified"}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Venue Fit" not in html_out
+
+
+def test_render_report_html_shows_reproducibility():
+    results = {
+        "reproducibility": AgentResult(agent="reproducibility", ok=True, data={
+            "code_links": ["https://github.com/a/b"], "data_links": [],
+            "has_availability_statement": True,
+            "signals": {"hyperparameters": True}, "checklists": ["model_card"],
+            "level": "medium",
+            "missing": ["No public data/artifact repository link found"]}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Reproducibility" in html_out
+    assert "MEDIUM" in html_out
+    assert "model_card" in html_out
+    assert "No public data/artifact repository link found" in html_out
+
+
+def test_render_report_html_shows_ethics_declarations():
+    results = {
+        "ethics": AgentResult(agent="ethics", ok=True, data={
+            "declarations": {"funding": True, "conflict_of_interest": False},
+            "present": ["funding"],
+            "absent": ["conflict_of_interest"],
+            "missing_expected": ["conflict_of_interest"]}),
+    }
+    html_out = render_report_html(build_report_json("local:x", "P", results))
+    assert "Integrity Declarations" in html_out
+    assert "funding" in html_out
+    assert "Expected but missing" in html_out
+    assert "conflict of interest" in html_out
