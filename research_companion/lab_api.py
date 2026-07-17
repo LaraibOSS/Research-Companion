@@ -386,6 +386,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
     app = FastAPI(title="Research Companion", lifespan=lifespan)
 
+    # DNS-rebinding defense: the Lab is a local-only server (binds 127.0.0.1), but
+    # without a Host allowlist a remote page could rebind a hostname to 127.0.0.1
+    # and then issue same-origin requests to read/tamper the corpus. Reject any
+    # Host that is not loopback. ("testserver" is the Starlette TestClient host.)
+    from starlette.middleware.trustedhost import TrustedHostMiddleware
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["127.0.0.1", "localhost", "testserver"],
+    )
+
     app.state.recorder = recorder
     app.state.bus = bus
     app.state.llm = llm
@@ -539,6 +549,14 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     async def upload_paper(request: Request, filename: str = "",
                            set_draft: bool = False) -> Any:
         from research_companion import fetch, store
+
+        # CSRF defense: require a non-"simple" content type so a cross-origin POST
+        # is forced through a CORS preflight (which this server does not answer),
+        # blocking silent uploads from an arbitrary web page the user visits.
+        ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype not in ("application/pdf", "application/octet-stream"):
+            raise HTTPException(status_code=415,
+                                detail="upload must be application/pdf")
 
         # Cheap pre-check before buffering the body
         try:
