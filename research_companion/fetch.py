@@ -57,7 +57,7 @@ S2_URL_RE = re.compile(
 S2_HEX_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 S2_API = "https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
 
-USER_AGENT = "research-companion/0.1 (https://github.com/azizur100389/research-companion)"
+USER_AGENT = "research-companion (https://github.com/Laraib-Hasan-Future/Research-Companion)"
 
 
 class FetchError(RuntimeError):

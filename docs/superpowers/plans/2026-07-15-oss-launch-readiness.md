@@ -711,36 +711,13 @@ Before editing, confirm `_download_pdf`'s only caller is `_try_download_pdf` (gr
 
 **Files:** Modify `docs/superpowers/plans/2026-06-29-agent-runtime-core.md`, `docs/superpowers/specs/2026-07-11-port-v0517-improvements-design.md`, `README.md`, `pyproject.toml`; Test `tests/test_packaging.py` (append).
 
-- [ ] **Step 1: Failing meta-tests:**
-
-```python
-def test_no_personal_dev_paths_in_tracked_docs():
-    """Scan tracked docs/text for personal absolute-path patterns (path-like only,
-    so a legitimate name in a URL/identity is not falsely flagged)."""
-    import subprocess
-    patterns = [r"C:\\Users\\", "C:/Users/", r"\\Users\\LARAIB", "/home/LARAIB", "/Users/LARAIB"]
-    args = ["git", "grep", "-lI"]
-    for p in patterns:
-        args += ["-e", p]
-    args += ["--", "*.md", "*.txt", "*.rst", "*.cff"]
-    out = subprocess.run(args, capture_output=True, text=True, cwd=REPO_ROOT)
-    assert out.stdout.strip() == "", f"personal dev paths leaked in: {out.stdout}"
-
-def test_pyproject_has_homepage_and_changelog_urls():
-    urls = _load_pyproject()["project"]["urls"]
-    for key in ("Homepage", "Documentation", "Changelog"):
-        assert key in urls, f"[project.urls] missing {key}"
-
-def test_readme_clone_cd_and_import_are_valid():
-    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "cd research-companion" not in text, "cd must match cloned dir Research-Companion"
-    assert "import research-companion" not in text, "hyphenated import is invalid Python"
-    assert "research-companion." not in text, "no hyphenated module attribute access in examples"
-```
-
-- [ ] **Step 2: Run** `-k "dev_paths or homepage or clone_cd"` → 3 FAIL. (Also `git grep -n "C:/Users/LARAIB"` for forward-slash variants.)
+- [ ] **Step 1: Add three meta-tests** to `tests/test_packaging.py` (implemented there — this Markdown plan deliberately does not embed the literal path patterns, so the scan doesn't flag its own plan):
+  - `test_no_personal_dev_paths_in_tracked_docs` — a **fixed-string** (`git grep -F`) scan of tracked `*.md`/`*.txt`/`*.rst`/`*.cff` for personal user-directory path prefixes (a Windows user dir with either slash, plus POSIX `/home/<user>` and `/Users/<user>`); asserts none remain.
+  - `test_pyproject_has_homepage_and_changelog_urls` — asserts `[project.urls]` has `Homepage`, `Documentation`, `Changelog`.
+  - `test_readme_clone_cd_and_import_are_valid` — asserts no `cd research-companion` casing bug and no invalid hyphenated `import research-companion` example.
+- [ ] **Step 2: Run** the three tests → they FAIL initially.
 - [ ] **Step 3: Implement:**
-  - Both `docs/superpowers/` files: replace `C:\Users\LARAIB\...` / `C:/Users/LARAIB/...` with generic references (`the repo root`, `a parallel local clone`).
+  - Both `docs/superpowers/` files: replace the personal absolute dev-box paths with generic references (`the repo root`, `a parallel local clone`).
   - `README.md`: both `cd research-companion` → `cd Research-Companion`; fix the programmatic-API example — replace `import research-companion` / `research-companion.add_paper(...)` with `from research_companion import add_paper, build_graph, chat, view` and bare function names; add badges (CI, `License: MIT`, `python 3.10–3.13`); replace the Contributing body with a pointer to `CONTRIBUTING.md` + the three gates (JS via glob); add "This repository is the canonical home of Research Companion."; add a note that the PyPI release (0.5.14) trails the source tree (0.7.1) while publishing is held.
   - `pyproject.toml` `[project.urls]`: add `Homepage`, `Documentation` (→ `blob/main/docs/DOCUMENTATION.md`), `Changelog` (→ `blob/main/docs/RELEASE_0.7.md`).
 - [ ] **Step 4:** 3 tests pass; full gate.

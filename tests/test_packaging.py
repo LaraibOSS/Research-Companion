@@ -309,3 +309,28 @@ def test_codeql_workflow_exists_and_gates():
     assert "python" in content and "javascript" in content
     assert "codeql-action/init@v4" in content and "codeql-action/analyze@v4" in content
     assert "codeql-ok" in content, "codeql.yml must expose a stable codeql-ok gate"
+
+
+def test_no_personal_dev_paths_in_tracked_docs():
+    """Fixed-string scan of tracked docs for personal absolute-path prefixes."""
+    import subprocess
+    patterns = [r"C:\Users", "C:/Users/", "/home/LARAIB", "/Users/LARAIB"]
+    args = ["git", "grep", "-lI", "-F"]
+    for p in patterns:
+        args += ["-e", p]
+    args += ["--", "*.md", "*.txt", "*.rst", "*.cff"]
+    out = subprocess.run(args, capture_output=True, text=True, cwd=REPO_ROOT)
+    assert out.stdout.strip() == "", f"personal dev paths leaked in:\n{out.stdout}"
+
+
+def test_pyproject_has_homepage_and_changelog_urls():
+    urls = _load_pyproject()["project"]["urls"]
+    for key in ("Homepage", "Documentation", "Changelog"):
+        assert key in urls, f"[project.urls] missing {key}"
+
+
+def test_readme_clone_cd_and_import_are_valid():
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "cd research-companion" not in text, "cd must match cloned dir Research-Companion"
+    assert "import research-companion" not in text, "hyphenated import is invalid Python"
+    assert "research-companion." not in text, "no hyphenated module attribute access in examples"

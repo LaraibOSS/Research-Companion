@@ -190,7 +190,7 @@ Adversarial review of the attack surfaces, fixing confirmed findings:
   1866/638 gate must stay green.
 
 ### Phase 6 — Content scrub + polish
-- Replace `C:\Users\LARAIB\...` absolute paths in the two tracked
+- Replace the personal absolute dev-box paths in the two tracked
   `docs/superpowers/` files with generic relative references.
 - `README.md`: CI + license + Python-versions badges; fix both
   `cd research-companion` → `cd Research-Companion`; Contributing section →
