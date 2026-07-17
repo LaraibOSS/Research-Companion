@@ -277,9 +277,9 @@ research-companion review <paper-id> --serve         # live browser dashboard (S
 
 What each lane does:
 
-- **citation** - validates every reference against CrossRef/OpenAlex; flags fabricated,
-  wrong-DOI, and author-mismatch citations.
-- **priorart** - maps related work via Semantic Scholar.
+- **citation** - validates every reference against CrossRef/OpenAlex and reports each as
+  verified, suspect, or unverified (catching wrong-DOI and author-mismatch cases).
+- **priorart** - finds related work via Semantic Scholar.
 - **novelty** - extracts the paper's claimed contributions, compares each against prior art,
   and verifies every evidence quote against the paper's own text.
 - **confidence** - deterministic score with an uncertainty band per claim (no LLM).

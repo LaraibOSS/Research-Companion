@@ -9,7 +9,7 @@ from research_companion.agents.base import Agent, AgentContext, AgentResult
 
 class PriorArtAgent(Agent):
     name = "priorart"
-    role = "Searches scholarly databases for related work and maps it onto the graph."
+    role = "Searches scholarly databases for related work relevant to the paper."
     depends_on = ("ingest",)
 
     async def run(self, ctx: AgentContext) -> AgentResult:
@@ -31,7 +31,7 @@ class PriorArtAgent(Agent):
         ]
         await ctx.bus.publish(events.Finding(
             agent=self.name, kind="prior_art",
-            summary=f"{len(papers)} related papers mapped",
+            summary=f"{len(papers)} related papers found",
             data={"count": len(papers)},
         ))
         return AgentResult(agent=self.name, ok=True,

@@ -1,4 +1,4 @@
-"""Tests for PriorArtAgent — maps related work via scholarly search."""
+"""Tests for PriorArtAgent — finds related work via scholarly search."""
 from __future__ import annotations
 
 import pytest
