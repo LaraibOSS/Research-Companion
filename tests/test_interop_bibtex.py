@@ -40,14 +40,18 @@ def test_duplicate_keys_disambiguated():
 
 def test_duplicate_keys_stay_alphabetic_past_z():
     """28+ same surname+year must not overflow past 'z' into '{' (corrupt BibTeX)."""
+    import re
+
+    from research_companion.interop.bibtex import parse_bibtex
     recs = [{"authors": ["Smith"], "year": 2020, "title": f"P{i}"} for i in range(30)]
     out = papers_to_bibtex(recs)
-    assert "{" not in out.replace("@article{", "")  # no stray brace from a bad suffix
     assert "@article{Smith2020z," in out    # 27th
     assert "@article{Smith2020aa," in out   # 28th
-    # every generated key parses back cleanly
-    from research_companion.interop.bibtex import parse_bibtex
-    assert len(parse_bibtex(out)) == 30
+    # every generated cite key is purely alphanumeric (no stray '{' from a bad suffix)
+    keys = re.findall(r"@article\{([^,]+),", out)
+    assert len(keys) == 30
+    assert all(re.fullmatch(r"[A-Za-z0-9]+", k) for k in keys), keys
+    assert len(parse_bibtex(out)) == 30   # round-trips cleanly
 
 
 def test_parse_bibtex_round_trip():
