@@ -27,6 +27,14 @@ Beta Author. The second blank-separated entry title. Conf, 2020.
 
 Gamma Author. The third blank-separated entry title. Conf, 2021."""
 
+# Blank-separated entries keyed only by PMID / PMCID (no DOI, no arXiv id) —
+# covers the PubMed-only add_target path with no library match.
+_PMID_PMCID_ONLY = """Alpha Author. The first entry with a pmid identifier only. Journal 2019. PMID: 30449619.
+
+Beta Author. The second entry with a pmcid identifier only. Journal 2020. PMCID: PMC6289601.
+
+Gamma Author. The third entry with no identifier at all, plain title. Conf, 2021."""
+
 # Line-numbered, double-spaced, wrapped author-year references (ACL/arXiv
 # preprint style). Margin numbers 100-108 sit at line ends; publication years
 # (2021/2022/2023) sit mid-line and must be preserved.
@@ -375,6 +383,22 @@ class TestComputeCoverage:
         assert payload["counts"]["unchecked"] >= 1
         # Persisted
         assert cc.load_coverage()["counts"]["total"] == 4
+
+    def test_pmid_only_ref_gets_working_add_target(self, isolated_papergraph_dir):
+        # A PMID-keyed ref with no DOI/arXiv id must still get a working
+        # `add pmid:...` command — not stay stuck at unchecked forever.
+        draft = _seed_draft(bib=_PMID_PMCID_ONLY)
+        payload = cc.compute_coverage(draft)
+        pmid_rec = next(r for r in payload["references"] if "pmid identifier only" in r["raw"])
+        assert pmid_rec["status"] == "available"
+        assert pmid_rec["add_target"] == "pmid:30449619"
+
+    def test_pmcid_only_ref_gets_working_add_target(self, isolated_papergraph_dir):
+        draft = _seed_draft(bib=_PMID_PMCID_ONLY)
+        payload = cc.compute_coverage(draft)
+        pmcid_rec = next(r for r in payload["references"] if "pmcid identifier only" in r["raw"])
+        assert pmcid_rec["status"] == "available"
+        assert pmcid_rec["add_target"] == "pmcid:PMC6289601"
 
     def test_recompute_after_paper_added(self, isolated_papergraph_dir):
         draft = _seed_draft()

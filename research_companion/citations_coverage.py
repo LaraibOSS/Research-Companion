@@ -526,6 +526,8 @@ def compute_coverage(draft_id: str) -> dict:
             "year": ref.year,
             "doi": ref.doi,
             "arxiv_id": ref.arxiv_id,
+            "pmid": ref.pmid,
+            "pmcid": ref.pmcid,
             "status": "unchecked",
             "matched_paper_id": None,
             "match_kind": None,
@@ -549,9 +551,13 @@ def compute_coverage(draft_id: str) -> dict:
         if m:
             rec["status"] = "in_library"
             rec["matched_paper_id"], rec["match_kind"] = m
-        elif ref.arxiv_id or ref.doi:
+        elif ref.arxiv_id or ref.doi or ref.pmid or ref.pmcid:
             rec["status"] = "available"
-            rec["add_target"] = ref.arxiv_id or ref.doi or (f"pmid:{ref.pmid}" if ref.pmid else None)
+            rec["add_target"] = (
+                ref.arxiv_id or ref.doi
+                or (f"pmid:{ref.pmid}" if ref.pmid else None)
+                or (f"pmcid:{ref.pmcid}" if ref.pmcid else None)
+            )
         else:
             # Carry over a previous network resolution for this exact entry
             old = prev_by_raw.get(raw)
@@ -650,15 +656,20 @@ def resolve_missing(payload: dict, *, resolver: Callable = resolve_reference) ->
         ref = Reference(
             title=rec.get("title") or rec["raw"], authors=[],
             year=rec.get("year"), doi=rec.get("doi"),
-            arxiv_id=rec.get("arxiv_id"), url=None, raw=rec["raw"])
+            arxiv_id=rec.get("arxiv_id"),
+            pmid=rec.get("pmid"), pmcid=rec.get("pmcid"),
+            url=None, raw=rec["raw"])
         record = resolver(ref)
-        if record and (record.get("arxiv_id") or record.get("doi")):
+        if record and (record.get("arxiv_id") or record.get("doi")
+                       or record.get("pmid") or record.get("pmcid")):
             rec["resolved"] = {
                 "title": record.get("title"), "year": record.get("year"),
                 "doi": record.get("doi"), "arxiv_id": record.get("arxiv_id"),
+                "pmid": record.get("pmid"), "pmcid": record.get("pmcid"),
             }
             rec["add_target"] = (record.get("arxiv_id") or record.get("doi")
-                                 or (f"pmid:{record['pmid']}" if record.get("pmid") else None))
+                                 or (f"pmid:{record['pmid']}" if record.get("pmid") else None)
+                                 or (f"pmcid:{record['pmcid']}" if record.get("pmcid") else None))
             rec["status"] = "available"
         else:
             rec["status"] = "unresolved"
