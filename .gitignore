@@ -16,6 +16,9 @@ research-companion-out/
 demo-out/
 docs/Medical/
 
+# Internal design specs/plans — local workflow only, not shipped
+docs/superpowers/
+
 # IDE / OS
 .vscode/
 .idea/
