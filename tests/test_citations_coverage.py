@@ -632,3 +632,15 @@ class TestResolveReferenceAcceptance:
             openalex_search=lambda q, **k: [],
             parse_cr=lambda x: x, parse_oa=lambda x: x)
         assert got is None
+
+
+def test_match_by_pmid():
+    papers = [store.PaperMetadata(paper_id="pmid:30449619", title="CRISPR", authors=[], year=2018)]
+    m = cc.match_reference_to_library(Reference(title="x", pmid="30449619"), papers)
+    assert m == ("pmid:30449619", "pmid")
+
+
+def test_match_by_pmcid():
+    papers = [store.PaperMetadata(paper_id="pmcid:PMC6289601", title="CRISPR", authors=[], year=2018)]
+    m = cc.match_reference_to_library(Reference(title="x", pmcid="PMC6289601"), papers)
+    assert m == ("pmcid:PMC6289601", "pmcid")
