@@ -2,9 +2,8 @@
 
 Research Companion 0.7 turns the tool inside-out: for two years it has *verified
 its own answers*; now it exposes that verification to **other** agents. The
-strategic bet (see `docs/superpowers/specs/2026-07-07-openscience-analysis-and-adoption-design.md`)
-is that as autonomous research agents proliferate, the scarce, defensible role is
-the **trust layer** — they generate, Research Companion checks.
+strategic bet is that as autonomous research agents proliferate, the scarce,
+defensible role is the **trust layer** — they generate, Research Companion checks.
 
 ---
 

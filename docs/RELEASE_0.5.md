@@ -249,9 +249,8 @@ unreadable PDF fail honestly.
   remains the fallback). Tables and figures are captured to `structure.json`
   (not yet surfaced in the UI — a future phase).
 
-A full audit and the architecture decision behind keeping the design
-local-first are written up in
-`docs/superpowers/specs/2026-07-09-ingestion-architecture.md`.
+The architecture behind keeping the design local-first (no database; per-paper
+JSON) is described in `docs/DEVELOPER_GUIDE.md`.
 
 **Upgrade notes:** none — purely additive; no store or settings migration. The
 `[docling]` extra is optional; without it ingestion behaves as before except

@@ -1,6 +1,6 @@
 # Roadmap — papergraph → Universal Research Evaluator
 
-Phased plan derived from `RESEARCH_EVALUATOR_PLAN.md` (evidence), `COMPETITOR_ARCHITECTURES.md` (what to borrow/beat), and `NOVELTY_ENGINE_SPEC.md` (Tier-1 detail).
+Phased plan grounded in `RESEARCH_EVALUATOR_PLAN.md` (evidence) and `COMPETITOR_ARCHITECTURES.md` (what to borrow/beat).
 
 Legend: 🟢 ship first · 🟡 differentiator · 🔵 reach/moat
 Status: ✅ shipped · 🟠 partial · ⬜ not started

@@ -2,10 +2,8 @@
 
 This guide is for contributors. It explains how a PDF becomes searchable,
 graphed, verifiable knowledge inside Research Companion — module by module —
-and how to extend or test that path. For the *why* behind the current design
-(and the alternatives that were rejected), see the decision report at
-`docs/superpowers/specs/2026-07-09-ingestion-architecture.md`. For the
-user-facing behavior, see `docs/USER_MANUAL.md`.
+and how to extend or test that path. For the user-facing behavior, see
+`docs/USER_MANUAL.md`.
 
 Research Companion is **local-first**: everything lives as plain files under
 `~/.research-companion/workspaces/<id>/` — JSON per paper plus an in-memory

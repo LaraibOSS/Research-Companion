@@ -49,7 +49,6 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 - **[User Manual](docs/USER_MANUAL.md)** ([PDF](docs/USER_MANUAL.pdf)) — every feature, how to use it, and how to read outputs honestly.
 - [Developer Guide](docs/DEVELOPER_GUIDE.md) — how the ingestion pipeline works end to end (parsing, quality gate/OCR, sectioning, chunking, retrieval) and how to extend or test it.
 - [Roadmap](docs/ROADMAP.md) — what's shipped and what's next.
-- [Guide & Critical Analysis](docs/RESEARCH_COMPANION_GUIDE.pdf) — what the tool does well, with evidence, and where it honestly falls short.
 - Release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
 
 ## What's new in 0.6
