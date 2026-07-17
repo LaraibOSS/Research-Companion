@@ -101,6 +101,13 @@ def test_pyproject_version_is_0_7_1():
     )
 
 
+def test_gitignore_covers_private_local_content():
+    """docs/Medical and all .env variants (except .env.example) must be ignored."""
+    gi = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    for pattern in ("docs/Medical/", ".env.*", "!.env.example"):
+        assert pattern in gi, f".gitignore missing {pattern!r}"
+
+
 def test_dunder_version_matches_pyproject():
     """`research-companion --version` reads research_companion.__version__ — it must
     never drift from pyproject (release bug: 0.3.0 wheel reported 0.1.0)."""
