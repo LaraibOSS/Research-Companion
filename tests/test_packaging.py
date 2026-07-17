@@ -294,3 +294,13 @@ def test_ci_workflow_uses_current_action_majors():
         assert good in content, f"ci.yml must use {good}"
     for stale in ("actions/checkout@v4", "actions/setup-python@v5", "actions/setup-node@v4"):
         assert stale not in content, f"ci.yml still pins stale {stale}"
+
+
+def test_codeql_workflow_exists_and_gates():
+    codeql = REPO_ROOT / ".github" / "workflows" / "codeql.yml"
+    assert codeql.exists(), "Missing .github/workflows/codeql.yml"
+    content = codeql.read_text(encoding="utf-8")
+    assert "security-events: write" in content
+    assert "python" in content and "javascript" in content
+    assert "codeql-action/init@v4" in content and "codeql-action/analyze@v4" in content
+    assert "codeql-ok" in content, "codeql.yml must expose a stable codeql-ok gate"
