@@ -16,7 +16,13 @@ Decisions made with the maintainer:
 - **Governance: solo maintainer** (`Hasan-Laraib`). Branch protection requires
   PR + green CI but **no required approvals** (a solo maintainer must be able to
   merge their own PRs); force-pushes and branch deletion on `main` blocked.
-- **Old demo mirror** (`Laraib-Hasan-OSS/Research-Companion`): left as-is.
+- **Demo mirror** (`Laraib-Hasan-OSS/Research-Companion`): **frozen and
+  off-limits — never modified by this program or any future work.** It is the
+  artifact referenced by the maintainer's EMNLP 2026 System Demonstrations
+  submission (single-blind track) and stays exactly as submitted. This program
+  applies only to the canonical repo.
+- **No paper citation in this repo yet** (no CITATION.cff / README paper
+  section) — deferred until the review decision.
 - **Audit depth: full** — security audit + correctness review + fixes, not just
   scanners.
 - **Publish stays HELD.** Workflow changes below alter *how* publishing would
@@ -27,9 +33,10 @@ Decisions made with the maintainer:
   un-publishes nothing. Personal absolute paths inside them are scrubbed.
 
 Audit facts this design is grounded on (verified 2026-07-14):
-- Local `.env` holds **live OpenAI + HF keys** — untracked, gitignored, never in
-  history (verified with `git log --all -- .env` + pattern scans; all history
-  hits are placeholders/test fixtures). Keys must be **rotated by the user**.
+- Secrets audit: `.env` is untracked, gitignored, and **never appeared in git
+  history** (verified with `git log --all -- .env` + pattern scans; all history
+  hits are placeholders/test fixtures). Local credentials are rotated by the
+  maintainer as routine hygiene.
 - CI runs a hardcoded list of 18 of 29 `tests/js/*.test.mjs` files; Python 3.11 /
   ubuntu only; no `permissions:` blocks; `setup-python@v4`.
 - No branch protection; secret scanning / Dependabot / CodeQL not configured.
@@ -49,9 +56,7 @@ GitHub *settings* (branch protection, scanning toggles) are applied via
 `gh api` after the workflows merge, since required-check names must exist first.
 
 ### Phase 0 — Immediate security hygiene
-- **USER ACTION (cannot be done by tooling): rotate the OpenAI key and HF token
-  currently in `.env`**; also rotate the OpenAI key pasted into chat earlier if
-  different. Update `.env` locally with the new values.
+- Maintainer rotates local API credentials (routine hygiene; outside the repo).
 - Add `docs/Medical/` and broader `.env.*` patterns (keep `!.env.example`) to
   `.gitignore`.
 
