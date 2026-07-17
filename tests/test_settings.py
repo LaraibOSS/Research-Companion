@@ -445,3 +445,25 @@ class TestAutoAddCitationsSetting:
     def test_non_bool_rejected(self, isolated_papergraph_dir):
         with pytest.raises(settings.SettingsError):
             settings.update_settings({"auto_add_citations": "yes"})
+
+
+def test_connectors_defaults_empty_and_validates(tmp_path, monkeypatch):
+    from research_companion import settings
+    monkeypatch.setattr(settings, "load_root_settings", lambda: {}, raising=False)
+    assert settings.DEFAULTS["connectors"] == []
+
+def test_update_settings_rejects_unknown_connector(monkeypatch):
+    from research_companion import settings
+    monkeypatch.setattr("research_companion.store.load_root_settings", lambda: {})
+    monkeypatch.setattr("research_companion.store.save_root_settings", lambda s: None)
+    import pytest
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"connectors": ["nope"]})
+
+def test_update_settings_accepts_valid_connectors(monkeypatch):
+    from research_companion import settings
+    saved = {}
+    monkeypatch.setattr("research_companion.store.load_root_settings", lambda: dict(saved))
+    monkeypatch.setattr("research_companion.store.save_root_settings", lambda s: saved.update(s))
+    settings.update_settings({"connectors": ["europepmc"]})
+    assert saved["connectors"] == ["europepmc"]
