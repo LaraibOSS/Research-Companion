@@ -28,8 +28,25 @@ from pathlib import Path
 from research_companion import __version__
 
 
+def _parse_connectors_arg(value):
+    """Parse --connectors 'europepmc,pubmed' -> ['europepmc','pubmed']; None if
+    the flag was omitted (so settings are used). Exits on an unknown name."""
+    if not value:
+        return None
+    from research_companion.connectors import VALID_CONNECTORS
+    names = [v.strip() for v in value.split(",") if v.strip()]
+    bad = [n for n in names if n not in VALID_CONNECTORS]
+    if bad:
+        print(f"research-companion: unknown connector(s): {', '.join(bad)}. "
+              f"Valid: {', '.join(sorted(VALID_CONNECTORS))}", file=sys.stderr)
+        raise SystemExit(2)
+    return names
+
+
 def _cmd_add(args: argparse.Namespace) -> int:
     from research_companion.fetch import FetchError, add_paper
+
+    _parse_connectors_arg(getattr(args, "connectors", None))
 
     # --- collect targets from positional args + --from-file -----------------
     targets: list[str] = list(args.target) if args.target else []
@@ -652,6 +669,14 @@ def _cmd_review(args: argparse.Namespace) -> int:
     if getattr(args, "venue", None):
         ctx.data["_venue"] = args.venue
 
+    conns = _parse_connectors_arg(getattr(args, "connectors", None))
+    if conns is not None:
+        from research_companion.discover import search_topic_with_fallback
+        from research_companion.refcheck.retrieval import default_lookup as _default_lookup
+
+        ctx.data["_lookup"] = _default_lookup(connectors=conns)
+        ctx.data["_search"] = lambda q: search_topic_with_fallback(q, limit=15, connectors=conns)
+
     if getattr(args, "serve", False):
         try:
             from research_companion.dashboard.server import create_app
@@ -1156,7 +1181,9 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
         return 1
 
     refs = references_from_extraction(ext)
-    report = validate_bibliography(refs, default_lookup())
+    conns = _parse_connectors_arg(getattr(args, "connectors", None))
+    lookup = default_lookup(connectors=conns) if conns is not None else default_lookup()
+    report = validate_bibliography(refs, lookup)
     counts = report.counts()
 
     if args.json:
@@ -1664,6 +1691,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--title", help="Title (single local PDF only)")
     pa.add_argument("--authors", help="Comma-separated authors (single local PDF only)")
     pa.add_argument("--year", type=int, help="Year (single local PDF only)")
+    pa.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed")
     pa.set_defaults(func=_cmd_add)
 
     pb = sub.add_parser("build", help="Run extraction on all papers and build the graph")
@@ -1737,6 +1765,7 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Validate a paper's references against CrossRef/OpenAlex")
     prc.add_argument("paper_id", help="ID of a paper already built (see `research-companion list`)")
     prc.add_argument("--json", action="store_true", help="JSON output")
+    prc.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed")
     prc.set_defaults(func=_cmd_refcheck)
 
     pcs = sub.add_parser("check-stats",
@@ -1796,6 +1825,7 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Start a live dashboard while agents run")
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
+    prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed")
     prv.set_defaults(func=_cmd_review)
 
     prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")

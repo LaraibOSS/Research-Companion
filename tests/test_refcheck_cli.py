@@ -67,3 +67,15 @@ def test_refcheck_cli_errors_when_no_extraction(capsys):
     rc = cli.main(["refcheck", "local:doesnotexist"])
     assert rc == 1
     assert "build" in capsys.readouterr().err.lower()
+
+
+def test_parse_connectors_flag():
+    assert cli._parse_connectors_arg("europepmc,pubmed") == ["europepmc", "pubmed"]
+    assert cli._parse_connectors_arg(None) is None
+    assert cli._parse_connectors_arg("") is None
+
+
+def test_parse_connectors_rejects_unknown():
+    import pytest
+    with pytest.raises(SystemExit):
+        cli._parse_connectors_arg("nope")
