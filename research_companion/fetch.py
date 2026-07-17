@@ -110,14 +110,42 @@ def _arxiv_metadata(arxiv_id: str, *, timeout: float = 30.0) -> dict:
 
 
 def _download_pdf(url: str, *, timeout: float = 60.0) -> bytes:
-    with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
-        if not resp.content:
-            raise FetchError(f"empty PDF from {url}")
-        if not resp.content.startswith(b"%PDF-"):
-            raise FetchError(f"response from {url} does not look like a PDF")
-        return resp.content
+    from research_companion.net import MAX_DOWNLOAD_BYTES, MAX_REDIRECTS, UrlNotAllowed, validate_public_url
+    current = url
+    try:
+        with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT},
+                          follow_redirects=False) as client:
+            for _ in range(MAX_REDIRECTS + 1):
+                validate_public_url(current)          # re-validate EVERY hop
+                with client.stream("GET", current) as resp:
+                    if resp.is_redirect:
+                        loc = resp.headers.get("location")
+                        if not loc:
+                            raise FetchError(f"redirect without Location from {current}")
+                        current = str(resp.url.join(loc))
+                        continue
+                    resp.raise_for_status()
+                    declared = resp.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+                        raise FetchError(f"PDF exceeds size cap ({MAX_DOWNLOAD_BYTES} bytes): {url}")
+                    chunks: list[bytes] = []
+                    total = 0
+                    for chunk in resp.iter_bytes():
+                        total += len(chunk)
+                        if total > MAX_DOWNLOAD_BYTES:
+                            raise FetchError(f"PDF exceeds size cap ({MAX_DOWNLOAD_BYTES} bytes): {url}")
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
+                    if not body:
+                        raise FetchError(f"empty PDF from {url}")
+                    if not body.startswith(b"%PDF-"):
+                        raise FetchError(f"response from {url} does not look like a PDF")
+                    return body
+            raise FetchError(f"too many redirects for {url}")
+    except UrlNotAllowed as exc:
+        raise FetchError(str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise FetchError(f"download failed for {url}: {exc}") from exc
 
 
 def _try_download_pdf(url: str, *, timeout: float = 60.0) -> bytes | None:
