@@ -27,3 +27,15 @@ def test_add_pubmed_abstract_only_when_no_fulltext(tmp_path, monkeypatch):
            "arxiv_id": None, "pmid": "111", "pmcid": None}
     meta = fetch.add_pubmed("pmid:111", resolve=lambda ident: rec, fetch_text=lambda pmcid: None)
     assert meta.full_text_available is False
+
+
+def test_add_pubmed_pmid_idempotent_skips_resolve(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "papers_dir", lambda: tmp_path)
+    rec = {"title": "T", "authors": [], "year": 2020, "doi": None,
+           "arxiv_id": None, "pmid": "30449619", "pmcid": None}
+    fetch.add_pubmed("pmid:30449619", resolve=lambda ident: rec, fetch_text=lambda p: None)
+    # Second add must return the existing paper WITHOUT resolving again.
+    def _boom(ident):
+        raise AssertionError("resolve must not be called for an already-ingested pmid")
+    meta = fetch.add_pubmed("pmid:30449619", resolve=_boom, fetch_text=lambda p: None)
+    assert meta.paper_id == "pmid:30449619"

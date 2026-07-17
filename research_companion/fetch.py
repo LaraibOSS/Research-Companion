@@ -1,4 +1,4 @@
-"""Fetch papers from arXiv URLs, DOIs, Semantic Scholar, or local PDF paths.
+"""Fetch papers from arXiv URLs, DOIs, Semantic Scholar, PubMed/PMC, or local PDF paths.
 
 arXiv flow:
     URL -> arxiv_id -> arxiv API for metadata -> download PDF -> store
@@ -8,6 +8,9 @@ DOI flow:
 
 Semantic Scholar flow:
     URL/ID -> s2_id -> S2 API for metadata -> try PDF via DOI/arXiv -> store
+
+PubMed / PMC flow:
+    PMID/PMCID -> Europe PMC + PubMed APIs for metadata -> fetch fulltext from PMC -> store
 
 Local PDF flow:
     Path -> read bytes -> sha256-derived ID -> read first-page metadata heuristically -> store
@@ -475,6 +478,13 @@ def add_pubmed(url_or_id: str, *, resolve=None, fetch_text=None) -> PaperMetadat
         raise FetchError(f"could not parse a PubMed id from {url_or_id!r}")
     kind, value = parsed
 
+    # Idempotency for pmid inputs: the canonical id is known without a network call.
+    if kind == "pmid":
+        existing = PaperMetadata.load(make_pmid_id(value))
+        if existing is not None:
+            return existing
+    # (pmcid-only inputs still resolve first, since the canonical id prefers pmid.)
+
     if resolve is None or fetch_text is None:
         from research_companion.connectors.europepmc import EuropePMCConnector
         from research_companion.connectors.pubmed import PubMedConnector
@@ -493,7 +503,7 @@ def add_pubmed(url_or_id: str, *, resolve=None, fetch_text=None) -> PaperMetadat
     if not rec:
         raise FetchError(f"no record found for {url_or_id!r}")
 
-    paper_id = make_pmid_id(rec["pmid"]) if rec.get("pmid") else make_pmcid_id(value)
+    paper_id = make_pmid_id(rec["pmid"]) if rec.get("pmid") else make_pmcid_id(rec.get("pmcid") or value)
     existing = PaperMetadata.load(paper_id)
     if existing is not None:
         return existing
