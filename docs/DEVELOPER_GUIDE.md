@@ -2,10 +2,8 @@
 
 This guide is for contributors. It explains how a PDF becomes searchable,
 graphed, verifiable knowledge inside Research Companion — module by module —
-and how to extend or test that path. For the *why* behind the current design
-(and the alternatives that were rejected), see the decision report at
-`docs/superpowers/specs/2026-07-09-ingestion-architecture.md`. For the
-user-facing behavior, see `docs/USER_MANUAL.md`.
+and how to extend or test that path. For the user-facing behavior, see
+`docs/USER_MANUAL.md`.
 
 Research Companion is **local-first**: everything lives as plain files under
 `~/.research-companion/workspaces/<id>/` — JSON per paper plus an in-memory
@@ -229,8 +227,8 @@ Workspace-level files (`config.json`, `settings.json`, `failed.json`,
 ## 11. The review-side deterministic checks (the "add a checker" pattern)
 
 The review team's integrity checks — reference validation, statistical soundness
-(planned), reproducibility, ethics declarations, severity ranking, venue-fit — all
-follow one repeatable shape. If you are adding a new deterministic check, copy it:
+(Statcheck/GRIM), reproducibility, ethics declarations, near-duplicate/overlap,
+severity ranking, venue-fit — all follow one repeatable shape. If you are adding a new deterministic check, copy it:
 
 1. **A pure logic module** — network-free, LLM-free, fully unit-testable, with
    char-span provenance where it flags text. Examples:

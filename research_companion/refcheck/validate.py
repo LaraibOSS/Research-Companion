@@ -14,7 +14,7 @@ from research_companion.refcheck import matching
 
 Status = Literal["verified", "suspect", "unverified"]
 
-# Thresholds for the deterministic pre-filters (see NOVELTY_ENGINE_SPEC Component 5).
+# Thresholds for the deterministic reference-matching pre-filters.
 TITLE_MATCH_THRESHOLD = 0.9
 AUTHOR_OVERLAP_THRESHOLD = 0.6
 

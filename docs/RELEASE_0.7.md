@@ -2,9 +2,8 @@
 
 Research Companion 0.7 turns the tool inside-out: for two years it has *verified
 its own answers*; now it exposes that verification to **other** agents. The
-strategic bet (see `docs/superpowers/specs/2026-07-07-openscience-analysis-and-adoption-design.md`)
-is that as autonomous research agents proliferate, the scarce, defensible role is
-the **trust layer** — they generate, Research Companion checks.
+strategic bet is that as autonomous research agents proliferate, the scarce,
+defensible role is the **trust layer** — they generate, Research Companion checks.
 
 ---
 
@@ -63,8 +62,8 @@ exposes Research Companion's deterministic verification to any MCP-capable agent
 - **Versioned contract:** `docs/mcp-schemas/tools.v1.json` documents the stable
   input/output schema external agents can rely on.
 - **The cost-and-keys boundary is deliberate:** the tools that spend LLM money or
-  need a key (`ask_library`, `review_draft`) are **held for 0.7.1** behind an
-  explicit budget gate, so nothing exposed in 0.7.0 can run up a bill.
+  need a key (`ask_library`, `review_draft`) are **held for a future release**
+  behind an explicit budget gate, so nothing exposed in 0.7.0 can run up a bill.
 
 Modules: `research_companion/mcp_tools.py`, `research_companion/mcp_server.py`.
 Tests: `tests/test_mcp_tools.py`, `tests/test_mcp_server.py`.

@@ -551,12 +551,10 @@ research-companion lab serve|ingest|failures        # the web Lab
 
 ---
 
-### Roadmap (planned, not yet shipped)
+### Roadmap (what's next)
 
-An MCP trust server ("a local, bounded, key-free trust server for citation
-verification, quote grounding, citation coverage, and library search"),
-biomedical/CS metadata connectors (PubMed, Europe PMC, DBLP), and
-venue-checklist skill packs. See `docs/superpowers/specs/` for the design.
-
-*Companion document: `docs/RESEARCH_COMPANION_GUIDE.pdf` — the guide &
-critical analysis, including measured evaluations and known failure modes.*
+The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
+deterministic key-free tools) and near-duplicate/overlap detection in 0.7.1. Still
+ahead: cost-gated MCP tools (`ask_library` / `review_draft`), domain metadata
+connectors (PubMed, Europe PMC, DBLP), venue-checklist skill packs, and semantic
+(paraphrase) overlap. See [ROADMAP.md](ROADMAP.md).

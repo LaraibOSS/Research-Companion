@@ -1,16 +1,16 @@
-# Roadmap — papergraph → Universal Research Evaluator
+# Roadmap — Research Companion
 
-Phased plan derived from `RESEARCH_EVALUATOR_PLAN.md` (evidence), `COMPETITOR_ARCHITECTURES.md` (what to borrow/beat), and `NOVELTY_ENGINE_SPEC.md` (Tier-1 detail).
+Phased plan grounded in `RESEARCH_EVALUATOR_PLAN.md` (evidence) and `COMPETITOR_ARCHITECTURES.md` (what to borrow/beat).
 
 Legend: 🟢 ship first · 🟡 differentiator · 🔵 reach/moat
 Status: ✅ shipped · 🟠 partial · ⬜ not started
 
-> **Status note.** Phase 1 and Phase 2 are complete; Phase 3 is mostly complete
-> (only the plagiarism half of #13 remains). The work landed as a
-> **multi-agent pipeline** under `research_companion/agents/` plus supporting
-> top-level modules, not the dedicated `novelty/` package the original plan
-> named. The mapping below records where each item actually lives so the roadmap
-> tracks the code.
+> **Status note.** Phases 1–3 are essentially complete, and several capabilities
+> shipped beyond the original #1–#14 plan (see "Shipped beyond the original plan").
+> The work landed as a **multi-agent pipeline** under `research_companion/agents/`
+> plus supporting top-level modules, not the dedicated `novelty/` package the
+> original plan named. The mapping below records where each item actually lives so
+> the roadmap tracks the code.
 
 ---
 
@@ -21,7 +21,7 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 - ✅ 🟢 **#2 Contribution extraction** — extracts contribution/problem claims + evidence. → `research_companion/agents/problem.py` (`ProblemStatementAgent`) + `research_companion/extract.py`.
 - ✅ 🟢 **#3 Multi-source prior-art retrieval** — OpenAlex/arXiv/CrossRef/DBLP + canonical-ID dedup + temporal filter. → `research_companion/agents/priorart.py` + `research_companion/refcheck/retrieval.py`.
 - ✅ 🟢 **#4 Evidence verifier** — anchor/exact→normalized→fuzzy quote match vs fulltext; unverified quotes demoted. → `research_companion/rebuttal/verify.py` (`verify_quote`, `locate_quote`).
-- ✅ 🟡 **#5 Contribution-level comparison** — claim × prior art / papergraph neighborhood; polarity-typed matches. → `research_companion/agents/novelty.py` (`NoveltyAgent`) + `research_companion/compare.py`.
+- ✅ 🟡 **#5 Contribution-level comparison** — claim × prior art / concept-graph neighborhood; polarity-typed matches. → `research_companion/agents/novelty.py` (`NoveltyAgent`) + `research_companion/compare.py`.
 - ✅ 🟡 **#6 Novelty report + graph view + CLI** — aggregated verdicts, interactive graph, CLI. → `research_companion/report.py`, `research_companion/viz.py`, CLI `review` / `compare`; lab dashboard.
 
 ## Phase 2 — Reviewer critique + venue fit — COMPLETE
@@ -33,17 +33,26 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 ## Phase 3 — Universal reach + integrity
 - ✅ 🔵 **#11 Cross-discipline venue knowledge base** — data-driven KB (`research_companion/data/venues.json`, 19 venues across 9 disciplines: ML, NLP, vision, data-mining/IR, biomedical, physics, psychology, economics, general) with per-venue scope, reporting checklists, and desk-reject rules; loaded by `venues.py` with a discipline model (`infer_discipline`, `suggest_alternatives`, `venues_for_discipline`). Feeds the venue-fit checker (#7) beyond CS/biomed and grounds its verdicts in real venue requirements. Extending it needs no code change — see `docs/VENUE_KB.md`.
 - ✅ 🔵 **#12 Reproducibility / data-availability checker** — deterministic scan for public code/data links, availability statements, methods-completeness signals, and EQUATOR/PRISMA/CONSORT-family checklists → high/medium/low level + gaps. → `research_companion/reproducibility.py` + `research_companion/agents/reproducibility.py` (`ReproducibilityAgent`); rendered in `report.py`.
-- 🟠 🔵 **#13 Plagiarism / ethics-declaration checks** — **partial.** Integrity-declaration detection ships (funding, conflict-of-interest, author contributions, ethics/IRB approval, informed consent). → `research_companion/ethics.py` + `research_companion/agents/ethics.py` (`EthicsAgent`); rendered in `report.py`. **Deferred:** true plagiarism/near-duplicate detection, which needs an external similarity corpus/service.
+- ✅ 🔵 **#13 Ethics declarations + near-duplicate detection** — integrity-declaration detection ships (funding, conflict-of-interest, author contributions, ethics/IRB approval, informed consent → `research_companion/ethics.py` + `agents/ethics.py`), and **near-duplicate/overlap detection** ships as of 0.7.1 (deterministic local shingling vs your library, with an opt-in consent-gated external seam → `research_companion/overlap.py` + `agents/overlap.py`; CLI `check-overlap`). **Deferred:** true web-corpus plagiarism (needs an external similarity service + privacy model).
 - ✅ 🔵 **#14 Accuracy benchmark** — labeled validation harness measuring verdict quality vs reviewers. → `research_companion/eval/` (`novelty_openreview.py`, `citation_pr.py`, `pvalue.py`) + `research_companion/agents/benchmark.py`; results in `eval/results/`.
+
+## Shipped beyond the original plan (0.6.1–0.7.1)
+- ✅ **Statistical soundness (Statcheck + GRIM)** — recompute reported p-values from the test statistic + df and flag inconsistencies; check reported means for arithmetic plausibility. Deterministic, dependency-free. → `research_companion/statcheck/` + `agents/statsoundness.py`; CLI `check-stats`.
+- ✅ **Interoperability** — BibTeX/RIS export, `.bib` import (Zotero/Mendeley), and LaTeX `\cite`-key resolution. → `research_companion/interop/`; CLI `export-bib` / `import-bib` / `cite-tex`.
+- ✅ **MCP trust-layer server** — exposes four deterministic, key-free verification tools (`verify_citation`, `ground_claim`, `citation_coverage`, `search_library`) to external agents. → `research_companion/mcp_server.py` + `mcp_tools.py`; CLI `mcp serve`.
 
 ---
 
 ## What's genuinely open
 
-Phase 1, **all of Phase 2**, and **most of Phase 3** are shipped. The only
-remaining item:
+Phases 1–3 are shipped, plus statistical soundness, interoperability, the MCP
+trust-layer, and local near-duplicate detection. The remaining items are
+deliberately deferred:
 
-1. **#13 Plagiarism / near-duplicate detection** (🔵, finish the partial) — the declaration side ships (`ethics.py`); true plagiarism needs an external similarity corpus/service. Design the integration boundary and privacy model before building.
+1. **True web-corpus plagiarism** (🔵) — the local near-duplicate check ships (`overlap.py`); detecting reuse against an external corpus needs a similarity service + a privacy model. The consent-gated `ExternalOverlapProvider` seam already exists; design the boundary before shipping a provider.
+2. **Cost-gated MCP tools** (🔵) — `ask_library` / `review_draft` behind an explicit budget/keys boundary; the v2 MCP schema.
+3. **Domain metadata connectors** (🟡) — PubMed / Europe PMC / DBLP.
+4. **Semantic (paraphrase) overlap** (🔵) — embedding-based near-duplicate, beyond the current lexical shingling.
 
 Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with
 more venues/disciplines as needed — this is expected maintenance, not a blocking
@@ -54,8 +63,8 @@ roadmap item.
 To create these as GitHub issues, point at the repo you own (`gh repo set-default`) and run:
 
 ```bash
-gh issue create --title "Plagiarism / near-duplicate detection" --label "phase-3,tier-3,research" \
-  --body "Declaration detection ships (ethics.py). Add true plagiarism/near-duplicate detection via an external similarity corpus/service; design the integration boundary and privacy model first."
+gh issue create --title "True web-corpus plagiarism provider" --label "phase-3,tier-3,research" \
+  --body "Local near-duplicate detection ships (overlap.py) with a consent-gated ExternalOverlapProvider seam. Add a real web-corpus similarity provider; design the integration boundary and privacy model first."
 ```
 
 ## Known issues carried past v0.3.0 — RESOLVED
