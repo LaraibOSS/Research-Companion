@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "version": 1,
   "server": "research-companion",
-  "description": "Deterministic, key-free verification tools exposed by the Research Companion MCP trust-layer server (v0.7.0). Costed/keyed tools (ask_library, review_draft) are deferred to v0.7.1.",
+  "description": "Deterministic, key-free verification tools exposed by the Research Companion MCP trust-layer server (shipped in v0.7.0). Costed/keyed tools (ask_library, review_draft) are deferred to a future release as tools.v2.json.",
   "tools": {
     "verify_citation": {
       "description": "Validate a citation against authoritative records (CrossRef/OpenAlex/arXiv).",

@@ -227,8 +227,8 @@ Workspace-level files (`config.json`, `settings.json`, `failed.json`,
 ## 11. The review-side deterministic checks (the "add a checker" pattern)
 
 The review team's integrity checks — reference validation, statistical soundness
-(planned), reproducibility, ethics declarations, severity ranking, venue-fit — all
-follow one repeatable shape. If you are adding a new deterministic check, copy it:
+(Statcheck/GRIM), reproducibility, ethics declarations, near-duplicate/overlap,
+severity ranking, venue-fit — all follow one repeatable shape. If you are adding a new deterministic check, copy it:
 
 1. **A pure logic module** — network-free, LLM-free, fully unit-testable, with
    char-span provenance where it flags text. Examples:

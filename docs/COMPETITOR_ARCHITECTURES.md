@@ -1,6 +1,8 @@
 # Competitor Architecture Teardown (from graphified source)
 
-Three open-source competitors were cloned and graphified (AST-structural graphs: god nodes + community detection). This is what their *actual code* reveals — not their marketing — and what papergraph should borrow or beat.
+Three open-source competitors were cloned and graphified (AST-structural graphs: god nodes + community detection). This is what their *actual code* reveals — not their marketing — and what Research Companion should borrow or beat.
+
+> **Status (2026):** the borrow/beat decisions below are delivered — see `docs/ROADMAP.md` for what shipped. Kept for the competitive rationale behind each design choice.
 
 | Repo | Graph size | What it actually is |
 |---|---|---|

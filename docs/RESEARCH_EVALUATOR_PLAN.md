@@ -3,6 +3,8 @@
 
 > Synthesized from a deep-research pass (5 angles · 26 sources · 127 claims extracted · 25 adversarially verified, 23 confirmed). Every load-bearing claim below is cited. Two claims were refuted and excluded (see end).
 
+> **Status (2026):** this is the founding evidence document; the features it motivated are now delivered — see `docs/ROADMAP.md` for what shipped and where each capability lives in the code. Kept for the rationale and citations behind each feature.
+
 ---
 
 ## 1. Is the problem real? (Yes — and it's large)
