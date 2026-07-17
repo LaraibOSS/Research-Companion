@@ -16,7 +16,7 @@
 ## Global Constraints
 
 - Branch `feat/oss-launch`. Commits `git -c user.name="Laraib Hasan" -c user.email="Lxh417bham@gmail.com" commit …`, **no AI trailer**, explicit `git add <paths>`.
-- Full gate after every task: `python -m pytest -q` (baseline 1866 pass / 3 skip) · `node --test tests/js/*.test.mjs` (638 pass) · `ruff check research_companion tests examples`.
+- Full gate after every task: `python -m pytest -q` · `node --test tests/js/*.test.mjs` · `ruff check research_companion tests examples`. **All discovered tests must pass with no regressions** vs. the branch baseline (currently ~1868 py / 3 skip, 638 js); the PR records baseline→final counts and no previously-tracked test file may disappear. Do not hard-code an exact expected count (parametrization/consolidation shifts it legitimately).
 - **Publish stays HELD** — never push a `v*` tag.
 - **NEVER touch `Laraib-Hasan-OSS/Research-Companion`** (frozen EMNLP-reviewer artifact).
 - Nothing the EMNLP paper claims may break: `examples/demo_offline.py`, `eval/` harnesses, the Lab.
@@ -694,6 +694,16 @@ Before editing, confirm `_download_pdf`'s only caller is `_try_download_pdf` (gr
 
 - [ ] **Step 1:** Dispatch a **security review** subagent over `research_companion/lab_api.py` (upload filename handling, `/pdf` + `/text` serving via `paper_id`→dirname, `/api/ingest` `paths` validation, workspace/view names → paths, **Host/Origin/CORS/CSRF posture and DNS-rebinding resistance for a loopback web server**, stored/reflected XSS from filenames + paper metadata + extracted text rendered in the Lab), `research_companion/mcp_server.py` + `mcp_tools.py` (input validation, `paper_id` path escape), and `parsers/_docling_worker.py` (subprocess args passed as a list, no shell). Bar: concrete exploitable findings only, with repro + severity + exact fix site.
 - [ ] **Step 2:** Dispatch a **correctness review** subagent over `research_companion/statcheck/`, `interop/`, `overlap.py`, `mcp_tools.py`, `report.py` wiring — same confirmed-findings-only bar.
+- [ ] **Step 2b:** Dispatch an **agent-runtime review** subagent over the CURRENT `research_companion/agents/` (`orchestrator.py`, `bus.py`, `events.py`, and the concrete agents). These concerns were raised against the historical agent-runtime plan — **verify each against the current code and fix only if real** (do not assume; the runtime has evolved far past that plan):
+  - **Blocking sync in async lanes:** agents call sync `validate_bibliography`/`search`/`build_graph` inside `asyncio.gather`; if they do blocking I/O they serialize the "concurrent" lanes. If confirmed, wrap with `asyncio.to_thread(...)` and add a test that two injected blocking callables overlap (not `asyncio.sleep` theatre).
+  - **Duplicate agent names / empty names** silently collapsing in the orchestrator's name→agent dict → raise `ValueError` on duplicate/empty; test both.
+  - **Untrusted `result.agent`:** orchestrator keys results by the returned `result.agent`; a mismatched value can `KeyError`/mis-own results. Reject or key by the scheduled agent's name; test a lying agent.
+  - **`AgentResult.data` JSON-serializability** is documented but unenforced → validate (`json.dumps`) before accepting a success, demote to error otherwise; test graph/set/callable/instance.
+  - **Event contract:** `Bus` claims "any object publishable" but `EventLog.event_to_dict` assumes the known dataclasses → type the union / reject unknowns with `TypeError`.
+  - **Audit-log CLI wiring:** `_cmd_review` builds `Bus()` with no `EventLog`, so there is no persistent audit trail from the CLI. Either add `--event-log PATH` (mkdir parents; note logs may hold paper metadata) or drop any "audit trail" claim from the docs.
+  - **Bus retention** (unbounded `history`/queues) and **per-agent timeout/cancellation** (a stuck lookup hangs the whole review; use `asyncio.wait_for`, let `CancelledError` propagate) — assess; fix if they affect the shipped CLI, otherwise note as future.
+  - **Mutable module-global `REVIEW_CONTEXT_OVERRIDES`** test seam → prefer an injected parameter if it risks cross-test leakage.
+  (The two honesty overclaims from that review — CitationAgent "fabricated" and PriorArtAgent "maps onto the graph" — were already verified real and fixed in commit `a562dc9`.)
 - [ ] **Step 3:** Per CONFIRMED finding: failing regression test → minimal fix → targeted test → full gate; one commit each. If a fix would change behavior the EMNLP paper describes, STOP and consult the user.
 - [ ] **Step 4:** If a review returns zero confirmed findings, record that in the PR body — invent no work.
 
@@ -704,12 +714,17 @@ Before editing, confirm `_download_pdf`'s only caller is `_try_download_pdf` (gr
 - [ ] **Step 1: Failing meta-tests:**
 
 ```python
-def test_no_windows_dev_paths_in_tracked_docs():
+def test_no_personal_dev_paths_in_tracked_docs():
+    """Scan tracked docs/text for personal absolute-path patterns (path-like only,
+    so a legitimate name in a URL/identity is not falsely flagged)."""
     import subprocess
-    out = subprocess.run(["git", "grep", "-lI", "-e", r"C:\\Users\\LARAIB",
-                          "-e", "C:/Users/LARAIB", "--", "*.md"],
-                         capture_output=True, text=True, cwd=REPO_ROOT)
-    assert out.stdout.strip() == "", f"dev paths leaked in: {out.stdout}"
+    patterns = [r"C:\\Users\\", "C:/Users/", r"\\Users\\LARAIB", "/home/LARAIB", "/Users/LARAIB"]
+    args = ["git", "grep", "-lI"]
+    for p in patterns:
+        args += ["-e", p]
+    args += ["--", "*.md", "*.txt", "*.rst", "*.cff"]
+    out = subprocess.run(args, capture_output=True, text=True, cwd=REPO_ROOT)
+    assert out.stdout.strip() == "", f"personal dev paths leaked in: {out.stdout}"
 
 def test_pyproject_has_homepage_and_changelog_urls():
     urls = _load_pyproject()["project"]["urls"]
@@ -745,7 +760,7 @@ def test_readme_clone_cd_and_import_are_valid():
 [ ] `git log --all -- .env` still empty (never committed) — re-confirmed
 ```
 
-- [ ] **Step 1: Full gate one final time** (expect ≥1895 py pass — baseline 1866 + new meta/security tests — 638 js, ruff clean).
+- [ ] **Step 1: Full gate one final time** — all discovered py + js tests pass, ruff clean, no previously-tracked test file removed; record baseline→final counts in the PR (do not assert an exact number).
 - [ ] **Step 2: Push + PR:** `git push -u origin feat/oss-launch`; `gh pr create --base main --title "OSS launch readiness: guardrails, CI hardening, security audit" --body <summary of phases, audit outcomes, holds (publish held; PyPI 0.5.14 vs source 0.7.1; mirror untouched)>`.
 - [ ] **Step 3: Wait for the PR checks** — `test` matrix, `lint`, `audit`, `package`, `dependency-review`, `ci-ok`, `codeql-ok` must all pass (fix forward if not). Confirm no CI job needs secrets (only `publish.yml` does) so fork PRs run cleanly.
 - [ ] **Step 4: Apply platform settings** (repo `Laraib-Hasan-Future/Research-Companion` ONLY; abort-on-error, verify each response):

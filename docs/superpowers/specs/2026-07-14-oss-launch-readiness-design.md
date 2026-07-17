@@ -47,13 +47,15 @@ Decisions made with the maintainer:
   `v*` tag, which we are not pushing).
 - `paper/`, `docs/superpowers/`, `docs/OSS_MIRROR_NOTES.md` **stay tracked**:
   they are already in public git history, so removing them from the tip
-  un-publishes nothing. Personal absolute paths inside them are scrubbed.
+  un-publishes nothing. Personal absolute paths inside them **will be scrubbed and
+  verified by a meta-test before the launch PR merges** (see plan Task 8) — not yet
+  done at the time of this design.
 
 Audit facts this design is grounded on (verified 2026-07-14):
 - Secrets audit: `.env` is untracked, gitignored, and **never appeared in git
   history** (verified with `git log --all -- .env` + pattern scans; all history
-  hits are placeholders/test fixtures). Local credentials are rotated by the
-  maintainer as routine hygiene.
+  hits are placeholders/test fixtures). **Credential rotation is a mandatory
+  pre-launch gate, not routine hygiene** (see Phase 0).
 - CI runs a hardcoded list of 18 of 29 `tests/js/*.test.mjs` files; Python 3.11 /
   ubuntu only; no `permissions:` blocks; `setup-python@v4`.
 - No branch protection; secret scanning / Dependabot / CodeQL not configured.
@@ -69,11 +71,18 @@ Audit facts this design is grounded on (verified 2026-07-14):
 
 Everything lands as **one branch (`feat/oss-launch`) → one PR into `main`**,
 which must itself pass the new required checks (dogfooding the guardrails).
-GitHub *settings* (branch protection, scanning toggles) are applied via
-`gh api` after the workflows merge, since required-check names must exist first.
+GitHub *settings* (branch protection, scanning toggles) are applied via `gh api`
+**after `ci-ok` and `codeql-ok` have run successfully on the launch PR, but before
+that PR is merged** — the PR run establishes the required-check contexts, and
+applying protection pre-merge means the launch PR itself must pass through it.
 
-### Phase 0 — Immediate security hygiene
-- Maintainer rotates local API credentials (routine hygiene; outside the repo).
+### Phase 0 — Mandatory credential revocation (launch gate)
+Launch work must not proceed to the PR stage until: the old OpenAI credential is
+revoked; the old Hugging Face credential is revoked; any credential ever pasted
+into chat is revoked; new least-privilege credentials are generated; the local
+`.env` is updated; and (after Task 5 merges the token-free publish workflow) the
+existing `PYPI_API_TOKEN` secret is deleted and revoked. "Updated locally" is not
+sufficient while an old credential remains valid.
 - Add `docs/Medical/` and broader `.env.*` patterns (keep `!.env.example`) to
   `.gitignore`.
 
@@ -101,8 +110,12 @@ GitHub *settings* (branch protection, scanning toggles) are applied via
   - replace the 18-file JS list with `node --test tests/js/*.test.mjs`;
   - matrix: python `[3.10, 3.11, 3.12, 3.13]` on `ubuntu-latest`, plus one
     `windows-latest` + 3.12 job (the dev platform); `fail-fast: false`;
-  - bump `actions/setup-python` to v5 / `actions/checkout` stays v4;
-  - keep job name stable (`test`) so required-check config is predictable.
+  - **[UPDATED]** use the current action majors from the implementation plan
+    (`checkout@v7`, `setup-python@v6`, `setup-node@v7`); the old
+    "setup-python@v5 / checkout stays v4" note is superseded;
+  - **[UPDATED]** matrix jobs get descriptive names, but branch protection depends
+    only on the stable **`ci-ok`** aggregate context (not the individual `test`
+    job), so the required-check config is stable regardless of the matrix.
 - New `codeql.yml` — CodeQL (**`@v4`**) for `python` and `javascript`, on push/PR
   to main + weekly; `permissions: security-events: write, contents: read`; behind
   a stable **`codeql-ok`** aggregate gate.
