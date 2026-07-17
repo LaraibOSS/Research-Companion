@@ -9,7 +9,7 @@ from research_companion.agents.base import Agent, AgentContext, AgentResult
 
 class CitationAgent(Agent):
     name = "citation"
-    role = "Verifies every reference against CrossRef/OpenAlex; flags fabricated citations."
+    role = "Verifies every reference against CrossRef/OpenAlex; reports each as verified, suspect, or unverified."
     depends_on = ("ingest",)
 
     async def run(self, ctx: AgentContext) -> AgentResult:

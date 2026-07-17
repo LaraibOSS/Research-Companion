@@ -1,9 +1,17 @@
 # Research Companion
 
+[![CI](https://github.com/Laraib-Hasan-Future/Research-Companion/actions/workflows/ci.yml/badge.svg)](https://github.com/Laraib-Hasan-Future/Research-Companion/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](pyproject.toml)
+
 > Drop arXiv URLs, DOIs, or PDFs in. Get a knowledge graph and a chat interface that answers questions with paper citations. Local-first. Open source.
 
+This repository is the canonical home of Research Companion. The source tree is at
+`0.7.1`; the latest PyPI release is `0.5.14` (publishing is currently held), so a
+`pip install -e .` from source is ahead of PyPI.
+
 ```bash
-git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git && cd research-companion && pip install -e .
+git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git && cd Research-Companion && pip install -e .
 research-companion add https://arxiv.org/abs/2410.05779
 research-companion add https://arxiv.org/abs/2404.16130
 research-companion build
@@ -117,7 +125,7 @@ research-companion builds a *concept-level* knowledge graph (concepts, methods, 
 
 ```bash
 git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git
-cd research-companion
+cd Research-Companion
 pip install -e ".[server]"   # core + Research Lab server (fastapi, uvicorn)
 
 # you also need ONE of:
@@ -277,9 +285,9 @@ research-companion review <paper-id> --serve         # live browser dashboard (S
 
 What each lane does:
 
-- **citation** - validates every reference against CrossRef/OpenAlex; flags fabricated,
-  wrong-DOI, and author-mismatch citations.
-- **priorart** - maps related work via Semantic Scholar.
+- **citation** - validates every reference against CrossRef/OpenAlex and reports each as
+  verified, suspect, or unverified (catching wrong-DOI and author-mismatch cases).
+- **priorart** - finds related work via Semantic Scholar.
 - **novelty** - extracts the paper's claimed contributions, compares each against prior art,
   and verifies every evidence quote against the paper's own text.
 - **confidence** - deterministic score with an uncertainty band per claim (no LLM).
@@ -353,13 +361,13 @@ research-companion compare <paper-a> <paper-b>
 ## Programmatic API
 
 ```python
-import research-companion
+from research_companion import add_paper, build_graph, chat, view
 
-research-companion.add_paper("https://arxiv.org/abs/2410.05779")
-research-companion.add_paper("10.1145/1234567.1234568")  # DOI
-G = research-companion.build_graph()              # NetworkX Graph
-research-companion.view()                          # opens HTML
-ans = research-companion.chat("what is GraphRAG?")
+add_paper("https://arxiv.org/abs/2410.05779")
+add_paper("10.1145/1234567.1234568")       # DOI
+G = build_graph()                          # NetworkX Graph
+view()                                     # opens HTML
+ans = chat("what is GraphRAG?")
 print(ans.answer)                          # cited answer
 print(ans.papers)                          # papers used in retrieval
 ```
@@ -387,20 +395,17 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 
 ## Contributing
 
-PRs welcome. Issues even more welcome. The codebase is intentionally small (MIT-licensed, no heavy frameworks). Run tests:
+PRs welcome — anyone can raise one. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for
+setup, design principles, and the PR checklist, and
+**[SECURITY.md](SECURITY.md)** for reporting vulnerabilities privately. The
+codebase is intentionally small (MIT-licensed, no heavy frameworks). Every PR must
+pass the three gates that CI runs on Python 3.10–3.13 across Ubuntu and Windows:
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q   # 1,780+ Python tests
-node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs \
-  tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs \
-  tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs \
-  tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs \
-  tests/js/askcompare.test.mjs tests/js/converse.test.mjs \
-  tests/js/glossary.test.mjs tests/js/home.test.mjs \
-  tests/js/settingsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs \
-  tests/js/theme.test.mjs tests/js/timelineLayout.test.mjs \
-  tests/js/viewsHelpers.test.mjs   # 322 JS tests
+python -m pytest -q
+node --test tests/js/*.test.mjs
+ruff check research_companion tests examples
 ```
 
 ## Acknowledgements

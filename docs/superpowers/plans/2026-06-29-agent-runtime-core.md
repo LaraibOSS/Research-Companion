@@ -1,5 +1,17 @@
 # Agent Runtime + Core Agents Implementation Plan (Plan 1 of 5)
 
+> **⚠️ Status: HISTORICAL / SUPERSEDED — do NOT execute.**
+> This plan targets the former `papergraph` package and an early test baseline
+> (~112 tests). The runtime it describes has long since shipped and evolved in
+> the current `research_companion` package (1,860+ tests). It is retained only for
+> design provenance. Do not run it against the current codebase, and do not copy
+> its code snippets verbatim — several role/summary strings here predate the
+> project's honesty conventions (e.g. "flags fabricated citations", "maps it onto
+> the graph") and have since been corrected in the shipped agents. Any concurrency,
+> validation, or event-contract concerns in this document are evaluated against
+> the *current* code in the OSS-launch audit
+> (`docs/superpowers/plans/2026-07-15-oss-launch-readiness.md`, Task 7), not here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The async agent runtime (events, bus, orchestrator) plus three wrapper agents (Ingest, Citation, PriorArt) behind a new `papergraph review <paper_id>` CLI command.
@@ -16,7 +28,7 @@
 - Full suite must stay green after every task: `python -m pytest -q` (112 tests before this plan).
 - `AgentResult.data` must stay JSON-serializable; non-JSON objects (graphs, callables) travel only in `ctx.data` under `_`-prefixed keys.
 - Async tests: decorate with `@pytest.mark.asyncio` (pytest-asyncio ≥ 0.23 is installed). If pytest errors with "async def functions are not natively supported", add `asyncio_mode = "auto"` under `[tool.pytest.ini_options]` in `pyproject.toml` instead of decorating.
-- Windows dev box: use forward-slash paths in commands; run from repo root `C:/Users/LARAIB/Projects/Research_graph/papergraph`.
+- Run commands from the repository root. Use forward-slash paths in cross-platform command examples.
 
 ---
 

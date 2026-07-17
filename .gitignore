@@ -7,12 +7,14 @@ dist/
 .venv/
 venv/
 .env
-.env.local
+.env.*
+!.env.example
 
 # Local user state — never commit
 .research-companion/
 research-companion-out/
 demo-out/
+docs/Medical/
 
 # IDE / OS
 .vscode/

@@ -1,8 +1,8 @@
 # Port v0.5.17 reliability/UX improvements into the canonical tool
 
 ## Context
-A parallel dev clone (`C:\Users\LARAIB\Projects\Research-Companion`, remote
-`Laraib-Hasan-OSS`, local `v0.5.17`) advanced our exact `v0.5.16` base with 10
+A parallel dev clone (a local checkout of the `Laraib-Hasan-OSS` remote, local
+`v0.5.17`) advanced our exact `v0.5.16` base with 10
 TDD'd commits — ingestion/citation reliability fixes, several UI/UX fixes, and an
 onboarding bundle. Those improvements were never pushed to a shared remote; they
 live only in that clone (plus its `pre-cleanup-backup` tag). This spec brings the
@@ -54,7 +54,7 @@ two together as one increment rather than risk a broken intermediate state.
 ## Approach (the "don't break" mechanism)
 1. **Backup:** `git tag pre-port-backup` on `papergraph` HEAD before starting.
 2. **Source:** add the clone as a **read-only** local remote
-   (`git remote add ported "C:/Users/LARAIB/Projects/Research-Companion"`,
+   (`git remote add ported "<path-to-local-clone>"`,
    `git fetch ported`). Never push to it.
 3. **Per increment (one commit / one sub-feature at a time, in the order above):**
    - `git cherry-pick -x <sha>` (or apply the feature's hunks for a split).

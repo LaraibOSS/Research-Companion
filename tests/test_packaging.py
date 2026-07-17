@@ -101,6 +101,13 @@ def test_pyproject_version_is_0_7_1():
     )
 
 
+def test_gitignore_covers_private_local_content():
+    """docs/Medical and all .env variants (except .env.example) must be ignored."""
+    gi = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    for pattern in ("docs/Medical/", ".env.*", "!.env.example"):
+        assert pattern in gi, f".gitignore missing {pattern!r}"
+
+
 def test_dunder_version_matches_pyproject():
     """`research-companion --version` reads research_companion.__version__ — it must
     never drift from pyproject (release bug: 0.3.0 wheel reported 0.1.0)."""
@@ -208,12 +215,17 @@ def test_publish_workflow_has_twine_check_step():
     assert "twine check" in content, "publish.yml must run twine check"
 
 
-def test_publish_workflow_has_secret_reference():
-    """publish.yml upload step must reference PYPI_API_TOKEN secret."""
-    publish_yml = REPO_ROOT / ".github" / "workflows" / "publish.yml"
-    content = publish_yml.read_text(encoding="utf-8")
-    assert "PYPI_API_TOKEN" in content, "publish.yml must reference PYPI_API_TOKEN secret"
-    assert "secrets.PYPI_API_TOKEN" in content, "publish.yml must use ${{ secrets.PYPI_API_TOKEN }}"
+def test_publish_workflow_uses_trusted_publishing_build_once():
+    """publish.yml must use OIDC Trusted Publishing, build-once/publish-exact."""
+    content = (REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    assert "id-token: write" in content, "publish must request OIDC id-token"
+    assert "pypa/gh-action-pypi-publish@release/v1" in content
+    assert "environment:" in content and "pypi" in content
+    assert "PYPI_API_TOKEN" not in content, "long-lived token must be gone"
+    assert "upload-artifact@v7" in content and "download-artifact@v8" in content, \
+        "publish must build once and publish the exact tested artifact"
+    assert "fetch-depth: 0" in content, "reachability check needs full git history"
+    assert "git rev-list -n 1" in content, "resolve annotated tags to a commit before ancestry check"
 
 
 def test_publish_workflow_has_upload_guard():
@@ -254,11 +266,71 @@ def test_ci_workflow_has_ruff_check():
     assert "research_companion" in content, "ci.yml must check research_companion"
 
 
-def test_ci_workflow_has_node_test_command():
-    """ci.yml must run node --test with all documented test files."""
-    ci_yml = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-    content = ci_yml.read_text(encoding="utf-8")
-    assert "node --test" in content, "ci.yml must run node --test"
-    # Check for a few key test files
-    assert "tests/js/reducer.test.mjs" in content, "ci.yml node command must include reducer.test.mjs"
-    assert "tests/js/converse.test.mjs" in content, "ci.yml node command must include converse.test.mjs"
+def test_ci_workflow_runs_all_js_tests_via_glob():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "node --test tests/js/*.test.mjs" in content
+    assert "reducer.test.mjs" not in content, "ci.yml must not hardcode JS filenames"
+
+
+def test_ci_workflow_scopes_permissions():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "permissions:" in content and "contents: read" in content
+
+
+def test_ci_workflow_has_python_matrix_and_windows():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    for needle in ("'3.10'", "'3.11'", "'3.12'", "'3.13'", "windows-latest"):
+        assert needle in content, f"ci.yml matrix missing {needle}"
+
+
+def test_ci_workflow_audits_packages_and_gates():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "pip-audit --strict ." in content, "ci.yml must audit the project with --strict"
+    assert "python -m build" in content and "twine check" in content, "ci.yml must build+check dists"
+    assert "dist/*.whl" in content and "dist/*.tar.gz" in content, "package job must install BOTH wheel and sdist"
+    assert "lab/static/index.html" in content, "package job must assert packaged static assets"
+    assert "dependency-review-action@v5" in content, "ci.yml must run dependency review (v5) on PRs"
+    assert "ci-ok" in content, "ci.yml must expose the ci-ok gate (required check)"
+
+
+def test_ci_workflow_uses_current_action_majors():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    for good in ("actions/checkout@v7", "actions/setup-python@v6", "actions/setup-node@v7"):
+        assert good in content, f"ci.yml must use {good}"
+    for stale in ("actions/checkout@v4", "actions/setup-python@v5", "actions/setup-node@v4"):
+        assert stale not in content, f"ci.yml still pins stale {stale}"
+
+
+def test_codeql_workflow_exists_and_gates():
+    codeql = REPO_ROOT / ".github" / "workflows" / "codeql.yml"
+    assert codeql.exists(), "Missing .github/workflows/codeql.yml"
+    content = codeql.read_text(encoding="utf-8")
+    assert "security-events: write" in content
+    assert "python" in content and "javascript" in content
+    assert "codeql-action/init@v4" in content and "codeql-action/analyze@v4" in content
+    assert "codeql-ok" in content, "codeql.yml must expose a stable codeql-ok gate"
+
+
+def test_no_personal_dev_paths_in_tracked_docs():
+    """Fixed-string scan of tracked docs for personal absolute-path prefixes."""
+    import subprocess
+    patterns = [r"C:\Users", "C:/Users/", "/home/LARAIB", "/Users/LARAIB"]
+    args = ["git", "grep", "-lI", "-F"]
+    for p in patterns:
+        args += ["-e", p]
+    args += ["--", "*.md", "*.txt", "*.rst", "*.cff"]
+    out = subprocess.run(args, capture_output=True, text=True, cwd=REPO_ROOT)
+    assert out.stdout.strip() == "", f"personal dev paths leaked in:\n{out.stdout}"
+
+
+def test_pyproject_has_homepage_and_changelog_urls():
+    urls = _load_pyproject()["project"]["urls"]
+    for key in ("Homepage", "Documentation", "Changelog"):
+        assert key in urls, f"[project.urls] missing {key}"
+
+
+def test_readme_clone_cd_and_import_are_valid():
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "cd research-companion" not in text, "cd must match cloned dir Research-Companion"
+    assert "import research-companion" not in text, "hyphenated import is invalid Python"
+    assert "research-companion." not in text, "no hyphenated module attribute access in examples"

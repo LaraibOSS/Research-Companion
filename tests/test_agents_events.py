@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from research_companion.agents import events
 
 
@@ -31,9 +29,12 @@ def test_event_to_dict_all_types_roundtrip_json():
         json.dumps(events.event_to_dict(e))  # must not raise
 
 
-def test_event_to_dict_rejects_unknown_type():
-    with pytest.raises(ValueError, match="unknown event type"):
-        events.event_to_dict(object())
+def test_event_to_dict_falls_back_on_unknown_type():
+    """Forward-safety: an unregistered event serializes (class name) instead of
+    raising, so a newly-added event type can't abort a run from an un-guarded publish."""
+    d = events.event_to_dict(object())
+    assert d["event"] == "object"
+    json.dumps(d)  # must remain JSON-serializable
 
 
 def test_suggestions_updated_event_roundtrip():

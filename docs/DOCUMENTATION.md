@@ -207,7 +207,7 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 |---|---|---|---|
 | `IngestAgent` | ingest | deterministic | graph node/edge counts (seeds the blackboard) |
 | `CitationAgent` | citation | deterministic (API) | verified / suspect / unverified references |
-| `PriorArtAgent` | priorart | deterministic (API) | related papers mapped onto the graph |
+| `PriorArtAgent` | priorart | deterministic (API) | related papers found via scholarly search |
 | `NoveltyAgent` | novelty | **LLM** | per-claim novelty verdicts + verified evidence |
 | `ConfidenceAgent` | confidence | deterministic | per-claim confidence score + uncertainty band |
 | `BenchmarkAgent` | benchmark | deterministic | suggested evaluation benchmarks |
