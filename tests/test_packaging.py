@@ -215,12 +215,17 @@ def test_publish_workflow_has_twine_check_step():
     assert "twine check" in content, "publish.yml must run twine check"
 
 
-def test_publish_workflow_has_secret_reference():
-    """publish.yml upload step must reference PYPI_API_TOKEN secret."""
-    publish_yml = REPO_ROOT / ".github" / "workflows" / "publish.yml"
-    content = publish_yml.read_text(encoding="utf-8")
-    assert "PYPI_API_TOKEN" in content, "publish.yml must reference PYPI_API_TOKEN secret"
-    assert "secrets.PYPI_API_TOKEN" in content, "publish.yml must use ${{ secrets.PYPI_API_TOKEN }}"
+def test_publish_workflow_uses_trusted_publishing_build_once():
+    """publish.yml must use OIDC Trusted Publishing, build-once/publish-exact."""
+    content = (REPO_ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    assert "id-token: write" in content, "publish must request OIDC id-token"
+    assert "pypa/gh-action-pypi-publish@release/v1" in content
+    assert "environment:" in content and "pypi" in content
+    assert "PYPI_API_TOKEN" not in content, "long-lived token must be gone"
+    assert "upload-artifact@v7" in content and "download-artifact@v8" in content, \
+        "publish must build once and publish the exact tested artifact"
+    assert "fetch-depth: 0" in content, "reachability check needs full git history"
+    assert "git rev-list -n 1" in content, "resolve annotated tags to a commit before ancestry check"
 
 
 def test_publish_workflow_has_upload_guard():

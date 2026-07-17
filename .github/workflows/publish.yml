@@ -5,50 +5,84 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  publish:
+  build:
+    name: build + verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
         with:
-          python-version: '3.11'
+          fetch-depth: 0
 
-      - name: Install dependencies
-        run: |
-          python -m pip install -e ".[dev]" build twine
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
-      - name: Check tag matches pyproject version
+      - name: Verify tag matches version and is on main
         run: |
-          PKG_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          set -euo pipefail
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag v$TAG_VERSION does not match pyproject version $PKG_VERSION" >&2
-            exit 1
-          fi
+          PROJECT_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          [ "$TAG_VERSION" = "$PROJECT_VERSION" ] || { echo "tag $TAG_VERSION != project $PROJECT_VERSION"; exit 1; }
+          git fetch origin main --quiet
+          TAG_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          git merge-base --is-ancestor "$TAG_COMMIT" origin/main || { echo "tagged commit not reachable from main"; exit 1; }
 
-      - name: Run tests
+      - name: Install dev deps + build tools
+        run: python -m pip install -e ".[dev]" build twine
+
+      - name: Run pytest -q
         run: python -m pytest -q
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
       - name: Run JS tests
-        run: node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs
+        run: node --test tests/js/*.test.mjs
 
-      - name: Build distribution
+      - name: Build distributions
         run: python -m build
 
-      - name: Check distribution
-        run: twine check dist/*
+      - name: twine check
+        run: python -m twine check dist/*
 
-      - name: Upload to PyPI
-        if: github.repository == 'Laraib-Hasan-Future/Research-Companion'
-        run: twine upload --skip-existing dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Smoke-test the built wheel
+        run: |
+          python -m venv wheel-test
+          wheel-test/bin/python -m pip install dist/*.whl
+          wheel-test/bin/research-companion --version
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: publish
+    needs: [build]
+    if: github.repository == 'Laraib-Hasan-Future/Research-Companion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/research-companion/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
