@@ -75,6 +75,10 @@ def test_parse_connectors_flag():
     assert cli._parse_connectors_arg("") is None
 
 
+def test_parse_connectors_comma_only_means_use_settings():
+    assert cli._parse_connectors_arg(" , ") is None
+
+
 def test_parse_connectors_rejects_unknown():
     import pytest
     with pytest.raises(SystemExit):

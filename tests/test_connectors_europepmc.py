@@ -31,6 +31,11 @@ def test_parse_handles_missing_fields():
     assert rec["authors"] == [] and rec["year"] is None and rec["doi"] is None
 
 
+def test_parse_europepmc_result_carries_abstract():
+    rec = parse_europepmc_result({**_RESULT, "abstractText": "X"})
+    assert rec["abstract"] == "X"
+
+
 def test_jats_to_text_keeps_headings_and_paragraphs_skips_refs_tables():
     xml = """<article><body>
       <sec><title>Methods</title><p>We did <italic>things</italic>.</p>

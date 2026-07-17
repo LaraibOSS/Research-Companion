@@ -40,13 +40,11 @@ def _parse_connectors_arg(value):
         print(f"research-companion: unknown connector(s): {', '.join(bad)}. "
               f"Valid: {', '.join(sorted(VALID_CONNECTORS))}", file=sys.stderr)
         raise SystemExit(2)
-    return names
+    return names or None
 
 
 def _cmd_add(args: argparse.Namespace) -> int:
     from research_companion.fetch import FetchError, add_paper
-
-    _parse_connectors_arg(getattr(args, "connectors", None))
 
     # --- collect targets from positional args + --from-file -----------------
     targets: list[str] = list(args.target) if args.target else []
@@ -1691,7 +1689,6 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--title", help="Title (single local PDF only)")
     pa.add_argument("--authors", help="Comma-separated authors (single local PDF only)")
     pa.add_argument("--year", type=int, help="Year (single local PDF only)")
-    pa.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed")
     pa.set_defaults(func=_cmd_add)
 
     pb = sub.add_parser("build", help="Run extraction on all papers and build the graph")

@@ -35,6 +35,7 @@ def parse_europepmc_result(result: dict) -> dict:
         "arxiv_id": None,
         "pmid": result.get("pmid"),
         "pmcid": result.get("pmcid"),
+        "abstract": (result.get("abstractText") or "").strip(),
     }
 
 

@@ -24,9 +24,11 @@ def test_add_pubmed_saves_metadata_and_fulltext(tmp_path, monkeypatch):
 def test_add_pubmed_abstract_only_when_no_fulltext(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "papers_dir", lambda: tmp_path)
     rec = {"title": "T", "authors": [], "year": 2020, "doi": None,
-           "arxiv_id": None, "pmid": "111", "pmcid": None}
+           "arxiv_id": None, "pmid": "111", "pmcid": None,
+           "abstract": "A short abstract."}
     meta = fetch.add_pubmed("pmid:111", resolve=lambda ident: rec, fetch_text=lambda pmcid: None)
     assert meta.full_text_available is False
+    assert meta.abstract == "A short abstract."
 
 
 def test_add_pubmed_pmid_idempotent_skips_resolve(tmp_path, monkeypatch):

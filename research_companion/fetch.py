@@ -519,7 +519,7 @@ def add_pubmed(url_or_id: str, *, resolve=None, fetch_text=None) -> PaperMetadat
         title=rec["title"],
         authors=rec.get("authors", []),
         year=rec.get("year"),
-        abstract="",
+        abstract=rec.get("abstract", ""),
         source_url=f"https://pubmed.ncbi.nlm.nih.gov/{rec['pmid']}/" if rec.get("pmid") else "",
         added_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         pmid=rec.get("pmid"),

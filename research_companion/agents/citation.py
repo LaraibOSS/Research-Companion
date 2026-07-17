@@ -46,9 +46,9 @@ class CitationAgent(Agent):
                      f"{counts['unverified']} unverified"),
             data={"counts": counts, "references": ref_list[:50]},
         ))
-        connectors_enabled = bool(get_settings().get("connectors"))
         nudge = None
         try:
+            connectors_enabled = bool(get_settings().get("connectors"))
             meta = PaperMetadata.load(ctx.paper_id)
             title = meta.title if meta else ""
             abstract = (meta.abstract if meta else "") or (load_text(ctx.paper_id) or "")[:1500]
