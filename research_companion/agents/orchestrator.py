@@ -35,12 +35,23 @@ def _validate(agents: list[Agent]) -> None:
             deps.difference_update(ready)
 
 
+# Per-agent wall-clock cap: a hung lane (e.g. a stalled scholarly lookup) is
+# demoted to a failed result instead of hanging the whole review indefinitely.
+AGENT_TIMEOUT_SECONDS = 300
+
+
 async def _run_one(agent: Agent, ctx: AgentContext) -> AgentResult:
     await ctx.bus.publish(events.AgentStarted(agent=agent.name))
     try:
-        result = await agent.run(ctx)
+        result = await asyncio.wait_for(agent.run(ctx), timeout=AGENT_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        result = AgentResult(agent=agent.name, ok=False,
+                             error=f"agent timed out after {AGENT_TIMEOUT_SECONDS}s")
     except Exception as exc:  # noqa: BLE001 — failure isolation is the contract
         result = AgentResult(agent=agent.name, ok=False, error=str(exc))
+    # Trust the SCHEDULED name, not a value the agent returned — otherwise a
+    # mismatched result.agent would mis-key results / KeyError del pending.
+    result.agent = agent.name
     if result.ok:
         ctx.data[agent.name] = result.data
         await ctx.bus.publish(events.AgentDone(agent=agent.name, summary=str(result.data)[:200]))

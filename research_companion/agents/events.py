@@ -223,11 +223,21 @@ class JobFinished:
 
 
 def event_to_dict(event) -> dict[str, object]:
-    """Serialize an event with an `event` discriminator key."""
-    kind = _KIND.get(type(event).__name__)
-    if kind is None:
-        raise ValueError(f"unknown event type: {type(event).__name__}")
-    return {"event": kind, **asdict(event)}
+    """Serialize an event with an `event` discriminator key.
+
+    Registered event dataclasses use their kind; an unregistered type falls back
+    to its class name (and best-effort field extraction) rather than raising, so a
+    newly-added event type can never abort a run from an un-guarded publish.
+    """
+    name = type(event).__name__
+    kind = _KIND.get(name)
+    if kind is not None:
+        return {"event": kind, **asdict(event)}
+    try:
+        payload = asdict(event)
+    except TypeError:
+        payload = dict(vars(event)) if hasattr(event, "__dict__") else {"repr": repr(event)}
+    return {"event": name, **payload}
 
 
 class EventLog:
