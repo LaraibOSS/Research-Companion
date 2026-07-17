@@ -28,3 +28,12 @@ def test_preprint_published_warning_when_both_doi_and_arxiv():
     assert identity.preprint_published_warning(
         {"doi": "10.1/x", "arxiv_id": "2401.00001"}) is not None
     assert identity.preprint_published_warning({"doi": "10.1/x"}) is None
+
+
+def test_canonical_id_strips_arxiv_version_suffix():
+    assert identity.canonical_id({"arxiv_id": "2401.00001v2", "title": "T"}) == "arxiv:2401.00001"
+    assert identity.alt_ids({"arxiv_id": "2401.00001v3"}) == {"arxiv:2401.00001"}
+
+
+def test_canonical_id_pmid_beats_pmcid():
+    assert identity.canonical_id({"pmid": "1", "pmcid": "PMC9", "title": "T"}) == "pmid:1"

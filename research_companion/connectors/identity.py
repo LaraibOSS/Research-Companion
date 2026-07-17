@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import re
 
+from research_companion.store import make_arxiv_id, make_doi_id
+
 
 def _pmcid_norm(pmcid: str) -> str:
     p = pmcid.strip().upper()
@@ -19,29 +21,29 @@ def _title_hash(title: str) -> str:
     return "title:" + hashlib.md5(norm.encode("utf-8")).hexdigest()  # noqa: S324 (non-crypto id)
 
 
-def canonical_id(rec: dict) -> str:
+def _namespaced_ids(rec: dict) -> dict[str, str]:
+    """Namespaced ids present on a record, in precedence order (highest first)."""
+    ids: dict[str, str] = {}
     if rec.get("doi"):
-        return f"doi:{rec['doi'].strip()}"
+        ids["doi"] = make_doi_id(rec["doi"].strip())
     if rec.get("pmid"):
-        return f"pmid:{str(rec['pmid']).strip()}"
+        ids["pmid"] = f"pmid:{str(rec['pmid']).strip()}"
     if rec.get("pmcid"):
-        return f"pmcid:{_pmcid_norm(rec['pmcid'])}"
+        ids["pmcid"] = f"pmcid:{_pmcid_norm(rec['pmcid'])}"
     if rec.get("arxiv_id"):
-        return f"arxiv:{rec['arxiv_id'].strip()}"
+        ids["arxiv"] = make_arxiv_id(rec["arxiv_id"].strip())
+    return ids
+
+
+def canonical_id(rec: dict) -> str:
+    namespaced = _namespaced_ids(rec)
+    if namespaced:
+        return next(iter(namespaced.values()))
     return _title_hash(rec.get("title", ""))
 
 
 def alt_ids(rec: dict) -> set[str]:
-    ids: set[str] = set()
-    if rec.get("doi"):
-        ids.add(f"doi:{rec['doi'].strip()}")
-    if rec.get("pmid"):
-        ids.add(f"pmid:{str(rec['pmid']).strip()}")
-    if rec.get("pmcid"):
-        ids.add(f"pmcid:{_pmcid_norm(rec['pmcid'])}")
-    if rec.get("arxiv_id"):
-        ids.add(f"arxiv:{rec['arxiv_id'].strip()}")
-    return ids
+    return set(_namespaced_ids(rec).values())
 
 
 def preprint_published_warning(rec: dict) -> str | None:
