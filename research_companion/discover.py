@@ -38,6 +38,8 @@ class DiscoveredPaper:
     url: str
     abstract: str = ""
     source: str = ""  # how it was discovered: "search", "reference", "citation"
+    pmid: str | None = None
+    pmcid: str | None = None
 
     @property
     def add_cmd(self) -> str:
