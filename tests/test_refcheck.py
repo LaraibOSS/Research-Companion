@@ -173,3 +173,11 @@ def test_validate_bibliography_empty_is_all_zero_counts():
     report = validate_bibliography([], lambda r: None)
     assert report.entries == []
     assert report.counts() == {"verified": 0, "suspect": 0, "unverified": 0}
+
+
+def test_validate_flags_pmid_conflict():
+    ref = Reference(title="T", pmid="111")
+    record = {"title": "T", "authors": [], "year": None, "pmid": "222"}
+    verdict = validate_reference(ref, lambda r: record)
+    assert verdict.status == "suspect"
+    assert any("PMID" in reason for reason in verdict.reasons)
