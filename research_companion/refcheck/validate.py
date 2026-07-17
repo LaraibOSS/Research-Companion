@@ -28,6 +28,8 @@ class Reference:
     year: int | None = None
     doi: str | None = None
     arxiv_id: str | None = None
+    pmid: str | None = None
+    pmcid: str | None = None
     url: str | None = None
     raw: str = ""
 
