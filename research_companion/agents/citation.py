@@ -13,9 +13,14 @@ class CitationAgent(Agent):
     depends_on = ("ingest",)
 
     async def run(self, ctx: AgentContext) -> AgentResult:
+        from research_companion.agents.venuefit import _contributions
+        from research_companion.nudge import connectors_nudge
         from research_companion.refcheck.parse import references_from_extraction
         from research_companion.refcheck.retrieval import default_lookup
         from research_companion.refcheck.validate import validate_bibliography
+        from research_companion.settings import get_settings
+        from research_companion.store import PaperMetadata, load_text
+        from research_companion.venues import infer_discipline
 
         ext = ctx.data["_extraction"]
         refs = references_from_extraction(ext)
@@ -41,7 +46,23 @@ class CitationAgent(Agent):
                      f"{counts['unverified']} unverified"),
             data={"counts": counts, "references": ref_list[:50]},
         ))
+        connectors_enabled = bool(get_settings().get("connectors"))
+        nudge = None
+        try:
+            meta = PaperMetadata.load(ctx.paper_id)
+            title = meta.title if meta else ""
+            abstract = (meta.abstract if meta else "") or (load_text(ctx.paper_id) or "")[:1500]
+            concept_names = [str(c.get("name", "")) for c in ext.get("concepts", [])]
+            contribs = _contributions(ctx.data, ext)
+            paper_terms = [title, abstract, *concept_names, *contribs]
+            discipline = infer_discipline(paper_terms)[0]
+            nudge = connectors_nudge(refs, connectors_enabled=connectors_enabled,
+                                      discipline=discipline)
+        except Exception:
+            nudge = None
+
         return AgentResult(agent=self.name, ok=True, data={
             "counts": counts,
             "references": ref_list,
+            "connectors_nudge": nudge,
         })
