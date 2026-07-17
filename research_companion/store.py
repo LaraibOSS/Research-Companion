@@ -321,6 +321,17 @@ def make_s2_id(s2_id: str) -> str:
     return f"s2:{s2_id.strip()}"
 
 
+def make_pmid_id(pmid: str) -> str:
+    """Create a paper ID from a PubMed id, e.g. 'pmid:30449619'."""
+    return f"pmid:{str(pmid).strip()}"
+
+
+def make_pmcid_id(pmcid: str) -> str:
+    """Create a paper ID from a PMC id, e.g. 'pmcid:PMC6289601'."""
+    p = pmcid.strip().upper()
+    return f"pmcid:{p if p.startswith('PMC') else 'PMC' + p}"
+
+
 # arXiv id (new-style YYMM.NNNNN) / DOI embedded in a filename — folder exports
 # are commonly named like "author2025_title_arXiv-2501.13956.pdf".
 _ARXIV_IN_NAME_RE = re.compile(r"\b(\d{4}\.\d{4,5})\b")
@@ -384,6 +395,9 @@ class PaperMetadata:
     added_at: str = ""
     parse_source: str = ""   # which parser produced the stored text: "pypdfium" | "docling" | "docling+ocr"
     ocr_used: bool = False    # True when the forced-full-page-OCR fallback recovered the text
+    pmid: str | None = None
+    pmcid: str | None = None
+    full_text_available: bool = False
 
     def save(self) -> None:
         p = paper_dir(self.paper_id) / "metadata.json"
