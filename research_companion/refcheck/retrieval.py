@@ -212,6 +212,25 @@ def chained_lookup(*retrievers: Callable[[Reference], dict | None]) -> Callable[
     return _lookup
 
 
-def default_lookup() -> Callable[[Reference], dict | None]:
-    """The standard lookup: CrossRef first, then OpenAlex as fallback."""
-    return chained_lookup(arxiv_lookup, crossref_lookup, openalex_lookup)
+def _settings_connectors() -> list[str]:
+    """Enabled connector names from global settings; [] on any error (safe default)."""
+    try:
+        from research_companion.settings import get_settings
+        val = get_settings().get("connectors", [])
+        return list(val) if isinstance(val, list) else []
+    except Exception:
+        return []
+
+
+def default_lookup(*, connectors=None) -> Callable[[Reference], dict | None]:
+    """The standard lookup: arXiv → CrossRef → OpenAlex, then any enabled
+    domain connectors. `connectors=None` reads the enabled list from settings;
+    pass an explicit list (incl. []) to override (tests / CLI flag)."""
+    names = _settings_connectors() if connectors is None else list(connectors)
+    retrievers: list[Callable[[Reference], dict | None]] = [
+        arxiv_lookup, crossref_lookup, openalex_lookup,
+    ]
+    if names:
+        from research_companion.connectors import enabled_connectors
+        retrievers.extend(conn.resolve for conn in enabled_connectors(names))
+    return chained_lookup(*retrievers)
