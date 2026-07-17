@@ -2,37 +2,124 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }}, ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ['3.10', '3.11', '3.12', '3.13']
+        include:
+          - os: windows-latest
+            python: '3.12'
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
 
-      - name: Install dependencies
-        run: |
-          python -m pip install -e ".[dev]" build twine
-
-      - name: Run pytest
-        run: python -m pytest -q
-
-      - name: Run ruff check
-        run: ruff check research_companion tests examples
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check research_companion tests examples
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
+      - run: node --test tests/js/*.test.mjs
 
-      - name: Run Node.js tests
-        run: node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pip-audit
+      - run: pip-audit --strict .
+
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install build twine
+      - name: Build distributions
+        run: python -m build
+      - name: twine check
+        run: python -m twine check dist/*
+      - name: Install WHEEL + smoke test (base, server, mcp extras)
+        run: |
+          python -m venv wheel-test
+          wheel-test/bin/python -m pip install "$(echo dist/*.whl)[server,mcp]"
+          wheel-test/bin/research-companion --version
+          wheel-test/bin/research-companion --help >/dev/null
+          wheel-test/bin/python -c "from research_companion import add_paper, build_graph, chat, view"
+          wheel-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/index.html').is_file(), 'packaged Lab static assets missing from wheel'"
+          wheel-test/bin/python -c "from research_companion.mcp_server import create_server; create_server()"
+      - name: Install SDIST + smoke test
+        run: |
+          python -m venv sdist-test
+          sdist-test/bin/python -m pip install dist/*.tar.gz
+          sdist-test/bin/research-companion --version
+          sdist-test/bin/python -c "from research_companion import add_paper, build_graph, chat, view"
+          sdist-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/index.html').is_file(), 'packaged Lab static assets missing from sdist'"
+
+  dependency-review:
+    name: dependency-review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [test, lint, audit, package, dependency-review]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Required jobs green (dependency-review may be skipped on push)
+        run: |
+          set -euo pipefail
+          for r in "${{ needs.test.result }}" "${{ needs.lint.result }}" \
+                   "${{ needs.audit.result }}" "${{ needs.package.result }}"; do
+            [ "$r" = "success" ] || { echo "required job failed: $r"; exit 1; }
+          done
+          dr="${{ needs.dependency-review.result }}"
+          [ "$dr" = "success" ] || [ "$dr" = "skipped" ] || { echo "dependency-review failed"; exit 1; }

@@ -261,11 +261,36 @@ def test_ci_workflow_has_ruff_check():
     assert "research_companion" in content, "ci.yml must check research_companion"
 
 
-def test_ci_workflow_has_node_test_command():
-    """ci.yml must run node --test with all documented test files."""
-    ci_yml = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-    content = ci_yml.read_text(encoding="utf-8")
-    assert "node --test" in content, "ci.yml must run node --test"
-    # Check for a few key test files
-    assert "tests/js/reducer.test.mjs" in content, "ci.yml node command must include reducer.test.mjs"
-    assert "tests/js/converse.test.mjs" in content, "ci.yml node command must include converse.test.mjs"
+def test_ci_workflow_runs_all_js_tests_via_glob():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "node --test tests/js/*.test.mjs" in content
+    assert "reducer.test.mjs" not in content, "ci.yml must not hardcode JS filenames"
+
+
+def test_ci_workflow_scopes_permissions():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "permissions:" in content and "contents: read" in content
+
+
+def test_ci_workflow_has_python_matrix_and_windows():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    for needle in ("'3.10'", "'3.11'", "'3.12'", "'3.13'", "windows-latest"):
+        assert needle in content, f"ci.yml matrix missing {needle}"
+
+
+def test_ci_workflow_audits_packages_and_gates():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "pip-audit --strict ." in content, "ci.yml must audit the project with --strict"
+    assert "python -m build" in content and "twine check" in content, "ci.yml must build+check dists"
+    assert "dist/*.whl" in content and "dist/*.tar.gz" in content, "package job must install BOTH wheel and sdist"
+    assert "lab/static/index.html" in content, "package job must assert packaged static assets"
+    assert "dependency-review-action@v5" in content, "ci.yml must run dependency review (v5) on PRs"
+    assert "ci-ok" in content, "ci.yml must expose the ci-ok gate (required check)"
+
+
+def test_ci_workflow_uses_current_action_majors():
+    content = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    for good in ("actions/checkout@v7", "actions/setup-python@v6", "actions/setup-node@v7"):
+        assert good in content, f"ci.yml must use {good}"
+    for stale in ("actions/checkout@v4", "actions/setup-python@v5", "actions/setup-node@v4"):
+        assert stale not in content, f"ci.yml still pins stale {stale}"
