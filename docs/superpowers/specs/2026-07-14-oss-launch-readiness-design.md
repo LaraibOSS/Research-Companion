@@ -1,5 +1,22 @@
 # OSS launch readiness — guardrails, security, and community infrastructure
 
+> **⚠️ Status: SUPERSEDED — architectural analysis only.**
+> The authoritative, executable source is the implementation plan
+> `docs/superpowers/plans/2026-07-15-oss-launch-readiness.md`. Where the two
+> differ, **the plan wins**. This design records the original reasoning; several
+> decisions below were tightened during review and are corrected inline with
+> **[UPDATED]** notes. Do not execute this document as instructions.
+>
+> Key corrections the plan carries (all reflected below):
+> branch protection uses `enforce_admins: true` + `strict: true` +
+> `checks:[ci-ok,codeql-ok]` (no direct-push test); CI adds a `package`
+> (wheel+sdist+assets+extras) job and PR `dependency-review`, with `ci-ok` +
+> `codeql-ok` aggregate gates and current action majors (checkout@v7 etc.);
+> the URL egress guard uses `ipaddress.is_global` + real streaming size cap and
+> is documented as best-effort (residual DNS-rebinding TOCTOU); publishing uses
+> build-once/publish-exact Trusted Publishing; and the existing long-lived PyPI
+> token is revoked immediately after the workflow migration.
+
 ## Context
 
 Research Companion (v0.7.1, MIT) is **already public** at
@@ -86,16 +103,29 @@ GitHub *settings* (branch protection, scanning toggles) are applied via
     `windows-latest` + 3.12 job (the dev platform); `fail-fast: false`;
   - bump `actions/setup-python` to v5 / `actions/checkout` stays v4;
   - keep job name stable (`test`) so required-check config is predictable.
-- New `codeql.yml` — CodeQL for `python` and `javascript`, on push/PR to main +
-  weekly schedule; `permissions: security-events: write, contents: read`.
-- New `audit` job inside `ci.yml` — runs `pip-audit` against the installed
-  package; fails the build on known vulnerabilities (no `continue-on-error`).
-- `publish.yml`:
-  - top-level `permissions: contents: read`; upload job gets
-    `id-token: write` and `environment: pypi`;
-  - replace `TWINE_USERNAME/PASSWORD` with **PyPI Trusted Publishing**
-    (`pypa/gh-action-pypi-publish@release/v1`); keep the repository guard and
-    tag/version match check; fix the same JS-list drift.
+- New `codeql.yml` — CodeQL (**`@v4`**) for `python` and `javascript`, on push/PR
+  to main + weekly; `permissions: security-events: write, contents: read`; behind
+  a stable **`codeql-ok`** aggregate gate.
+- **[UPDATED]** `audit` job — `pip-audit --strict .` (audits the *project*, fails
+  on collection errors), not the editable-install skip.
+- **[UPDATED]** New `package` job — `python -m build` + `twine check`, then install
+  **both the wheel (with `[server,mcp]` extras) and the sdist** in clean venvs,
+  smoke `research-companion --version`/imports, and assert packaged Lab static
+  assets via `importlib.resources`. Wired into `ci-ok`.
+- **[UPDATED]** New PR-only `dependency-review` job (`dependency-review-action@v5`,
+  `fail-on-severity: high`), wired into `ci-ok` (skip-tolerant on push).
+- **[UPDATED]** All action majors bumped to current (verified): `checkout@v7`,
+  `setup-python@v6`, `setup-node@v7`, `upload-artifact@v7`, `download-artifact@v8`.
+- `publish.yml` **[UPDATED]** — build-once/publish-exact:
+  - a `build` job (`checkout@v7` **`fetch-depth: 0`**) verifies tag↔version AND
+    that the tagged commit (`git rev-list -n 1`) is reachable from `origin/main`,
+    runs tests, builds, `twine check`s, wheel-smokes, and uploads `dist/` as an
+    artifact;
+  - a `publish` job (`environment: pypi`, `id-token: write`, repo guard) downloads
+    that exact artifact and publishes via `pypa/gh-action-pypi-publish@release/v1`
+    — no rebuild, no repo-code execution, **no `PYPI_API_TOKEN`**;
+  - the existing long-lived `PYPI_API_TOKEN` secret is **deleted + revoked
+    immediately after this workflow merges** (it exists now, created 2026-07-06).
   - **USER ACTION:** configure the trusted publisher on pypi.org
     (project `research-companion` → publishing → add GitHub publisher:
     owner `Laraib-Hasan-Future`, repo `Research-Companion`,
@@ -104,13 +134,18 @@ GitHub *settings* (branch protection, scanning toggles) are applied via
     publish — consistent with publish-held.
 
 ### Phase 3 — GitHub platform guardrails (`gh api`, after merge)
-- Branch protection on `main`: require PR before merge (0 approvals), required
-  status checks = the CI matrix jobs + CodeQL, strict up-to-date not required,
-  block force pushes + deletions, enforce_admins **off** (solo-maintainer
-  escape hatch).
+- **[UPDATED]** Branch protection on `main`: require PR before merge
+  (**0 approvals** — solo self-merge), required status checks via the `checks`
+  array = **`ci-ok` + `codeql-ok`** (stable aggregate gates, not the individual
+  matrix/CodeQL jobs), **`strict: true`** (branch must be current), block force
+  pushes + deletions, **`enforce_admins: true`**. (The earlier
+  `enforce_admins: off` + "escape hatch" idea was dropped: with 0 required
+  approvals the solo maintainer can already self-merge, and admin-enforcement
+  removes the direct-push footgun; temporarily toggle protection via the API only
+  if a genuine hotfix is ever blocked.)
+- Set the repo-wide default `GITHUB_TOKEN` permission to **read-only**.
 - Enable: secret scanning, secret-scanning push protection, Dependabot alerts,
-  Dependabot security updates, private vulnerability reporting
-  (`gh api -X PATCH repos/... security_and_analysis`, `-X PUT .../vulnerability-alerts`, etc.).
+  Dependabot security updates, private vulnerability reporting.
 
 ### Phase 4 — Security audit + fixes (TDD)
 Adversarial review of the attack surfaces, fixing confirmed findings:
@@ -120,8 +155,14 @@ Adversarial review of the attack surfaces, fixing confirmed findings:
   validated within scanned folder — verify), workspace ids, saved-view names →
   filesystem paths. Confirm the server binds `127.0.0.1` only and document
   that it must not be exposed; check CORS posture.
-- SSRF surface: `fetch.py` / `discover.py` / coverage "Add all" download URLs —
-  scheme/host validation on user-supplied URLs.
+- **[UPDATED]** SSRF surface: `fetch.py` / `discover.py` / coverage "Add all"
+  download URLs — a new `research_companion/net.py` egress guard
+  (`validate_public_url`) rejecting non-http(s) schemes, embedded credentials,
+  and any host resolving to a **non-`is_global`** IP (correctly catches CGNAT/
+  TEST-NET/`2001:db8::`), plus **real streaming** downloads with a running size
+  cap and manually-bounded, per-hop-revalidated redirects. Documented as
+  **best-effort** (residual DNS-rebinding TOCTOU; connection-IP pinning out of
+  scope for a local single-user CLI). `net.UrlNotAllowed` → `fetch.FetchError`.
 - `research_companion/mcp_server.py` + `mcp_tools.py`: input validation,
   no path escape via `paper_id` (`_id_to_dirname` sanitization — verify).
 - Zip/PDF handling: `parsers/` subprocess isolation already contains crashes;
@@ -147,10 +188,14 @@ Adversarial review of the attack surfaces, fixing confirmed findings:
   published identity, their call).
 
 ### Phase 7 — Verification + launch PR
-- Full gate locally (expect ≥1866 py / 638 js / ruff clean + new tests).
-- Push `feat/oss-launch`, open the PR, confirm the new CI matrix + CodeQL run
-  and pass on it; apply Phase-3 settings; verify branch protection blocks a
-  direct push; merge via the PR itself.
+- Full gate locally (expect ≥1895 py / 638 js / ruff clean + new tests).
+- Push `feat/oss-launch`, open the PR, confirm `ci-ok` + `codeql-ok` (and the
+  jobs behind them) pass on it; apply Phase-3 settings.
+- **[UPDATED] Verify branch protection by reading the API config back — NOT by
+  pushing to `main`** (a real direct-push test is unsafe and is removed).
+- Merge via the PR itself. **CODEOWNERS auto-request is verified POST-merge**
+  with a throwaway test PR (GitHub reads CODEOWNERS from the base branch, so the
+  launch PR that introduces it cannot exercise it).
 
 ## Out of scope
 - Pushing the `v0.7.1` tag / publishing to PyPI (held).
@@ -162,11 +207,18 @@ Adversarial review of the attack surfaces, fixing confirmed findings:
 ## Verification (end-to-end)
 1. `python -m pytest -q` + `node --test tests/js/*.test.mjs` +
    `ruff check research_companion tests examples` — green, no regressions.
-2. PR to `main` shows required checks (all matrix jobs + CodeQL) and cannot be
-   merged red; direct push to `main` is rejected by protection.
-3. `gh api repos/.../branches/main/protection` shows the intended config;
-   secret scanning/Dependabot/private-vuln-reporting show enabled.
-4. A dummy fork-style PR (or the launch PR itself) demonstrates: templates
-   render, CI runs without secrets, CODEOWNERS requests review from maintainer.
-5. `pip-audit` clean (or documented accepted risks).
+2. PR to `main` shows required checks `ci-ok` + `codeql-ok` and cannot be merged
+   red. **Protection is verified by reading the API config back, never by a real
+   push to `main`.**
+3. `gh api repos/.../branches/main/protection` shows the intended config
+   (`enforce_admins: true`, `strict: true`, `checks: [ci-ok, codeql-ok]`, no
+   force-push/deletion, 0 approvals); secret scanning / Dependabot /
+   private-vuln-reporting enabled; default workflow token read-only.
+4. CI runs without secrets (only `publish.yml` uses OIDC), so fork PRs run
+   cleanly; templates render. **CODEOWNERS auto-request confirmed post-merge via
+   a throwaway PR** (base-branch rule).
+5. `pip-audit --strict .` clean (or documented accepted risks); PR
+   `dependency-review` blocks high-severity new deps.
 6. Security-audit findings each have a regression test.
+7. Built **wheel and sdist** install in clean venvs and expose the CLI + packaged
+   Lab static assets (the `package` job).
