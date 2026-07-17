@@ -75,6 +75,20 @@ def paper_to_bibtex(rec: Any, key: str | None = None, entry_type: str = "article
     return f"@{entry_type}{{{key},\n{body}\n}}"
 
 
+def _alpha_suffix(index: int) -> str:
+    """Bijective base-26 letter suffix: 0->'a', 25->'z', 26->'aa', 27->'ab', ...
+
+    Keeps disambiguated cite keys within [a-z] even past 26 collisions (a naive
+    ``chr(ord('a') + n)`` would emit '{' and corrupt the BibTeX).
+    """
+    letters = []
+    index += 1  # 1-based for bijective base-26
+    while index > 0:
+        index, rem = divmod(index - 1, 26)
+        letters.append(chr(ord("a") + rem))
+    return "".join(reversed(letters))
+
+
 def papers_to_bibtex(records: list[Any], entry_type: str = "article") -> str:
     """Render a list of records as a BibTeX document with unique cite keys."""
     used: dict[str, int] = {}
@@ -83,8 +97,7 @@ def papers_to_bibtex(records: list[Any], entry_type: str = "article") -> str:
         base = cite_key(rec)
         if base in used:
             used[base] += 1
-            suffix = chr(ord("a") + used[base] - 1)
-            key = f"{base}{suffix}"
+            key = f"{base}{_alpha_suffix(used[base] - 1)}"
         else:
             used[base] = 0
             key = base

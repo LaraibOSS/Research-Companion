@@ -38,6 +38,18 @@ def test_duplicate_keys_disambiguated():
     assert "@article{Doe2020a," in out
 
 
+def test_duplicate_keys_stay_alphabetic_past_z():
+    """28+ same surname+year must not overflow past 'z' into '{' (corrupt BibTeX)."""
+    recs = [{"authors": ["Smith"], "year": 2020, "title": f"P{i}"} for i in range(30)]
+    out = papers_to_bibtex(recs)
+    assert "{" not in out.replace("@article{", "")  # no stray brace from a bad suffix
+    assert "@article{Smith2020z," in out    # 27th
+    assert "@article{Smith2020aa," in out   # 28th
+    # every generated key parses back cleanly
+    from research_companion.interop.bibtex import parse_bibtex
+    assert len(parse_bibtex(out)) == 30
+
+
 def test_parse_bibtex_round_trip():
     out = papers_to_bibtex([REC])
     parsed = parse_bibtex(out)
