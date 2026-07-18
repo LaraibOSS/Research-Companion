@@ -187,3 +187,16 @@ def test_section_compliance_no_detail_span_when_detail_absent():
     html = _section_compliance(data)
     assert "PDF is 14 pages" in html
     assert "muted" not in html
+
+
+def test_build_report_json_includes_readiness_when_findings():
+    results = {"compliance": AgentResult(agent="compliance", ok=True, data={"checks": [
+        {"status": "finding", "severity": "desk_reject", "message": "no limitations section detected", "detail": ""}]})}
+    r = build_report_json("local:x", "P", results)
+    assert r["readiness"]["verdict"] == "not_ready"
+
+
+def test_build_report_json_no_readiness_key_when_empty():
+    results = {"ingest": AgentResult(agent="ingest", ok=True, data={"graph_nodes": 1, "graph_edges": 0})}
+    r = build_report_json("local:x", "P", results)
+    assert "readiness" not in r

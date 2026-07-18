@@ -27,12 +27,17 @@ def build_report_json(
             "error": result.error if not result.ok else "",
             "data": result.data if result.ok else {},
         }
-    return {
+    from research_companion.readiness import build_readiness
+    report = {
         "paper_id": paper_id,
         "title": title,
         "lanes": lanes,
         "generated_by": "research-companion",
     }
+    readiness = build_readiness(lanes)
+    if readiness:
+        report["readiness"] = readiness
+    return report
 
 
 def _escape(s: Any) -> str:
