@@ -39,8 +39,82 @@ def _extract_compliance(data: dict) -> list[dict]:
     return out
 
 
+def _extract_statsoundness(data: dict) -> list[dict]:
+    s = data.get("summary", {}) or {}
+    dec = s.get("n_decision_inconsistent", 0)
+    if dec:
+        return [_item("statsoundness", "warning",
+                      f"{dec} reported result(s) are decision-inconsistent "
+                      f"(significance flips on recomputation)",
+                      "Re-check these statistics against the reported test and df.")]
+    n = s.get("n_inconsistent", 0) + s.get("n_impossible_means", 0)
+    if n:
+        return [_item("statsoundness", "warning", f"{n} statistical inconsistency/ies detected",
+                      "Verify reported p-values and means.")]
+    return []
+
+
+def _extract_citation(data: dict) -> list[dict]:
+    c = data.get("counts", {}) or {}
+    bad = c.get("unverified", 0) + c.get("suspect", 0)
+    if bad:
+        return [_item("citation", "warning", f"{bad} reference(s) unverified or suspect",
+                      "Verify or correct these citations.")]
+    return []
+
+
+def _extract_novelty(data: dict) -> list[dict]:
+    c = data.get("counts", {}) or {}
+    n = c.get("overlaps", 0) + c.get("anticipated", 0)
+    if n:
+        return [_item("novelty", "warning",
+                      f"{n} claimed contribution(s) overlap or are anticipated by prior work",
+                      "Strengthen or reframe the novelty of these contributions.")]
+    return []
+
+
+def _extract_reproducibility(data: dict) -> list[dict]:
+    if data.get("level") == "low" or not data.get("has_availability_statement"):
+        return [_item("reproducibility", "warning",
+                      "Weak reproducibility (low level or no availability statement)",
+                      "Add code/data links and an availability statement.")]
+    return []
+
+
+def _extract_ethics(data: dict) -> list[dict]:
+    missing = data.get("missing_expected", []) or []
+    if missing:
+        return [_item("ethics", "warning",
+                      f"Missing expected declaration(s): {', '.join(str(m) for m in missing)}",
+                      "Add the missing ethics/integrity declarations.")]
+    return []
+
+
+def _extract_venuefit(data: dict) -> list[dict]:
+    if data.get("desk_reject_risk") or data.get("fit") in ("weak", "out_of_scope"):
+        return [_item("venuefit", "warning",
+                      f"Venue fit is {data.get('fit', 'weak')} (desk-reject risk)",
+                      "Reconsider the target venue or reframe scope.")]
+    return []
+
+
+def _extract_overlap(data: dict) -> list[dict]:
+    n = (data.get("summary", {}) or {}).get("n_passages", 0)
+    if n:
+        return [_item("overlap", "warning", f"{n} passage(s) near-duplicate another library paper",
+                      "Check for self-plagiarism / duplicated text.")]
+    return []
+
+
 _EXTRACTORS = {
     "compliance": _extract_compliance,
+    "statsoundness": _extract_statsoundness,
+    "citation": _extract_citation,
+    "novelty": _extract_novelty,
+    "reproducibility": _extract_reproducibility,
+    "ethics": _extract_ethics,
+    "venuefit": _extract_venuefit,
+    "overlap": _extract_overlap,
 }
 
 
