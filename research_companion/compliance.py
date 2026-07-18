@@ -101,7 +101,7 @@ _SELF_REF_RE = re.compile(
     r"\bin our (?:previous|prior|earlier) (?:paper|work|study)\b",
     re.IGNORECASE,
 )
-_ACK_RE = re.compile(r"^\s*\d*\.?\s*(acknowledg|funding)", re.IGNORECASE)
+_ACK_RE = re.compile(r"\s*\d*\.?\s*(acknowledg|funding)", re.IGNORECASE)
 
 
 def _check_anonymization(venue, fulltext) -> list[dict]:

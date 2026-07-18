@@ -223,12 +223,20 @@ def _section_compliance(data: dict) -> str:
     if desk:
         html_out += "      <p><strong>Desk-reject risks:</strong></p>\n      <ul>\n"
         for c in desk:
-            html_out += f"        <li>{_escape(c.get('message', ''))}</li>\n"
+            _line = _escape(c.get("message", ""))
+            _det = c.get("detail", "")
+            if _det:
+                _line += f' <span class="muted">— {_escape(_det)}</span>'
+            html_out += f"        <li>{_line}</li>\n"
         html_out += "      </ul>\n"
     if warn:
         html_out += "      <p><strong>Warnings:</strong></p>\n      <ul>\n"
         for c in warn:
-            html_out += f"        <li>{_escape(c.get('message', ''))}</li>\n"
+            _line = _escape(c.get("message", ""))
+            _det = c.get("detail", "")
+            if _det:
+                _line += f' <span class="muted">— {_escape(_det)}</span>'
+            html_out += f"        <li>{_line}</li>\n"
         html_out += "      </ul>\n"
     if skip:
         skipped = ", ".join(_escape(c.get("check", "")) for c in skip)

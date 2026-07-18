@@ -159,3 +159,31 @@ def test_section_compliance_renders_findings_and_disclaimer():
 
 def test_section_compliance_empty_when_no_checks():
     assert _section_compliance({"checks": [], "counts": {}}) == ""
+
+
+def test_section_compliance_renders_escaped_detail_for_desk_reject_and_warning():
+    data = {"venue": "neurips",
+            "checks": [
+                {"check": "page_limit", "status": "finding", "severity": "desk_reject",
+                 "message": "PDF is 14 pages; NeurIPS limit is 9",
+                 "detail": "Counting all PDF pages incl. references/appendix with a "
+                           "4-page allowance <caveat>"},
+                {"check": "anonymization", "status": "finding", "severity": "warning",
+                 "message": "email near the top", "detail": "<leaked@example.com>"}],
+            "counts": {"desk_reject": 1, "warning": 1},
+            "disclaimer": "verify against the CFP"}
+    html = _section_compliance(data)
+    # Detail text is present, and any HTML-significant characters in it are escaped.
+    assert "4-page allowance" in html
+    assert "&lt;caveat&gt;" in html and "<caveat>" not in html
+    assert "&lt;leaked@example.com&gt;" in html and "<leaked@example.com>" not in html
+
+
+def test_section_compliance_no_detail_span_when_detail_absent():
+    data = {"checks": [
+        {"check": "page_limit", "status": "finding", "severity": "desk_reject",
+         "message": "PDF is 14 pages; NeurIPS limit is 9", "detail": ""}],
+        "counts": {"desk_reject": 1, "warning": 0}}
+    html = _section_compliance(data)
+    assert "PDF is 14 pages" in html
+    assert "muted" not in html

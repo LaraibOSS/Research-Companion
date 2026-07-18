@@ -1442,10 +1442,14 @@ def _cmd_check_compliance(args: argparse.Namespace) -> int:
         print("Desk-reject risks:")
         for c in desk_rejects:
             print(f"  XX [{c['check']}] {c['message']}")
+            if c.get("detail"):
+                print(f"     {c['detail']}")
     if warnings:
         print("Warnings:")
         for c in warnings:
             print(f"  ?? [{c['check']}] {c['message']}")
+            if c.get("detail"):
+                print(f"     {c['detail']}")
     if skipped:
         print("Skipped:")
         for c in skipped:
