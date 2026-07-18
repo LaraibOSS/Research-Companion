@@ -8,6 +8,8 @@ result carries a disclaimer to verify against the venue's current CFP.
 """
 from __future__ import annotations
 
+import re
+
 PAGE_SLACK = 4  # PDF page count includes refs/appendix; limits are main-text only.
 DISCLAIMER = ("Rules are KB approximations — always verify against the venue's "
               "current call for papers.")
@@ -51,12 +53,51 @@ def _check_abstract_words(venue, abstract) -> dict:
     return _ok("abstract_word_limit", f"abstract {n} words within {venue.abstract_word_limit}")
 
 
+_SECTION_NUM_RE = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s*")
+
+
+def _norm_title(title: str) -> str:
+    return _SECTION_NUM_RE.sub("", (title or "")).strip().casefold()
+
+
+def _group_satisfied(group, sections, fulltext) -> bool:
+    norms = [_norm_title(s.title) for s in (sections or [])]
+    for syn in group:
+        s = syn.casefold()
+        if any(n == s or n.startswith(s) for n in norms):
+            return True
+    # Fallback: a short heading-like line in the fulltext.
+    for line in (fulltext or "").splitlines():
+        if len(line) <= 60:
+            n = _norm_title(line)
+            if any(n == syn.casefold() or n.startswith(syn.casefold()) for syn in group):
+                return True
+    return False
+
+
+def _check_required_sections(venue, sections, fulltext) -> list[dict]:
+    if not venue.required_sections:
+        return [_skipped("required_sections", "no required sections configured for this venue")]
+    out = []
+    for group in venue.required_sections:
+        name = f"section:{group[0]}"
+        if _group_satisfied(group, sections, fulltext):
+            out.append(_ok(name, f"'{group[0]}' section present"))
+        else:
+            alts = " / ".join(group)
+            out.append(_finding(name, "desk_reject",
+                                 f"no {group[0]} section detected",
+                                 f"{venue.name} requires one of: {alts}"))
+    return out
+
+
 def check_compliance(venue, *, fulltext, sections=None, abstract=None,
                      references=None, page_count=None) -> dict:
     checks = [
         _check_page_limit(venue, page_count),
         _check_abstract_words(venue, abstract),
     ]
+    checks += _check_required_sections(venue, sections, fulltext)
     counts = {"desk_reject": 0, "warning": 0}
     for c in checks:
         if c["status"] == "finding":

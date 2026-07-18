@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from research_companion.compliance import DISCLAIMER, check_compliance
 from research_companion.venues import Venue
 
@@ -36,3 +38,29 @@ def test_abstract_over_limit_is_warning():
                            abstract="one two three four five six seven")
     c = _find(res, "abstract_word_limit")
     assert c["status"] == "finding" and c["severity"] == "warning"
+
+@dataclass
+class _S:  # minimal stand-in for sections.Section
+    title: str
+
+def test_required_section_present_via_tree():
+    v = _v(required_sections=(("limitations",),))
+    res = check_compliance(v, fulltext="x", sections=[_S("5. Limitations"), _S("Introduction")])
+    assert _find(res, "section:limitations")["status"] == "ok"
+
+def test_required_section_missing_is_desk_reject():
+    v = _v(required_sections=(("limitations",),))
+    res = check_compliance(v, fulltext="Intro\nResults\n", sections=[_S("Introduction")])
+    c = _find(res, "section:limitations")
+    assert c["status"] == "finding" and c["severity"] == "desk_reject"
+
+def test_required_section_synonym_group_any_match():
+    v = _v(required_sections=(("broader impact", "ethics statement"),))
+    res = check_compliance(v, fulltext="x", sections=[_S("Ethics Statement")])
+    assert _find(res, "section:broader impact")["status"] == "ok"
+
+def test_required_section_fulltext_fallback():
+    # section missed by the tree but present as a heading-like line in fulltext
+    v = _v(required_sections=(("limitations",),))
+    res = check_compliance(v, fulltext="Intro text\nLimitations\nWe discuss...\n", sections=[])
+    assert _find(res, "section:limitations")["status"] == "ok"
