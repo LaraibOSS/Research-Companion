@@ -55,6 +55,9 @@ docling = [
 mcp = [
     "mcp>=1.0",
 ]
+semantic = [
+    "sentence-transformers>=2.2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

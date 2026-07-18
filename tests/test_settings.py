@@ -467,3 +467,29 @@ def test_update_settings_accepts_valid_connectors(monkeypatch):
     monkeypatch.setattr("research_companion.store.save_root_settings", lambda s: saved.update(s))
     settings.update_settings({"connectors": ["europepmc"]})
     assert saved["connectors"] == ["europepmc"]
+
+
+# ---------------------------------------------------------------------------
+# semantic_overlap settings (Task 4)
+# ---------------------------------------------------------------------------
+
+def test_semantic_overlap_settings_accepted(isolated_papergraph_dir):
+    from research_companion import settings
+    s = settings.update_settings({"semantic_overlap": True,
+                                  "semantic_overlap_allow_remote": True,
+                                  "semantic_overlap_threshold": 0.9})
+    assert s["semantic_overlap"] is True
+    assert s["semantic_overlap_allow_remote"] is True
+    assert s["semantic_overlap_threshold"] == 0.9
+
+
+def test_semantic_overlap_settings_validated(isolated_papergraph_dir):
+    from research_companion import settings
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"semantic_overlap": "yes"})
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"semantic_overlap_allow_remote": 1})
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"semantic_overlap_threshold": 1.5})
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"semantic_overlap_threshold": True})

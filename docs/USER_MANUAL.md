@@ -367,6 +367,19 @@ pre-submission review with a live dashboard:
 `--venue neurips`). Venue scope, checklists, and desk-reject rules come from a
 knowledge base you can extend without code — see [VENUE_KB.md](VENUE_KB.md).
 
+**Semantic (paraphrase) overlap:** the overlap lane can additionally catch
+*reworded* reuse that exact-text shingling misses. It's off by default —
+enable it with `research-companion check-overlap <paper-id> --semantic` or by
+turning on the `semantic_overlap` setting (which also enables it inside
+`review`). Install the local embedding backend with
+`pip install 'research-companion[semantic]'` — the model weights download on
+first use, but your text never leaves the machine. Without the local backend
+you can pass `--allow-remote` (or set `semantic_overlap_allow_remote`), which
+sends both your draft's and your library's passage text to the Hugging Face
+Inference API and requires `HF_TOKEN`. If neither backend is available the
+tool falls back to the lexical check (`check-overlap --semantic` tells you
+why it was skipped; the setting-driven path skips quietly). Semantic matches are advisory warnings — they never block a review and are never labeled plagiarism.
+
 Lanes run concurrently with failure isolation: one failing lane degrades the
 report, never the run. `--fast` runs only LLM-free lanes. Every run appends
 to a JSONL audit log.
@@ -480,7 +493,7 @@ research-companion review <paper-id> [--serve] [--venue <slug>]  # the full revi
 research-companion rebuttal <paper-id> <reviews>    # grounded reviewer responses
 research-companion refcheck <paper-id>              # citation validator standalone
 research-companion check-stats <paper-id>           # recompute p-values + GRIM (Statcheck)
-research-companion check-overlap <paper-id>         # near-duplicate passages vs your library
+research-companion check-overlap <paper-id> [--semantic] [--allow-remote]  # near-duplicate passages vs your library (+ opt-in paraphrase pass)
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
 research-companion import-bib <file.bib>            # import a Zotero/Mendeley .bib into the library
 research-companion cite-tex <file.tex> [--bib f.bib]  # resolve a LaTeX draft's \cite keys
