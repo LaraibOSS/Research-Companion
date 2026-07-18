@@ -69,8 +69,8 @@ def _group_satisfied(group, sections, fulltext) -> bool:
     # Fallback: a short heading-like line in the fulltext.
     for line in (fulltext or "").splitlines():
         if len(line) <= 60:
-            n = _norm_title(line)
-            if any(n == syn.casefold() or n.startswith(syn.casefold()) for syn in group):
+            n = _norm_title(line).rstrip(":. ")
+            if any(n == syn.casefold() for syn in group):
                 return True
     return False
 

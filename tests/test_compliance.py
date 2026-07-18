@@ -64,3 +64,18 @@ def test_required_section_fulltext_fallback():
     v = _v(required_sections=(("limitations",),))
     res = check_compliance(v, fulltext="Intro text\nLimitations\nWe discuss...\n", sections=[])
     assert _find(res, "section:limitations")["status"] == "ok"
+
+def test_required_section_fulltext_fallback_rejects_prose():
+    v = _v(required_sections=(("limitations",),))
+    res = check_compliance(v, fulltext="Limitations of this dataset are notable in practice.\n", sections=[])
+    c = _find(res, "section:limitations")
+    assert c["status"] == "finding" and c["severity"] == "desk_reject"
+
+def test_required_section_fulltext_fallback_accepts_heading_with_colon():
+    v = _v(required_sections=(("limitations",),))
+    res = check_compliance(v, fulltext="Body\nLimitations:\nWe note...\n", sections=[])
+    assert _find(res, "section:limitations")["status"] == "ok"
+
+def test_required_sections_skipped_when_venue_has_none():
+    res = check_compliance(_v(), fulltext="x", sections=[])
+    assert _find(res, "required_sections")["status"] == "skipped"
