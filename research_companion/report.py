@@ -65,6 +65,26 @@ def _section_citation(data: dict) -> str:
     return html_out
 
 
+def _section_citation_polarity(data: dict) -> str:
+    """Render the citation-stance lane: counts + the contrast/refutation cites."""
+    counts = data.get("counts") or {}
+    cites = data.get("citations") or []
+    if not counts and not cites:
+        return ""
+    summary = " · ".join(f"{_escape(k)}: {v}" for k, v in sorted(counts.items()))
+    html_out = f"      <h3>Citation Stance</h3>\n      <p>{summary}</p>\n"
+    notable = [c for c in cites if c.get("polarity") in ("contrast", "refutation")]
+    if notable:
+        html_out += "      <p><strong>Contrasts / refutations:</strong></p>\n      <ul>\n"
+        for c in notable:
+            cite = _escape(c.get("cite", ""))
+            pol = _escape(c.get("polarity", ""))
+            ev = _escape(c.get("evidence_quote", ""))
+            html_out += f'        <li>{cite} [{pol}]: "{ev}"</li>\n'
+        html_out += "      </ul>\n"
+    return html_out
+
+
 def _section_novelty(data: dict) -> str:
     """Render novelty lane section."""
     if "claims" not in data:
@@ -346,7 +366,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "priorart", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "citation_polarity", "priorart", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -387,6 +407,10 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "citation":
                 section = _section_citation(data)
+                if section:
+                    lane_cards += section
+            elif name == "citation_polarity":
+                section = _section_citation_polarity(data)
                 if section:
                     lane_cards += section
             elif name == "priorart":
