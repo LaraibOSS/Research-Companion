@@ -66,17 +66,9 @@ def build_taxonomy(papers: list[dict], *, llm=None) -> list[dict]:
     clusters = cluster_papers(papers)
     # Collapse fallback: a single component or all-singletons is not a useful tree.
     if len(clusters) == 1 or all(len(c) == 1 for c in clusters):
-        terms = _shared_terms(papers, list(range(len(papers))))
-        label = "Related work"
-        if llm is not None:
-            titles = "\n".join(f"- {p.get('title', '')}" for p in papers)
-            try:
-                got = str(llm(_LABEL_PROMPT.format(titles=titles))).strip().splitlines()[0].strip()
-                if got:
-                    label = got[:80]
-            except Exception:
-                pass  # keep keyword label on any LLM failure
-        return [{"label": label, "shared_terms": terms, "papers": [_paper_ref(p) for p in papers]}]
+        return [{"label": "Related work",
+                 "shared_terms": _shared_terms(papers, list(range(len(papers)))),
+                 "papers": [_paper_ref(p) for p in papers]}]
     out = []
     for idxs in clusters:
         terms = _shared_terms(papers, idxs)
