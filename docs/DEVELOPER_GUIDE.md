@@ -384,3 +384,53 @@ plus a prioritized, cross-lane action list.
   result is truthy, and `render_report_html` only emits the "Submission
   readiness" banner when that key is present. See
   `tests/test_readiness_degradation.py` for the characterization test.
+
+## 16. Semantic (paraphrase) overlap
+
+`research_companion/semoverlap.py` complements the lexical shingler in
+`overlap.py` with an opt-in embedding pass: instead of matching shared
+n-grams, it compares passage embeddings by cosine similarity, catching
+reworded or translated reuse that shingling can't see.
+
+- **Pure math over injected vectors** — `semantic_near_duplicate_passages`
+  and `merge_overlap_results` never touch an embedding model or the network;
+  they take already-computed vectors (or already-computed findings) as
+  arguments, so every test runs offline with fakes and never imports
+  `sentence_transformers` or `numpy`. `_best_matches` uses a numpy matrix
+  multiply when numpy happens to be importable, with a byte-identical
+  stdlib-loop fallback otherwise.
+- **`embed.resolve_embedder(*, model, allow_remote, token=None)`** —
+  resolves a batched embedding backend in a fixed order: local
+  `sentence-transformers` (`_load_local_model`, import-guarded) first; if
+  that's unavailable, the Hugging Face Inference API, but **only** with both
+  `allow_remote=True` *and* a token (`HF_TOKEN` or explicit); otherwise
+  `None`, and the caller skips the semantic pass entirely. Loading the local
+  model downloads the model **weights** from the HF hub on first use (cached
+  thereafter) — the local path is not offline on first run, but it never
+  sends passage *text* anywhere. The remote path sends both the draft's and
+  the library's passage text to the HF API — that's the scope of the
+  consent, not just the draft.
+- **`semoverlap.collect_semantic_findings(paper_id, corpus_ids, *, embed_fn,
+  embed_model, threshold=..., min_chars=...)`** — the single orchestration
+  entry point shared by `agents/overlap.py::OverlapAgent._maybe_semantic`
+  and the `check-overlap --semantic` CLI (`cli.py::_cmd_check_overlap`).
+  I/O (embedding via `embed.embed_sections_with`, cache-aware) lives here;
+  the comparison math stays pure in `semantic_near_duplicate_passages`.
+  Exceptions propagate — each caller decides its own fallback.
+- **Range-overlap dedupe** — `merge_overlap_results(lexical, semantic)`
+  drops a semantic finding whose char range overlaps a *lexical* finding for
+  the same matched paper (that region is already surfaced by the cheaper
+  lexical check); semantic-vs-semantic overlaps are kept. The recomputed
+  summary gains `n_semantic`.
+- **Settings** — `semantic_overlap` (off by default), `semantic_overlap_allow_remote`
+  (off by default), `semantic_overlap_threshold` (default
+  `DEFAULT_SEMANTIC_THRESHOLD = 0.83`), validated in `settings.py`.
+- **Degradation, pinned by tests** — with `semantic_overlap` off (the
+  default), `OverlapAgent._maybe_semantic` returns the *same object* it was
+  given (asserted with `is`), so the always-on overlap lane's output is
+  byte-identical to before this feature existed. Any exception anywhere in
+  the semantic path (no backend resolved, embedding failure, etc.) is
+  swallowed and falls back to the lexical-only result — the always-on lane
+  never crashes because of an opt-in pass. See the agent-side and CLI-side
+  characterization tests for both the off-path identity and the
+  failure-fallback behavior.

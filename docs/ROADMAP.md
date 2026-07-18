@@ -57,19 +57,23 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   deterministically from whatever lanes ran (blockers = compliance
   desk-rejects; everything else a warning), with honest coverage caveats.
   → `readiness.py`.
+- ✅ **Semantic (paraphrase) overlap** — an opt-in embedding-based pass in the
+  near-duplicate lane that catches reworded/translated reuse the lexical
+  shingler misses. Local sentence-transformers by default (optional
+  `semantic` extra); the Hugging Face API only with explicit consent
+  (`semantic_overlap_allow_remote`). → `semoverlap.py`.
 
 ---
 
 ## What's genuinely open
 
 Phases 1–3 are shipped, plus statistical soundness, interoperability, the MCP
-trust-layer, and local near-duplicate detection. The remaining items are
-deliberately deferred:
+trust-layer, local near-duplicate detection, and semantic (paraphrase)
+overlap. The remaining items are deliberately deferred:
 
-1. **True web-corpus plagiarism** (🔵) — the local near-duplicate check ships (`overlap.py`); detecting reuse against an external corpus needs a similarity service + a privacy model. The consent-gated `ExternalOverlapProvider` seam already exists; design the boundary before shipping a provider.
+1. **True web-corpus plagiarism** (🔵) — the local near-duplicate check ships (`overlap.py`, plus an opt-in embedding/paraphrase pass in `semoverlap.py`); detecting reuse against an external corpus needs a similarity service + a privacy model. The consent-gated `ExternalOverlapProvider` seam already exists; design the boundary before shipping a provider.
 2. **Cost-gated MCP tools** (🔵) — `ask_library` / `review_draft` behind an explicit budget/keys boundary; the v2 MCP schema.
 3. **Domain metadata connectors** (🟡) — DBLP + entity databases (PubMed/Europe PMC shipped).
-4. **Semantic (paraphrase) overlap** (🔵) — embedding-based near-duplicate, beyond the current lexical shingling.
 
 Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with
 more venues/disciplines as needed — this is expected maintenance, not a blocking
