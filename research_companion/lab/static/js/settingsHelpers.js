@@ -86,3 +86,12 @@ export function validateSettings(patch) {
 
   return errors;
 }
+
+/**
+ * Build a settings patch for the biomedical-connectors toggle.
+ * @param {boolean} enabled
+ * @returns {{connectors: string[]}}
+ */
+export function buildConnectorsPatch(enabled) {
+  return { connectors: enabled ? ['europepmc', 'pubmed'] : [] };
+}

@@ -28,6 +28,8 @@ class Reference:
     year: int | None = None
     doi: str | None = None
     arxiv_id: str | None = None
+    pmid: str | None = None
+    pmcid: str | None = None
     url: str | None = None
     raw: str = ""
 
@@ -82,6 +84,8 @@ def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
         reasons.append("Cited DOI conflicts with the authoritative record")
     if _identifiers_conflict(ref.arxiv_id, record.get("arxiv_id")):
         reasons.append("Cited arXiv ID conflicts with the authoritative record")
+    if _identifiers_conflict(ref.pmid, record.get("pmid")):
+        reasons.append("Cited PMID conflicts with the authoritative record")
 
     status: Status = "verified" if not reasons else "suspect"
     return RefVerdict(status=status, reasons=reasons, matched=record)

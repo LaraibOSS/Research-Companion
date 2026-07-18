@@ -62,6 +62,9 @@ def _section_citation(data: dict) -> str:
             status = _escape(ref.get("status", ""))
             html_out += f"        <li>{title} [{status}]</li>\n"
         html_out += "      </ul>\n"
+    nudge = data.get("connectors_nudge")
+    if nudge:
+        html_out += f'<p class="report-nudge muted">{_escape(nudge)}</p>\n'
     return html_out
 
 

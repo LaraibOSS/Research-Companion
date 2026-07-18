@@ -257,3 +257,16 @@ severity ranking, venue-fit — all follow one repeatable shape. If you are addi
 The honesty line is binding: report only what you compute (a "reporting
 inconsistency" or a "missing declaration", never "misconduct" or "plagiarism");
 skip ambiguous cases rather than guess.
+
+---
+
+## 12. Domain connectors (add a scholarly source)
+
+A connector lives in `research_companion/connectors/` and implements the
+`Connector` protocol (`base.py`): `resolve(ref)` for citation verification,
+`search(query, *, limit)` for prior art, and `fetch_fulltext(ident)` for OA
+text. Network stays in injectable `_*` functions (tests monkeypatch them);
+parsers are pure. Register the class in `CONNECTORS` (`connectors/__init__.py`)
+and add its name to the settings validation set. Connectors are opt-in
+(`settings.connectors`, off by default), so the tool is byte-identical when
+none are enabled. Ships today: `europepmc.py` (primary) and `pubmed.py`.

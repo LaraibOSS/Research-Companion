@@ -26,6 +26,7 @@ SECRET_KEYS: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
     "hf_token": "HF_TOKEN",
+    "ncbi_api_key": "NCBI_API_KEY",
 }
 
 DEFAULTS: dict[str, Any] = {
@@ -38,6 +39,7 @@ DEFAULTS: dict[str, Any] = {
     "char_budget": 8000,
     "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
     "auto_add_citations": True,
+    "connectors": [],
 }
 
 _VALID_PROVIDERS = {"anthropic", "openai"}
@@ -315,6 +317,13 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
         v = regular_patch["auto_add_citations"]
         if not isinstance(v, bool):
             raise SettingsError(f"auto_add_citations must be a boolean, got {v!r}")
+
+    if "connectors" in regular_patch:
+        from research_companion.connectors import VALID_CONNECTORS
+        v = regular_patch["connectors"]
+        if not isinstance(v, list) or any(x not in VALID_CONNECTORS for x in v):
+            raise SettingsError(
+                f"connectors must be a list of {sorted(VALID_CONNECTORS)}, got {v!r}")
 
     if "k_sections" in regular_patch:
         v = regular_patch["k_sections"]

@@ -17,7 +17,7 @@ import * as api from '../api.js';
 import * as store from '../store.js';
 import { navigateBack } from '../router.js';
 import { themeVars, applyTheme } from '../theme.js';
-import { buildSettingsPatch, validateSettings } from '../settingsHelpers.js';
+import { buildSettingsPatch, validateSettings, buildConnectorsPatch } from '../settingsHelpers.js';
 import { showToast } from '../components/toast.js';
 import { escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
@@ -206,6 +206,18 @@ function _render(s) {
       Citations panel.</span>
   </div>
 
+  <!-- 4c. Connectors -->
+  <div class="settings-card" id="sc-connectors">
+    <div class="settings-card-title">Biomedical Connectors</div>
+    <label class="settings-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="s-connectors" ${(s.connectors || []).length ? 'checked' : ''}>
+      Verify and search biomedical sources (PubMed / Europe PMC)
+    </label>
+    <span class="settings-hint">Off by default. When on, citation checks and prior-art
+      also query PubMed and Europe PMC, and you can add papers by PMID. Nothing changes
+      for non-biomedical work.</span>
+  </div>
+
   <!-- 5. About -->
   <div class="settings-card" id="sc-about">
     <div class="settings-card-title">About / Help</div>
@@ -346,6 +358,23 @@ function _wireEvents(s) {
           : 'Automatic citation downloads off', 'info');
       } catch (err) {
         autoAdd.checked = !autoAdd.checked;
+        showToast(`Save failed: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  // Biomedical connectors toggle — saves immediately on change
+  const connectorsToggle = _el.querySelector('#s-connectors');
+  if (connectorsToggle) {
+    connectorsToggle.addEventListener('change', async () => {
+      try {
+        const updated = await api.putSettings(buildConnectorsPatch(connectorsToggle.checked));
+        store.setSettings(updated);
+        showToast(connectorsToggle.checked
+          ? 'Biomedical connectors enabled'
+          : 'Biomedical connectors off', 'info');
+      } catch (err) {
+        connectorsToggle.checked = !connectorsToggle.checked;
         showToast(`Save failed: ${err.message}`, 'error');
       }
     });
