@@ -633,6 +633,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.reproducibility import ReproducibilityAgent
     from research_companion.agents.severity import SeverityAgent
     from research_companion.agents.statsoundness import StatSoundnessAgent
+    from research_companion.agents.taxonomy import TaxonomyAgent
     from research_companion.agents.venuefit import VenueFitAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
@@ -645,7 +646,8 @@ def _cmd_review(args: argparse.Namespace) -> int:
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
               StatSoundnessAgent(), ReproducibilityAgent(), EthicsAgent(), OverlapAgent()]
     if not args.fast:
-        agents += [NoveltyAgent(), CitationPolarityAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
+        agents += [NoveltyAgent(), CitationPolarityAgent(), ConfidenceAgent(), BenchmarkAgent(),
+                   SeverityAgent(), TaxonomyAgent()]
     if getattr(args, "venue", None):
         agents.append(VenueFitAgent())
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),

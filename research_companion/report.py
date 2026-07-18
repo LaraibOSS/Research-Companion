@@ -343,6 +343,24 @@ def _section_priorart(data: dict) -> str:
     return f"      <p><strong>Related papers found:</strong> {count}</p>\n"
 
 
+def _section_taxonomy(data: dict) -> str:
+    """Render the prior-art taxonomy as a nested list (group -> papers)."""
+    groups = data.get("groups") or []
+    if not groups:
+        return ""
+    html_out = "      <h3>Prior-art taxonomy</h3>\n      <ul>\n"
+    for g in groups:
+        label = _escape(g.get("label", ""))
+        html_out += f"        <li><strong>{label}</strong>\n          <ul>\n"
+        for p in g.get("papers", []):
+            title = _escape(p.get("title", ""))
+            year = _escape(p.get("year", "") if p.get("year") is not None else "")
+            html_out += f"            <li>{title} ({year})</li>\n"
+        html_out += "          </ul>\n        </li>\n"
+    html_out += "      </ul>\n"
+    return html_out
+
+
 def _section_ingest(data: dict) -> str:
     """Render ingest lane section."""
     if "graph_nodes" not in data or "graph_edges" not in data:
@@ -366,7 +384,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "citation_polarity", "priorart", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "ingest", "citation", "citation_polarity", "priorart", "taxonomy", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -415,6 +433,10 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "priorart":
                 section = _section_priorart(data)
+                if section:
+                    lane_cards += section
+            elif name == "taxonomy":
+                section = _section_taxonomy(data)
                 if section:
                     lane_cards += section
             elif name == "novelty":

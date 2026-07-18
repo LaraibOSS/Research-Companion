@@ -4,7 +4,12 @@ from __future__ import annotations
 import json
 
 from research_companion.agents.base import AgentResult
-from research_companion.report import _section_citation_polarity, build_report_json, render_report_html
+from research_companion.report import (
+    _section_citation_polarity,
+    _section_taxonomy,
+    build_report_json,
+    render_report_html,
+)
 
 
 def _results():
@@ -124,3 +129,14 @@ def test_section_citation_polarity_renders_counts_and_evidence():
 
 def test_section_citation_polarity_empty_when_no_data():
     assert _section_citation_polarity({}) == ""
+
+
+def test_section_taxonomy_renders_nested_list():
+    data = {"groups": [{"label": "Graph Retrieval", "shared_terms": ["graph"],
+                        "papers": [{"title": "Graph retrieval", "year": 2020, "id": "1"}]}], "count": 1}
+    html = _section_taxonomy(data)
+    assert "Graph Retrieval" in html and "Graph retrieval" in html and "2020" in html
+
+
+def test_section_taxonomy_empty_when_no_groups():
+    assert _section_taxonomy({"groups": [], "count": 0}) == ""
