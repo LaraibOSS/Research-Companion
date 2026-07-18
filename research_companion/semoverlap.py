@@ -181,3 +181,42 @@ def merge_overlap_results(lexical: dict, semantic: dict) -> dict:
             "n_semantic": len(sem),
         },
     }
+
+
+def collect_semantic_findings(
+    paper_id: str,
+    corpus_ids: list[str],
+    *,
+    embed_fn,
+    embed_model: str,
+    threshold: float = DEFAULT_SEMANTIC_THRESHOLD,
+    min_chars: int = DEFAULT_SEMANTIC_MIN_CHARS,
+) -> dict:
+    """Embed (cache-aware) and compare *paper_id* against *corpus_ids*.
+
+    The single orchestration entry point shared by the overlap agent and the
+    ``check-overlap --semantic`` CLI. I/O lives here; the math is pure above.
+    Exceptions propagate — callers decide the fallback (the agent swallows and
+    keeps the lexical result).
+    """
+    from research_companion import embed, qa
+
+    def _units_and_vectors(pid: str) -> tuple[list[dict], dict]:
+        units = qa.build_section_index([pid])
+        if not units:
+            return [], {}
+        payload = embed.embed_sections_with(pid, embed_fn=embed_fn,
+                                            embed_model=embed_model)
+        vectors = {k: v.get("vector")
+                   for k, v in (payload or {}).get("vectors", {}).items()}
+        return units, vectors
+
+    t_units, t_vectors = _units_and_vectors(paper_id)
+    corpus: list[tuple[str, list[dict], dict]] = []
+    for pid in corpus_ids:
+        units, vectors = _units_and_vectors(pid)
+        if units and vectors:
+            corpus.append((pid, units, vectors))
+
+    return semantic_near_duplicate_passages(
+        t_units, t_vectors, corpus, threshold=threshold, min_chars=min_chars)

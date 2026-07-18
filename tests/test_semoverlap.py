@@ -117,3 +117,38 @@ def test_merge_with_no_semantic_findings_keeps_lexical_text_shape():
     merged = merge_overlap_results(lexical, semantic)
     assert merged["summary"]["n_semantic"] == 0
     assert merged["summary"]["text"] == "no near-duplicate passages found"
+
+
+def test_collect_semantic_findings_orchestrates(monkeypatch):
+    from research_companion.semoverlap import collect_semantic_findings
+
+    UNITS = {
+        "draft": [{"section_id": "s1", "chunk_index": 0, "text": LONG,
+                   "char_start": 0, "char_end": 200}],
+        "lib:1": [{"section_id": "c1", "chunk_index": 0, "text": LONG,
+                   "char_start": 0, "char_end": 200}],
+        "lib:empty": [],
+    }
+    VECTORS = {
+        "draft": {"s1#0": {"text_sha256": "h", "vector": [1.0, 0.0]}},
+        "lib:1": {"c1#0": {"text_sha256": "h", "vector": [1.0, 0.05]}},
+    }
+    embedded = []
+
+    monkeypatch.setattr("research_companion.qa.build_section_index",
+                        lambda pids: list(UNITS.get(pids[0], [])))
+
+    def _fake_embed_sections_with(pid, *, embed_fn, embed_model):
+        embedded.append(pid)
+        payload = VECTORS.get(pid)
+        return {"embed_model": embed_model, "vectors": payload} if payload else None
+
+    monkeypatch.setattr("research_companion.embed.embed_sections_with",
+                        _fake_embed_sections_with)
+
+    res = collect_semantic_findings("draft", ["lib:1", "lib:empty"],
+                                    embed_fn=lambda texts: [], embed_model="m")
+    assert embedded == ["draft", "lib:1"]  # empty-unit paper never embedded
+    assert len(res["findings"]) == 1
+    assert res["findings"][0]["matched_paper_id"] == "lib:1"
+    assert res["findings"][0]["method"] == "semantic"
