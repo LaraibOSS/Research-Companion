@@ -65,10 +65,12 @@ class OverlapAgent(Agent):
             if resolved is None:
                 return lexical
             embed_fn, _label = resolved
+            raw_threshold = s.get("semantic_overlap_threshold")
+            threshold = float(raw_threshold if raw_threshold is not None
+                              else semoverlap.DEFAULT_SEMANTIC_THRESHOLD)
             semantic = semoverlap.collect_semantic_findings(
                 paper_id, corpus_ids, embed_fn=embed_fn, embed_model=model,
-                threshold=float(s.get("semantic_overlap_threshold")
-                                or semoverlap.DEFAULT_SEMANTIC_THRESHOLD))
+                threshold=threshold)
             return semoverlap.merge_overlap_results(lexical, semantic)
         except Exception:
             return lexical

@@ -15,12 +15,16 @@ def _settings(**over):
 def test_off_returns_lexical_unchanged_and_never_resolves(monkeypatch):
     monkeypatch.setattr("research_companion.settings.get_settings",
                         lambda: _settings())
+    calls = []
 
-    def _boom(**kw):
-        raise AssertionError("resolve_embedder must not be called when off")
-    monkeypatch.setattr("research_companion.embed.resolve_embedder", _boom)
+    def _spy(**kw):
+        calls.append(kw)
+        return None
+
+    monkeypatch.setattr("research_companion.embed.resolve_embedder", _spy)
     out = OverlapAgent._maybe_semantic("p", ["q"], LEXICAL)
-    assert out is LEXICAL  # the very same object — byte-identical path
+    assert out is LEXICAL
+    assert calls == []  # resolve_embedder truly never invoked
 
 
 def test_no_backend_silently_skips(monkeypatch):
@@ -60,3 +64,24 @@ def test_any_failure_falls_back_to_lexical(monkeypatch):
     monkeypatch.setattr("research_companion.semoverlap.collect_semantic_findings",
                         _boom)
     assert OverlapAgent._maybe_semantic("p", ["q"], LEXICAL) is LEXICAL
+
+
+def test_explicit_zero_threshold_not_replaced_by_default(monkeypatch):
+    """Explicit 0.0 threshold must not be silently converted to default."""
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: _settings(semantic_overlap=True,
+                                          semantic_overlap_threshold=0.0))
+    monkeypatch.setattr("research_companion.embed.resolve_embedder",
+                        lambda **kw: (lambda texts: [], "local"))
+
+    recorded_threshold = []
+
+    def _spy_collect(*a, **kw):
+        recorded_threshold.append(kw.get("threshold"))
+        return {"findings": [], "summary": {"n_passages": 0, "papers": [],
+                                           "max_score": 0.0, "text": "none"}}
+
+    monkeypatch.setattr("research_companion.semoverlap.collect_semantic_findings",
+                        _spy_collect)
+    OverlapAgent._maybe_semantic("p", ["q"], LEXICAL)
+    assert recorded_threshold == [0.0]  # Must be 0.0, not the default 0.83
