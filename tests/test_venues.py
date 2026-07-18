@@ -108,3 +108,18 @@ class TestTopicOverlap:
     def test_no_topics_is_zero(self):
         v = Venue("t", "T", "conference", "s", ())
         assert topic_overlap(["anything"], v) == 0.0
+
+
+def test_new_fields_default_when_absent():
+    v = Venue(slug="x", name="X", kind="conference", scope="")
+    assert v.page_limit is None and v.abstract_word_limit is None
+    assert v.required_sections == () and v.anonymized is False
+
+
+def test_neurips_has_structured_rules():
+    v = get_venue("neurips")
+    assert v is not None
+    assert v.page_limit == 9
+    assert v.anonymized is True
+    # required_sections is a tuple of synonym groups (each a tuple of lowercase names)
+    assert any("limitations" in group for group in v.required_sections)

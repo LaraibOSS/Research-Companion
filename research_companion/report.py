@@ -211,6 +211,42 @@ def _section_venuefit(data: dict) -> str:
 _LEVEL_COLORS = {"high": "#2e7d32", "medium": "#f9a825", "low": "#c62828"}
 
 
+def _section_compliance(data: dict) -> str:
+    """Render venue-compliance lane: desk-reject findings, warnings, skipped checks, disclaimer."""
+    checks = data.get("checks") or []
+    if not checks:
+        return ""
+    desk = [c for c in checks if c.get("status") == "finding" and c.get("severity") == "desk_reject"]
+    warn = [c for c in checks if c.get("status") == "finding" and c.get("severity") == "warning"]
+    skip = [c for c in checks if c.get("status") == "skipped"]
+    html_out = "      <h3>Venue compliance (desk-reject linter)</h3>\n"
+    if desk:
+        html_out += "      <p><strong>Desk-reject risks:</strong></p>\n      <ul>\n"
+        for c in desk:
+            _line = _escape(c.get("message", ""))
+            _det = c.get("detail", "")
+            if _det:
+                _line += f' <span class="muted">— {_escape(_det)}</span>'
+            html_out += f"        <li>{_line}</li>\n"
+        html_out += "      </ul>\n"
+    if warn:
+        html_out += "      <p><strong>Warnings:</strong></p>\n      <ul>\n"
+        for c in warn:
+            _line = _escape(c.get("message", ""))
+            _det = c.get("detail", "")
+            if _det:
+                _line += f' <span class="muted">— {_escape(_det)}</span>'
+            html_out += f"        <li>{_line}</li>\n"
+        html_out += "      </ul>\n"
+    if skip:
+        skipped = ", ".join(_escape(c.get("check", "")) for c in skip)
+        html_out += f"      <p class=\"muted\">Not checked: {skipped}</p>\n"
+    disc = data.get("disclaimer")
+    if disc:
+        html_out += f"      <p class=\"muted\"><em>{_escape(disc)}</em></p>\n"
+    return html_out
+
+
 def _section_reproducibility(data: dict) -> str:
     """Render reproducibility lane: level, artifact links, and gaps."""
     if "level" not in data:
@@ -387,7 +423,7 @@ def render_report_html(report: dict) -> str:
     lanes = report.get("lanes", {})
 
     # Preferred order for lanes
-    preferred_order = ["severity", "venuefit", "ingest", "citation", "citation_polarity", "priorart", "taxonomy", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
+    preferred_order = ["severity", "venuefit", "compliance", "ingest", "citation", "citation_polarity", "priorart", "taxonomy", "novelty", "confidence", "statsoundness", "reproducibility", "ethics", "overlap", "benchmark", "rebuttal"]
     ordered_lanes = []
     for name in preferred_order:
         if name in lanes:
@@ -420,6 +456,10 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
             elif name == "venuefit":
                 section = _section_venuefit(data)
+                if section:
+                    lane_cards += section
+            elif name == "compliance":
+                section = _section_compliance(data)
                 if section:
                     lane_cards += section
             elif name == "ingest":
