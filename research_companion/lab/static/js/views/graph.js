@@ -11,7 +11,7 @@
 import * as store from '../store.js';
 import * as api from '../api.js';
 import { escapeHtml } from '../format.js';
-import { nodeToVis, edgeToVis, KIND_COLORS, entityProvenanceLabel } from '../graph/mapping.js';
+import { nodeToVis, edgeToVis, KIND_COLORS, CITATION_POLARITY_COLORS, entityProvenanceLabel } from '../graph/mapping.js';
 import * as graphEngine from '../graph/graphview.js';
 import {
   buildDraftModel, layoutDraftEgo, makeDraftPredicate, collectPaperEntities,
@@ -936,6 +936,16 @@ const KIND_SHAPE_LABELS = {
   result:  'dot',
 };
 
+// Citation-stance legend labels ('cites' edge polarities), same keys as
+// CITATION_POLARITY_COLORS in graph/mapping.js.
+const POLARITY_LABELS = {
+  based_on:   'Based on',
+  support:    'Support',
+  contrast:   'Contrast',
+  refutation: 'Refutation',
+  mention:    'Mention',
+};
+
 function _renderLegend(container) {
   const kinds = Object.keys(KIND_COLORS);
   const items = kinds.map(kind => {
@@ -949,10 +959,28 @@ function _renderLegend(container) {
       </div>
     `;
   }).join('');
-  container.innerHTML = items;
+
+  // Citation-polarity edge legend (informational — 'cites' edges are colored
+  // by stance; no click-to-filter behavior, unlike the node-kind rows above).
+  const polarityItems = Object.keys(CITATION_POLARITY_COLORS).map(pol => {
+    const color = CITATION_POLARITY_COLORS[pol];
+    const label = POLARITY_LABELS[pol] || pol;
+    return `
+      <div class="graph-legend-row" data-polarity="${pol}">
+        <span class="graph-legend-swatch" style="background:${color};"></span>
+        <span class="graph-legend-kind">${label}</span>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    ${items}
+    <div class="graph-legend-group-title muted" style="margin-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:0.02em;">Citation stance</div>
+    ${polarityItems}
+  `;
 
   // Toggle kind visibility on click
-  container.querySelectorAll('.graph-legend-row').forEach(row => {
+  container.querySelectorAll('.graph-legend-row[data-kind]').forEach(row => {
     row.addEventListener('click', () => {
       const kind = row.dataset.kind;
       if (_hiddenKinds.has(kind)) {
@@ -1107,6 +1135,7 @@ function _showEdgeDetail(edge) {
   const relation = escapeHtml(edge.label || edge.title || edge.relation || '');
   const from = escapeHtml(String(edge.from || ''));
   const to = escapeHtml(String(edge.to || ''));
+  const polarity = escapeHtml(String(edge.polarity || ''));
 
   content.innerHTML = `
     <div class="graph-detail-header">
@@ -1125,6 +1154,10 @@ function _showEdgeDetail(edge) {
       ${relation ? `<div class="graph-detail-attr">
         <span class="graph-detail-attr-key">relation</span>
         <span class="graph-detail-attr-val">${relation}</span>
+      </div>` : ''}
+      ${polarity ? `<div class="graph-detail-attr">
+        <span class="graph-detail-attr-key">stance</span>
+        <span class="graph-detail-attr-val">${polarity}</span>
       </div>` : ''}
     </div>
   `;
