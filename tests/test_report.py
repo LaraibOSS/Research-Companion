@@ -5,6 +5,7 @@ import json
 
 from research_companion.agents.base import AgentResult
 from research_companion.report import (
+    _render_readiness,
     _section_citation_polarity,
     _section_compliance,
     _section_taxonomy,
@@ -187,3 +188,40 @@ def test_section_compliance_no_detail_span_when_detail_absent():
     html = _section_compliance(data)
     assert "PDF is 14 pages" in html
     assert "muted" not in html
+
+
+def test_build_report_json_includes_readiness_when_findings():
+    results = {"compliance": AgentResult(agent="compliance", ok=True, data={"checks": [
+        {"status": "finding", "severity": "desk_reject", "message": "no limitations section detected", "detail": ""}]})}
+    r = build_report_json("local:x", "P", results)
+    assert r["readiness"]["verdict"] == "not_ready"
+
+
+def test_build_report_json_no_readiness_key_when_empty():
+    results = {"ingest": AgentResult(agent="ingest", ok=True, data={"graph_nodes": 1, "graph_edges": 0})}
+    r = build_report_json("local:x", "P", results)
+    assert "readiness" not in r
+
+
+def test_render_readiness_shows_verdict_blockers_and_caveats():
+    r = {"verdict": "not_ready", "blockers": [{"lane": "compliance", "severity": "blocker",
+            "title": "no limitations section detected", "action": "Fix before submission."}],
+         "warnings": [{"lane": "citation", "severity": "warning", "title": "2 references unverified", "action": "Verify."}],
+         "coverage": {"ran": ["compliance", "citation"], "not_run": ["novelty"], "failed": []},
+         "summary": "Not ready — 1 blocker(s) to fix; novelty lane not run — remove --fast"}
+    html = _render_readiness(r)
+    assert "Not ready" in html and "no limitations section detected" in html
+    assert "2 references unverified" in html and "novelty lane not run" in html
+
+
+def test_render_readiness_empty_is_blank():
+    assert _render_readiness(None) == "" and _render_readiness({}) == ""
+
+
+def test_report_html_renders_readiness_before_lanes():
+    results = {"compliance": AgentResult(agent="compliance", ok=True, data={"checks": [
+        {"status": "finding", "severity": "desk_reject", "message": "no limitations section detected", "detail": ""}]})}
+    html = render_report_html(build_report_json("local:x", "P", results))
+    assert "Submission readiness" in html
+    # readiness heading appears before the compliance lane card heading
+    assert html.index("Submission readiness") < html.index("Venue compliance")

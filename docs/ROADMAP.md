@@ -52,6 +52,11 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   (page/length limit, required sections, anonymization leaks, citation
   completeness) against structured venue-KB rules. → `compliance.py`,
   `agents/compliance.py`; CLI `check-compliance`.
+- ✅ **Submission-readiness synthesis** — a single go/no-go verdict + a
+  prioritized cross-lane action list at the top of every review, aggregated
+  deterministically from whatever lanes ran (blockers = compliance
+  desk-rejects; everything else a warning), with honest coverage caveats.
+  → `readiness.py`.
 
 ---
 

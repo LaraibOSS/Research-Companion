@@ -64,6 +64,21 @@ def test_review_cli_json(monkeypatch: pytest.MonkeyPatch, capsys):
     assert payload["paper_id"] == paper_id
     assert payload["agents"]["citation"]["ok"] is True
     assert payload["agents"]["citation"]["data"]["counts"]["verified"] == 1
+    # Minor 1 fix: the --json stdout payload must carry the same readiness
+    # synthesis as the persisted store copy / report.json, not just the raw
+    # per-agent results.
+    assert "verdict" in payload["readiness"]
+
+
+def test_review_cli_json_omits_readiness_when_no_source_lane_ran(capsys):
+    # No extraction seeded: ingest fails, every other lane fails as a
+    # dependency-of-ingest, so build_readiness() has nothing assessable and
+    # returns {}. The --json payload must NOT add a null/empty readiness key
+    # in that case (mirrors build_report_json's omit-when-empty contract).
+    rc = cli.main(["review", "local:nothere", "--json"])
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert "readiness" not in payload
 
 
 def test_review_cli_fails_without_extraction(capsys):
@@ -104,7 +119,13 @@ def test_review_cli_fast_skips_llm_lanes(monkeypatch: pytest.MonkeyPatch, capsys
     rc = cli.main(["review", paper_id, "--fast"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "novelty" not in out and "confidence" not in out and "benchmark" not in out
+    # Only check the per-lane summary section: the submission-readiness verdict
+    # (added in a later feature) legitimately notes "novelty lane not run —
+    # remove --fast" as an honest coverage caveat, which is not a lane result.
+    lane_summary = out.split("Submission readiness:")[0]
+    assert "novelty" not in lane_summary
+    assert "confidence" not in lane_summary
+    assert "benchmark" not in lane_summary
 
 
 def test_review_writes_run_event_log(monkeypatch: pytest.MonkeyPatch, capsys):
@@ -200,3 +221,24 @@ def test_review_persists_store_copy_even_without_report_flag(
     loaded = store.load_review_report(paper_id)
     assert loaded is not None
     assert "lanes" in loaded or "agents" in loaded or "paper_id" in loaded
+
+
+def test_readiness_line_not_ready_shows_blockers():
+    readiness = {
+        "verdict": "not_ready",
+        "blockers": [{"lane": "compliance", "severity": "blocker",
+                      "title": "no limitations section detected", "action": "Fix it."}],
+        "warnings": [],
+        "coverage": {"ran": ["compliance"], "not_run": [], "failed": []},
+        "summary": "Not ready — 1 blocker(s) to fix",
+    }
+    line = cli._readiness_line(readiness)
+    assert "NOT READY" in line
+    assert "Not ready" in line
+    assert "compliance" in line
+    assert "no limitations section detected" in line
+
+
+def test_readiness_line_falsy_returns_empty_string():
+    assert cli._readiness_line(None) == ""
+    assert cli._readiness_line({}) == ""

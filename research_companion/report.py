@@ -27,12 +27,17 @@ def build_report_json(
             "error": result.error if not result.ok else "",
             "data": result.data if result.ok else {},
         }
-    return {
+    from research_companion.readiness import build_readiness
+    report = {
         "paper_id": paper_id,
         "title": title,
         "lanes": lanes,
         "generated_by": "research-companion",
     }
+    readiness = build_readiness(lanes)
+    if readiness:
+        report["readiness"] = readiness
+    return report
 
 
 def _escape(s: Any) -> str:
@@ -409,6 +414,41 @@ def _section_ingest(data: dict) -> str:
     return f"      <p><strong>Graph:</strong> {nodes} nodes, {edges} edges</p>\n"
 
 
+_VERDICT_LABEL = {"not_ready": "Not ready to submit", "revise": "Revise before submitting",
+                  "ready": "Ready to submit"}
+_VERDICT_COLOR = {"not_ready": "#c62828", "revise": "#e65100", "ready": "#2e7d32"}
+
+
+def _render_readiness(readiness: dict | None) -> str:
+    """Render the submission-readiness banner (verdict, blockers, warnings)."""
+    if not readiness:
+        return ""
+    verdict = readiness.get("verdict", "revise")
+    color = _VERDICT_COLOR.get(verdict, "#e65100")
+    label = _VERDICT_LABEL.get(verdict, "Revise before submitting")
+    html_out = (f'  <div style="border-left: 6px solid {color}; background:#fafafa; '
+                f'margin: 16px 0; padding: 12px;">\n'
+                f'    <h2 style="margin:0 0 6px 0; color:{color};">Submission readiness: '
+                f'{_escape(label)}</h2>\n'
+                f'    <p style="margin:0 0 8px 0; color:#555;">{_escape(readiness.get("summary", ""))}</p>\n')
+    blockers = readiness.get("blockers") or []
+    if blockers:
+        html_out += "    <p><strong>Must fix (desk-reject risks):</strong></p>\n    <ul>\n"
+        for b in blockers:
+            html_out += (f"      <li>[{_escape(b.get('lane', ''))}] {_escape(b.get('title', ''))} "
+                         f"— {_escape(b.get('action', ''))}</li>\n")
+        html_out += "    </ul>\n"
+    warnings = readiness.get("warnings") or []
+    if warnings:
+        html_out += "    <p><strong>Should review:</strong></p>\n    <ul>\n"
+        for w in warnings:
+            html_out += (f"      <li>[{_escape(w.get('lane', ''))}] {_escape(w.get('title', ''))} "
+                         f"— {_escape(w.get('action', ''))}</li>\n")
+        html_out += "    </ul>\n"
+    html_out += "  </div>\n"
+    return html_out
+
+
 def render_report_html(report: dict) -> str:
     """Render report dict to self-contained HTML.
 
@@ -516,6 +556,8 @@ def render_report_html(report: dict) -> str:
                     lane_cards += section
         lane_cards += "  </div>\n"
 
+    readiness_html = _render_readiness(report.get("readiness"))
+
     html = f"""<!doctype html>
 <html>
 <head>
@@ -564,6 +606,6 @@ def render_report_html(report: dict) -> str:
 </head>
 <body>
   <h1>{title}<small>ID: {paper_id}</small></h1>
-{lane_cards}</body>
+{readiness_html}{lane_cards}</body>
 </html>"""
     return html
