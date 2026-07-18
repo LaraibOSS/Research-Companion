@@ -205,25 +205,18 @@ def hf_embed(
 # embed_paper_sections
 # ---------------------------------------------------------------------------
 
-def embed_paper_sections(
+def embed_sections_with(
     paper_id: str,
     *,
-    model: str = DEFAULT_EMBED_MODEL,
-    token: str | None = None,
-    post: Callable | None = None,
+    embed_fn: Callable[[list[str]], list[list[float]]],
+    embed_model: str,
 ) -> dict | None:
-    """Embed all non-boilerplate sections of *paper_id* and cache results.
+    """Cache-aware core of section embedding, parameterized by the embedder.
 
-    Returns ``None`` (without error, without writing) when no HF token is
-    available — callers should fall back to BM25.
-
-    Returns the embeddings payload dict on success.
+    Chunks via qa.build_section_index, re-embeds only chunks whose text hash
+    changed, persists via store.save_embeddings. Returns the payload dict, or
+    None when the paper has no retrieval units.
     """
-    # Graceful degradation: no token -> None
-    resolved_token = token if token is not None else os.environ.get("HF_TOKEN")
-    if not resolved_token:
-        return None
-
     from research_companion import qa  # lazy to avoid circular imports
     from research_companion.store import embedding_key, load_embeddings, save_embeddings
 
@@ -233,7 +226,7 @@ def embed_paper_sections(
         return None
 
     # Load cached embeddings for this model
-    cached = load_embeddings(paper_id, embed_model=model)
+    cached = load_embeddings(paper_id, embed_model=embed_model)
     cached_vectors: dict = {}
     if cached is not None:
         cached_vectors = cached.get("vectors", {})
@@ -256,13 +249,7 @@ def embed_paper_sections(
     merged: dict[str, dict] = dict(cached_vectors)
 
     if to_embed:
-        texts_to_send = [t for _, t, _ in to_embed]
-        vectors = hf_embed(
-            texts_to_send,
-            model=model,
-            token=resolved_token,
-            post=post,
-        )
+        vectors = embed_fn([t for _, t, _ in to_embed])
         for (key, _text, text_sha), vector in zip(to_embed, vectors, strict=True):
             merged[key] = {
                 "text_sha256": text_sha,
@@ -270,8 +257,79 @@ def embed_paper_sections(
             }
 
     payload: dict = {
-        "embed_model": model,
+        "embed_model": embed_model,
         "vectors": merged,
     }
     save_embeddings(paper_id, payload)
     return payload
+
+
+def embed_paper_sections(
+    paper_id: str,
+    *,
+    model: str = DEFAULT_EMBED_MODEL,
+    token: str | None = None,
+    post: Callable | None = None,
+) -> dict | None:
+    """Embed all non-boilerplate sections of *paper_id* and cache results.
+
+    Returns ``None`` (without error, without writing) when no HF token is
+    available — callers should fall back to BM25.
+
+    Returns the embeddings payload dict on success.
+    """
+    # Graceful degradation: no token -> None
+    resolved_token = token if token is not None else os.environ.get("HF_TOKEN")
+    if not resolved_token:
+        return None
+
+    def _embed(texts: list[str]) -> list[list[float]]:
+        return hf_embed(texts, model=model, token=resolved_token, post=post)
+
+    return embed_sections_with(paper_id, embed_fn=_embed, embed_model=model)
+
+
+# ---------------------------------------------------------------------------
+# Semantic-overlap embedding backends
+# ---------------------------------------------------------------------------
+
+def _load_local_model(model: str):
+    """Import-guarded sentence-transformers loader (monkeypatch seam for tests).
+
+    Returns a loaded model or None when the optional dependency is absent.
+    Note: loading downloads the model WEIGHTS from the HF hub on first use
+    (cached thereafter); no user text is ever sent.
+    """
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        return None
+    return SentenceTransformer(model)
+
+
+def resolve_embedder(
+    *,
+    model: str,
+    allow_remote: bool,
+    token: str | None = None,
+) -> tuple[Callable[[list[str]], list[list[float]]], str] | None:
+    """Resolve a batched embedding backend for the semantic overlap pass.
+
+    Order: local sentence-transformers ("local") > HF Inference API ("remote",
+    only with allow_remote consent AND a token) > None (caller skips).
+    """
+    try:
+        st_model = _load_local_model(model)
+    except Exception:
+        st_model = None
+    if st_model is not None:
+        def _local(texts: list[str]) -> list[list[float]]:
+            return [list(map(float, v)) for v in st_model.encode(texts)]
+        return _local, "local"
+
+    resolved_token = token if token is not None else os.environ.get("HF_TOKEN")
+    if allow_remote and resolved_token:
+        def _remote(texts: list[str]) -> list[list[float]]:
+            return hf_embed(texts, model=model, token=resolved_token)
+        return _remote, "remote"
+    return None
