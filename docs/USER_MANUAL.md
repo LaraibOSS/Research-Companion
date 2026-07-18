@@ -581,6 +581,5 @@ Example: `research-companion refcheck my-paper --connectors europepmc,pubmed,dbl
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
 deterministic key-free tools) and near-duplicate/overlap detection in 0.7.1. Still
-ahead: cost-gated MCP tools (`ask_library` / `review_draft`), domain metadata
-connectors (PubMed, Europe PMC, DBLP), venue-checklist skill packs, and semantic
-(paraphrase) overlap. See [ROADMAP.md](ROADMAP.md).
+ahead: cost-gated MCP tools (`ask_library` / `review_draft`) and venue-checklist skill
+packs. See [ROADMAP.md](ROADMAP.md).
