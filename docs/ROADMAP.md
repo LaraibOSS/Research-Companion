@@ -40,6 +40,10 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 - ✅ **Statistical soundness (Statcheck + GRIM)** — recompute reported p-values from the test statistic + df and flag inconsistencies; check reported means for arithmetic plausibility. Deterministic, dependency-free. → `research_companion/statcheck/` + `agents/statsoundness.py`; CLI `check-stats`.
 - ✅ **Interoperability** — BibTeX/RIS export, `.bib` import (Zotero/Mendeley), and LaTeX `\cite`-key resolution. → `research_companion/interop/`; CLI `export-bib` / `import-bib` / `cite-tex`.
 - ✅ **MCP trust-layer server** — exposes four deterministic, key-free verification tools (`verify_citation`, `ground_claim`, `citation_coverage`, `search_library`) to external agents. → `research_companion/mcp_server.py` + `mcp_tools.py`; CLI `mcp serve`.
+- ✅ **Domain connectors (PubMed + Europe PMC)** — biomedical citation
+  verification (incl. PMID-only refs), prior-art, and OA full-text ingest.
+  Opt-in via `settings.connectors` / `--connectors`; off by default (the
+  tool is byte-identical when disabled). → `research_companion/connectors/`.
 - ✅ **Graph enrichment** — typed citation polarity (based-on/support/contrast/
   refutation/mention, evidence-grounded) on the cross-paper graph + a labeled
   prior-art taxonomy in the report. → `agents/citation_polarity.py`,
@@ -55,7 +59,7 @@ deliberately deferred:
 
 1. **True web-corpus plagiarism** (🔵) — the local near-duplicate check ships (`overlap.py`); detecting reuse against an external corpus needs a similarity service + a privacy model. The consent-gated `ExternalOverlapProvider` seam already exists; design the boundary before shipping a provider.
 2. **Cost-gated MCP tools** (🔵) — `ask_library` / `review_draft` behind an explicit budget/keys boundary; the v2 MCP schema.
-3. **Domain metadata connectors** (🟡) — PubMed / Europe PMC / DBLP.
+3. **Domain metadata connectors** (🟡) — DBLP + entity databases (PubMed/Europe PMC shipped).
 4. **Semantic (paraphrase) overlap** (🔵) — embedding-based near-duplicate, beyond the current lexical shingling.
 
 Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with

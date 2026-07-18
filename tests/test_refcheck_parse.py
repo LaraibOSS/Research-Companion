@@ -89,3 +89,16 @@ def test_references_from_extraction_skips_blank_entries():
     extraction = {"related_work": ["Attention Is All You Need", "", "   "]}
     refs = parse.references_from_extraction(extraction)
     assert len(refs) == 1
+
+
+def test_extract_pmid_and_pmcid():
+    assert parse.extract_pmid("Foo et al. PMID: 30449619. Cell 2018.") == "30449619"
+    assert parse.extract_pmcid("Bar et al. PMC6289601.") == "PMC6289601"
+    assert parse.extract_pmid("No id here") is None
+
+
+def test_parse_reference_string_populates_pmid_and_strips_from_title():
+    ref = parse.parse_reference_string("Shifrut E. CRISPR screens. Cell 2018. PMID: 30449619")
+    assert ref.pmid == "30449619"
+    assert "30449619" not in ref.title
+    assert "PMID" not in ref.title

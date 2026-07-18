@@ -180,3 +180,38 @@ def test_default_lookup_prefers_arxiv_id(monkeypatch):
                         lambda r, **kw: (_ for _ in ()).throw(AssertionError("crossref should not be called")))
     record = retrieval.default_lookup()(ref)
     assert record["arxiv_id"] == "1706.03762"
+
+
+# --- default_lookup: settings-aware connector inclusion ----------------------
+
+def test_default_lookup_empty_connectors_is_todays_chain(monkeypatch):
+    # Degradation contract: settings connectors empty => arxiv,crossref,openalex only.
+    monkeypatch.setattr(retrieval, "_settings_connectors", lambda: [])
+    called = []
+    monkeypatch.setattr(retrieval, "arxiv_lookup", lambda r: called.append("arxiv") or None)
+    monkeypatch.setattr(retrieval, "crossref_lookup", lambda r, **k: called.append("crossref") or None)
+    monkeypatch.setattr(retrieval, "openalex_lookup", lambda r, **k: called.append("openalex") or None)
+    retrieval.default_lookup()(Reference(title="x"))
+    assert called == ["arxiv", "crossref", "openalex"]
+
+def test_default_lookup_appends_enabled_connector(monkeypatch):
+    hit = {"title": "x", "pmid": "1"}
+    class _Conn:
+        name = "europepmc"
+        def resolve(self, ref):
+            return hit
+    monkeypatch.setattr(retrieval, "_settings_connectors", lambda: ["europepmc"])
+    monkeypatch.setattr("research_companion.connectors.enabled_connectors",
+                        lambda names: [_Conn()])
+    monkeypatch.setattr(retrieval, "arxiv_lookup", lambda r: None)
+    monkeypatch.setattr(retrieval, "crossref_lookup", lambda r, **k: None)
+    monkeypatch.setattr(retrieval, "openalex_lookup", lambda r, **k: None)
+    assert retrieval.default_lookup()(Reference(title="x")) is hit
+
+def test_explicit_connectors_arg_overrides_settings(monkeypatch):
+    monkeypatch.setattr(retrieval, "_settings_connectors",
+                        lambda: (_ for _ in ()).throw(AssertionError("settings not read when arg given")))
+    monkeypatch.setattr(retrieval, "arxiv_lookup", lambda r: None)
+    monkeypatch.setattr(retrieval, "crossref_lookup", lambda r, **k: None)
+    monkeypatch.setattr(retrieval, "openalex_lookup", lambda r, **k: None)
+    assert retrieval.default_lookup(connectors=[])(Reference(title="x")) is None

@@ -1,4 +1,4 @@
-"""Fetch papers from arXiv URLs, DOIs, Semantic Scholar, or local PDF paths.
+"""Fetch papers from arXiv URLs, DOIs, Semantic Scholar, PubMed/PMC, or local PDF paths.
 
 arXiv flow:
     URL -> arxiv_id -> arxiv API for metadata -> download PDF -> store
@@ -8,6 +8,9 @@ DOI flow:
 
 Semantic Scholar flow:
     URL/ID -> s2_id -> S2 API for metadata -> try PDF via DOI/arXiv -> store
+
+PubMed / PMC flow:
+    PMID/PMCID -> Europe PMC + PubMed APIs for metadata -> fetch fulltext from PMC -> store
 
 Local PDF flow:
     Path -> read bytes -> sha256-derived ID -> read first-page metadata heuristically -> store
@@ -31,9 +34,12 @@ from research_companion.store import (
     make_arxiv_id,
     make_doi_id,
     make_local_id,
+    make_pmcid_id,
+    make_pmid_id,
     make_s2_id,
     paper_dir,
     save_pdf,
+    save_text,
 )
 
 ARXIV_ABS_RE = re.compile(
@@ -56,6 +62,8 @@ S2_URL_RE = re.compile(
 )
 S2_HEX_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 S2_API = "https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
+
+PUBMED_URL_RE = re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d{4,9})")
 
 USER_AGENT = "research-companion (https://github.com/Laraib-Hasan-Future/Research-Companion)"
 
@@ -442,8 +450,88 @@ def add_local_pdf(path: Path | str, *, title: str | None = None,
     )
 
 
+# ---------------------------------------------------------------------------
+# PubMed / PMC (Europe PMC + PubMed connectors)
+# ---------------------------------------------------------------------------
+
+
+def parse_pubmed_id(url_or_id: str) -> tuple[str, str] | None:
+    """Return ("pmid"|"pmcid", value) for a PubMed/PMC input, else None."""
+    s = url_or_id.strip()
+    if s.lower().startswith("pmid:"):
+        return ("pmid", s.split(":", 1)[1].strip())
+    if s.lower().startswith("pmcid:"):
+        return ("pmcid", s.split(":", 1)[1].strip().upper())
+    m = PUBMED_URL_RE.search(s)
+    if m:
+        return ("pmid", m.group(1))
+    if re.fullmatch(r"PMC\d{4,9}", s, re.IGNORECASE):
+        return ("pmcid", s.upper())
+    return None
+
+
+def add_pubmed(url_or_id: str, *, resolve=None, fetch_text=None) -> PaperMetadata:
+    """Ingest a paper by PMID/PMCID. resolve/fetch_text are injectable seams
+    (default to the Europe PMC + PubMed connectors)."""
+    parsed = parse_pubmed_id(url_or_id)
+    if parsed is None:
+        raise FetchError(f"could not parse a PubMed id from {url_or_id!r}")
+    kind, value = parsed
+
+    # Idempotency for pmid inputs: the canonical id is known without a network call.
+    if kind == "pmid":
+        existing = PaperMetadata.load(make_pmid_id(value))
+        if existing is not None:
+            return existing
+    # (pmcid-only inputs still resolve first, since the canonical id prefers pmid.)
+
+    if resolve is None or fetch_text is None:
+        from research_companion.connectors.europepmc import EuropePMCConnector
+        from research_companion.connectors.pubmed import PubMedConnector
+        from research_companion.refcheck.validate import Reference
+        epmc = EuropePMCConnector()
+        pm = PubMedConnector()
+
+        def _default_resolve(ident: str) -> dict | None:
+            ref = Reference(title="", pmid=value if kind == "pmid" else None,
+                            pmcid=value if kind == "pmcid" else None)
+            return pm.resolve(ref) or epmc.resolve(ref)
+        resolve = resolve or _default_resolve
+        fetch_text = fetch_text or (lambda pmcid: epmc.fetch_fulltext(pmcid))
+
+    rec = resolve(value)
+    if not rec:
+        raise FetchError(f"no record found for {url_or_id!r}")
+
+    paper_id = make_pmid_id(rec["pmid"]) if rec.get("pmid") else make_pmcid_id(rec.get("pmcid") or value)
+    existing = PaperMetadata.load(paper_id)
+    if existing is not None:
+        return existing
+
+    full_text = None
+    if rec.get("pmcid"):
+        full_text = fetch_text(rec["pmcid"])
+    if full_text:
+        save_text(paper_id, full_text)
+
+    meta = PaperMetadata(
+        paper_id=paper_id,
+        title=rec["title"],
+        authors=rec.get("authors", []),
+        year=rec.get("year"),
+        abstract=rec.get("abstract", ""),
+        source_url=f"https://pubmed.ncbi.nlm.nih.gov/{rec['pmid']}/" if rec.get("pmid") else "",
+        added_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        pmid=rec.get("pmid"),
+        pmcid=rec.get("pmcid"),
+        full_text_available=bool(full_text),
+    )
+    meta.save()
+    return meta
+
+
 def add_paper(url_or_path: str, **local_kwargs) -> PaperMetadata:
-    """Single entry point: routes to arXiv, DOI, S2, or local-PDF based on input shape.
+    """Single entry point: routes to arXiv, DOI, S2, PubMed/PMC, or local-PDF based on input shape.
 
     local_kwargs (title, authors, year) are forwarded only when the input is a local PDF.
     """
@@ -453,4 +541,6 @@ def add_paper(url_or_path: str, **local_kwargs) -> PaperMetadata:
         return add_doi(url_or_path)
     if parse_s2_id(url_or_path) is not None:
         return add_s2(url_or_path)
+    if parse_pubmed_id(url_or_path) is not None:
+        return add_pubmed(url_or_path)
     return add_local_pdf(url_or_path, **local_kwargs)

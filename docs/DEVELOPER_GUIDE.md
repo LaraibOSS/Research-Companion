@@ -260,7 +260,20 @@ skip ambiguous cases rather than guess.
 
 ---
 
-## 12. Graph enrichment — citation polarity + prior-art taxonomy
+## 12. Domain connectors (add a scholarly source)
+
+A connector lives in `research_companion/connectors/` and implements the
+`Connector` protocol (`base.py`): `resolve(ref)` for citation verification,
+`search(query, *, limit)` for prior art, and `fetch_fulltext(ident)` for OA
+text. Network stays in injectable `_*` functions (tests monkeypatch them);
+parsers are pure. Register the class in `CONNECTORS` (`connectors/__init__.py`)
+and add its name to the settings validation set. Connectors are opt-in
+(`settings.connectors`, off by default), so the tool is byte-identical when
+none are enabled. Ships today: `europepmc.py` (primary) and `pubmed.py`.
+
+---
+
+## 13. Graph enrichment — citation polarity + prior-art taxonomy
 
 Two additive enrichments on top of the base cross-paper graph and the
 prior-art lane, both built to **degrade to today's behavior** when their

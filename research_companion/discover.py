@@ -38,10 +38,14 @@ class DiscoveredPaper:
     url: str
     abstract: str = ""
     source: str = ""  # how it was discovered: "search", "reference", "citation"
+    pmid: str | None = None
+    pmcid: str | None = None
 
     @property
     def add_cmd(self) -> str:
         """Suggested `research-companion add` command for this paper."""
+        if self.pmid:
+            return f"research-companion add pmid:{self.pmid}"
         if self.arxiv_id:
             return f"research-companion add {self.arxiv_id}"
         if self.doi:
@@ -58,6 +62,8 @@ class DiscoveredPaper:
             "citation_count": self.citation_count,
             "arxiv_id": self.arxiv_id,
             "doi": self.doi,
+            "pmid": self.pmid,
+            "pmcid": self.pmcid,
             "url": self.url,
             "abstract": self.abstract,
             "source": self.source,
@@ -117,7 +123,11 @@ def _is_known(paper: DiscoveredPaper, known: set[str]) -> bool:
         return True
     if paper.doi and paper.doi in known:
         return True
-    return bool(paper.doi and f"doi:{paper.doi}" in known)
+    if paper.doi and f"doi:{paper.doi}" in known:
+        return True
+    if paper.pmid and f"pmid:{paper.pmid}" in known:
+        return True
+    return bool(paper.pmcid and f"pmcid:{paper.pmcid}" in known)
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +369,21 @@ def search_topic_openalex(
     return out[:limit]
 
 
+def _settings_connector_names() -> list[str]:
+    """Enabled connector names from global settings; [] on any error (safe default).
+
+    Intentionally mirrors research_companion.refcheck.retrieval._settings_connectors()
+    by design — a small duplication to avoid a cross-module import between
+    discover and refcheck.
+    """
+    try:
+        from research_companion.settings import get_settings
+        val = get_settings().get("connectors", [])
+        return list(val) if isinstance(val, list) else []
+    except Exception:
+        return []
+
+
 def search_topic_with_fallback(
     query: str,
     *,
@@ -367,11 +392,46 @@ def search_topic_with_fallback(
     year_max: int | None = None,
     s2_search=None,
     openalex_search=None,
+    connectors=None,
 ) -> list[DiscoveredPaper]:
-    """Prior-art search: Semantic Scholar first, OpenAlex when S2 fails/throttles."""
+    """Prior-art search: Semantic Scholar first, OpenAlex on failure, then any
+    enabled domain connectors merged in and deduped. `connectors=None` reads
+    settings; pass a list to override (tests / CLI)."""
+    from research_companion.connectors.identity import alt_ids
+
     s2 = s2_search or search_topic
     oa = openalex_search or search_topic_openalex
     try:
-        return s2(query, limit=limit, year_min=year_min, year_max=year_max)
+        base = s2(query, limit=limit, year_min=year_min, year_max=year_max)
     except Exception:
-        return oa(query, limit=limit, year_min=year_min, year_max=year_max)
+        base = oa(query, limit=limit, year_min=year_min, year_max=year_max)
+
+    names = _settings_connector_names() if connectors is None else list(connectors)
+    if not names:
+        return base
+
+    seen_ids: set[str] = set()
+    seen_titles: set[str] = set()
+    merged: list[DiscoveredPaper] = []
+    for p in base:
+        rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
+        seen_ids |= alt_ids(rec)
+        seen_titles.add(p.title.lower().strip())
+        merged.append(p)
+
+    from research_companion.connectors import enabled_connectors
+    for conn in enabled_connectors(names):
+        try:
+            found = conn.search(query, limit=limit)
+        except Exception:
+            found = []
+        for p in found:
+            rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
+            ids = alt_ids(rec)
+            t = p.title.lower().strip()
+            if (ids & seen_ids) or t in seen_titles:
+                continue
+            seen_ids |= ids
+            seen_titles.add(t)
+            merged.append(p)
+    return merged
