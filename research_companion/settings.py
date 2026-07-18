@@ -40,6 +40,9 @@ DEFAULTS: dict[str, Any] = {
     "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
     "auto_add_citations": True,
     "connectors": [],
+    "semantic_overlap": False,
+    "semantic_overlap_allow_remote": False,
+    "semantic_overlap_threshold": 0.83,
 }
 
 _VALID_PROVIDERS = {"anthropic", "openai"}
@@ -265,6 +268,8 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
     - density must be in {comfortable, compact}
     - 1 <= k_sections <= 20
     - 1000 <= char_budget <= 50000
+    - semantic_overlap / semantic_overlap_allow_remote must be booleans
+    - 0.0 <= semantic_overlap_threshold <= 1.0
     - Unknown top-level fields -> SettingsError
     - patch["keys"][name] = "" -> SettingsError (use null to delete)
 
@@ -324,6 +329,18 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
         if not isinstance(v, list) or any(x not in VALID_CONNECTORS for x in v):
             raise SettingsError(
                 f"connectors must be a list of {sorted(VALID_CONNECTORS)}, got {v!r}")
+
+    for bool_field in ("semantic_overlap", "semantic_overlap_allow_remote"):
+        if bool_field in regular_patch:
+            v = regular_patch[bool_field]
+            if not isinstance(v, bool):
+                raise SettingsError(f"{bool_field} must be a boolean, got {v!r}")
+
+    if "semantic_overlap_threshold" in regular_patch:
+        v = regular_patch["semantic_overlap_threshold"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0.0 <= v <= 1.0):
+            raise SettingsError(
+                f"semantic_overlap_threshold must be a number in [0, 1], got {v!r}")
 
     if "k_sections" in regular_patch:
         v = regular_patch["k_sections"]
