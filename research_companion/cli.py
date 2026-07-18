@@ -29,8 +29,8 @@ from research_companion import __version__
 
 
 def _parse_connectors_arg(value):
-    """Parse --connectors 'europepmc,pubmed' -> ['europepmc','pubmed']; None if
-    the flag was omitted (so settings are used). Exits on an unknown name."""
+    """Parse --connectors 'europepmc,pubmed,dblp' -> ['europepmc','pubmed','dblp'];
+    None if the flag was omitted (so settings are used). Exits on an unknown name."""
     if not value:
         return None
     from research_companion.connectors import VALID_CONNECTORS

@@ -2,7 +2,8 @@
 
 The authoritative lookup is injected (a callable mapping a Reference to a record
 dict or None), so this module is pure and fully testable without network access.
-Retriever implementations that hit CrossRef/OpenAlex/S2/arXiv/DBLP live elsewhere.
+Retriever implementations that hit arXiv/CrossRef/OpenAlex/S2 live elsewhere;
+PubMed, Europe PMC, and DBLP are opt-in domain connectors.
 """
 from __future__ import annotations
 
