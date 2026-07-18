@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 PAGE_SLACK = 4  # PDF page count includes refs/appendix; limits are main-text only.
+CITATION_INCOMPLETE_THRESHOLD = 0.5  # flag when >half of refs lack year AND any id.
 DISCLAIMER = ("Rules are KB approximations — always verify against the venue's "
               "current call for papers.")
 
@@ -124,6 +125,26 @@ def _check_anonymization(venue, fulltext) -> list[dict]:
     return hits or [_ok("anonymization", "no anonymization leaks detected")]
 
 
+def _ref_incomplete(ref) -> bool:
+    has_id = bool(getattr(ref, "doi", None) or getattr(ref, "arxiv_id", None)
+                  or getattr(ref, "pmid", None))
+    return not getattr(ref, "year", None) and not has_id
+
+
+def _check_citation_completeness(references) -> dict:
+    if references is None:
+        return _skipped("citation_completeness", "no extraction — run `research-companion build` first")
+    if not references:
+        return _skipped("citation_completeness", "no references parsed")
+    total = len(references)
+    incomplete = sum(1 for r in references if _ref_incomplete(r))
+    if incomplete / total > CITATION_INCOMPLETE_THRESHOLD:
+        return _finding("citation_completeness", "warning",
+                        f"{incomplete} of {total} references lack a year or identifier",
+                        "check the bibliography formatting / completeness")
+    return _ok("citation_completeness", f"{total - incomplete}/{total} references have a year or id")
+
+
 def check_compliance(venue, *, fulltext, sections=None, abstract=None,
                      references=None, page_count=None) -> dict:
     checks = [
@@ -132,6 +153,7 @@ def check_compliance(venue, *, fulltext, sections=None, abstract=None,
     ]
     checks += _check_required_sections(venue, sections, fulltext)
     checks += _check_anonymization(venue, fulltext)
+    checks.append(_check_citation_completeness(references))
     counts = {"desk_reject": 0, "warning": 0}
     for c in checks:
         if c["status"] == "finding":

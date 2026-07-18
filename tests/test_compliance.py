@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from research_companion.compliance import DISCLAIMER, check_compliance
+from research_companion.refcheck.validate import Reference
 from research_companion.venues import Venue
 
 
@@ -97,3 +98,20 @@ def test_anonymization_flags_self_reference():
 def test_anonymization_clean_is_ok():
     res = check_compliance(_v(anonymized=True), fulltext="A fully blind body with no leaks.")
     assert _find(res, "anonymization")["status"] == "ok"
+
+def test_citation_skipped_without_references():
+    res = check_compliance(_v(), fulltext="x", references=None)
+    assert _find(res, "citation_completeness")["status"] == "skipped"
+
+def test_citation_flags_mostly_incomplete():
+    refs = [Reference(title="A"), Reference(title="B"),
+            Reference(title="C", year=2020, doi="10.1/x")]
+    res = check_compliance(_v(), fulltext="x", references=refs)
+    c = _find(res, "citation_completeness")
+    assert c["status"] == "finding" and c["severity"] == "warning"
+
+def test_citation_ok_when_mostly_complete():
+    refs = [Reference(title="A", year=2019, doi="10.1/a"),
+            Reference(title="B", year=2020, arxiv_id="2001.1")]
+    res = check_compliance(_v(), fulltext="x", references=refs)
+    assert _find(res, "citation_completeness")["status"] == "ok"
