@@ -48,7 +48,7 @@ class CitationAgent(Agent):
         ))
         nudge = None
         try:
-            connectors_enabled = bool(get_settings().get("connectors"))
+            enabled = set(get_settings().get("connectors") or [])
             meta = PaperMetadata.load(ctx.paper_id)
             title = meta.title if meta else ""
             abstract = (meta.abstract if meta else "") or (load_text(ctx.paper_id) or "")[:1500]
@@ -56,8 +56,8 @@ class CitationAgent(Agent):
             contribs = _contributions(ctx.data, ext)
             paper_terms = [title, abstract, *concept_names, *contribs]
             discipline = infer_discipline(paper_terms)[0]
-            nudge = connectors_nudge(refs, connectors_enabled=connectors_enabled,
-                                      discipline=discipline)
+            nudge = connectors_nudge(refs, enabled=enabled, discipline=discipline,
+                                      n_unverified=counts["unverified"])
         except Exception:
             nudge = None
 
