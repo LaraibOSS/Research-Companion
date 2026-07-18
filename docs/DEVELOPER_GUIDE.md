@@ -257,3 +257,45 @@ severity ranking, venue-fit — all follow one repeatable shape. If you are addi
 The honesty line is binding: report only what you compute (a "reporting
 inconsistency" or a "missing declaration", never "misconduct" or "plagiarism");
 skip ambiguous cases rather than guess.
+
+---
+
+## 12. Graph enrichment — citation polarity + prior-art taxonomy
+
+Two additive enrichments on top of the base cross-paper graph and the
+prior-art lane, both built to **degrade to today's behavior** when their
+inputs are absent (see `tests/test_graph_enrichment_degradation.py`).
+
+- **Citation polarity sidecar** — `research_companion/agents/citation_polarity.py`
+  (`CitationPolarityAgent`) classifies each `related_work` citation into
+  `based_on` / `support` / `contrast` / `refutation` / `mention`, grounded by a
+  verbatim evidence quote (`_verify_quote`); an unverified or out-of-vocabulary
+  polarity is demoted to `mention`. The result is persisted per paper via
+  `store.save_citation_polarity` to `citation_polarity.json` (not inline on
+  `extraction.json`, so it can be recomputed independently) and read back with
+  `store.load_citation_polarity`.
+- **`build_graph` attach** — `research_companion/graph.py` reads the sidecar
+  (`load_citation_polarity(meta.paper_id)`) while building `cites` edges and
+  sets `attrs["polarity"]` only when a mapping entry exists for that citation
+  string; with no sidecar the edge is exactly the untyped `{"relation":
+  "cites"}` edge from before. `serialize_graph` and `graph_stats` mirror
+  this: an edge only gets a `"polarity"` key, and `graph_stats` only gets
+  `edge_cites_<polarity>` sub-counts, when the underlying edge data actually
+  carries a polarity.
+- **Prior-art taxonomy** — `research_companion/taxonomy.py` is a pure,
+  network-free, LLM-optional module: `cluster_papers` groups prior-art papers
+  into connected components by keyword-overlap Jaccard (deterministic, no
+  LLM), and `build_taxonomy` labels each cluster (keyword label by default, or
+  an LLM one-liner when an `llm` callable is passed — any LLM failure falls
+  back to the keyword label). A single component or all-singletons collapses
+  to one `"Related work"` group rather than a degenerate one-cluster-per-paper
+  tree.
+- **`TaxonomyAgent`** — `research_companion/agents/taxonomy.py`, modeled on the
+  checker-agent pattern in §11: depends on `priorart`, converts the retrieved
+  papers to plain dicts, calls `build_taxonomy` (passing `ctx.data.get("_llm")`
+  straight through — `None` means keyword labels, never a fabricated default),
+  and returns `{"groups": [...], "count": N}` in `AgentResult.data`.
+- **Rendering** — `report.py` renders a "Citation Stance" section from the
+  `citation_polarity` lane and a "Prior-art taxonomy" nested list from the
+  `taxonomy` lane, both purely additive: when those lanes are absent (or the
+  report predates them), neither heading appears in the rendered HTML.

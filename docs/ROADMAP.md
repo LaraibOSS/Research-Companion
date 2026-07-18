@@ -40,6 +40,10 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 - ✅ **Statistical soundness (Statcheck + GRIM)** — recompute reported p-values from the test statistic + df and flag inconsistencies; check reported means for arithmetic plausibility. Deterministic, dependency-free. → `research_companion/statcheck/` + `agents/statsoundness.py`; CLI `check-stats`.
 - ✅ **Interoperability** — BibTeX/RIS export, `.bib` import (Zotero/Mendeley), and LaTeX `\cite`-key resolution. → `research_companion/interop/`; CLI `export-bib` / `import-bib` / `cite-tex`.
 - ✅ **MCP trust-layer server** — exposes four deterministic, key-free verification tools (`verify_citation`, `ground_claim`, `citation_coverage`, `search_library`) to external agents. → `research_companion/mcp_server.py` + `mcp_tools.py`; CLI `mcp serve`.
+- ✅ **Graph enrichment** — typed citation polarity (based-on/support/contrast/
+  refutation/mention, evidence-grounded) on the cross-paper graph + a labeled
+  prior-art taxonomy in the report. → `agents/citation_polarity.py`,
+  `taxonomy.py`, `agents/taxonomy.py`.
 
 ---
 
