@@ -112,3 +112,26 @@ def test_resolve_and_search_wait_on_limiter():
     conn.resolve(Reference(title="Attention Is All You Need", authors=[], year=None))
     conn.search("attention", limit=3)
     assert lim.waits == 2
+
+
+def test_parse_hit_non_dict_info_and_authors_do_not_raise():
+    assert parse_dblp_hit({"info": "not-a-dict"})["authors"] == []
+    rec = parse_dblp_hit({"info": {"title": "X", "authors": "weird-string"}})
+    assert rec["authors"] == [] and rec["title"] == "X"
+
+
+def test_dblp_url_non_dict_info():
+    assert dblp_url({"info": "not-a-dict"}) == "https://dblp.org/"
+
+
+def test_search_and_resolve_never_raise_on_odd_shapes():
+    from research_companion.refcheck.validate import Reference
+
+    hits = [{"info": {"title": "X", "authors": ["a", "b"]}}, {"info": "nope"}, {}]
+    conn = DBLPConnector(search=lambda *a, **k: hits)
+    conn.search("q", limit=5)  # must not raise
+    conn.resolve(Reference(title="X", authors=[], year=None))  # must not raise
+
+
+def test_arxiv_from_ee_strips_trailing_punctuation():
+    assert _arxiv_from_ee("https://arxiv.org/abs/1706.03762.") == "1706.03762"

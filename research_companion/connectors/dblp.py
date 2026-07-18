@@ -21,8 +21,8 @@ SEARCH_API = "https://dblp.org/search/publ/api"
 MATCH_FLOOR = 0.7
 DBLP_MIN_INTERVAL_S = 1.0  # gentle: ~1 request/second (DBLP has no key system)
 
-_ARXIV_RE = re.compile(r"arxiv\.org/abs/([\w.\-/]+)", re.IGNORECASE)
-_ARXIV_DOI_RE = re.compile(r"10\.48550/arxiv\.([\w.\-/]+)", re.IGNORECASE)
+_ARXIV_RE = re.compile(r"arxiv\.org/abs/([\w./-]*[\w/])", re.IGNORECASE)
+_ARXIV_DOI_RE = re.compile(r"10\.48550/arxiv\.([\w./-]*[\w/])", re.IGNORECASE)
 _AUTHOR_SUFFIX_RE = re.compile(r"\s+\d{4}$")  # DBLP homonym tag, e.g. "Noam Shazeer 0001"
 
 
@@ -32,7 +32,9 @@ def _clean_author(author) -> str:
 
 
 def _authors_list(info: dict) -> list[str]:
-    authors = (info.get("authors") or {}).get("author")
+    authors = info.get("authors")
+    authors = authors if isinstance(authors, dict) else {}
+    authors = authors.get("author")
     if authors is None:
         return []
     if isinstance(authors, (dict, str)):
@@ -56,7 +58,8 @@ def _coerce_year(value) -> int | None:
 
 
 def parse_dblp_hit(hit: dict) -> dict:
-    info = hit.get("info", {}) or {}
+    info = hit.get("info")
+    info = info if isinstance(info, dict) else {}
     title = (info.get("title") or "").strip()
     if title.endswith("."):
         title = title[:-1]
@@ -72,7 +75,9 @@ def parse_dblp_hit(hit: dict) -> dict:
 
 
 def dblp_url(hit: dict) -> str:
-    return (hit.get("info", {}) or {}).get("url") or "https://dblp.org/"
+    info = hit.get("info")
+    info = info if isinstance(info, dict) else {}
+    return info.get("url") or "https://dblp.org/"
 
 
 def _best(ref: Reference, hits: list[dict]) -> dict | None:
