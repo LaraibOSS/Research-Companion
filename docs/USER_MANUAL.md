@@ -378,7 +378,7 @@ you can pass `--allow-remote` (or set `semantic_overlap_allow_remote`), which
 sends both your draft's and your library's passage text to the Hugging Face
 Inference API and requires `HF_TOKEN`. If neither backend is available the
 tool falls back to the lexical check (`check-overlap --semantic` tells you
-why it was skipped; the setting-driven path skips quietly).
+why it was skipped; the setting-driven path skips quietly). Semantic matches are advisory warnings — they never block a review and are never labeled plagiarism.
 
 Lanes run concurrently with failure isolation: one failing lane degrades the
 report, never the run. `--fast` runs only LLM-free lanes. Every run appends

@@ -434,3 +434,5 @@ reworded or translated reuse that shingling can't see.
   never crashes because of an opt-in pass. See the agent-side and CLI-side
   characterization tests for both the off-path identity and the
   failure-fallback behavior.
+
+Like the lexical lane, semantic findings surface as `severity: warning` in the readiness synthesis — never a blocker, and never labeled "plagiarism" (the honest label stays *near-duplicate / paraphrase of library paper X*); only compliance desk-reject findings can block.
