@@ -780,6 +780,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
             "agents": {name: {"ok": r.ok, "data": r.data, "error": r.error}
                        for name, r in results.items()},
         }
+        readiness = (_rep or {}).get("readiness")
+        if readiness:
+            payload["readiness"] = readiness
         if args.report:
             payload["report_dir"] = str(out_dir)
         print(json.dumps(payload, indent=2, ensure_ascii=False))

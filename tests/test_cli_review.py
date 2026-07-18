@@ -64,6 +64,21 @@ def test_review_cli_json(monkeypatch: pytest.MonkeyPatch, capsys):
     assert payload["paper_id"] == paper_id
     assert payload["agents"]["citation"]["ok"] is True
     assert payload["agents"]["citation"]["data"]["counts"]["verified"] == 1
+    # Minor 1 fix: the --json stdout payload must carry the same readiness
+    # synthesis as the persisted store copy / report.json, not just the raw
+    # per-agent results.
+    assert "verdict" in payload["readiness"]
+
+
+def test_review_cli_json_omits_readiness_when_no_source_lane_ran(capsys):
+    # No extraction seeded: ingest fails, every other lane fails as a
+    # dependency-of-ingest, so build_readiness() has nothing assessable and
+    # returns {}. The --json payload must NOT add a null/empty readiness key
+    # in that case (mirrors build_report_json's omit-when-empty contract).
+    rc = cli.main(["review", "local:nothere", "--json"])
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert "readiness" not in payload
 
 
 def test_review_cli_fails_without_extraction(capsys):
