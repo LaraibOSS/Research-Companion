@@ -467,6 +467,24 @@ def pdf_path(paper_id: str) -> Path | None:
     return p if p.exists() else None
 
 
+def pdf_page_count(paper_id: str) -> int | None:
+    """Number of pages in the stored PDF, or None when there is no PDF or it
+    cannot be opened. Never raises (used by the best-effort compliance lane)."""
+    p = pdf_path(paper_id)
+    if p is None:
+        return None
+    try:
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(str(p))
+        try:
+            return len(pdf)
+        finally:
+            pdf.close()
+    except Exception:
+        return None
+
+
 def save_text(paper_id: str, text: str) -> Path:
     p = paper_dir(paper_id) / "text.txt"
     p.write_text(text, encoding="utf-8")
