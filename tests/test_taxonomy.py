@@ -27,3 +27,37 @@ def test_all_singletons_when_no_overlap():
               {"title": "epsilon zeta", "abstract": ""}]
     clusters = taxonomy.cluster_papers(papers)
     assert sorted(len(c) for c in clusters) == [1, 1, 1]
+
+
+def test_build_taxonomy_keyword_labels_without_llm():
+    papers = [
+        {"title": "Graph retrieval", "abstract": "graph retrieval", "year": 2020, "id": "x1"},
+        {"title": "Graph ranking retrieval", "abstract": "graph retrieval ranking", "year": 2021, "id": "x2"},
+        {"title": "Protein folding", "abstract": "protein folding", "year": 2019, "id": "x3"},
+    ]
+    tree = taxonomy.build_taxonomy(papers, llm=None)
+    # partition preserved across groups
+    ids = sorted(p["id"] for g in tree for p in g["papers"])
+    assert ids == ["x1", "x2", "x3"]
+    # a group with the two graph papers has a keyword-derived label
+    graph_group = next(g for g in tree if any(p["id"] == "x1" for p in g["papers"]))
+    assert graph_group["label"]  # non-empty
+    assert any(p["id"] == "x2" for p in graph_group["papers"])
+
+
+def test_build_taxonomy_uses_llm_labels_when_provided():
+    papers = [
+        {"title": "Graph retrieval", "abstract": "graph retrieval", "year": 2020, "id": "x1"},
+        {"title": "Graph ranking", "abstract": "graph retrieval ranking", "year": 2021, "id": "x2"},
+    ]
+    tree = taxonomy.build_taxonomy(papers, llm=lambda prompt: "Graph-based Retrieval")
+    assert tree[0]["label"] == "Graph-based Retrieval"
+
+
+def test_collapse_fallback_single_group_when_all_singletons():
+    papers = [{"title": "alpha", "abstract": "", "year": 1, "id": "a"},
+              {"title": "beta", "abstract": "", "year": 2, "id": "b"},
+              {"title": "gamma", "abstract": "", "year": 3, "id": "c"}]
+    tree = taxonomy.build_taxonomy(papers, llm=None)
+    assert len(tree) == 1 and tree[0]["label"] == "Related work"
+    assert len(tree[0]["papers"]) == 3
