@@ -43,6 +43,16 @@ _KIND_SHAPES = {
     "result":  "dot",
 }
 
+# Citation-polarity edge colors for `cites` edges — kept in sync with the JS
+# map in research_companion/lab/static/js/graph/mapping.js.
+CITATION_POLARITY_COLORS = {
+    "based_on": "#1f6feb",    # blue
+    "support": "#3fb950",     # green
+    "contrast": "#f85149",    # red
+    "refutation": "#a40e26",  # dark red
+    "mention": "#8b949e",     # gray
+}
+
 
 HTML_TEMPLATE = """<!doctype html>
 <html lang="en">
@@ -163,13 +173,16 @@ def _vis_edges(G: nx.Graph) -> list[dict]:
     for u, v, data in G.edges(data=True):
         relation = data.get("relation", "")
         # No always-on text label (clutter); the relation stays on hover.
-        out.append({
+        edge = {
             "from": u,
             "to": v,
             "title": relation,
             "width": 1 + 0.3 * (data.get("weight", 1) - 1),
             "dashes": [4, 4] if relation == "co_mentioned" else False,
-        })
+        }
+        if relation == "cites" and data.get("polarity") in CITATION_POLARITY_COLORS:
+            edge["color"] = CITATION_POLARITY_COLORS[data["polarity"]]
+        out.append(edge)
     return out
 
 
