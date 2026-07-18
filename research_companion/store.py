@@ -505,6 +505,30 @@ def load_extraction(paper_id: str, *, prompt_sha: str) -> dict[str, Any] | None:
     return payload.get("extraction")
 
 
+def save_citation_polarity(paper_id: str, mapping: dict[str, Any]) -> Path:
+    """Persist per-citation polarity for a paper, keyed by the raw related_work
+    string. Consumed by build_graph to type cites edges."""
+    p = paper_dir(paper_id) / "citation_polarity.json"
+    p.write_text(json.dumps(mapping, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_citation_polarity(paper_id: str) -> dict[str, Any]:
+    """Return the polarity mapping for a paper, or {} when absent/corrupt.
+
+    Must never raise: build_graph iterates every paper, and one bad sidecar
+    must not fail an unrelated paper's ingest (same discipline as load_extraction).
+    """
+    p = paper_dir(paper_id) / "citation_polarity.json"
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def list_papers() -> list[PaperMetadata]:
     """All papers currently in the local store, sorted by added_at desc."""
     out: list[PaperMetadata] = []

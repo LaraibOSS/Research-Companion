@@ -636,6 +636,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.benchmark import BenchmarkAgent
     from research_companion.agents.bus import Bus
     from research_companion.agents.citation import CitationAgent
+    from research_companion.agents.citation_polarity import CitationPolarityAgent
     from research_companion.agents.confidence import ConfidenceAgent
     from research_companion.agents.ethics import EthicsAgent
     from research_companion.agents.events import EventLog
@@ -647,6 +648,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.reproducibility import ReproducibilityAgent
     from research_companion.agents.severity import SeverityAgent
     from research_companion.agents.statsoundness import StatSoundnessAgent
+    from research_companion.agents.taxonomy import TaxonomyAgent
     from research_companion.agents.venuefit import VenueFitAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
@@ -659,7 +661,8 @@ def _cmd_review(args: argparse.Namespace) -> int:
     agents = [IngestAgent(), CitationAgent(), PriorArtAgent(),
               StatSoundnessAgent(), ReproducibilityAgent(), EthicsAgent(), OverlapAgent()]
     if not args.fast:
-        agents += [NoveltyAgent(), ConfidenceAgent(), BenchmarkAgent(), SeverityAgent()]
+        agents += [NoveltyAgent(), CitationPolarityAgent(), ConfidenceAgent(), BenchmarkAgent(),
+                   SeverityAgent(), TaxonomyAgent()]
     if getattr(args, "venue", None):
         agents.append(VenueFitAgent())
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
@@ -705,6 +708,18 @@ def _cmd_review(args: argparse.Namespace) -> int:
                 threading.Event().wait()
     else:
         results = asyncio.run(run_agents(agents, ctx))
+
+    # Rebuild and save the graph so the lab reflects any new citation-polarity
+    # (or other) enrichment produced by this review run. Best-effort: never
+    # fail the review over a graph-refresh error. Skipped in --fast mode:
+    # the polarity agent (and other enrichment agents) don't run there, so
+    # there's nothing new for a rebuild to materialize.
+    if not args.fast:
+        try:
+            from research_companion.graph import build_graph, save_graph
+            save_graph(build_graph())
+        except Exception:
+            pass
 
     # Always persist the review report to the store (regardless of --report flag)
     # so the suggestions engine can read it deterministically.

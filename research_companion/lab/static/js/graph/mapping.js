@@ -123,23 +123,42 @@ export function entityProvenanceLabel(node, papersMap) {
   return { count, label, items };
 }
 
+// Citation-stance colors for 'cites' edges. Values MUST match
+// research_companion/viz.py's CITATION_POLARITY_COLORS exactly, so the lab
+// view and the static HTML export agree on edge coloring.
+export const CITATION_POLARITY_COLORS = {
+  based_on: '#1f6feb',
+  support: '#3fb950',
+  contrast: '#f85149',
+  refutation: '#a40e26',
+  mention: '#8b949e',
+};
+
 /**
  * Convert an API graph edge to a vis-network edge descriptor.
  * No always-on text label; the relation stays available on hover (`title`)
- * and in the edge-click detail panel.
+ * and in the edge-click detail panel. 'cites' edges are colored by
+ * `edge.polarity` (citation stance) when present; all other edges (and
+ * untyped 'cites' edges) keep the neutral default color.
  *
- * @param {{ from: string, to: string, relation: string, weight?: number }} edge
+ * @param {{ from: string, to: string, relation: string, weight?: number, polarity?: string }} edge
  * @returns {object}  vis-network edge options
  */
 export function edgeToVis(edge) {
   const relation = edge.relation || '';
+  const polarity = edge.polarity || '';
+  const polColor = relation === 'cites' && polarity ? CITATION_POLARITY_COLORS[polarity] : null;
   return {
     from: edge.from,
     to: edge.to,
     relation,
-    title: relation,
+    polarity,
+    evidence: edge.evidence || '',
+    title: polarity ? `${relation}: ${polarity}` : relation,
     width: 1 + 0.3 * ((edge.weight || 1) - 1),
-    color: { color: 'rgba(110,118,129,0.35)', highlight: 'rgba(139,148,158,0.8)' },
+    color: polColor
+      ? { color: polColor, highlight: polColor }
+      : { color: 'rgba(110,118,129,0.35)', highlight: 'rgba(139,148,158,0.8)' },
     arrows: { to: { enabled: true, scaleFactor: 0.5 } },
     dashes: relation === 'co_mentioned' ? [4, 4] : false,
   };

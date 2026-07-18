@@ -237,6 +237,58 @@ def novelty_prompt_sha256() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Citation polarity prompts (graph-enrichment). SHA-cached.
+# ---------------------------------------------------------------------------
+
+CITATION_POLARITY_PROMPT = """You are labeling how a paper relates to each work it cites.
+
+Paper title: {title}
+
+Paper text:
+{paper_text}
+
+Cited works (one per line):
+{citations}
+
+For EACH cited work, decide the paper's stance toward it and copy a short
+verbatim quote from the paper text above that shows the stance.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{{
+  "citations": [
+    {{
+      "cite": "the cited work string, exactly as given above",
+      "polarity": "based_on|support|contrast|refutation|mention",
+      "evidence_quote": "short verbatim span from the paper text (may be empty if none)",
+      "rationale": "one short clause"
+    }}
+  ]
+}}
+
+Polarity meanings:
+- based_on: the paper builds on / extends / uses this work.
+- support: the paper agrees with or is corroborated by this work.
+- contrast: the paper differs from or compares against this work.
+- refutation: the paper disputes, challenges, or refutes this work.
+- mention: a passing reference with no clear stance.
+
+Rules:
+- Include every cited work exactly once, using the string as given.
+- evidence_quote MUST be copied verbatim from the paper text, or be "".
+- When unsure, use "mention".
+"""
+
+
+def format_citation_polarity_prompt(title: str, paper_text: str, citations: list[str]) -> str:
+    joined = "\n".join(str(c) for c in citations)
+    return CITATION_POLARITY_PROMPT.format(title=title, paper_text=paper_text, citations=joined)
+
+
+def citation_polarity_prompt_sha256() -> str:
+    return hashlib.sha256(CITATION_POLARITY_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Rebuttal prompts (rebuttal/draft.py). SHA-cached.
 # ---------------------------------------------------------------------------
 

@@ -44,6 +44,10 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   verification (incl. PMID-only refs), prior-art, and OA full-text ingest.
   Opt-in via `settings.connectors` / `--connectors`; off by default (the
   tool is byte-identical when disabled). → `research_companion/connectors/`.
+- ✅ **Graph enrichment** — typed citation polarity (based-on/support/contrast/
+  refutation/mention, evidence-grounded) on the cross-paper graph + a labeled
+  prior-art taxonomy in the report. → `agents/citation_polarity.py`,
+  `taxonomy.py`, `agents/taxonomy.py`.
 
 ---
 
