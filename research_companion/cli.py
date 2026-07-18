@@ -627,6 +627,21 @@ async def _run_with_state(agents, ctx, state: dict) -> dict:
     return results
 
 
+def _readiness_line(readiness: dict | None) -> str:
+    """Format the submission-readiness verdict + top items for readable review output."""
+    if not readiness:
+        return ""
+    label = {"not_ready": "NOT READY", "revise": "REVISE", "ready": "READY"}.get(
+        readiness.get("verdict", "revise"), "REVISE")
+    lines = [f"\nSubmission readiness: {label} — {readiness.get('summary', '')}"]
+    for b in (readiness.get("blockers") or [])[:3]:
+        lines.append(f"  ! [{b.get('lane', '')}] {b.get('title', '')}")
+    shown = max(0, 3 - len(readiness.get("blockers") or []))
+    for w in (readiness.get("warnings") or [])[:shown]:
+        lines.append(f"  - [{w.get('lane', '')}] {w.get('title', '')}")
+    return "\n".join(lines)
+
+
 def _cmd_review(args: argparse.Namespace) -> int:
     import asyncio
     import contextlib
@@ -725,6 +740,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
 
     # Always persist the review report to the store (regardless of --report flag)
     # so the suggestions engine can read it deterministically.
+    _rep = None
     try:
         from research_companion.report import build_report_json
         from research_companion.store import PaperMetadata, save_review_report
@@ -788,6 +804,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
             print(f"  {agent.name:<10} FAILED  {r.error}")
     ok = all(r.ok for r in results.values())
     print(f"\n{'All agents completed.' if ok else 'Some agents failed.'}")
+    line = _readiness_line((_rep or {}).get("readiness"))
+    if line:
+        print(line)
     return 0 if ok else 1
 
 
