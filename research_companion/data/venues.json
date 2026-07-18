@@ -8,7 +8,10 @@
       "topics": ["machine learning", "deep learning", "neural network", "optimization", "reinforcement learning", "probabilistic", "representation learning", "generative model", "theory"],
       "checklists": ["NeurIPS Paper Checklist", "datasheet for datasets"],
       "desk_reject_rules": ["9-page main-text limit (excl. references)", "double-blind: no author-identifying info", "must include the paper checklist"],
-      "aliases": ["nips"]
+      "aliases": ["nips"],
+      "page_limit": 9,
+      "anonymized": true,
+      "required_sections": [["limitations"], ["broader impact", "impact statement", "ethics statement"]]
     },
     {
       "slug": "icml", "name": "ICML", "kind": "conference",
@@ -17,7 +20,9 @@
       "topics": ["machine learning", "deep learning", "optimization", "theory", "reinforcement learning", "kernel", "bayesian", "generalization"],
       "checklists": ["NeurIPS-style reproducibility checklist"],
       "desk_reject_rules": ["8-page main-text limit (excl. references)", "double-blind submission"],
-      "aliases": []
+      "aliases": [],
+      "page_limit": 8,
+      "anonymized": true
     },
     {
       "slug": "iclr", "name": "ICLR", "kind": "conference",
@@ -44,7 +49,10 @@
       "topics": ["nlp", "natural language processing", "language model", "parsing", "machine translation", "semantics", "text", "linguistics", "dialogue"],
       "checklists": ["ACL Responsible NLP Checklist", "limitations section (required)"],
       "desk_reject_rules": ["8-page limit for long papers (excl. references)", "mandatory Limitations section", "anonymized submission"],
-      "aliases": []
+      "aliases": [],
+      "page_limit": 8,
+      "anonymized": true,
+      "required_sections": [["limitations"]]
     },
     {
       "slug": "emnlp", "name": "EMNLP", "kind": "conference",
@@ -53,7 +61,10 @@
       "topics": ["nlp", "natural language processing", "language model", "text", "information extraction", "question answering", "summarization"],
       "checklists": ["ACL Responsible NLP Checklist", "limitations section (required)"],
       "desk_reject_rules": ["8-page limit for long papers (excl. references)", "mandatory Limitations section"],
-      "aliases": []
+      "aliases": [],
+      "page_limit": 8,
+      "anonymized": true,
+      "required_sections": [["limitations"]]
     },
     {
       "slug": "cvpr", "name": "CVPR", "kind": "conference",

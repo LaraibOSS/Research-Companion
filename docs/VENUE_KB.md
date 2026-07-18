@@ -39,6 +39,23 @@ Append an object to the `venues` array in `venues.json`:
 | `desk_reject_rules` | optional | Common desk-reject triggers (page limits, anonymization, scope). The LLM weighs these when scoring fit. |
 | `aliases` | optional | Alternative names resolvable by `get_venue` (e.g. `nips` → `neurips`). |
 
+### Structured desk-reject fields (optional)
+
+These four fields feed the compliance linter's deterministic checks (page/word
+limits, required sections, anonymization) in addition to the free-text
+`desk_reject_rules` consumed by the LLM. All default to "unset" so existing
+entries load unchanged if omitted.
+
+| Field | Meaning |
+|---|---|
+| `page_limit` | Main-text page limit (int), excluding references/appendix, or `null`/omitted if unknown. |
+| `abstract_word_limit` | Abstract word-count limit (int), or `null`/omitted if unknown. |
+| `required_sections` | List of synonym groups, e.g. `[["limitations"], ["broader impact", "impact statement"]]` — a submission satisfies a group if it contains any one section name from that group (case-insensitive, any-match). |
+| `anonymized` | `true` if the venue requires double-blind (anonymized) submissions, else `false` (default). |
+
+Only populate these for venues whose rules are confirmed; leave them at their
+defaults (omit the keys) rather than guessing a page limit.
+
 ## How it's used
 
 1. `topic_overlap(paper_terms, venue)` — deterministic `[0,1]` scope prefilter.

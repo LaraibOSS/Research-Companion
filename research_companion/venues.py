@@ -29,6 +29,10 @@ class Venue:
     checklists: tuple[str, ...] = field(default_factory=tuple)
     desk_reject_rules: tuple[str, ...] = field(default_factory=tuple)
     aliases: tuple[str, ...] = field(default_factory=tuple)
+    page_limit: int | None = None
+    abstract_word_limit: int | None = None
+    required_sections: tuple[tuple[str, ...], ...] = field(default_factory=tuple)
+    anonymized: bool = False
 
 
 def _load_venues() -> dict[str, Venue]:
@@ -47,6 +51,10 @@ def _load_venues() -> dict[str, Venue]:
             checklists=tuple(v.get("checklists", ())),
             desk_reject_rules=tuple(v.get("desk_reject_rules", ())),
             aliases=tuple(v.get("aliases", ())),
+            page_limit=v.get("page_limit"),
+            abstract_word_limit=v.get("abstract_word_limit"),
+            required_sections=tuple(tuple(g) for g in v.get("required_sections", ())),
+            anonymized=bool(v.get("anonymized", False)),
         )
         registry[venue.slug] = venue
     return registry
