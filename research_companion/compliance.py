@@ -91,6 +91,39 @@ def _check_required_sections(venue, sections, fulltext) -> list[dict]:
     return out
 
 
+ANON_EMAIL_WINDOW = 6000  # ~first 2 pages of chars; emails later (refs) are ignored.
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_SELF_REF_RE = re.compile(
+    r"\bour (?:previous|prior|earlier) work\b|"
+    r"\bwe (?:previously|earlier) (?:showed|proposed|introduced|developed)\b|"
+    r"\bin our (?:previous|prior|earlier) (?:paper|work|study)\b",
+    re.IGNORECASE,
+)
+_ACK_RE = re.compile(r"^\s*\d*\.?\s*(acknowledg|funding)", re.IGNORECASE)
+
+
+def _check_anonymization(venue, fulltext) -> list[dict]:
+    if not venue.anonymized:
+        return [_skipped("anonymization", "venue is not double-blind")]
+    text = fulltext or ""
+    hits = []
+    m = _EMAIL_RE.search(text[:ANON_EMAIL_WINDOW])
+    if m:
+        hits.append(_finding("anonymization", "warning",
+                             "email address near the top of the paper",
+                             m.group(0)))
+    if any(_ACK_RE.match(line) for line in text.splitlines()):
+        hits.append(_finding("anonymization", "warning",
+                             "acknowledgements/funding section present",
+                             "double-blind venues require removing it before review"))
+    m = _SELF_REF_RE.search(text)
+    if m:
+        hits.append(_finding("anonymization", "warning",
+                             "self-identifying reference to prior work", m.group(0)))
+    return hits or [_ok("anonymization", "no anonymization leaks detected")]
+
+
 def check_compliance(venue, *, fulltext, sections=None, abstract=None,
                      references=None, page_count=None) -> dict:
     checks = [
@@ -98,6 +131,7 @@ def check_compliance(venue, *, fulltext, sections=None, abstract=None,
         _check_abstract_words(venue, abstract),
     ]
     checks += _check_required_sections(venue, sections, fulltext)
+    checks += _check_anonymization(venue, fulltext)
     counts = {"desk_reject": 0, "warning": 0}
     for c in checks:
         if c["status"] == "finding":

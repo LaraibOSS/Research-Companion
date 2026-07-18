@@ -79,3 +79,21 @@ def test_required_section_fulltext_fallback_accepts_heading_with_colon():
 def test_required_sections_skipped_when_venue_has_none():
     res = check_compliance(_v(), fulltext="x", sections=[])
     assert _find(res, "required_sections")["status"] == "skipped"
+
+def test_anonymization_skipped_when_not_blind():
+    res = check_compliance(_v(anonymized=False), fulltext="a@b.com")
+    assert _find(res, "anonymization")["status"] == "skipped"
+
+def test_anonymization_flags_email_in_header():
+    res = check_compliance(_v(anonymized=True), fulltext="Title\njane@univ.edu\nBody")
+    hits = [c for c in res["checks"] if c["check"] == "anonymization" and c["status"] == "finding"]
+    assert hits and all(c["severity"] == "warning" for c in hits)
+
+def test_anonymization_flags_self_reference():
+    res = check_compliance(_v(anonymized=True),
+                           fulltext="In our previous work [3] we showed X.")
+    assert any(c["check"] == "anonymization" and c["status"] == "finding" for c in res["checks"])
+
+def test_anonymization_clean_is_ok():
+    res = check_compliance(_v(anonymized=True), fulltext="A fully blind body with no leaks.")
+    assert _find(res, "anonymization")["status"] == "ok"
