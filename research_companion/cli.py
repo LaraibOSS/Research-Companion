@@ -1376,6 +1376,85 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check_compliance(args: argparse.Namespace) -> int:
+    from research_companion.compliance import check_compliance
+    from research_companion.prompts import extraction_prompt_sha256
+    from research_companion.refcheck.parse import references_from_extraction
+    from research_companion.sections import Section, build_section_tree
+    from research_companion.store import (
+        PaperMetadata,
+        load_extraction,
+        load_sections,
+        load_text,
+        pdf_page_count,
+    )
+    from research_companion.venues import get_venue
+
+    venue = get_venue(args.venue)
+    if venue is None:
+        print(f"research-companion: unknown venue {args.venue!r}. "
+              "See `research-companion` venue list for valid slugs.", file=sys.stderr)
+        return 1
+
+    fulltext = load_text(args.paper_id) or ""
+
+    # store.load_sections() returns a persisted payload dict
+    # ({"sections": [...plain dicts...], ...}) or None (missing/stale cache)
+    # — never a bare list of Section objects. check_compliance needs real
+    # Section objects (it reads `.title`), so convert the payload's plain
+    # dicts into Section instances; when there's no cached payload at all,
+    # build fresh from the fulltext instead.
+    raw = load_sections(args.paper_id)
+    sections: list[Section] | None = None
+    if isinstance(raw, dict):
+        try:
+            sections = [Section(**s) for s in raw.get("sections", [])]
+        except TypeError:
+            sections = None
+    if not sections and fulltext:
+        try:
+            sections = build_section_tree(fulltext)
+        except Exception:
+            sections = None
+
+    meta = PaperMetadata.load(args.paper_id)
+    abstract = meta.abstract if meta else ""
+    ext = load_extraction(args.paper_id, prompt_sha=extraction_prompt_sha256())
+    references = references_from_extraction(ext) if ext else None
+    page_count = pdf_page_count(args.paper_id)
+
+    result = check_compliance(
+        venue, fulltext=fulltext, sections=sections, abstract=abstract,
+        references=references, page_count=page_count)
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    checks = result["checks"]
+    desk_rejects = [c for c in checks if c["status"] == "finding" and c["severity"] == "desk_reject"]
+    warnings = [c for c in checks if c["status"] == "finding" and c["severity"] == "warning"]
+    skipped = [c for c in checks if c["status"] == "skipped"]
+
+    if desk_rejects:
+        print("Desk-reject risks:")
+        for c in desk_rejects:
+            print(f"  XX [{c['check']}] {c['message']}")
+    if warnings:
+        print("Warnings:")
+        for c in warnings:
+            print(f"  ?? [{c['check']}] {c['message']}")
+    if skipped:
+        print("Skipped:")
+        for c in skipped:
+            print(f"  -- [{c['check']}] {c['message']}")
+    if not desk_rejects and not warnings:
+        print("research-companion: no compliance issues found.")
+
+    print(f"\n{result['disclaimer']}")
+    return 0
+
+
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
     from research_companion.mcp_server import serve
 
@@ -1794,6 +1873,13 @@ def _build_parser() -> argparse.ArgumentParser:
                           "sends text off-machine — none is configured by default)")
     pco.add_argument("--json", action="store_true", help="JSON output")
     pco.set_defaults(func=_cmd_check_overlap)
+
+    pcc = sub.add_parser("check-compliance",
+                         help="Check a paper against a venue's submission rules (desk-reject linter)")
+    pcc.add_argument("paper_id", help="ID of a paper already added/ingested")
+    pcc.add_argument("--venue", required=True, help="Target venue slug/name")
+    pcc.add_argument("--json", action="store_true", help="JSON output")
+    pcc.set_defaults(func=_cmd_check_compliance)
 
     peb = sub.add_parser("export-bib",
                          help="Export the library to BibTeX or RIS")
