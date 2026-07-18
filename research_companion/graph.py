@@ -228,6 +228,8 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
                 pol = polarity_map.get(ref_str)
                 if isinstance(pol, dict) and pol.get("polarity"):
                     attrs["polarity"] = pol["polarity"]
+                    if pol.get("verified") and pol.get("evidence_quote"):
+                        attrs["evidence"] = pol["evidence_quote"]
                 G.add_edge(meta.paper_id, target, **attrs)
 
     # Entity provenance (additive): attach the sorted set of contributing
@@ -359,6 +361,8 @@ def serialize_graph(G: nx.Graph, *, seq: int = 0) -> dict:
         }
         if edata.get("polarity"):
             edge["polarity"] = edata["polarity"]
+        if edata.get("evidence"):
+            edge["evidence"] = edata["evidence"]
         edges.append(edge)
 
     return {"seq": seq, "nodes": nodes, "edges": edges}

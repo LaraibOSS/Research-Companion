@@ -688,12 +688,15 @@ def _cmd_review(args: argparse.Namespace) -> int:
 
     # Rebuild and save the graph so the lab reflects any new citation-polarity
     # (or other) enrichment produced by this review run. Best-effort: never
-    # fail the review over a graph-refresh error.
-    try:
-        from research_companion.graph import build_graph, save_graph
-        save_graph(build_graph())
-    except Exception:
-        pass
+    # fail the review over a graph-refresh error. Skipped in --fast mode:
+    # the polarity agent (and other enrichment agents) don't run there, so
+    # there's nothing new for a rebuild to materialize.
+    if not args.fast:
+        try:
+            from research_companion.graph import build_graph, save_graph
+            save_graph(build_graph())
+        except Exception:
+            pass
 
     # Always persist the review report to the store (regardless of --report flag)
     # so the suggestions engine can read it deterministically.

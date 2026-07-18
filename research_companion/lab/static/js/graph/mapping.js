@@ -153,6 +153,7 @@ export function edgeToVis(edge) {
     to: edge.to,
     relation,
     polarity,
+    evidence: edge.evidence || '',
     title: polarity ? `${relation}: ${polarity}` : relation,
     width: 1 + 0.3 * ((edge.weight || 1) - 1),
     color: polColor

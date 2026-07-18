@@ -230,6 +230,26 @@ def test_serialize_includes_polarity_when_present():
     assert edge["polarity"] == "support"
 
 
+def test_serialize_includes_evidence_when_present():
+    G = nx.Graph()
+    G.add_node("p:a", kind="paper")
+    G.add_node("p:b", kind="paper")
+    G.add_edge("p:a", "p:b", relation="cites", polarity="support", evidence="We build on this.")
+    payload = graph.serialize_graph(G)
+    edge = [e for e in payload["edges"] if e.get("relation") == "cites"][0]
+    assert edge["evidence"] == "We build on this."
+
+
+def test_serialize_omits_evidence_when_absent():
+    G = nx.Graph()
+    G.add_node("p:a", kind="paper")
+    G.add_node("p:b", kind="paper")
+    G.add_edge("p:a", "p:b", relation="cites", polarity="support")
+    payload = graph.serialize_graph(G)
+    edge = [e for e in payload["edges"] if e.get("relation") == "cites"][0]
+    assert "evidence" not in edge
+
+
 def test_stats_break_cites_down_by_polarity():
     G = nx.Graph()
     G.add_node("a", kind="paper")

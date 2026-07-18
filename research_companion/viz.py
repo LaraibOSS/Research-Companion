@@ -182,6 +182,8 @@ def _vis_edges(G: nx.Graph) -> list[dict]:
         }
         if relation == "cites" and data.get("polarity") in CITATION_POLARITY_COLORS:
             edge["color"] = CITATION_POLARITY_COLORS[data["polarity"]]
+            ev = data.get("evidence")
+            edge["title"] = f'{data["polarity"]}: "{ev}"' if ev else data["polarity"]
         out.append(edge)
     return out
 

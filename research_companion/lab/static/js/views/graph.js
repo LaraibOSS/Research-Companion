@@ -977,6 +977,7 @@ function _renderLegend(container) {
     ${items}
     <div class="graph-legend-group-title muted" style="margin-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:0.02em;">Citation stance</div>
     ${polarityItems}
+    <div class="muted" style="margin-top:4px;font-size:11px;">Only citations to papers already in your library are colored.</div>
   `;
 
   // Toggle kind visibility on click
@@ -1137,7 +1138,7 @@ function _showEdgeDetail(edge) {
   const to = escapeHtml(String(edge.to || ''));
   const polarity = escapeHtml(String(edge.polarity || ''));
 
-  content.innerHTML = `
+  let body = `
     <div class="graph-detail-header">
       <div class="graph-detail-title">Edge</div>
       <span class="graph-detail-badge">${relation || 'relation'}</span>
@@ -1161,6 +1162,12 @@ function _showEdgeDetail(edge) {
       </div>` : ''}
     </div>
   `;
+
+  if (edge.evidence) {
+    body += `<div class="edge-detail-row"><strong>Evidence:</strong> "${escapeHtml(edge.evidence)}"</div>`;
+  }
+
+  content.innerHTML = body;
 
   _detailPanel.style.display = 'flex';
 }

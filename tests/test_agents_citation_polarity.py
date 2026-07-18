@@ -37,6 +37,8 @@ def test_verified_stance_kept_unverified_demoted(tmp_path, monkeypatch):
     side = store.load_citation_polarity("arxiv:1")
     assert side["Lewis et al. 2020"]["polarity"] == "based_on"
     assert side["Ghost 1999"]["polarity"] == "mention"
+    # verified citation's sidecar entry carries the grounded evidence quote
+    assert side["Lewis et al. 2020"]["evidence_quote"] == "We build on Lewis."
 
 
 def test_no_related_work_no_llm_call(tmp_path, monkeypatch):

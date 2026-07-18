@@ -52,7 +52,7 @@ class CitationPolarityAgent(Agent):
         counts: dict[str, int] = {}
         for c in out:
             counts[c["polarity"]] = counts.get(c["polarity"], 0) + 1
-        save_citation_polarity(ctx.paper_id, {c["cite"]: {"polarity": c["polarity"], "verified": c["verified"]} for c in out})
+        save_citation_polarity(ctx.paper_id, {c["cite"]: {"polarity": c["polarity"], "verified": c["verified"], "evidence_quote": c["evidence_quote"]} for c in out})
 
         await ctx.bus.publish(events.Finding(
             agent=self.name, kind="citation_polarity",
