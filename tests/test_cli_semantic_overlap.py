@@ -39,6 +39,7 @@ def test_semantic_flag_merges_findings(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "paraphrased" in out  # merged summary text
+    assert "% paraphrase]" in out  # terminal label
 
 
 def test_semantic_flag_without_backend_prints_remedy(monkeypatch, capsys):

@@ -417,6 +417,10 @@ reworded or translated reuse that shingling can't see.
   I/O (embedding via `embed.embed_sections_with`, cache-aware) lives here;
   the comparison math stays pure in `semantic_near_duplicate_passages`.
   Exceptions propagate — each caller decides its own fallback.
+  The per-paper `embeddings.json` cache is backend-agnostic by `embed_model` id:
+  vectors cached from the HF API and vectors computed locally under the same
+  model id are treated as compatible (same weights; sub-1e-6 float variance
+  cannot move a 0.83 cosine decision).
 - **Range-overlap dedupe** — `merge_overlap_results(lexical, semantic)`
   drops a semantic finding whose char range overlaps a *lexical* finding for
   the same matched paper (that region is already surfaced by the cheaper

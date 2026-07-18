@@ -1415,7 +1415,8 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
 
     for f in result["findings"]:
         pct = round(float(f["score"]) * 100)
-        print(f"XX [{pct}% overlap] with {f['matched_paper_id']}: "
+        label = "paraphrase" if f.get("method") == "semantic" else "overlap"
+        print(f"XX [{pct}% {label}] with {f['matched_paper_id']}: "
               f"\"{f['snippet'][:120]}...\"")
     print(f"\nSummary: {result['summary']['text']}")
 
