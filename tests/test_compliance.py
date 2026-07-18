@@ -13,11 +13,14 @@ def _v(**kw):
 def _find(res, name):
     return next(c for c in res["checks"] if c["check"] == name)
 
-def test_page_over_limit_is_desk_reject():
+def test_page_over_limit_is_warning():
+    # A whole-PDF page count can't isolate main-text length (unlimited appendices),
+    # so an over-count is a warning to verify, not a definitive desk-reject.
     res = check_compliance(_v(page_limit=8), fulltext="body", page_count=14)
     c = _find(res, "page_limit")
-    assert c["status"] == "finding" and c["severity"] == "desk_reject"
-    assert res["counts"]["desk_reject"] == 1
+    assert c["status"] == "finding" and c["severity"] == "warning"
+    assert res["counts"]["warning"] == 1
+    assert res["counts"]["desk_reject"] == 0
     assert res["disclaimer"] == DISCLAIMER
 
 def test_page_within_slack_is_ok():

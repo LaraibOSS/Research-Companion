@@ -35,10 +35,12 @@ def _check_page_limit(venue, page_count) -> dict:
     if page_count is None:
         return _skipped("page_limit", "no PDF on disk — page limit not checked")
     if page_count > venue.page_limit + PAGE_SLACK:
-        return _finding("page_limit", "desk_reject",
-                        f"PDF is {page_count} pages; {venue.name} limit is {venue.page_limit}",
-                        f"Counting all PDF pages (incl. references/appendix) with a "
-                        f"{PAGE_SLACK}-page allowance; the main-text limit is {venue.page_limit}.")
+        return _finding("page_limit", "warning",
+                        f"PDF is {page_count} pages, well over {venue.name}'s "
+                        f"{venue.page_limit}-page main-text limit — verify your main text fits",
+                        f"Counts all PDF pages (incl. references/appendix, which are often "
+                        f"unlimited) with a {PAGE_SLACK}-page allowance, so it cannot isolate "
+                        f"main-text length; the limit is {venue.page_limit} main-text pages.")
     return _ok("page_limit", f"{page_count} pages within the {venue.page_limit}-page limit (+slack)")
 
 
