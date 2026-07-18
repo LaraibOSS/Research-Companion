@@ -350,3 +350,37 @@ checker" pattern, applied to venue submission rules instead of paper content:
   (desk-reject linter)" section from the `compliance` lane; when that lane is
   absent from the report (no `--venue` was passed), no such heading appears —
   see `tests/test_compliance_degradation.py` for the characterization test.
+
+## 15. Submission-readiness synthesis
+
+`research_companion/readiness.py` is report-level, not a pipeline agent: it
+runs inside `report.build_report_json` (never in the DAG in `cli.py`) and has
+no `Agent` wrapper. `build_readiness(lanes)` is a pure function — no LLM, no
+network — that reads whichever SOURCE lanes are present in the report's
+`lanes` dict (`compliance`, `citation`, `novelty`, `reproducibility`,
+`ethics`, `statsoundness`, `venuefit`, `overlap`) and synthesizes one verdict
+plus a prioritized, cross-lane action list.
+
+- **Per-lane extractors** — one pure `_extract_<lane>(data)` function per
+  source lane turns that lane's already-computed result into zero or more
+  `{"lane", "severity", "title", "action"}` items. Each extractor only reads
+  fields the lane already produces; it never re-derives or re-scores
+  anything.
+- **The deterministic blocker principle** — only `_extract_compliance` can
+  emit `severity: "blocker"`, and only for a `desk_reject`-severity finding;
+  every other extractor emits `"warning"` at most. The derived `severity`
+  lane (heuristic critical/major/minor ranking) is deliberately **not** read
+  here — reading it would double-count findings already surfaced elsewhere
+  and let a heuristic score gate the verdict. `novelty` IS read directly.
+  `verdict` is `"not_ready"` if any blockers exist, else `"revise"` if any
+  warnings exist, else `"ready"`.
+- **Coverage caveats, not fabricated findings** — lanes that didn't run
+  (absent, `--fast`/no `--venue`, or `ok: False`) are reported honestly in
+  `coverage.{ran,not_run,failed}` and folded into the summary sentence (e.g.
+  "novelty lane not run — remove --fast"); they never produce a blocker or
+  warning item, since there is nothing to report.
+- **Degradation** — `build_readiness({})` and the no-source-lane case both
+  return `{}`; `build_report_json` only sets `report["readiness"]` when the
+  result is truthy, and `render_report_html` only emits the "Submission
+  readiness" banner when that key is present. See
+  `tests/test_readiness_degradation.py` for the characterization test.
