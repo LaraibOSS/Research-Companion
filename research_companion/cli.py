@@ -637,6 +637,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.bus import Bus
     from research_companion.agents.citation import CitationAgent
     from research_companion.agents.citation_polarity import CitationPolarityAgent
+    from research_companion.agents.compliance import ComplianceAgent
     from research_companion.agents.confidence import ConfidenceAgent
     from research_companion.agents.ethics import EthicsAgent
     from research_companion.agents.events import EventLog
@@ -665,6 +666,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
                    SeverityAgent(), TaxonomyAgent()]
     if getattr(args, "venue", None):
         agents.append(VenueFitAgent())
+        agents.append(ComplianceAgent())
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
     if getattr(args, "venue", None):

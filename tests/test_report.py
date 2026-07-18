@@ -6,6 +6,7 @@ import json
 from research_companion.agents.base import AgentResult
 from research_companion.report import (
     _section_citation_polarity,
+    _section_compliance,
     _section_taxonomy,
     build_report_json,
     render_report_html,
@@ -140,3 +141,21 @@ def test_section_taxonomy_renders_nested_list():
 
 def test_section_taxonomy_empty_when_no_groups():
     assert _section_taxonomy({"groups": [], "count": 0}) == ""
+
+
+def test_section_compliance_renders_findings_and_disclaimer():
+    data = {"venue": "neurips",
+            "checks": [
+                {"check": "page_limit", "status": "finding", "severity": "desk_reject",
+                 "message": "PDF is 14 pages; NeurIPS limit is 9", "detail": ""},
+                {"check": "anonymization", "status": "finding", "severity": "warning",
+                 "message": "email near the top", "detail": "a@b.com"}],
+            "counts": {"desk_reject": 1, "warning": 1},
+            "disclaimer": "verify against the CFP"}
+    html = _section_compliance(data)
+    assert "14 pages" in html and "email near the top" in html
+    assert "verify against the CFP" in html
+
+
+def test_section_compliance_empty_when_no_checks():
+    assert _section_compliance({"checks": [], "counts": {}}) == ""
