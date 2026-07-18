@@ -48,6 +48,10 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   refutation/mention, evidence-grounded) on the cross-paper graph + a labeled
   prior-art taxonomy in the report. → `agents/citation_polarity.py`,
   `taxonomy.py`, `agents/taxonomy.py`.
+- ✅ **Desk-reject compliance linter** — deterministic, venue-gated checks
+  (page/length limit, required sections, anonymization leaks, citation
+  completeness) against structured venue-KB rules. → `compliance.py`,
+  `agents/compliance.py`; CLI `check-compliance`.
 
 ---
 

@@ -312,3 +312,41 @@ inputs are absent (see `tests/test_graph_enrichment_degradation.py`).
   `citation_polarity` lane and a "Prior-art taxonomy" nested list from the
   `taxonomy` lane, both purely additive: when those lanes are absent (or the
   report predates them), neither heading appears in the rendered HTML.
+
+---
+
+## 14. Desk-reject compliance linter (structured venue rules)
+
+`research_companion/compliance.py` is another instance of the §11 "add a
+checker" pattern, applied to venue submission rules instead of paper content:
+
+- **Pure checks** — `check_compliance(venue, *, fulltext, sections=None,
+  abstract=None, references=None, page_count=None)` runs five independent,
+  network-free checks (page limit, abstract word limit, required sections,
+  anonymization leaks, citation completeness) and returns
+  `{"venue", "checks", "counts", "disclaimer"}`. Each check reads its own
+  `Venue` field and self-skips (`status: "skipped"`) when that field is unset
+  or its input is missing, rather than guessing or erroring — a
+  partially-populated venue KB degrades to fewer checks, never a crash. A
+  finding's `severity` is always `"desk_reject"` or `"warning"`; every result
+  carries the fixed `DISCLAIMER` that KB rules are approximations to verify
+  against the venue's current CFP.
+- **Structured venue fields** — `research_companion/venues.py`'s `Venue`
+  dataclass carries the rule fields the checks read: `page_limit`,
+  `abstract_word_limit`, `required_sections` (a tuple of synonym-group
+  tuples, e.g. `(("limitations", "broader impact"),)`), and `anonymized`.
+  All default to "unset" (`None` / empty / `False`), so existing venues in
+  `research_companion/data/venues.json` need no migration — add the fields to
+  a venue entry only when you know the venue's actual rules; the linter skips
+  the rest.
+- **`ComplianceAgent`** — `research_companion/agents/compliance.py`, gated
+  behind `--venue` like `venuefit` (§11): with no venue it returns an empty,
+  always-`ok` result rather than running; with a venue it loads sections/
+  abstract/references/PDF page count from the store and calls
+  `check_compliance`. Wired into `review`'s DAG in `cli.py::_cmd_review` and
+  exposed standalone via the `check-compliance` CLI command
+  (`cli.py::_cmd_check_compliance`).
+- **Rendering + degradation** — `report.py` renders a "Venue compliance
+  (desk-reject linter)" section from the `compliance` lane; when that lane is
+  absent from the report (no `--venue` was passed), no such heading appears —
+  see `tests/test_compliance_degradation.py` for the characterization test.
