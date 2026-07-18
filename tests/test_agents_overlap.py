@@ -70,7 +70,9 @@ def test_cli_check_overlap_json_and_external_not_configured():
     _seed_two_overlapping_papers()
     buf = io.StringIO()
     with redirect_stdout(buf):
-        rc = _cmd_check_overlap(argparse.Namespace(paper_id="local:a", external=True, json=True))
+        rc = _cmd_check_overlap(argparse.Namespace(
+            paper_id="local:a", external=True, json=True,
+            semantic=False, allow_remote=False))
     assert rc == 0
     payload = json.loads(buf.getvalue())
     assert payload["paper_id"] == "local:a"

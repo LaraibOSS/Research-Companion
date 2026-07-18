@@ -225,3 +225,19 @@ def test_report_html_renders_readiness_before_lanes():
     assert "Submission readiness" in html
     # readiness heading appears before the compliance lane card heading
     assert html.index("Submission readiness") < html.index("Venue compliance")
+
+
+def test_overlap_section_labels_paraphrase_findings():
+    data = {"findings": [
+        {"matched_paper_id": "lib:1", "score": 0.7, "char_start": 0,
+         "char_end": 100, "snippet": "lex snip"},
+        {"matched_paper_id": "lib:2", "score": 0.9, "char_start": 200,
+         "char_end": 300, "snippet": "sem <snip>", "method": "semantic",
+         "matched_section_id": "c1"}],
+        "summary": {"n_passages": 2, "papers": ["lib:1", "lib:2"],
+                    "max_score": 0.9, "text": "2 passage(s) ..."}}
+    from research_companion.report import _section_overlap
+    html = _section_overlap(data)
+    assert "70% overlap with" in html          # method absent -> today's wording
+    assert "90% paraphrase with" in html       # semantic labeled
+    assert "&lt;snip&gt;" in html              # snippet still escaped

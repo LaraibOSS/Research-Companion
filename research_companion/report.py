@@ -335,8 +335,9 @@ def _section_overlap(data: dict) -> str:
         html_out += "      <ul>\n"
         for f in findings[:20]:
             pct = round(float(f.get("score", 0.0)) * 100)
+            label = "paraphrase" if f.get("method") == "semantic" else "overlap"
             snippet = _escape(str(f.get("snippet", "")))
-            html_out += (f"        <li>{pct}% overlap with "
+            html_out += (f"        <li>{pct}% {label} with "
                          f"{_escape(f.get('matched_paper_id', ''))}: "
                          f"&ldquo;{snippet}&hellip;&rdquo;</li>\n")
         html_out += "      </ul>\n"

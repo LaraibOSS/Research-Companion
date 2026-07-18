@@ -1370,6 +1370,37 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
     ]
     result = near_duplicate_passages(target, corpus)
 
+    from research_companion import embed, semoverlap, settings
+
+    s = settings.get_settings()
+    want_semantic = args.semantic or bool(s.get("semantic_overlap"))
+    if want_semantic:
+        model = s.get("embed_model") or embed.DEFAULT_EMBED_MODEL
+        allow_remote = args.allow_remote or bool(
+            s.get("semantic_overlap_allow_remote"))
+        resolved = embed.resolve_embedder(model=model, allow_remote=allow_remote)
+        if resolved is None:
+            if args.semantic:  # explicit request -> say why it was skipped
+                print("research-companion: semantic overlap skipped — no embedding "
+                      "backend. Install the local extra (pip install "
+                      "'research-companion[semantic]') or pass --allow-remote with "
+                      "HF_TOKEN set.", file=sys.stderr)
+        else:
+            embed_fn, _label = resolved
+            raw_threshold = s.get("semantic_overlap_threshold")
+            threshold = float(raw_threshold if raw_threshold is not None
+                              else semoverlap.DEFAULT_SEMANTIC_THRESHOLD)
+            try:
+                semantic = semoverlap.collect_semantic_findings(
+                    args.paper_id,
+                    [pid for pid, _ in corpus],
+                    embed_fn=embed_fn, embed_model=model,
+                    threshold=threshold)
+                result = semoverlap.merge_overlap_results(result, semantic)
+            except Exception as exc:
+                print(f"research-companion: semantic overlap failed ({exc}); "
+                      "showing lexical results only.", file=sys.stderr)
+
     external = None
     if args.external:
         # Passing --external is the explicit consent to send text to the provider.
@@ -1900,6 +1931,13 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Also run a registered external similarity provider (consent implied; "
                           "sends text off-machine — none is configured by default)")
     pco.add_argument("--json", action="store_true", help="JSON output")
+    pco.add_argument("--semantic", action="store_true",
+                     help="Also run the opt-in paraphrase (embedding) overlap pass "
+                          "(or enable the semantic_overlap setting)")
+    pco.add_argument("--allow-remote", action="store_true",
+                     help="Consent to embed via the Hugging Face API when no local "
+                          "backend is installed — sends draft AND library text "
+                          "off-machine (requires HF_TOKEN)")
     pco.set_defaults(func=_cmd_check_overlap)
 
     pcc = sub.add_parser("check-compliance",
