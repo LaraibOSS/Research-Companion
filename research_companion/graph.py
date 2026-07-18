@@ -351,12 +351,15 @@ def serialize_graph(G: nx.Graph, *, seq: int = 0) -> dict:
 
     edges = []
     for u, v, edata in G.edges(data=True):
-        edges.append({
+        edge = {
             "from": u,
             "to": v,
             "relation": edata.get("relation", ""),
             "weight": edata.get("weight", 1),
-        })
+        }
+        if edata.get("polarity"):
+            edge["polarity"] = edata["polarity"]
+        edges.append(edge)
 
     return {"seq": seq, "nodes": nodes, "edges": edges}
 
@@ -472,11 +475,16 @@ def graph_stats(G: nx.Graph) -> dict[str, int]:
     for _, data in G.nodes(data=True):
         by_kind[data.get("kind", "unknown")] += 1
     by_relation: dict[str, int] = defaultdict(int)
+    by_cites_polarity: dict[str, int] = defaultdict(int)
     for _, _, d in G.edges(data=True):
-        by_relation[d.get("relation", "unknown")] += 1
+        rel = d.get("relation", "unknown")
+        by_relation[rel] += 1
+        if rel == "cites" and d.get("polarity"):
+            by_cites_polarity[d["polarity"]] += 1
     return {
         "nodes_total": G.number_of_nodes(),
         "edges_total": G.number_of_edges(),
         **{f"node_{k}": v for k, v in by_kind.items()},
         **{f"edge_{k}": v for k, v in by_relation.items()},
+        **{f"edge_cites_{k}": v for k, v in by_cites_polarity.items()},
     }

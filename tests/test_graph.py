@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import networkx as nx
+
 from research_companion import graph, prompts, store
 
 
@@ -215,3 +217,25 @@ def test_list_papers_tie_break_is_deterministic():
         ).save()
     ids = [m.paper_id for m in store.list_papers()]
     assert ids == ["arxiv:2410.00001", "arxiv:2410.00002", "arxiv:2410.00003"]
+
+
+def test_serialize_includes_polarity_when_present():
+    G = nx.Graph()
+    G.add_node("p:a", kind="paper")
+    G.add_node("p:b", kind="paper")
+    G.add_edge("p:a", "p:b", relation="cites", polarity="support")
+    G.add_edge("p:a", "p:b")  # same pair; ensure attr persists
+    payload = graph.serialize_graph(G)
+    edge = [e for e in payload["edges"] if e.get("relation") == "cites"][0]
+    assert edge["polarity"] == "support"
+
+
+def test_stats_break_cites_down_by_polarity():
+    G = nx.Graph()
+    G.add_node("a", kind="paper")
+    G.add_node("b", kind="paper")
+    G.add_node("c", kind="paper")
+    G.add_edge("a", "b", relation="cites", polarity="contrast")
+    G.add_edge("a", "c", relation="cites")  # untyped
+    stats = graph.graph_stats(G)
+    assert stats.get("edge_cites_contrast") == 1
