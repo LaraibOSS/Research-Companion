@@ -33,6 +33,7 @@ from research_companion.store import (
     PaperMetadata,
     graph_json_path,
     list_papers,
+    load_citation_polarity,
     load_extraction,
     load_sections,
     load_strength,
@@ -216,13 +217,18 @@ def build_graph(papers: list[PaperMetadata] | None = None) -> nx.Graph:
 
         # related_work -> cites edges (only when the cited title resolves to a known paper title).
         # In v0.1 we use a fuzzy check: lowercased substring match on existing paper titles.
+        polarity_map = load_citation_polarity(meta.paper_id)
         for ref in ext.get("related_work", []):
             ref_str = _safe_str(ref).strip()
             if not ref_str:
                 continue
             target = _resolve_citation(ref_str, papers)
             if target is not None and target != meta.paper_id:
-                G.add_edge(meta.paper_id, target, relation="cites")
+                attrs = {"relation": "cites"}
+                pol = polarity_map.get(ref_str)
+                if isinstance(pol, dict) and pol.get("polarity"):
+                    attrs["polarity"] = pol["polarity"]
+                G.add_edge(meta.paper_id, target, **attrs)
 
     # Entity provenance (additive): attach the sorted set of contributing
     # paper_ids + count to every entity node, derived from its contains-edges.
