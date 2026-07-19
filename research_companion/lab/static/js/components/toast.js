@@ -2,6 +2,10 @@
  * components/toast.js — Bottom toast notifications.
  * Types: 'info' (default) | 'error'
  * Auto-dismisses after 4 seconds.
+ *
+ * Styling lives in lab.css (#toast-container, .toast, .toast-info,
+ * .toast-error, .toast-visible) so the toast follows the design tokens
+ * (spacing/radius/typography/color) and respects theme + density.
  */
 
 let _container = null;
@@ -10,18 +14,6 @@ function _getContainer() {
   if (_container) return _container;
   _container = document.createElement('div');
   _container.id = 'toast-container';
-  _container.style.cssText = [
-    'position:fixed',
-    'bottom:24px',
-    'left:50%',
-    'transform:translateX(-50%)',
-    'display:flex',
-    'flex-direction:column',
-    'align-items:center',
-    'gap:8px',
-    'z-index:9999',
-    'pointer-events:none',
-  ].join(';');
   document.body.appendChild(_container);
   return _container;
 }
@@ -37,29 +29,16 @@ export function showToast(message, type = 'info', duration = 4000) {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.textContent = message;
-  toast.style.cssText = [
-    'padding:10px 18px',
-    'border-radius:6px',
-    'font-size:14px',
-    'font-weight:500',
-    'pointer-events:auto',
-    'cursor:pointer',
-    'opacity:0',
-    'transition:opacity 0.2s ease',
-    type === 'error'
-      ? 'background:var(--color-fail);color:#fff'
-      : 'background:var(--color-panel);color:var(--color-fg);border:1px solid var(--color-border)',
-  ].join(';');
 
   container.appendChild(toast);
 
   // Animate in
   requestAnimationFrame(() => {
-    toast.style.opacity = '1';
+    toast.classList.add('toast-visible');
   });
 
   const dismiss = () => {
-    toast.style.opacity = '0';
+    toast.classList.remove('toast-visible');
     setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 220);
   };
 

@@ -1716,6 +1716,77 @@ class TestCliLab:
         assert len(calls) == 1
         assert calls[0]["folder"] == folder
 
+    def test_lab_ingest_no_flag_honors_env_provider(self, tmp_path, isolated_papergraph_dir, monkeypatch):
+        """`lab ingest` with no --provider flag must resolve RESEARCH_COMPANION_PROVIDER.
+
+        Regression coverage: the parser default of "anthropic" made args.provider
+        never None, so the env var was silently ignored whenever --provider was
+        omitted.
+        """
+        import research_companion.cli as cli
+
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+        calls = []
+
+        async def fake_ingest(folder, *, bus, **kwargs):
+            calls.append(kwargs)
+            return IngestResult(added=[], skipped=[], failed=[])
+
+        monkeypatch.setitem(cli.LAB_INGEST_OVERRIDES, "ingest_folder", fake_ingest)
+
+        rc = cli.main(["lab", "ingest", str(folder)])
+        assert rc == 0
+        assert calls[0]["provider"] == "openai"
+
+    def test_lab_ingest_explicit_flag_overrides_env_provider(self, tmp_path, isolated_papergraph_dir, monkeypatch):
+        """`lab ingest --provider anthropic` must win over RESEARCH_COMPANION_PROVIDER=openai."""
+        import research_companion.cli as cli
+
+        folder = tmp_path / "papers"
+        folder.mkdir()
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+        calls = []
+
+        async def fake_ingest(folder, *, bus, **kwargs):
+            calls.append(kwargs)
+            return IngestResult(added=[], skipped=[], failed=[])
+
+        monkeypatch.setitem(cli.LAB_INGEST_OVERRIDES, "ingest_folder", fake_ingest)
+
+        rc = cli.main(["lab", "ingest", "--provider", "anthropic", str(folder)])
+        assert rc == 0
+        assert calls[0]["provider"] == "anthropic"
+
+    def test_lab_ingest_no_flag_no_env_defaults_to_anthropic(self, tmp_path, isolated_papergraph_dir, monkeypatch):
+        """No flag, no env: still defaults to anthropic (no regression).
+
+        Note: RESEARCH_COMPANION_PROVIDER is pinned to "anthropic" suite-wide by
+        conftest's _restore_os_environ (so cli.main()'s unconditional real-.env
+        load can't leak the maintainer's own dev-only provider setting into
+        tests); this asserts the observable default-resolution behavior rather
+        than a literally-unset env var.
+        """
+        import research_companion.cli as cli
+
+        folder = tmp_path / "papers"
+        folder.mkdir()
+
+        calls = []
+
+        async def fake_ingest(folder, *, bus, **kwargs):
+            calls.append(kwargs)
+            return IngestResult(added=[], skipped=[], failed=[])
+
+        monkeypatch.setitem(cli.LAB_INGEST_OVERRIDES, "ingest_folder", fake_ingest)
+
+        rc = cli.main(["lab", "ingest", str(folder)])
+        assert rc == 0
+        assert calls[0]["provider"] == "anthropic"
+
     def test_lab_ingest_no_align_flag(self, tmp_path, isolated_papergraph_dir, monkeypatch):
         """--no-align passes align=False to ingest_folder."""
         import research_companion.cli as cli

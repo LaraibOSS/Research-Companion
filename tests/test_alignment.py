@@ -9,7 +9,7 @@ import math
 
 import pytest
 
-from research_companion import cli, store
+from research_companion import cli, extract, store
 from research_companion.prompts import alignment_prompt_sha256, extraction_prompt_sha256
 from research_companion.sections import Section
 
@@ -847,3 +847,94 @@ class TestCliAlign:
         cli.main(["align", cand_id, "--json", "--force"])
         capsys.readouterr()
         assert call_count[0] == 2
+
+    # -----------------------------------------------------------------
+    # --provider: flag > RESEARCH_COMPANION_PROVIDER > "anthropic" default.
+    #
+    # Regression coverage for the bug where the parser default of "anthropic"
+    # made args.provider never None, dead-coding RESEARCH_COMPANION_PROVIDER
+    # whenever --provider was omitted. These bypass ALIGN_CONTEXT_OVERRIDES
+    # (no injected "_llm") so the real _resolve_llm_for_align path runs,
+    # asserting on which of extract._call_openai / extract._call_anthropic
+    # actually gets invoked.
+    # -----------------------------------------------------------------
+
+    _FAKE_ALIGN_JSON = json.dumps({
+        "sections": [
+            {"section_id": "s1", "relation": "strengthens", "relevance": 0.8,
+             "rationale": "Fine.", "evidence": []},
+        ]
+    })
+
+    def test_align_no_flag_honors_env_provider(self, monkeypatch, capsys):
+        draft_id, cand_id = self._seed()
+        store.set_draft_paper_id(draft_id)
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+        calls = []
+        monkeypatch.setattr(
+            extract, "_call_openai",
+            lambda prompt, model=None, **kw: (
+                calls.append(("openai", model)) or (self._FAKE_ALIGN_JSON, {})
+            ),
+        )
+        monkeypatch.setattr(
+            extract, "_call_anthropic",
+            lambda prompt, model=None, **kw: (
+                calls.append(("anthropic", model)) or (self._FAKE_ALIGN_JSON, {})
+            ),
+        )
+
+        rc = cli.main(["align", cand_id, "--json"])
+        assert rc == 0
+        assert calls
+        assert calls[0][0] == "openai"
+
+    def test_align_explicit_flag_overrides_env_provider(self, monkeypatch, capsys):
+        draft_id, cand_id = self._seed()
+        store.set_draft_paper_id(draft_id)
+        monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+        calls = []
+        monkeypatch.setattr(
+            extract, "_call_openai",
+            lambda prompt, model=None, **kw: (
+                calls.append(("openai", model)) or (self._FAKE_ALIGN_JSON, {})
+            ),
+        )
+        monkeypatch.setattr(
+            extract, "_call_anthropic",
+            lambda prompt, model=None, **kw: (
+                calls.append(("anthropic", model)) or (self._FAKE_ALIGN_JSON, {})
+            ),
+        )
+
+        rc = cli.main(["align", cand_id, "--provider", "anthropic", "--json"])
+        assert rc == 0
+        assert calls
+        assert calls[0][0] == "anthropic"
+
+    def test_align_no_flag_no_env_defaults_to_anthropic(self, monkeypatch, capsys):
+        """No flag, no env: still defaults to anthropic (no regression).
+
+        Note: RESEARCH_COMPANION_PROVIDER is pinned to "anthropic" suite-wide by
+        conftest's _restore_os_environ (so cli.main()'s unconditional real-.env
+        load can't leak the maintainer's own dev-only provider setting into
+        tests); this asserts the observable default-resolution behavior rather
+        than a literally-unset env var.
+        """
+        draft_id, cand_id = self._seed()
+        store.set_draft_paper_id(draft_id)
+
+        calls = []
+        monkeypatch.setattr(
+            extract, "_call_anthropic",
+            lambda prompt, model=None, **kw: (
+                calls.append(("anthropic", model)) or (self._FAKE_ALIGN_JSON, {})
+            ),
+        )
+
+        rc = cli.main(["align", cand_id, "--json"])
+        assert rc == 0
+        assert calls
+        assert calls[0][0] == "anthropic"

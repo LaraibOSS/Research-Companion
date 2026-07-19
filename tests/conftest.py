@@ -26,6 +26,17 @@ def _restore_os_environ():
     # downloads on a clean machine). Tests that specifically exercise docling
     # selection override this explicitly (see tests/test_parsers_docling.py).
     os.environ["RESEARCH_COMPANION_PARSER"] = "pypdfium"
+    # Pin the provider to anthropic for the whole suite: cli.main() unconditionally
+    # loads Path.cwd()/".env" at startup, and the maintainer's real local .env sets
+    # RESEARCH_COMPANION_PROVIDER=openai for their own dev workflow. load_env_file
+    # only fills keys that are NOT already in os.environ, so pre-setting it here
+    # keeps that developer-specific value from leaking into any test that invokes
+    # cli.main() without an explicit --provider flag. This was inert before
+    # RESEARCH_COMPANION_PROVIDER was honored as an env fallback (args.provider
+    # always won); now that it's honored, an unset var here would silently flip
+    # provider-default tests to openai. Tests exercising a specific provider/env
+    # combination still override this locally via monkeypatch.setenv/delenv.
+    os.environ["RESEARCH_COMPANION_PROVIDER"] = "anthropic"
     yield
     for key in list(os.environ):
         if key not in snapshot:
