@@ -9,7 +9,7 @@
  *   - per-card pencil -> inline rename (Enter/blur commits via PATCH)
  *   - per-card Archive -> PATCH archived:true; archived cards live in a
  *     collapsed <details> section below with an Unarchive button
- *   - per-card trash -> confirm() then DELETE /api/workspaces/{id};
+ *   - per-card trash -> confirmDialog() then DELETE /api/workspaces/{id};
  *     reload if the server switched the active research, else refresh
  *
  * All workspace names and draft titles are user/server input -> escapeHtml.
@@ -18,6 +18,7 @@
 import * as store from '../store.js';
 import * as api from '../api.js';
 import { showToast } from '../components/toast.js';
+import { confirmDialog } from '../components/confirmDialog.js';
 import { escapeHtml, timeAgo } from '../format.js';
 import {
   deleteConfirmMessage,
@@ -278,7 +279,13 @@ async function _delete(id) {
   const paperCount = rec && rec.stats && rec.stats.papers != null
     ? Number(rec.stats.papers)
     : null;
-  if (!confirm(deleteConfirmMessage(name, paperCount))) return;
+  const ok = await confirmDialog({
+    title: 'Delete this research?',
+    message: deleteConfirmMessage(name, paperCount),
+    confirmLabel: 'Delete',
+    cancelLabel: 'Cancel',
+  });
+  if (!ok) return;
   try {
     const res = await api.deleteWorkspace(id);
     if (res.switched) {

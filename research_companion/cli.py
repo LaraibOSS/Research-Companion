@@ -27,6 +27,39 @@ from pathlib import Path
 
 from research_companion import __version__
 
+# Consistent status glyphs for terminal output across commands.
+# Every value is a fixed-width 2-character code so per-item rows in refcheck,
+# check-stats, check-overlap, check-compliance, and gaps line up:
+#   OK  = healthy / good / consistent / addressed
+#   !!  = needs attention (suspect / inconsistent / warning / partially addressed)
+#   XX  = confirmed problem (unverified / decision_inconsistent / desk_reject / overlap finding)
+#   --  = neutral / informational / skipped / still open
+# Keys are the literal per-item status strings already used by each command's
+# domain module (e.g. refcheck's "verified"/"suspect"/"unverified", statcheck's
+# "consistent"/"inconsistent"/..., compliance's "desk_reject"/"warning"/"skipped",
+# gaps' "addressed"/"partially"/"open") plus a few generic aliases.
+_STATUS_GLYPH = {
+    # ok
+    "ok": "OK", "pass": "OK", "good": "OK",
+    "verified": "OK", "consistent": "OK", "addressed": "OK",
+    # warn
+    "warn": "!!", "warning": "!!", "suspect": "!!", "review": "!!",
+    "inconsistent": "!!", "partially": "!!",
+    # fail
+    "fail": "XX", "error": "XX", "bad": "XX",
+    "unverified": "XX", "decision_inconsistent": "XX", "impossible_mean": "XX",
+    "desk_reject": "XX",
+    # neutral
+    "info": "--", "skip": "--", "skipped": "--", "neutral": "--", "open": "--",
+}
+
+
+def _glyph(status: str) -> str:
+    """Map a per-item status string to one of four canonical 2-char glyphs
+    (OK / !! / XX / --) shared by refcheck, check-stats, check-overlap,
+    check-compliance, and gaps. Unknown statuses fall back to neutral ("--")."""
+    return _STATUS_GLYPH.get(status, "--")
+
 
 def _parse_connectors_arg(value):
     """Parse --connectors 'europepmc,pubmed,dblp' -> ['europepmc','pubmed','dblp'];
@@ -584,7 +617,7 @@ def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, i
             print(f"  + {meta.paper_id}  {meta.title[:60]}")
             added += 1
         except fetch_error_cls as e:
-            print(f"  x failed: {p.title[:50]}: {e}", file=sys.stderr)
+            print(f"  research-companion: failed: {p.title[:50]}: {e}", file=sys.stderr)
             failed += 1
     return added, failed
 
@@ -717,6 +750,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
         agents.append(ComplianceAgent())
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
+    _review_llm = _resolve_llm_for_review(args, ctx.data)
+    if _review_llm is not None:
+        ctx.data["_llm"] = _review_llm
     if getattr(args, "venue", None):
         ctx.data["_venue"] = args.venue
 
@@ -813,14 +849,15 @@ def _cmd_review(args: argparse.Namespace) -> int:
             print(f"        {out_dir / 'report.json'}")
 
     if args.json:
-        payload = {
-            "paper_id": args.paper_id,
-            "agents": {name: {"ok": r.ok, "data": r.data, "error": r.error}
-                       for name, r in results.items()},
-        }
-        readiness = (_rep or {}).get("readiness")
-        if readiness:
-            payload["readiness"] = readiness
+        if _rep is not None:
+            payload = dict(_rep)
+        else:
+            from research_companion.report import build_report_json
+            from research_companion.store import PaperMetadata
+
+            meta = PaperMetadata.load(args.paper_id)
+            payload = build_report_json(args.paper_id, meta.title if meta else "", results)
+            _attach_readiness_narrative(payload, args)
         if args.report:
             payload["report_dir"] = str(out_dir)
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -918,6 +955,77 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
         return injected
 
     # Real provider wiring (lazy import, mirrors agents/novelty.py::_default_llm)
+    import os
+
+    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+    provider = getattr(args, "provider", None) or os.environ.get(
+        "RESEARCH_COMPANION_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+    resolved_model = resolve_model(provider, model)
+    call = _call_openai if provider == "openai" else _call_anthropic
+
+    def _real_llm(prompt: str) -> str:
+        text, _usage = call(prompt, model=resolved_model)
+        return text
+
+    return _real_llm
+
+
+def _resolve_llm_for_review(args: argparse.Namespace, ctx_data: dict) -> object | None:
+    """Return a real-provider LLM callable to inject into the review
+    AgentContext, or None when there is nothing to inject.
+
+    Returns None (no injection) when:
+      - a test seam already supplied one (ctx_data["_llm"] is set, e.g. via
+        REVIEW_CONTEXT_OVERRIDES) — never clobber that; or
+      - neither --provider nor --model was explicitly passed — in that case
+        every review agent keeps resolving its own env-based _default_llm
+        exactly as before, so behavior (including TaxonomyAgent's
+        never-fabricate-a-default keyword fallback) is unchanged.
+
+    When a flag *was* passed, resolves flag > env > default (same precedence
+    as _resolve_llm_for_align) and returns a callable mirroring
+    agents/novelty.py::_default_llm.
+    """
+    if ctx_data.get("_llm") is not None:
+        return None
+    if not (getattr(args, "provider", None) or getattr(args, "model", None)):
+        return None
+
+    import os
+
+    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+    provider = getattr(args, "provider", None) or os.environ.get(
+        "RESEARCH_COMPANION_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+    resolved_model = resolve_model(provider, model)
+    call = _call_openai if provider == "openai" else _call_anthropic
+
+    def _real_llm(prompt: str) -> str:
+        text, _usage = call(prompt, model=resolved_model)
+        return text
+
+    return _real_llm
+
+
+def _resolve_llm_for_rebuttal(args: argparse.Namespace, ctx_data: dict) -> object | None:
+    """Return a real-provider LLM callable to inject into the rebuttal
+    AgentContext, or None when there is nothing to inject.
+
+    Mirrors _resolve_llm_for_review: only builds a callable when --provider
+    or --model was explicitly passed and no test seam (REBUTTAL_CONTEXT_OVERRIDES
+    via ctx_data["_llm"]) already supplied one; otherwise None so RebuttalAgent
+    keeps falling back to its own env-based _default_llm.
+    """
+    if ctx_data.get("_llm") is not None:
+        return None
+    if not (getattr(args, "provider", None) or getattr(args, "model", None)):
+        return None
+
     import os
 
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
@@ -1249,6 +1357,10 @@ def _cmd_rebuttal(args: argparse.Namespace) -> int:
             print(f"research-companion: invalid segments file: {exc}", file=sys.stderr)
             return 1
 
+    _rebuttal_llm = _resolve_llm_for_rebuttal(args, ctx_data)
+    if _rebuttal_llm is not None:
+        ctx_data["_llm"] = _rebuttal_llm
+
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(), data=ctx_data)
     results = asyncio.run(run_agents([IngestAgent(), RebuttalAgent()], ctx))
     reb = results["rebuttal"]
@@ -1322,9 +1434,8 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
         print("research-companion: no references found in this paper's extraction.")
         return 0
 
-    symbol = {"verified": "OK ", "suspect": "?? ", "unverified": "XX "}
     for ref, verdict in report.entries:
-        print(f"{symbol[verdict.status]} [{verdict.status}] {ref.title}")
+        print(f"{_glyph(verdict.status)} [{verdict.status}] {ref.title}")
         for reason in verdict.reasons:
             print(f"        - {reason}")
     print(
@@ -1358,14 +1469,12 @@ def _cmd_check_stats(args: argparse.Namespace) -> int:
         print("research-companion: no parseable statistics found (nothing to check).")
         return 0
 
-    symbol = {"consistent": "OK ", "inconsistent": "?? ",
-              "decision_inconsistent": "XX ", "impossible_mean": "XX "}
     for f in findings:
-        sym = symbol.get(f["status"], "?? ")
+        sym = _glyph(f["status"])
         if f.get("test_type") == "mean":
-            print(f"{sym}[{f['status']}] mean={f['mean']} N={f['n']}")
+            print(f"{sym} [{f['status']}] mean={f['mean']} N={f['n']}")
         else:
-            print(f"{sym}[{f['status']}] {f['raw']}  (recomputed p~{f['recomputed_p']})")
+            print(f"{sym} [{f['status']}] {f['raw']}  (recomputed p~{f['recomputed_p']})")
     print(f"\nSummary: {report['summary']['text']}")
     return 0
 
@@ -1493,7 +1602,9 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
     for f in result["findings"]:
         pct = round(float(f["score"]) * 100)
         label = "paraphrase" if f.get("method") == "semantic" else "overlap"
-        print(f"XX [{pct}% {label}] with {f['matched_paper_id']}: "
+        # Every overlap finding surfaced here is already a flagged problem
+        # (near-duplicate or paraphrase match), so it always maps to "fail".
+        print(f"{_glyph('fail')} [{pct}% {label}] with {f['matched_paper_id']}: "
               f"\"{f['snippet'][:120]}...\"")
     print(f"\nSummary: {result['summary']['text']}")
 
@@ -1573,19 +1684,19 @@ def _cmd_check_compliance(args: argparse.Namespace) -> int:
     if desk_rejects:
         print("Desk-reject risks:")
         for c in desk_rejects:
-            print(f"  XX [{c['check']}] {c['message']}")
+            print(f"  {_glyph(c['severity'])} [{c['check']}] {c['message']}")
             if c.get("detail"):
                 print(f"     {c['detail']}")
     if warnings:
         print("Warnings:")
         for c in warnings:
-            print(f"  ?? [{c['check']}] {c['message']}")
+            print(f"  {_glyph(c['severity'])} [{c['check']}] {c['message']}")
             if c.get("detail"):
                 print(f"     {c['detail']}")
     if skipped:
         print("Skipped:")
         for c in skipped:
-            print(f"  -- [{c['check']}] {c['message']}")
+            print(f"  {_glyph(c['status'])} [{c['check']}] {c['message']}")
     if not desk_rejects and not warnings:
         print("research-companion: no compliance issues found.")
 
@@ -1664,8 +1775,10 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
 
             from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
-            provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-            model = os.environ.get("RESEARCH_COMPANION_MODEL")
+            provider = getattr(args, "provider", None) or os.environ.get(
+                "RESEARCH_COMPANION_PROVIDER", "anthropic"
+            )
+            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
             resolved_model = resolve_model(provider, model)
 
             def _real_llm(prompt: str) -> str:
@@ -1702,12 +1815,6 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
     total_gaps = sum(len(p.get("gaps", [])) for p in papers)
     print(f"\nresearch-companion: {total_gaps} gap(s) across {len(papers)} paper(s)\n")
 
-    _STATUS_GLYPH = {
-        "addressed": "[+]",
-        "partially": "[~]",
-        "open": "[ ]",
-    }
-
     for paper in papers:
         title = paper.get("title", paper.get("paper_id", "?"))
         year = paper.get("year") or "?"
@@ -1718,7 +1825,7 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
             kind = gap.get("kind", "?")
             res = gap.get("resolution", {})
             status = res.get("status", "open")
-            glyph = _STATUS_GLYPH.get(status, "[ ]")
+            glyph = _glyph(status)
             draft_mark = " [DRAFT]" if gid in draft_addresses else ""
             print(f"    {glyph} [{kind}] {stmt}{draft_mark}")
         print()
@@ -1875,7 +1982,7 @@ def _cmd_workspace(args: argparse.Namespace) -> int:
         try:
             rec = workspaces.create_workspace(args.name)
         except workspaces.WorkspaceError as exc:
-            print(f"error: {exc}", file=sys.stderr)
+            print(f"research-companion: {exc}", file=sys.stderr)
             return 1
         print(f"created workspace: {rec['id']}  ({rec['name']})")
         return 0
@@ -1893,12 +2000,12 @@ def _cmd_workspace(args: argparse.Namespace) -> int:
             if candidate in known:
                 ws_id = candidate
         if ws_id is None:
-            print(f"error: unknown workspace: {target!r}", file=sys.stderr)
+            print(f"research-companion: unknown workspace: {target!r}", file=sys.stderr)
             return 1
         try:
             workspaces.activate_workspace(ws_id)
         except workspaces.WorkspaceError as exc:
-            print(f"error: {exc}", file=sys.stderr)
+            print(f"research-companion: {exc}", file=sys.stderr)
             return 1
         print(f"active workspace: {ws_id}")
         return 0
@@ -2070,6 +2177,11 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
     prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
+    prv.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER). "
+                          "Passing this also enables LLM-based taxonomy labeling "
+                          "(keyword-based otherwise).")
+    prv.add_argument("--model", default=None, help="Model override")
     prv.set_defaults(func=_cmd_review)
 
     prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")
@@ -2078,6 +2190,8 @@ def _build_parser() -> argparse.ArgumentParser:
     prb.add_argument("--emit-segments", help="Segment reviews, write JSON here, and stop")
     prb.add_argument("--segments", help="Resume from an edited segments JSON file")
     prb.add_argument("--tone", choices=["deferential", "balanced", "firm"], default="balanced")
+    prb.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    prb.add_argument("--model", default=None, help="Model override")
     prb.add_argument("--json", action="store_true", help="JSON output")
     prb.set_defaults(func=_cmd_rebuttal)
 
@@ -2123,6 +2237,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pgaps = sub.add_parser("gaps", help="Show research gaps from corpus papers vs your draft")
     pgaps.add_argument("--refresh", action="store_true",
                        help="Re-extract and re-resolve gaps before displaying")
+    pgaps.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    pgaps.add_argument("--model", default=None, help="Model override")
     pgaps.add_argument("--json", action="store_true", help="JSON output")
     pgaps.set_defaults(func=_cmd_gaps)
 

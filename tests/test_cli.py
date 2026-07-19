@@ -7,6 +7,53 @@ import pytest
 
 from research_companion import cli, extract, store
 
+# ---------------------------------------------------------------------------
+# _glyph — shared status-glyph vocabulary (consistency pass)
+# ---------------------------------------------------------------------------
+
+def test_glyph_mapping_covers_each_command_vocabulary():
+    # ok
+    assert cli._glyph("verified") == "OK"
+    assert cli._glyph("consistent") == "OK"
+    assert cli._glyph("addressed") == "OK"
+    # warn — one consistent symbol, standing in for the old "??"/"[~]" mix
+    assert cli._glyph("suspect") == "!!"
+    assert cli._glyph("inconsistent") == "!!"
+    assert cli._glyph("warning") == "!!"
+    assert cli._glyph("partially") == "!!"
+    # fail
+    assert cli._glyph("unverified") == "XX"
+    assert cli._glyph("decision_inconsistent") == "XX"
+    assert cli._glyph("desk_reject") == "XX"
+    # neutral / unknown falls back to neutral
+    assert cli._glyph("skipped") == "--"
+    assert cli._glyph("open") == "--"
+    assert cli._glyph("totally-unrecognized-status") == "--"
+
+
+def test_auto_add_discovered_error_has_tool_prefix(capsys):
+    """_auto_add_discovered's failure line must start with the research-companion
+    prefix, not the old bare '  x failed: ...'."""
+
+    class _FetchError(Exception):
+        pass
+
+    class _Result:
+        arxiv_id = "1234.5678"
+        doi = None
+        s2_id = None
+        title = "Some Paper"
+
+    def _add_paper_fn(target):
+        raise _FetchError("network unavailable")
+
+    added, failed = cli._auto_add_discovered([_Result()], _add_paper_fn, _FetchError)
+    assert added == 0
+    assert failed == 1
+    err = capsys.readouterr().err
+    assert err.strip().startswith("research-companion:")
+    assert "failed" in err.lower()
+
 
 def test_help_smoke(capsys: pytest.CaptureFixture):
     with pytest.raises(SystemExit):
@@ -252,6 +299,30 @@ def test_compare_with_injected_llm(monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
+# check-stats subcommand — standardized status glyphs
+# ---------------------------------------------------------------------------
+
+def test_check_stats_inconsistent_uses_standard_warn_glyph(capsys):
+    """An 'inconsistent' finding must print the shared WARN glyph ("!!"),
+    not the old per-command "??" literal."""
+    pid = "local:cli_check_stats_001"
+    store.PaperMetadata(
+        paper_id=pid, title="Stats Paper", authors=["Author"],
+        added_at="2024-01-01T00:00:00Z",
+    ).save()
+    # Recomputed p ~ .04 (significant); reported .001 also significant ->
+    # plain "inconsistent" (not a decision flip).
+    store.save_text(pid, "t(48) = 2.10, p = .001")
+
+    rc = cli.main(["check-stats", pid])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "inconsistent" in out.lower()
+    assert "!!" in out
+    assert "??" not in out
+
+
+# ---------------------------------------------------------------------------
 # gaps subcommand (W3-T9)
 # ---------------------------------------------------------------------------
 
@@ -274,6 +345,48 @@ def test_gaps_human_stale_message(capsys):
     out = capsys.readouterr().out
     # Either stale message or no gaps message
     assert "gaps" in out.lower()
+
+
+def test_gaps_human_mode_uses_standard_warn_glyph(capsys):
+    """gaps (human mode) maps a 'partially' resolution to the shared WARN glyph
+    ("!!") and no longer emits the old per-command "[~]" literal."""
+    from research_companion.prompts import gap_prompt_sha256
+
+    pid = "local:cli_gaps_glyph_001"
+    store.PaperMetadata(
+        paper_id=pid,
+        title="Glyph Gaps Paper",
+        authors=["Author"],
+        year=2021,
+        added_at="2024-01-01T00:00:00Z",
+    ).save()
+    gid = "gap_glyph_1"
+    store.save_gaps(pid, {
+        "prompt_sha256": gap_prompt_sha256(),
+        "computed_at": "2024-01-01T00:00:00Z",
+        "no_gap_sections": False,
+        "gaps": [{
+            "gap_id": gid,
+            "statement": "Cannot handle edge cases.",
+            "kind": "limitation",
+            "evidence": {"quote": "Cannot handle edge cases.", "verified": True, "match": "exact"},
+        }],
+    })
+    store.save_gap_resolution({
+        "gap_prompt_sha256": gap_prompt_sha256(),
+        "resolution_prompt_sha256": "irrelevant-for-this-test",
+        "papers_sha256": "irrelevant-for-this-test",
+        "resolutions": {
+            gid: {"status": "partially", "resolved_by": None,
+                  "rationale": "Partially addressed."},
+        },
+    })
+
+    rc = cli.main(["gaps"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "!!" in out
+    assert "[~]" not in out
 
 
 def test_gaps_refresh_with_injected_llm(monkeypatch, capsys):
@@ -328,6 +441,44 @@ def test_gaps_refresh_with_injected_llm(monkeypatch, capsys):
     assert brace_idx != -1, f"No JSON found in output: {out!r}"
     data = json.loads(out[brace_idx:])
     assert "papers" in data
+
+
+# ---------------------------------------------------------------------------
+# gaps --provider / --model flags (parity with build/align/compare/lab ingest)
+# ---------------------------------------------------------------------------
+
+def test_gaps_parser_accepts_provider_and_model():
+    parser = cli._build_parser()
+    args = parser.parse_args(["gaps", "--refresh", "--provider", "openai", "--model", "gpt-x"])
+    assert args.provider == "openai"
+    assert args.model == "gpt-x"
+
+
+def test_gaps_refresh_honors_explicit_provider_over_env(monkeypatch, capsys):
+    """`gaps --refresh --provider openai` must resolve openai even though
+    RESEARCH_COMPANION_PROVIDER is unset (defaults to anthropic)."""
+    monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+    monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+
+    calls = []
+
+    def fake_extract_all_gaps(llm=None):
+        calls.append(llm("probe"))
+
+    def fake_resolve_gaps(llm=None):
+        pass
+
+    monkeypatch.setattr(extract, "_call_openai",
+                        lambda prompt, model=None, **kw: (calls.append(("openai", model)) or ("ok", {})))
+    monkeypatch.setattr(extract, "_call_anthropic",
+                        lambda prompt, model=None: (calls.append(("anthropic", model)) or ("ok", {})))
+    monkeypatch.setattr("research_companion.gaps.extract_all_gaps", fake_extract_all_gaps)
+    monkeypatch.setattr("research_companion.gaps.resolve_gaps", fake_resolve_gaps)
+
+    rc = cli.main(["gaps", "--refresh", "--provider", "openai", "--json"])
+    assert rc == 0
+    assert calls
+    assert calls[0][0] == "openai"
 
 
 # ---------------------------------------------------------------------------

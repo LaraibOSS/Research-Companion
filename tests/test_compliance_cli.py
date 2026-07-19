@@ -41,6 +41,24 @@ def test_check_compliance_unknown_venue_lists_valid_slugs(capsys):
         assert v.slug in err
 
 
+def test_check_compliance_warning_uses_standard_glyph(tmp_path, monkeypatch, capsys):
+    """A page-limit warning finding must print the shared WARN glyph ("!!"),
+    not the old per-command "??" literal."""
+    monkeypatch.setattr(store, "papers_dir", lambda: tmp_path)
+    monkeypatch.setattr(store, "load_text", lambda pid: "Introduction\nBody")
+    monkeypatch.setattr(store, "load_sections", lambda pid: None)
+    # NeurIPS: page_limit=9 + PAGE_SLACK(4) = 13 → 999 pages triggers a warning.
+    monkeypatch.setattr(store, "pdf_page_count", lambda pid: 999)
+    args = cli._build_parser().parse_args(
+        ["check-compliance", "p", "--venue", "neurips"])
+    rc = args.func(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Warnings:" in out
+    assert "!!" in out
+    assert "??" not in out
+
+
 def test_check_compliance_readable_summary(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(store, "papers_dir", lambda: tmp_path)
     monkeypatch.setattr(store, "load_text", lambda pid: "Introduction\nBody")
