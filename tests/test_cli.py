@@ -444,6 +444,44 @@ def test_gaps_refresh_with_injected_llm(monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
+# gaps --provider / --model flags (parity with build/align/compare/lab ingest)
+# ---------------------------------------------------------------------------
+
+def test_gaps_parser_accepts_provider_and_model():
+    parser = cli._build_parser()
+    args = parser.parse_args(["gaps", "--refresh", "--provider", "openai", "--model", "gpt-x"])
+    assert args.provider == "openai"
+    assert args.model == "gpt-x"
+
+
+def test_gaps_refresh_honors_explicit_provider_over_env(monkeypatch, capsys):
+    """`gaps --refresh --provider openai` must resolve openai even though
+    RESEARCH_COMPANION_PROVIDER is unset (defaults to anthropic)."""
+    monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+    monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+
+    calls = []
+
+    def fake_extract_all_gaps(llm=None):
+        calls.append(llm("probe"))
+
+    def fake_resolve_gaps(llm=None):
+        pass
+
+    monkeypatch.setattr(extract, "_call_openai",
+                        lambda prompt, model=None, **kw: (calls.append(("openai", model)) or ("ok", {})))
+    monkeypatch.setattr(extract, "_call_anthropic",
+                        lambda prompt, model=None: (calls.append(("anthropic", model)) or ("ok", {})))
+    monkeypatch.setattr("research_companion.gaps.extract_all_gaps", fake_extract_all_gaps)
+    monkeypatch.setattr("research_companion.gaps.resolve_gaps", fake_resolve_gaps)
+
+    rc = cli.main(["gaps", "--refresh", "--provider", "openai", "--json"])
+    assert rc == 0
+    assert calls
+    assert calls[0][0] == "openai"
+
+
+# ---------------------------------------------------------------------------
 # timeline subcommand (W3-T9)
 # ---------------------------------------------------------------------------
 

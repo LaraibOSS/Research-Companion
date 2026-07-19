@@ -750,6 +750,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
         agents.append(ComplianceAgent())
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(log=EventLog(log_path)),
                        data=dict(REVIEW_CONTEXT_OVERRIDES))
+    _review_llm = _resolve_llm_for_review(args, ctx.data)
+    if _review_llm is not None:
+        ctx.data["_llm"] = _review_llm
     if getattr(args, "venue", None):
         ctx.data["_venue"] = args.venue
 
@@ -952,6 +955,77 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
         return injected
 
     # Real provider wiring (lazy import, mirrors agents/novelty.py::_default_llm)
+    import os
+
+    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+    provider = getattr(args, "provider", None) or os.environ.get(
+        "RESEARCH_COMPANION_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+    resolved_model = resolve_model(provider, model)
+    call = _call_openai if provider == "openai" else _call_anthropic
+
+    def _real_llm(prompt: str) -> str:
+        text, _usage = call(prompt, model=resolved_model)
+        return text
+
+    return _real_llm
+
+
+def _resolve_llm_for_review(args: argparse.Namespace, ctx_data: dict) -> object | None:
+    """Return a real-provider LLM callable to inject into the review
+    AgentContext, or None when there is nothing to inject.
+
+    Returns None (no injection) when:
+      - a test seam already supplied one (ctx_data["_llm"] is set, e.g. via
+        REVIEW_CONTEXT_OVERRIDES) — never clobber that; or
+      - neither --provider nor --model was explicitly passed — in that case
+        every review agent keeps resolving its own env-based _default_llm
+        exactly as before, so behavior (including TaxonomyAgent's
+        never-fabricate-a-default keyword fallback) is unchanged.
+
+    When a flag *was* passed, resolves flag > env > default (same precedence
+    as _resolve_llm_for_align) and returns a callable mirroring
+    agents/novelty.py::_default_llm.
+    """
+    if ctx_data.get("_llm") is not None:
+        return None
+    if not (getattr(args, "provider", None) or getattr(args, "model", None)):
+        return None
+
+    import os
+
+    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+
+    provider = getattr(args, "provider", None) or os.environ.get(
+        "RESEARCH_COMPANION_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+    resolved_model = resolve_model(provider, model)
+    call = _call_openai if provider == "openai" else _call_anthropic
+
+    def _real_llm(prompt: str) -> str:
+        text, _usage = call(prompt, model=resolved_model)
+        return text
+
+    return _real_llm
+
+
+def _resolve_llm_for_rebuttal(args: argparse.Namespace, ctx_data: dict) -> object | None:
+    """Return a real-provider LLM callable to inject into the rebuttal
+    AgentContext, or None when there is nothing to inject.
+
+    Mirrors _resolve_llm_for_review: only builds a callable when --provider
+    or --model was explicitly passed and no test seam (REBUTTAL_CONTEXT_OVERRIDES
+    via ctx_data["_llm"]) already supplied one; otherwise None so RebuttalAgent
+    keeps falling back to its own env-based _default_llm.
+    """
+    if ctx_data.get("_llm") is not None:
+        return None
+    if not (getattr(args, "provider", None) or getattr(args, "model", None)):
+        return None
+
     import os
 
     from research_companion.extract import _call_anthropic, _call_openai, resolve_model
@@ -1282,6 +1356,10 @@ def _cmd_rebuttal(args: argparse.Namespace) -> int:
         except (json.JSONDecodeError, TypeError) as exc:
             print(f"research-companion: invalid segments file: {exc}", file=sys.stderr)
             return 1
+
+    _rebuttal_llm = _resolve_llm_for_rebuttal(args, ctx_data)
+    if _rebuttal_llm is not None:
+        ctx_data["_llm"] = _rebuttal_llm
 
     ctx = AgentContext(paper_id=args.paper_id, bus=Bus(), data=ctx_data)
     results = asyncio.run(run_agents([IngestAgent(), RebuttalAgent()], ctx))
@@ -1697,8 +1775,10 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
 
             from research_companion.extract import _call_anthropic, _call_openai, resolve_model
 
-            provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-            model = os.environ.get("RESEARCH_COMPANION_MODEL")
+            provider = getattr(args, "provider", None) or os.environ.get(
+                "RESEARCH_COMPANION_PROVIDER", "anthropic"
+            )
+            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
             resolved_model = resolve_model(provider, model)
 
             def _real_llm(prompt: str) -> str:
@@ -2097,6 +2177,8 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
     prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
+    prv.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    prv.add_argument("--model", default=None, help="Model override")
     prv.set_defaults(func=_cmd_review)
 
     prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")
@@ -2105,6 +2187,8 @@ def _build_parser() -> argparse.ArgumentParser:
     prb.add_argument("--emit-segments", help="Segment reviews, write JSON here, and stop")
     prb.add_argument("--segments", help="Resume from an edited segments JSON file")
     prb.add_argument("--tone", choices=["deferential", "balanced", "firm"], default="balanced")
+    prb.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    prb.add_argument("--model", default=None, help="Model override")
     prb.add_argument("--json", action="store_true", help="JSON output")
     prb.set_defaults(func=_cmd_rebuttal)
 
@@ -2150,6 +2234,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pgaps = sub.add_parser("gaps", help="Show research gaps from corpus papers vs your draft")
     pgaps.add_argument("--refresh", action="store_true",
                        help="Re-extract and re-resolve gaps before displaying")
+    pgaps.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    pgaps.add_argument("--model", default=None, help="Model override")
     pgaps.add_argument("--json", action="store_true", help="JSON output")
     pgaps.set_defaults(func=_cmd_gaps)
 

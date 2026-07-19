@@ -419,6 +419,58 @@ def test_narrative_skipped_under_fast(monkeypatch, capsys):
     assert calls == []  # llm never invoked under --fast
 
 
+# ---------------------------------------------------------------------------
+# --provider / --model flags (parity with build/align/compare/lab ingest)
+# ---------------------------------------------------------------------------
+
+def test_review_parser_accepts_provider_and_model():
+    parser = cli._build_parser()
+    args = parser.parse_args(["review", "some-id", "--provider", "openai", "--model", "gpt-x"])
+    assert args.provider == "openai"
+    assert args.model == "gpt-x"
+
+
+def test_resolve_llm_for_review_explicit_provider_overrides_env(monkeypatch):
+    """_resolve_llm_for_review must honor an explicit --provider over the env
+    var, and must resolve openai even when RESEARCH_COMPANION_PROVIDER is
+    unset/anthropic."""
+    from research_companion import extract as extract_mod
+
+    calls = []
+    monkeypatch.setattr(
+        extract_mod, "_call_openai",
+        lambda prompt, model=None, **kw: (calls.append(("openai", model)) or ("ok", {})))
+    monkeypatch.setattr(
+        extract_mod, "_call_anthropic",
+        lambda prompt, model=None: (calls.append(("anthropic", model)) or ("ok", {})))
+    monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+
+    parser = cli._build_parser()
+    args = parser.parse_args(["review", "some-id", "--provider", "openai"])
+    llm = cli._resolve_llm_for_review(args, {})
+    assert llm is not None
+    assert llm("hi") == "ok"
+    assert calls and calls[0][0] == "openai"
+
+
+def test_resolve_llm_for_review_returns_none_without_flags():
+    """No --provider/--model and no test seam -> None, so review agents keep
+    resolving their own env-based _default_llm exactly as before (no output
+    change for existing invocations that never pass the new flags)."""
+    parser = cli._build_parser()
+    args = parser.parse_args(["review", "some-id"])
+    assert cli._resolve_llm_for_review(args, {}) is None
+
+
+def test_resolve_llm_for_review_does_not_override_context_seam():
+    """If REVIEW_CONTEXT_OVERRIDES already injected an `_llm` (the existing
+    test seam), the explicit-flag path must never clobber it."""
+    parser = cli._build_parser()
+    args = parser.parse_args(["review", "some-id", "--provider", "openai"])
+    sentinel = object()
+    assert cli._resolve_llm_for_review(args, {"_llm": sentinel}) is None
+
+
 def test_terminal_prints_take_on_readable_path(monkeypatch, capsys):
     paper_id = _seed()
     ov = _overrides()
