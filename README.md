@@ -367,11 +367,18 @@ research-companion export [--format markdown|csv|json|obsidian] [--output DIR]
 # Research Lab (new in 0.2 — requires [server] extra)
 research-companion lab serve [--port N] [--no-open]
 research-companion lab ingest <folder>
-research-companion lab failures [--retry <paper-id>]
+research-companion lab failures
 research-companion set-draft <paper-id>
 research-companion align <paper-id> [--against <draft-id>] [--force]
 research-companion ask "<question>" [--section <section-id>]
 research-companion compare <paper-a> <paper-b>
+research-companion gaps [--refresh] [--json]
+research-companion timeline [--json]
+
+# Multiple researches (workspaces)
+research-companion workspace list                    # * marks the active workspace
+research-companion workspace create <name>
+research-companion workspace use <name>
 
 # Review & integrity checks
 research-companion review <paper-id> [--venue SLUG] [--fast] [--report DIR] [--serve] [--json]
@@ -379,7 +386,7 @@ research-companion refcheck <paper-id> [--connectors europepmc,pubmed,dblp] [--j
 research-companion check-compliance <paper-id> --venue SLUG [--json]   # desk-reject linter
 research-companion check-stats <paper-id> [--json]                     # Statcheck + GRIM
 research-companion check-overlap <paper-id> [--semantic] [--allow-remote] [--json]
-research-companion rebuttal <paper-id> --reviews FILE [--tone firm|neutral]
+research-companion rebuttal <paper-id> --reviews FILE [--tone deferential|balanced|firm]
 research-companion mcp serve                                           # MCP trust-layer server
 
 # Interoperability

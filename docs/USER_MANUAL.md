@@ -360,11 +360,12 @@ pre-submission review with a live dashboard:
 | overlap | Flags passages that near-duplicate another paper in your **own library** (deterministic shingling; local-only) | overlapping passages with the matched paper + char spans |
 | severity | Classifies all of the above signals critical / major / minor | a worst-first ranked list at the top of the report |
 | venuefit | *(with `--venue <slug>`)* matches contributions + abstract against the venue's scope via a deterministic topic-overlap prefilter grounding an LLM verdict | strong / moderate / weak / out-of-scope + desk-reject risk |
+| compliance | *(with `--venue <slug>`)* deterministic desk-reject linter — page/length limit, required sections, double-blind anonymization leaks, citation completeness | desk-reject / warning findings per check (also its own `check-compliance` command) |
 | rebuttal | (own command) grounds point-by-point reviewer responses in retrieved passages | replies with honesty badges |
 
 `statsoundness`, `reproducibility`, `ethics`, and `overlap` are deterministic and
-**always on**; `severity` runs in the full pass; `venuefit` runs when you pass `--venue` (e.g.
-`--venue neurips`). Venue scope, checklists, and desk-reject rules come from a
+**always on**; `severity` runs in the full pass; `venuefit` and `compliance` run when you pass
+`--venue` (e.g. `--venue neurips`). Venue scope, checklists, and desk-reject rules come from a
 knowledge base you can extend without code — see [VENUE_KB.md](VENUE_KB.md).
 
 **Semantic (paraphrase) overlap:** the overlap lane can additionally catch
@@ -503,6 +504,7 @@ research-companion compare <A> <B>                  # side-by-side comparison
 research-companion review <paper-id> [--serve] [--venue <slug>] [--connectors NAMES]  # the full review (+ dashboard, venue-fit)
 research-companion rebuttal <paper-id> <reviews>    # grounded reviewer responses
 research-companion refcheck <paper-id> [--connectors NAMES]  # citation validator standalone
+research-companion check-compliance <paper-id> --venue <slug>  # desk-reject linter (page/sections/anonymity/citations)
 research-companion check-stats <paper-id>           # recompute p-values + GRIM (Statcheck)
 research-companion check-overlap <paper-id> [--semantic] [--allow-remote]  # near-duplicate passages vs your library (+ opt-in paraphrase pass)
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
