@@ -642,6 +642,34 @@ def _readiness_line(readiness: dict | None) -> str:
     return "\n".join(lines)
 
 
+def _attach_readiness_narrative(rep: dict | None, args: argparse.Namespace) -> None:
+    """Opt-in LLM narrative: attach rep["readiness"]["narrative"] in place.
+
+    Gated on the readiness_narrative setting, not --fast, and a readiness with
+    something to fix. Generated at most once per review (before persistence),
+    so the store copy, report.json, --json and HTML all carry the same dict.
+    Any failure leaves rep untouched.
+    """
+    try:
+        if not rep:
+            return
+        readiness = rep.get("readiness")
+        if not readiness or not (readiness.get("blockers") or readiness.get("warnings")):
+            return
+        if getattr(args, "fast", False):
+            return
+        from research_companion.settings import get_settings
+        if not get_settings().get("readiness_narrative"):
+            return
+        from research_companion.readiness_narrative import generate_readiness_narrative
+        llm = REVIEW_CONTEXT_OVERRIDES.get("_narrative_llm")
+        narrative = generate_readiness_narrative(readiness, llm=llm)
+        if narrative:
+            readiness["narrative"] = narrative
+    except Exception:
+        pass  # narrative is optional; never break the review over it
+
+
 def _cmd_review(args: argparse.Namespace) -> int:
     import asyncio
     import contextlib
@@ -747,6 +775,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
 
         _meta = PaperMetadata.load(args.paper_id)
         _rep = build_report_json(args.paper_id, _meta.title if _meta else "", results)
+        _attach_readiness_narrative(_rep, args)
         save_review_report(args.paper_id, _rep)
     except Exception:  # noqa: BLE001
         pass  # Non-fatal: don't break review output if persistence fails
@@ -763,8 +792,12 @@ def _cmd_review(args: argparse.Namespace) -> int:
         from research_companion.report import build_report_json, render_report_html
         from research_companion.store import PaperMetadata
 
-        meta = PaperMetadata.load(args.paper_id)
-        rep = build_report_json(args.paper_id, meta.title if meta else "", results)
+        if _rep is not None:
+            rep = _rep
+        else:
+            meta = PaperMetadata.load(args.paper_id)
+            rep = build_report_json(args.paper_id, meta.title if meta else "", results)
+            _attach_readiness_narrative(rep, args)
         out_dir = Path(args.report)
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "report.json").write_text(
@@ -810,6 +843,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
     line = _readiness_line((_rep or {}).get("readiness"))
     if line:
         print(line)
+    take = (((_rep or {}).get("readiness") or {}).get("narrative") or {}).get("take")
+    if take:
+        print(f"Reviewer's take: {take}")
     return 0 if ok else 1
 
 
