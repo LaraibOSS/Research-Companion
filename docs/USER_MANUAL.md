@@ -489,9 +489,9 @@ research-companion ask "question"                   # token-efficient, citation-
 research-companion set-draft <paper-id>             # anchor your draft
 research-companion align <paper-id>                 # one alignment verdict
 research-companion compare <A> <B>                  # side-by-side comparison
-research-companion review <paper-id> [--serve] [--venue <slug>]  # the full review (+ dashboard, venue-fit)
+research-companion review <paper-id> [--serve] [--venue <slug>] [--connectors NAMES]  # the full review (+ dashboard, venue-fit)
 research-companion rebuttal <paper-id> <reviews>    # grounded reviewer responses
-research-companion refcheck <paper-id>              # citation validator standalone
+research-companion refcheck <paper-id> [--connectors NAMES]  # citation validator standalone
 research-companion check-stats <paper-id>           # recompute p-values + GRIM (Statcheck)
 research-companion check-overlap <paper-id> [--semantic] [--allow-remote]  # near-duplicate passages vs your library (+ opt-in paraphrase pass)
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
@@ -504,6 +504,19 @@ research-companion export <format>                  # markdown, CSV, JSON, Obsid
 research-companion workspace list|create|use        # manage researches
 research-companion lab serve|ingest|failures        # the web Lab
 ```
+
+`--connectors NAMES` (comma-separated) turns on optional domain connectors for
+`refcheck` and `review` — off by default, no effect on the tool's output when
+omitted. Available names:
+
+- `europepmc` — Europe PMC; biomedical citation verification, prior-art, and
+  open-access full-text ingest.
+- `pubmed` — PubMed; biomedical citation verification and prior-art (no full
+  text).
+- `dblp` — computer-science bibliography; verification + prior-art, no full
+  text.
+
+Example: `research-companion refcheck my-paper --connectors europepmc,pubmed,dblp`.
 
 ## 20. Data, privacy & costs
 
@@ -568,6 +581,5 @@ research-companion lab serve|ingest|failures        # the web Lab
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
 deterministic key-free tools) and near-duplicate/overlap detection in 0.7.1. Still
-ahead: cost-gated MCP tools (`ask_library` / `review_draft`), domain metadata
-connectors (PubMed, Europe PMC, DBLP), venue-checklist skill packs, and semantic
-(paraphrase) overlap. See [ROADMAP.md](ROADMAP.md).
+ahead: cost-gated MCP tools (`ask_library` / `review_draft`) and venue-checklist skill
+packs. See [ROADMAP.md](ROADMAP.md).

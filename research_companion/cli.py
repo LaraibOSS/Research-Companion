@@ -29,8 +29,8 @@ from research_companion import __version__
 
 
 def _parse_connectors_arg(value):
-    """Parse --connectors 'europepmc,pubmed' -> ['europepmc','pubmed']; None if
-    the flag was omitted (so settings are used). Exits on an unknown name."""
+    """Parse --connectors 'europepmc,pubmed,dblp' -> ['europepmc','pubmed','dblp'];
+    None if the flag was omitted (so settings are used). Exits on an unknown name."""
     if not value:
         return None
     from research_companion.connectors import VALID_CONNECTORS
@@ -1916,7 +1916,7 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Validate a paper's references against CrossRef/OpenAlex")
     prc.add_argument("paper_id", help="ID of a paper already built (see `research-companion list`)")
     prc.add_argument("--json", action="store_true", help="JSON output")
-    prc.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed")
+    prc.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
     prc.set_defaults(func=_cmd_refcheck)
 
     pcs = sub.add_parser("check-stats",
@@ -1990,7 +1990,7 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Start a live dashboard while agents run")
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
-    prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed")
+    prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
     prv.set_defaults(func=_cmd_review)
 
     prb = sub.add_parser("rebuttal", help="Draft grounded replies to reviewer comments")

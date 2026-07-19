@@ -17,4 +17,18 @@ def test_enabled_connectors_ignores_unknown_and_empty():
 
 
 def test_valid_connectors_set():
-    assert frozenset({"europepmc", "pubmed"}) == connectors.VALID_CONNECTORS
+    assert frozenset({"europepmc", "pubmed", "dblp"}) == connectors.VALID_CONNECTORS
+
+
+def test_dblp_registered_and_valid():
+    from research_companion.connectors import VALID_CONNECTORS, enabled_connectors
+    from research_companion.connectors.dblp import DBLPConnector
+    assert "dblp" in VALID_CONNECTORS
+    conns = enabled_connectors(["dblp"])
+    assert len(conns) == 1 and isinstance(conns[0], DBLPConnector)
+
+
+def test_enabled_connectors_registry_order_is_europepmc_pubmed_dblp():
+    from research_companion.connectors import enabled_connectors
+    names = [c.name for c in enabled_connectors(["dblp", "pubmed", "europepmc"])]
+    assert names == ["europepmc", "pubmed", "dblp"]

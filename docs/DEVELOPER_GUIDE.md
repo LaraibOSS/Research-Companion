@@ -269,7 +269,11 @@ text. Network stays in injectable `_*` functions (tests monkeypatch them);
 parsers are pure. Register the class in `CONNECTORS` (`connectors/__init__.py`)
 and add its name to the settings validation set. Connectors are opt-in
 (`settings.connectors`, off by default), so the tool is byte-identical when
-none are enabled. Ships today: `europepmc.py` (primary) and `pubmed.py`.
+none are enabled. Ships today: `europepmc.py` (primary), `pubmed.py`, and
+`dblp.py` (`name="dblp"`) — the authoritative CS bibliography; `resolve` +
+`search` against the free, key-free DBLP API, but metadata-only:
+`fetch_fulltext` always returns `None` (DBLP has no full text). A good
+reference for a metadata-only connector implementation.
 
 ---
 

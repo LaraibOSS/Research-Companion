@@ -17,9 +17,9 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 ## Phase 1 — Novelty MVP (the wedge)
 *Goal: a researcher gets a cited, evidence-verified novelty assessment + a clean bibliography check.*
 
-- ✅ 🟢 **#1 Reference validator** — validates the paper's bibliography against CrossRef/OpenAlex/S2/arXiv/DBLP; flags suspect/unverified refs. LLM-free. → `research_companion/refcheck/` (`parse.py`, `retrieval.py`, `matching.py`, `validate.py`); CLI `research-companion refcheck`.
+- ✅ 🟢 **#1 Reference validator** — validates the paper's bibliography against CrossRef/OpenAlex/S2/arXiv (DBLP available via the opt-in DBLP connector); flags suspect/unverified refs. LLM-free. → `research_companion/refcheck/` (`parse.py`, `retrieval.py`, `matching.py`, `validate.py`); CLI `research-companion refcheck`.
 - ✅ 🟢 **#2 Contribution extraction** — extracts contribution/problem claims + evidence. → `research_companion/agents/problem.py` (`ProblemStatementAgent`) + `research_companion/extract.py`.
-- ✅ 🟢 **#3 Multi-source prior-art retrieval** — OpenAlex/arXiv/CrossRef/DBLP + canonical-ID dedup + temporal filter. → `research_companion/agents/priorart.py` + `research_companion/refcheck/retrieval.py`.
+- ✅ 🟢 **#3 Multi-source prior-art retrieval** — OpenAlex/arXiv/CrossRef (+ DBLP via the opt-in connector for CS prior art) + canonical-ID dedup + temporal filter. → `research_companion/agents/priorart.py` + `research_companion/refcheck/retrieval.py`.
 - ✅ 🟢 **#4 Evidence verifier** — anchor/exact→normalized→fuzzy quote match vs fulltext; unverified quotes demoted. → `research_companion/rebuttal/verify.py` (`verify_quote`, `locate_quote`).
 - ✅ 🟡 **#5 Contribution-level comparison** — claim × prior art / concept-graph neighborhood; polarity-typed matches. → `research_companion/agents/novelty.py` (`NoveltyAgent`) + `research_companion/compare.py`.
 - ✅ 🟡 **#6 Novelty report + graph view + CLI** — aggregated verdicts, interactive graph, CLI. → `research_companion/report.py`, `research_companion/viz.py`, CLI `review` / `compare`; lab dashboard.
@@ -44,6 +44,10 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   verification (incl. PMID-only refs), prior-art, and OA full-text ingest.
   Opt-in via `settings.connectors` / `--connectors`; off by default (the
   tool is byte-identical when disabled). → `research_companion/connectors/`.
+- ✅ **DBLP connector** — the authoritative CS bibliography as a third opt-in
+  domain connector (`--connectors dblp`), for citation verification and
+  prior-art search; metadata-only, free API, off by default. A CS-aware nudge
+  suggests it when a CS paper has unverified references. → `connectors/dblp.py`.
 - ✅ **Graph enrichment** — typed citation polarity (based-on/support/contrast/
   refutation/mention, evidence-grounded) on the cross-paper graph + a labeled
   prior-art taxonomy in the report. → `agents/citation_polarity.py`,
@@ -73,7 +77,7 @@ overlap. The remaining items are deliberately deferred:
 
 1. **True web-corpus plagiarism** (🔵) — the local near-duplicate check ships (`overlap.py`, plus an opt-in embedding/paraphrase pass in `semoverlap.py`); detecting reuse against an external corpus needs a similarity service + a privacy model. The consent-gated `ExternalOverlapProvider` seam already exists; design the boundary before shipping a provider.
 2. **Cost-gated MCP tools** (🔵) — `ask_library` / `review_draft` behind an explicit budget/keys boundary; the v2 MCP schema.
-3. **Domain metadata connectors** (🟡) — DBLP + entity databases (PubMed/Europe PMC shipped).
+3. **Entity databases** (🟡) — additional metadata sources beyond the shipped DBLP/PubMed/Europe PMC connectors.
 
 Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with
 more venues/disciplines as needed — this is expected maintenance, not a blocking
