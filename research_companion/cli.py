@@ -1708,9 +1708,14 @@ def _cmd_check_compliance(args: argparse.Namespace) -> int:
 
 
 def _cmd_mcp_serve(args: argparse.Namespace) -> int:
-    from research_companion.mcp_server import serve
+    from research_companion.mcp_server import costed_tools_active, serve
 
     try:
+        if costed_tools_active():
+            from research_companion.settings import get_settings
+            cap = get_settings().get("mcp_cost_cap_usd", 1.0)
+            print(f"research-companion: costed tools enabled (ask_library, review_draft; "
+                  f"cap ${cap:.2f}/call)", file=sys.stderr)
         serve(transport=args.transport)
     except ImportError as exc:
         print(f"research-companion: {exc}", file=sys.stderr)
@@ -2163,7 +2168,8 @@ def _build_parser() -> argparse.ArgumentParser:
                           help="MCP trust-layer server (expose verification tools to agents)")
     mcp_sub = pmcp.add_subparsers(dest="mcp_cmd", required=True)
     pmcp_serve = mcp_sub.add_parser("serve",
-                                    help="Start the MCP server (deterministic, key-free tools)")
+                                    help="Start the MCP server (deterministic, key-free tools, "
+                                         "plus opt-in costed tools when enabled)")
     pmcp_serve.add_argument("--transport", default="stdio", choices=["stdio", "sse"],
                             help="MCP transport (default: stdio)")
     pmcp_serve.set_defaults(func=_cmd_mcp_serve)
