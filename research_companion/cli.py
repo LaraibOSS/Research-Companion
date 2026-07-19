@@ -137,10 +137,6 @@ def _cmd_add(args: argparse.Namespace) -> int:
     return 0 if not failed else 1
 
 
-# ---------------------------------------------------------------------------
-# Pricing (USD per 1M tokens, as of 2025)
-# ---------------------------------------------------------------------------
-
 _DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-7",
     "openai":    "gpt-4o-2024-11-20",

@@ -551,7 +551,13 @@ individually.
   `_provider_for_estimate()` — the resolved provider from
   `cost.configured_provider()`, falling back to `"anthropic"` pricing if
   unresolved (estimate-only; the gate above already required a real key to
-  reach this code).
+  reach this code). **Caveat for the novelty lane:** it issues one LLM call
+  per extracted claim, so actual cost scales with claim count and can exceed
+  the pre-call estimate — the cap is a safety rail, not a hard guarantee.
+- **Restart asymmetry:** registration of costed tools is decided at server startup
+  (`create_server`), but the cap (`mcp_cost_cap_usd`) is re-read on every call. Changing
+  `mcp_costed_tools` or adding/removing the key does NOT change which tools a running
+  server exposes — restart `mcp serve` for that; only cap changes apply live.
 - **`review_runner.run_review` — read-only, async-safe** — a CLI-independent
   runner that mirrors `_cmd_review` in `cli.py`'s agent-list construction
   exactly (base 7 lanes, +6 LLM lanes unless `fast`,

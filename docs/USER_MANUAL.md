@@ -559,9 +559,17 @@ a structured error (`{"error", "estimated_cost_usd", "cap_usd"}`) instead of
 running — there's no partial charge, and no spend ledger across calls; each
 call is estimated fresh. These estimates are coarse guardrails sized from
 your retrieval/lane settings, not an invoice from the provider, so treat the
-cap as a safety rail, not a budget tracker. `review_draft(fast=true)` runs
+cap as a safety rail, not a budget tracker. **Important caveat for the novelty
+lane specifically:** it issues one LLM call per extracted claim, so a claim-heavy
+paper's actual cost scales with claim count and can exceed the pre-call estimate —
+the cap is a safety rail, not a hard guarantee. `review_draft(fast=true)` runs
 only the deterministic lanes — no LLM call, no cost, effectively $0 — the
 same as `research-companion review --fast`.
+
+**Restart asymmetry:** the set of tools exposed (whether the costed tools are registered)
+is determined at server startup. Changing `mcp_costed_tools` or adding/removing the key
+does NOT change which tools a running server exposes — restart `mcp serve` for that.
+Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live without restart.
 
 ## 20. Data, privacy & costs
 
