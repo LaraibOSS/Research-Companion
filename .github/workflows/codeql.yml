@@ -18,6 +18,11 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # Code scanning needs a public repo or GitHub Advanced Security. On a private
+    # repo without GHAS the init step errors ("Resource not accessible by
+    # integration"), so skip when we can positively confirm the repo is private.
+    # `!= true` still runs whenever public (all triggers), so scanning auto-resumes.
+    if: ${{ github.event.repository.private != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -45,4 +50,6 @@ jobs:
       - name: CodeQL passed?
         run: |
           set -euo pipefail
-          [ "${{ needs.analyze.result }}" = "success" ] || { echo "CodeQL failed"; exit 1; }
+          r="${{ needs.analyze.result }}"
+          # "skipped" == analyze was gated off on a private/no-GHAS repo (not a failure).
+          [ "$r" = "success" ] || [ "$r" = "skipped" ] || { echo "CodeQL failed: $r"; exit 1; }

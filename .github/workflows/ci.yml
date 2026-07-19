@@ -99,7 +99,10 @@ jobs:
 
   dependency-review:
     name: dependency-review
-    if: github.event_name == 'pull_request'
+    # PRs only, and only when the repo is public (dependency-review needs the
+    # dependency graph + GHAS; on a private repo it errors "not supported").
+    # ci-ok already treats a skipped dependency-review as passing.
+    if: github.event_name == 'pull_request' && github.event.repository.private != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
