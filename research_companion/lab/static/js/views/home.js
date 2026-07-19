@@ -135,14 +135,21 @@ function _render() {
     });
   }
 
-  // Wire NBA card clicks
+  // Wire NBA card clicks (and keyboard activation — Enter/Space)
   _el.querySelectorAll('[data-nba-route]').forEach(card => {
-    card.addEventListener('click', () => {
+    const activate = () => {
       window.location.hash = card.dataset.nbaRoute;
+    };
+    card.addEventListener('click', activate);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        activate();
+      }
     });
   });
   _el.querySelectorAll('[data-nba-action]').forEach(card => {
-    card.addEventListener('click', () => {
+    const activate = () => {
       const action = card.dataset.nbaAction;
       if (action === 'open-suggestions') {
         window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
@@ -152,6 +159,13 @@ function _render() {
         _addDraftWithNudge();
       } else if (action === 'open-citations') {
         window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
+      }
+    };
+    card.addEventListener('click', activate);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        activate();
       }
     });
   });

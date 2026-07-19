@@ -15,6 +15,8 @@ export function renderPaperCard(paper) {
   const card = document.createElement('div');
   card.className = 'paper-card';
   card.dataset.paperId = paper.paper_id;
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
 
   // Left border color based on strength / status
   let borderColor;

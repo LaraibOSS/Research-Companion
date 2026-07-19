@@ -308,6 +308,13 @@ function _renderGridCards(grid, papers) {
       if (e.target.closest('button')) return;
       _openDrawer(paper.paper_id);
     });
+    card.addEventListener('keydown', (e) => {
+      if (e.target.closest('button')) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        _openDrawer(paper.paper_id);
+      }
+    });
 
     grid.appendChild(card);
   }
