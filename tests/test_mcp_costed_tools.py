@@ -1,4 +1,6 @@
 """Costed MCP tools: gates, refusals, error dicts (fully offline)."""
+import json
+
 from research_companion import mcp_tools, store
 
 
@@ -63,6 +65,20 @@ def test_ask_library_llm_failure_returns_error_dict(monkeypatch):
     assert "error" in out             # never raises to the client
 
 
+def test_ask_library_cited_sources_are_json_safe(monkeypatch):
+    # Regression: ask_library's "cited" list must be JSON-serializable dicts,
+    # not raw QASource dataclass instances. Use the REAL [S#] citation format
+    # that qa.parse_citations matches so the cited path actually fires.
+    _keyed(monkeypatch)
+    _settings(monkeypatch)
+    _seed_paper_with_text(monkeypatch)
+    out = mcp_tools.ask_library(question="what is attention",
+                                llm=lambda p: "Attention weights tokens [S1].")
+    assert "error" not in out
+    assert out["cited"], "cited must be non-empty to prove the citation path fired"
+    json.dumps(out)  # must not raise
+
+
 def test_review_draft_unknown_paper(monkeypatch):
     _keyed(monkeypatch)
     _settings(monkeypatch)
@@ -102,4 +118,18 @@ def test_review_draft_runner_failure_returns_error_dict(monkeypatch):
         raise RuntimeError("pipeline exploded")
     monkeypatch.setattr("research_companion.review_runner.run_review", _boom)
     out = mcp_tools.review_draft(paper_id=pid, fast=False)
+    assert "error" in out
+
+
+def test_review_draft_corrupt_metadata_returns_error_dict(monkeypatch):
+    # Regression: PaperMetadata.load()/load_text() sat outside the try/except
+    # (only run_review was wrapped), so a corrupted metadata.json would
+    # propagate and violate "never raises to the caller".
+    _keyed(monkeypatch)
+    _settings(monkeypatch)
+
+    def _boom(paper_id):
+        raise RuntimeError("corrupt")
+    monkeypatch.setattr("research_companion.store.PaperMetadata.load", _boom)
+    out = mcp_tools.review_draft(paper_id="x")
     assert "error" in out

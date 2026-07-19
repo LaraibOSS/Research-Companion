@@ -217,7 +217,7 @@ def ask_library(*, question: str, k: int | None = None,
         "question": question,
         "answer": ans.answer,
         "sources": [asdict(s) for s in ans.sources],
-        "cited": list(ans.cited),
+        "cited": [asdict(s) for s in ans.cited],
         "unverified_quotes": list(ans.unverified_quotes),
         "estimated_cost_usd": round(est, 4),
     }
@@ -233,16 +233,19 @@ def review_draft(*, paper_id: str, venue: str | None = None, fast: bool = False,
     from research_companion.cost import chars_to_tokens, estimate_cost
     from research_companion.store import PaperMetadata, load_text
 
-    meta = PaperMetadata.load(paper_id)
-    text = load_text(paper_id)
-    if meta is None and text is None:
-        return {"error": f"unknown paper_id {paper_id!r} — add/ingest it first"}
+    try:
+        meta = PaperMetadata.load(paper_id)
+        text = load_text(paper_id)
+        if meta is None and text is None:
+            return {"error": f"unknown paper_id {paper_id!r} — add/ingest it first"}
 
-    n_lanes = 0 if fast else _N_LLM_LANES_FULL + (1 if venue else 0)  # venuefit is the LLM venue lane
-    in_tokens = n_lanes * chars_to_tokens(min(len(text or ""), _REVIEW_INPUT_CHARS_PER_LANE))
-    est = estimate_cost(in_tokens, n_lanes * _REVIEW_OUTPUT_TOKENS_PER_LANE,
-                        _provider_for_estimate())
-    cap = _cap_usd()
+        n_lanes = 0 if fast else _N_LLM_LANES_FULL + (1 if venue else 0)  # venuefit is the LLM venue lane
+        in_tokens = n_lanes * chars_to_tokens(min(len(text or ""), _REVIEW_INPUT_CHARS_PER_LANE))
+        est = estimate_cost(in_tokens, n_lanes * _REVIEW_OUTPUT_TOKENS_PER_LANE,
+                            _provider_for_estimate())
+        cap = _cap_usd()
+    except Exception as exc:
+        return {"error": str(exc)}
     if est > cap:
         return _refusal(est, cap)
 
