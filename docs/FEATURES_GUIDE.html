@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research Companion — Features Guide</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #1f2933; line-height: 1.5; font-size: 11pt; margin: 0;
+  }
+  h1 { font-size: 26pt; margin: 0 0 2mm 0; color: #0f4c81; }
+  .subtitle { font-size: 12pt; color: #52616b; margin: 0 0 2mm 0; }
+  .meta { font-size: 9.5pt; color: #7b8794; margin: 0 0 6mm 0; }
+  h2 {
+    font-size: 15pt; color: #0f4c81; margin: 9mm 0 3mm 0;
+    padding-bottom: 1.5mm; border-bottom: 2px solid #d9e2ec;
+    break-after: avoid;
+  }
+  h2 .num {
+    display: inline-block; min-width: 8mm; color: #9fb3c8; font-weight: 700;
+  }
+  .lead { color: #486581; margin: 0 0 4mm 0; }
+  .feature { break-inside: avoid; margin: 0 0 4.5mm 0; }
+  .feature .name { font-weight: 700; color: #102a43; }
+  .feature .what { margin: 0.5mm 0 1mm 0; }
+  .feature .how { margin: 0; }
+  .how code, code.inline {
+    background: #f0f4f8; color: #243b53; border-radius: 3px;
+    padding: 0.5mm 1.5mm; font-family: "Consolas", "SFMono-Regular", monospace;
+    font-size: 9.5pt;
+  }
+  .how { color: #486581; font-size: 10pt; }
+  .how b { color: #334e68; }
+  .callout {
+    background: #f0f4f8; border-left: 4px solid #0f4c81;
+    padding: 3mm 4mm; border-radius: 4px; margin: 3mm 0; break-inside: avoid;
+  }
+  .callout.warn { border-left-color: #b44d12; background: #fff4ec; }
+  .tag {
+    display: inline-block; font-size: 8pt; font-weight: 700; letter-spacing: .3px;
+    text-transform: uppercase; padding: 0.3mm 1.8mm; border-radius: 3px;
+    vertical-align: middle; margin-left: 1.5mm;
+  }
+  .tag.opt { background: #e0e8f0; color: #486581; }
+  .tag.det { background: #e3f0e6; color: #2f7a44; }
+  .tag.llm { background: #efe4f5; color: #7a3fa0; }
+  .footer { margin-top: 9mm; padding-top: 3mm; border-top: 1px solid #d9e2ec;
+            font-size: 9pt; color: #7b8794; }
+  ul.plain { margin: 1mm 0 0 0; padding-left: 5mm; }
+  ul.plain li { margin: 0.5mm 0; }
+</style>
+</head>
+<body>
+
+<h1>Research Companion</h1>
+<p class="subtitle">A plain-English guide to every feature — and how to use them.</p>
+<p class="meta">Local-first research assistant · turns your PDFs and arXiv links into a knowledge graph, a chat interface, and a full reviewer-style report. Source version 0.7.x. Legend:
+  <span class="tag det">deterministic</span> no AI needed ·
+  <span class="tag llm">uses AI</span> needs a key ·
+  <span class="tag opt">opt-in</span> off until you turn it on.</p>
+
+<div class="callout">
+  <b>The one-minute picture.</b> You add papers (from an arXiv link, a DOI, a Semantic Scholar entry, or a local PDF). Research Companion reads each one, pulls out the ideas, methods, datasets, claims and results, and connects them into a single knowledge graph across all your papers. From there you can <b>explore</b> it visually, <b>chat</b> with it (every answer cites the paper it came from), and run a full <b>review</b> that tells you whether a draft is ready to submit and what to fix first. Everything runs on your machine; nothing is uploaded unless you explicitly turn on a feature that needs the internet.
+</div>
+
+<h2><span class="num">1</span>Build your paper library</h2>
+<p class="lead">Get papers into the tool and turn them into a connected graph.</p>
+
+<div class="feature">
+  <div class="name">Add papers <span class="tag det">deterministic</span></div>
+  <div class="what">Pull in a paper from almost any source. arXiv links and IDs, DOIs, Semantic Scholar IDs, or a PDF already on your computer all work. Titles, authors and year are read automatically.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion add https://arxiv.org/abs/2404.16130</code> · a DOI, an S2 ID, or <code class="inline">./my-paper.pdf</code> · add a whole list at once with <code class="inline">add -f papers.txt</code>.</div>
+</div>
+
+<div class="feature">
+  <div class="name">Cost estimate before you build <span class="tag det">deterministic</span></div>
+  <div class="what">See roughly what reading your papers with an AI model will cost before you spend anything. Re-building later is free — results are cached and only re-run when needed.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion cost-estimate</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Build the knowledge graph <span class="tag llm">uses AI</span></div>
+  <div class="what">Reads every paper and extracts its concepts, methods, datasets, claims, and results, then merges them across papers. When the same method appears in five papers it becomes one shared node, so you can see what your papers have in common at a glance.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion build</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Better PDF reading (optional) <span class="tag opt">opt-in</span></div>
+  <div class="what">The basic reader handles normal digital PDFs. Installing the optional Docling engine adds OCR for scanned/image PDFs plus better handling of columns, tables and figures. Scanned PDFs with no text fail with a clear message instead of entering your library empty.</div>
+  <div class="how"><b>Use:</b> <code class="inline">pip install research-companion[docling]</code> — auto-detected once installed.</div>
+</div>
+
+<h2><span class="num">2</span>Explore and understand your papers</h2>
+<p class="lead">Navigate the graph and ask it questions — with answers you can verify.</p>
+
+<div class="feature">
+  <div class="name">Interactive graph view <span class="tag det">deterministic</span></div>
+  <div class="what">Opens your whole library as a clickable graph in the browser — concepts, methods, datasets and the papers that mention them, with the connections between them.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion view</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Chat with your library <span class="tag llm">uses AI</span></div>
+  <div class="what">Ask a question in plain language and get an answer built from your papers. Every fact cites the exact paper it came from, so you can check it before you trust it. It follows the connections in the graph rather than guessing.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion chat "how do GraphRAG and LightRAG differ?"</code> · or just <code class="inline">chat</code> for an interactive session.</div>
+</div>
+
+<div class="feature">
+  <div class="name">Search the graph <span class="tag det">deterministic</span></div>
+  <div class="what">Find a specific concept, method or dataset without opening the browser.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion search "attention" --kind concept</code></div>
+</div>
+
+<h2><span class="num">3</span>The Research Lab — a visual workspace</h2>
+<p class="lead">A browser workspace that grows your graph live as papers arrive. Needs the server extra: <code class="inline">pip install -e ".[server]"</code>.</p>
+
+<div class="feature">
+  <div class="name">Live graph &amp; folder ingest <span class="tag det">deterministic</span></div>
+  <div class="what">Point it at a folder of PDFs and watch each one appear in the graph in real time. You see every file's progress and can pick exactly which PDFs to bring in.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion lab serve</code> then open the page · or <code class="inline">lab ingest &lt;folder&gt;</code>.</div>
+</div>
+
+<div class="feature">
+  <div class="name">Draft alignment <span class="tag llm">uses AI</span></div>
+  <div class="what">Tell the Lab which paper is <i>your</i> draft, and it scores every other paper against it — does it strengthen, challenge, or offer an alternative to your work — backed by real evidence quotes, with papers colored by evidence strength.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion set-draft &lt;paper-id&gt;</code> then <code class="inline">align &lt;paper-id&gt;</code>.</div>
+</div>
+
+<div class="feature">
+  <div class="name">Ask &amp; Compare <span class="tag llm">uses AI</span></div>
+  <div class="what"><b>Ask</b> gives section-scoped answers that cite the exact section they came from (cheaper and more precise than reading a whole paper). <b>Compare</b> does a structured head-to-head of any two papers.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion ask "how does X compare to Y?"</code> · <code class="inline">compare &lt;paper-a&gt; &lt;paper-b&gt;</code>.</div>
+</div>
+
+<div class="feature">
+  <div class="name">Citation coverage <span class="tag det">deterministic</span></div>
+  <div class="what">Reads your draft's bibliography and shows which cited papers you already have and which are missing — with a one-click "add all" — and always tells you honestly when an analysis is running on only part of your references.</div>
+  <div class="how"><b>Use:</b> built into the Lab once you set a draft.</div>
+</div>
+
+<h2><span class="num">4</span>Get a paper submission-ready — the review team</h2>
+<p class="lead">One command runs a team of specialised checkers over a paper. The report opens with a single go/no-go verdict and a "fix this first" list.</p>
+
+<div class="callout">
+  <b>Submission-readiness verdict.</b> Every review starts with one honest answer — <b>ready</b>, <b>revise</b>, or <b>not ready</b> — plus a prioritized list of what to fix first, gathered from whatever checks actually ran. Things that would get a paper desk-rejected are "must fix"; everything else is a "should review" warning. If a check didn't run, the report says so plainly rather than pretending the paper passed it.
+</div>
+
+<div class="feature">
+  <div class="name">Run a review <span class="tag llm">uses AI</span> <span class="tag det">deterministic core</span></div>
+  <div class="what">Runs all the lanes below at once. Add <code class="inline">--venue neurips</code> to also check venue fit and desk-reject rules; add <code class="inline">--fast</code> to skip the AI lanes and run entirely offline; add <code class="inline">--report out/</code> for an HTML + JSON report, or <code class="inline">--serve</code> for a live dashboard.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion review &lt;paper-id&gt; --venue neurips --report out/</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">What each lane checks</div>
+  <ul class="plain">
+    <li><b>Citations</b> — verifies every reference against public databases; flags wrong or unverifiable ones.</li>
+    <li><b>Prior art &amp; novelty</b> — finds related work and checks whether the paper's claimed contributions are actually new, verifying every evidence quote against the paper's own text.</li>
+    <li><b>Statistical soundness</b> — recomputes reported p-values and sanity-checks reported averages; flags numbers that don't add up. <span class="tag det">deterministic</span></li>
+    <li><b>Reproducibility</b> — looks for code/data links, availability statements, and reporting-checklist mentions → high / medium / low.</li>
+    <li><b>Ethics &amp; integrity declarations</b> — checks for funding, conflict-of-interest, ethics/consent, and author-contribution statements.</li>
+    <li><b>Overlap</b> — flags passages that closely match another paper in your library.</li>
+    <li><b>Venue fit &amp; compliance</b> (with <code class="inline">--venue</code>) — does it fit the venue's scope, and does it break any desk-reject rule (page limit, missing sections, anonymization leaks)?</li>
+  </ul>
+</div>
+
+<div class="feature">
+  <div class="name">Reviewer's take (AI narrative) <span class="tag llm">uses AI</span> <span class="tag opt">opt-in</span></div>
+  <div class="what">Turn this on and the report adds a short, friendly "reviewer's take" paragraph plus an ordered fix plan, written by the AI. It is grounded strictly in the verdict above — it can reword and reorder the fix list, but it cannot invent new problems or change the result. Off by default.</div>
+  <div class="how"><b>Use:</b> turn on the <code class="inline">readiness_narrative</code> setting (Settings page, or the CLI settings).</div>
+</div>
+
+<h2><span class="num">5</span>Trust &amp; verification tools</h2>
+<p class="lead">Small, sharp, deterministic checks you can run on their own — and a way to hand them to other AI agents.</p>
+
+<div class="feature">
+  <div class="name">Reference checker <span class="tag det">deterministic</span></div>
+  <div class="what">Validates a paper's whole bibliography against CrossRef, OpenAlex, arXiv and Semantic Scholar and marks each reference verified, suspect, or unverified.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion refcheck &lt;paper-id&gt;</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Domain connectors: PubMed · Europe PMC · DBLP <span class="tag opt">opt-in</span></div>
+  <div class="what">Turn these on to verify references and search prior art in biomedical (PubMed, Europe PMC) and computer-science (DBLP) databases the general sources miss. Off by default; the tool behaves exactly as before until you enable them, and nothing extra is sent anywhere unless you do.</div>
+  <div class="how"><b>Use:</b> add <code class="inline">--connectors europepmc,pubmed,dblp</code> to <code class="inline">refcheck</code> or <code class="inline">review</code>, or turn them on in Settings.</div>
+</div>
+
+<div class="feature">
+  <div class="name">Desk-reject compliance linter <span class="tag det">deterministic</span></div>
+  <div class="what">Checks a paper against a venue's submission rules for the mistakes that get papers rejected before anyone reads them: over the page limit, a missing required section (e.g. Limitations), an anonymization leak in a double-blind submission, or an incomplete bibliography.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion check-compliance &lt;paper-id&gt; --venue neurips</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Statistical soundness (Statcheck + GRIM) <span class="tag det">deterministic</span></div>
+  <div class="what">Re-derives each reported p-value from the test statistic and degrees of freedom and flags mismatches, and checks whether reported means are even arithmetically possible for the sample size. No AI — pure maths.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion check-stats &lt;paper-id&gt;</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Near-duplicate &amp; paraphrase overlap <span class="tag det">deterministic</span> <span class="tag opt">opt-in extra</span></div>
+  <div class="what">Flags passages in a paper that closely match another paper already in your library — useful for catching self-plagiarism or a draft too close to prior work. By default it compares wording locally (nothing leaves your machine). An opt-in setting adds an on-device "meaning" comparison that also catches reworded or translated reuse.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion check-overlap &lt;paper-id&gt;</code> · add <code class="inline">--semantic</code> for the paraphrase pass.</div>
+</div>
+
+<div class="feature">
+  <div class="name">MCP trust-layer server <span class="tag det">deterministic</span></div>
+  <div class="what">Exposes four key-free verification tools — verify a citation, ground a claim in a source, check citation coverage, and search your library — so any MCP-capable AI assistant can call them and get trustworthy, checkable answers from your library.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion mcp serve</code></div>
+</div>
+
+<h2><span class="num">6</span>Discover what you're missing</h2>
+<div class="feature">
+  <div class="name">Topic search &amp; citation expansion <span class="tag det">deterministic</span></div>
+  <div class="what">Find papers you don't have yet. Search a topic (ranked by citation count), or follow the references and citations of the papers you already have to surface the important ones you're missing. No API key needed.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion discover "graph-based RAG"</code> · <code class="inline">discover --expand</code> · add <code class="inline">--add</code> to pull them in.</div>
+</div>
+
+<h2><span class="num">7</span>Answer reviewers (rebuttal assistant)</h2>
+<div class="feature">
+  <div class="name">Grounded rebuttal drafts <span class="tag llm">uses AI</span></div>
+  <div class="what">Give it your reviews and it drafts point-by-point replies that quote only real passages from your paper. Anything it can't back up with a real quote is flagged for you to check rather than shipped. Duplicate concerns from multiple reviewers are grouped, and a planned-revisions changelog is assembled for you.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion rebuttal &lt;paper-id&gt; --reviews reviews.txt --tone firm</code></div>
+</div>
+
+<h2><span class="num">8</span>Get your data in and out</h2>
+<div class="feature">
+  <div class="name">Export the graph <span class="tag det">deterministic</span></div>
+  <div class="what">Export your knowledge graph to use elsewhere — as an Obsidian vault (fully linked notes), markdown, CSV (for spreadsheets or Neo4j), or raw JSON.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion export --format obsidian --output ./vault/</code></div>
+</div>
+
+<div class="feature">
+  <div class="name">Reference-manager interoperability <span class="tag det">deterministic</span></div>
+  <div class="what">Export your references as BibTeX or RIS, import a <code class="inline">.bib</code> file from Zotero or Mendeley, or resolve the <code class="inline">\cite</code> keys in a LaTeX file against your library.</div>
+  <div class="how"><b>Use:</b> <code class="inline">research-companion export-bib</code> · <code class="inline">import-bib refs.bib</code> · <code class="inline">cite-tex paper.tex</code>.</div>
+</div>
+
+<h2><span class="num">9</span>How it keeps you in control</h2>
+<div class="callout">
+  <ul class="plain" style="margin:0;">
+    <li><b>Local-first.</b> Your papers and graph live on your machine (in <code class="inline">~/.research-companion/</code>). Nothing is uploaded unless you use a feature that needs the internet.</li>
+    <li><b>Opt-in where it matters.</b> Anything that costs money (AI lanes), sends text to an outside service (remote connectors, the paraphrase pass's remote mode), or writes prose (the reviewer's take) is <b>off by default</b>. When a feature is off, the tool behaves exactly as if it didn't exist.</li>
+    <li><b>Honest by design.</b> Checks that can't run say so; answers cite their sources; the AI narrative can never invent a finding or overturn the deterministic verdict.</li>
+    <li><b>Your keys, your file.</b> API keys live in a local <code class="inline">.env</code> and are managed from the Settings page. Semantic search's <code class="inline">HF_TOKEN</code> is optional; without it, a keyword fallback is used.</li>
+  </ul>
+</div>
+
+<p class="footer">Research Companion · MIT-licensed, open source · Full reference: docs/DOCUMENTATION.md and docs/USER_MANUAL.md · Roadmap: docs/ROADMAP.md</p>
+
+</body>
+</html>

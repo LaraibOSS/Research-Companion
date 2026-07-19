@@ -51,6 +51,20 @@ Section-wise subgraphs keep retrieval focused: when you Ask or Align, only the s
 - [Roadmap](docs/ROADMAP.md) — what's shipped and what's next.
 - Release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)
 
+## What's new since 0.7 — the integrity & trust layer
+
+Research Companion grew from "help me read papers" into "help me get a paper submission-ready." The review now opens with a single go/no-go verdict, and everything under it is checkable:
+
+- **Submission-readiness verdict** — every review is topped with *ready / revise / not ready* and a prioritized, cross-lane "fix this first" list, aggregated from whatever checks ran, with honest caveats for what didn't. Opt into the `readiness_narrative` setting for an LLM "reviewer's take" on top (grounded strictly in the verdict — it can reorder and rephrase the fix list, never invent findings).
+- **Desk-reject compliance linter** (`check-compliance`, and inside `review --venue`) — deterministic checks for what gets papers desk-rejected before review: page/length limits, missing required sections, double-blind anonymization leaks, and citation completeness.
+- **Statistical soundness** (`check-stats`) — recomputes reported p-values (Statcheck) and sanity-checks reported means (GRIM), flagging numbers that don't add up. No LLM.
+- **Near-duplicate & paraphrase overlap** (`check-overlap`) — flags passages that duplicate another paper in your library; an opt-in local-embedding pass also catches reworded/translated reuse.
+- **Domain connectors** — opt-in **PubMed**, **Europe PMC**, and **DBLP** sources so biomedical and CS references verify and prior-art reaches beyond the general databases (`--connectors dblp` etc.; off by default, byte-identical when disabled).
+- **MCP trust-layer server** (`mcp serve`) — exposes four deterministic, key-free verification tools (verify a citation, ground a claim, check citation coverage, search your library) to any MCP-capable agent.
+- **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, and LaTeX `\cite`-key resolution (`export-bib` / `import-bib` / `cite-tex`).
+
+Everything above is deterministic at the core, opt-in wherever it costs money or sends data anywhere, and designed to leave the tool byte-identical when a feature is off. See the [Roadmap](docs/ROADMAP.md).
+
 ## What's new in 0.6
 
 The review team learned to answer three more of a reviewer's questions — deterministically, with the same evidence-first discipline as the rest of the tool. A `review` now also tells you **whether the paper fits its target venue**, **which problems to fix first**, **whether the work is reproducible**, and **whether the required integrity declarations are present**:
@@ -270,31 +284,34 @@ research-companion discover --expand --json
 
 **Citation expansion** (`--expand`) follows the references and citations of every paper in your store, surfaces the most-cited papers you're missing, and filters out anything you already have. This is the fastest way to go from 5 seed papers to a comprehensive literature graph.
 
-## Agentic review (new)
+## Agentic review
 
-A team of specialized agents analyzes a paper end-to-end, and every verdict carries evidence:
+A team of specialized agents analyses a paper end-to-end, every verdict carries evidence, and the whole report opens with a single **submission-readiness verdict** — *ready / revise / not ready* — plus a prioritized "fix this first" list:
 
 ```bash
-research-companion review <paper-id>                 # 6 agents: ingest, citation, priorart,
-                                             # novelty, confidence, benchmark
-research-companion review <paper-id> --fast          # skip the LLM lanes (no API key needed)
-research-companion review <paper-id> --report out/   # write out/report.html + out/report.json
-research-companion review <paper-id> --serve         # live browser dashboard (SSE) while agents run
+research-companion review <paper-id>                  # full review (all lanes)
+research-companion review <paper-id> --venue neurips  # + venue-fit and desk-reject compliance
+research-companion review <paper-id> --fast           # skip the LLM lanes (no API key needed)
+research-companion review <paper-id> --report out/    # write out/report.html + out/report.json
+research-companion review <paper-id> --serve          # live browser dashboard (SSE) while agents run
 ```
 
-What each lane does:
+What the lanes do (each self-skips when its inputs are absent):
 
-- **citation** - validates every reference against CrossRef/OpenAlex and reports each as
-  verified, suspect, or unverified (catching wrong-DOI and author-mismatch cases).
-- **priorart** - finds related work via Semantic Scholar.
-- **novelty** - extracts the paper's claimed contributions, compares each against prior art,
-  and verifies every evidence quote against the paper's own text.
-- **confidence** - deterministic score with an uncertainty band per claim (no LLM).
-- **benchmark** - suggests evaluation benchmarks mined from the knowledge graph + related work.
+- **citation** — validates every reference against CrossRef/OpenAlex/arXiv/S2 (plus the opt-in PubMed/Europe PMC/DBLP connectors) and reports each as verified, suspect, or unverified.
+- **priorart** — finds related work via Semantic Scholar.
+- **novelty** — extracts the paper's claimed contributions, compares each against prior art, and verifies every evidence quote against the paper's own text.
+- **statistical soundness** — recomputes reported p-values (Statcheck) and checks reported means for arithmetic plausibility (GRIM). Deterministic, no LLM.
+- **reproducibility** — scans for public code/data links, availability statements, and reporting-checklist mentions → high / medium / low.
+- **ethics** — checks for the integrity declarations venues require (funding, conflicts, ethics/IRB approval, consent, author contributions).
+- **overlap** — flags passages that near-duplicate another paper in your library (local shingling; opt-in embedding-based paraphrase pass).
+- **venue-fit** (`--venue`) — matches your contributions against a venue's scope → strong / moderate / weak / out-of-scope + desk-reject risk.
+- **compliance** (`--venue`) — a deterministic desk-reject linter: page/length limit, required sections, anonymization leaks, citation completeness.
+- **severity, confidence, benchmark, citation-polarity, taxonomy** — findings ranked worst-first, per-claim confidence bands, suggested benchmarks, typed citation edges, and a labeled prior-art taxonomy.
 
-Every run writes a JSONL audit log to `~/.research-companion/runs/`.
+At the top of every report, the **submission-readiness synthesis** aggregates whatever lanes ran into one honest verdict + a cross-lane action list (blockers are deterministic desk-reject risks; everything else is a warning), with explicit caveats for lanes that didn't run. Enable the optional `readiness_narrative` setting to add an LLM-written "reviewer's take" and fix plan on top — grounded strictly in that verdict, never inventing findings.
 
-Two additional library-level agents (not yet CLI-wired): problem (refines a research problem against the graph) and tracker (one-shot new-related-work sweep).
+Every run writes a JSONL audit log to `~/.research-companion/runs/`. Two additional library-level agents (not yet CLI-wired): problem (refines a research problem against the graph) and tracker (one-shot new-related-work sweep).
 
 ## Try it in 30 seconds (no API key)
 
@@ -355,6 +372,20 @@ research-companion set-draft <paper-id>
 research-companion align <paper-id> [--against <draft-id>] [--force]
 research-companion ask "<question>" [--section <section-id>]
 research-companion compare <paper-a> <paper-b>
+
+# Review & integrity checks
+research-companion review <paper-id> [--venue SLUG] [--fast] [--report DIR] [--serve] [--json]
+research-companion refcheck <paper-id> [--connectors europepmc,pubmed,dblp] [--json]
+research-companion check-compliance <paper-id> --venue SLUG [--json]   # desk-reject linter
+research-companion check-stats <paper-id> [--json]                     # Statcheck + GRIM
+research-companion check-overlap <paper-id> [--semantic] [--allow-remote] [--json]
+research-companion rebuttal <paper-id> --reviews FILE [--tone firm|neutral]
+research-companion mcp serve                                           # MCP trust-layer server
+
+# Interoperability
+research-companion export-bib [--format bibtex|ris] [--output FILE]
+research-companion import-bib <file.bib>
+research-companion cite-tex <paper.tex>
 ```
 
 ## Programmatic API
@@ -389,8 +420,8 @@ Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending
 - **v0.4** — Organized research: isolated workspaces per research with lossless migration, Researches overview + switcher, library list view with live status and draft relations, deterministic draft-centric graph mode.
 - **v0.5** — Citation coverage (your draft's bibliography as ground truth), robust pluggable ingestion with Docling OCR isolated in a subprocess, sub-chunk retrieval with char-span provenance, verifiable answers (jump to the exact source span), KG entity provenance, folder ingest with per-file selection, and a reliability/UX pass (0.5.17).
 - **v0.6** — Reviewer-grade integrity checks: venue-fit checker with a cross-discipline venue knowledge base, severity-ranked findings, a reproducibility/data-availability checker, and an integrity-declaration detector; plus a statistical-soundness checker (Statcheck + GRIM, 0.6.1) and interoperability (BibTeX/RIS export, `.bib` import, LaTeX `\cite` resolution, 0.6.2).
-- **v0.7 (current)** — MCP trust-layer server (`research-companion mcp serve`) exposing four deterministic, key-free verification tools to any MCP-capable agent (0.7.0); plus near-duplicate detection (`check-overlap`: local shingling overlap vs your library, with an opt-in consent-gated external seam, 0.7.1).
-- **Future** — cost-gated MCP tools (`ask_library` / `review_draft`), domain connectors (PubMed / Europe PMC / DBLP), and semantic (paraphrase) overlap. See [docs/ROADMAP.md](docs/ROADMAP.md).
+- **v0.7 (current) — the integrity & trust layer** — MCP trust-layer server (`mcp serve`) with four deterministic, key-free verification tools; near-duplicate detection plus an opt-in embedding/paraphrase pass (`check-overlap`); statistical-soundness checks (Statcheck + GRIM, `check-stats`); a desk-reject compliance linter (`check-compliance`); a **submission-readiness verdict** with an optional LLM "reviewer's take" at the top of every review; interoperability (BibTeX/RIS, `.bib` import, LaTeX `\cite`); and opt-in **PubMed / Europe PMC / DBLP** domain connectors for biomedical and CS references.
+- **Future** — cost-gated MCP tools (`ask_library` / `review_draft` behind a budget/keys boundary), true web-corpus plagiarism detection, and additional entity-metadata sources. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Contributing
 
