@@ -1472,9 +1472,9 @@ def _cmd_check_stats(args: argparse.Namespace) -> int:
     for f in findings:
         sym = _glyph(f["status"])
         if f.get("test_type") == "mean":
-            print(f"{sym}[{f['status']}] mean={f['mean']} N={f['n']}")
+            print(f"{sym} [{f['status']}] mean={f['mean']} N={f['n']}")
         else:
-            print(f"{sym}[{f['status']}] {f['raw']}  (recomputed p~{f['recomputed_p']})")
+            print(f"{sym} [{f['status']}] {f['raw']}  (recomputed p~{f['recomputed_p']})")
     print(f"\nSummary: {report['summary']['text']}")
     return 0
 
@@ -2177,7 +2177,10 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
     prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
-    prv.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    prv.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER). "
+                          "Passing this also enables LLM-based taxonomy labeling "
+                          "(keyword-based otherwise).")
     prv.add_argument("--model", default=None, help="Model override")
     prv.set_defaults(func=_cmd_review)
 
