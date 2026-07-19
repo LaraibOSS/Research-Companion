@@ -69,3 +69,12 @@ def test_non_cs_non_biomed_no_nudge():
     from research_companion.nudge import connectors_nudge
     assert connectors_nudge([_ref()], enabled=set(), discipline="economics",
                             n_unverified=4) is None
+
+
+def test_biomed_wins_over_dblp_when_both_eligible():
+    # pmid ref (biomed signal) + CS discipline + unverified refs + no connectors:
+    # both branches' conditions are independently satisfied; biomedical must win.
+    from research_companion.nudge import connectors_nudge
+    msg = connectors_nudge([_ref(pmid="123")], enabled=set(),
+                           discipline="machine_learning", n_unverified=3)
+    assert "PubMed/Europe PMC" in msg and "dblp" not in msg.lower()

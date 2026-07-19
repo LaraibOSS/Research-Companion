@@ -2,6 +2,7 @@
 from research_companion.connectors.dblp import (
     DBLPConnector,
     _arxiv_from_ee,
+    _hits_from_json,
     dblp_url,
     parse_dblp_hit,
 )
@@ -135,3 +136,13 @@ def test_search_and_resolve_never_raise_on_odd_shapes():
 
 def test_arxiv_from_ee_strips_trailing_punctuation():
     assert _arxiv_from_ee("https://arxiv.org/abs/1706.03762.") == "1706.03762"
+
+
+def test_hits_from_json_handles_odd_shapes():
+    assert _hits_from_json(None) == []
+    assert _hits_from_json([1, 2]) == []
+    assert _hits_from_json({"result": "oops"}) == []
+    assert _hits_from_json({"result": {"hits": "oops"}}) == []
+    assert _hits_from_json({"result": {"hits": {"hit": {"info": {"title": "X"}}}}}) == [{"info": {"title": "X"}}]
+    assert _hits_from_json({"result": {"hits": {"hit": [{"a": 1}]}}}) == [{"a": 1}]
+    assert _hits_from_json({}) == []

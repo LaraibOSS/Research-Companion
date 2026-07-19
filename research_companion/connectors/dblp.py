@@ -57,6 +57,26 @@ def _coerce_year(value) -> int | None:
     return int(s) if s.isdigit() else None
 
 
+def _hits_from_json(data) -> list[dict]:
+    """Extract hits from DBLP JSON response, handling non-dict top-level.
+
+    Returns [] if data is not a dict, or if any intermediate value is non-dict.
+    DBLP returns a bare object for a single hit; we normalize to list.
+    """
+    if not isinstance(data, dict):
+        return []
+    result = data.get("result")
+    if not isinstance(result, dict):
+        return []
+    hits = result.get("hits")
+    if not isinstance(hits, dict):
+        return []
+    hit = hits.get("hit", [])
+    if isinstance(hit, dict):  # single hit: normalize to list
+        return [hit]
+    return hit if isinstance(hit, list) else []
+
+
 def parse_dblp_hit(hit: dict) -> dict:
     info = hit.get("info")
     info = info if isinstance(info, dict) else {}
@@ -96,12 +116,9 @@ def _http_search(query: str, *, rows: int = 10, timeout: float = 30.0) -> list[d
         with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as c:
             resp = c.get(SEARCH_API, params=params)
             resp.raise_for_status()
-        hits = resp.json().get("result", {}).get("hits", {}).get("hit", [])
+        return _hits_from_json(resp.json())
     except (httpx.HTTPError, ValueError):
         return []
-    if isinstance(hits, dict):  # DBLP returns a bare object for a single hit
-        return [hits]
-    return hits if isinstance(hits, list) else []
 
 
 class DBLPConnector:
