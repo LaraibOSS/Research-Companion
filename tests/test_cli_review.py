@@ -62,12 +62,34 @@ def test_review_cli_json(monkeypatch: pytest.MonkeyPatch, capsys):
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["paper_id"] == paper_id
-    assert payload["agents"]["citation"]["ok"] is True
-    assert payload["agents"]["citation"]["data"]["counts"]["verified"] == 1
+    assert payload["lanes"]["citation"]["ok"] is True
+    assert payload["lanes"]["citation"]["data"]["counts"]["verified"] == 1
+    # `--json` now prints the full canonical report dict (the same shape as
+    # report.json / the persisted store copy), not a hand-built subset — so
+    # title/generated_by must be present too.
+    assert payload["title"] == "Graph RAG Survey"
+    assert payload["generated_by"] == "research-companion"
     # Minor 1 fix: the --json stdout payload must carry the same readiness
     # synthesis as the persisted store copy / report.json, not just the raw
     # per-agent results.
     assert "verdict" in payload["readiness"]
+
+
+def test_review_cli_json_with_report_flag_adds_report_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
+):
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+    out_dir = tmp_path / "rep"
+    rc = cli.main(["review", paper_id, "--fast", "--report", str(out_dir), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["report_dir"] == str(out_dir)
+    assert payload["lanes"]["citation"]["ok"] is True
+    # The persisted report.json on disk must not have been mutated with the
+    # synthetic report_dir key (payload is a shallow copy of _rep).
+    on_disk = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
+    assert "report_dir" not in on_disk
 
 
 def test_review_cli_json_omits_readiness_when_no_source_lane_ran(capsys):

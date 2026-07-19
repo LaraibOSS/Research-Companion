@@ -813,14 +813,15 @@ def _cmd_review(args: argparse.Namespace) -> int:
             print(f"        {out_dir / 'report.json'}")
 
     if args.json:
-        payload = {
-            "paper_id": args.paper_id,
-            "agents": {name: {"ok": r.ok, "data": r.data, "error": r.error}
-                       for name, r in results.items()},
-        }
-        readiness = (_rep or {}).get("readiness")
-        if readiness:
-            payload["readiness"] = readiness
+        if _rep is not None:
+            payload = dict(_rep)
+        else:
+            from research_companion.report import build_report_json
+            from research_companion.store import PaperMetadata
+
+            meta = PaperMetadata.load(args.paper_id)
+            payload = build_report_json(args.paper_id, meta.title if meta else "", results)
+            _attach_readiness_narrative(payload, args)
         if args.report:
             payload["report_dir"] = str(out_dir)
         print(json.dumps(payload, indent=2, ensure_ascii=False))
