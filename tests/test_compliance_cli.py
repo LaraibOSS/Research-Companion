@@ -27,6 +27,20 @@ def test_check_compliance_requires_venue(capsys):
     assert "venue" in capsys.readouterr().err.lower()
 
 
+def test_check_compliance_unknown_venue_lists_valid_slugs(capsys):
+    # The error must point at real, inline venue slugs instead of the
+    # non-existent `research-companion venue list` command.
+    from research_companion.venues import list_venues
+
+    args = cli._build_parser().parse_args(["check-compliance", "p", "--venue", "nope"])
+    rc = args.func(args)
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "venue list" not in err
+    for v in list_venues():
+        assert v.slug in err
+
+
 def test_check_compliance_readable_summary(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(store, "papers_dir", lambda: tmp_path)
     monkeypatch.setattr(store, "load_text", lambda pid: "Introduction\nBody")

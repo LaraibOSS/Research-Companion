@@ -545,6 +545,56 @@ class TestDiscover:
         err = capsys.readouterr().err
         assert "provide a topic" in err.lower()
 
+    def test_discover_cli_add_all_fail_returns_nonzero(
+        self, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """--add whose every attempted add fails must exit non-zero
+        (previously always returned 0, hiding the failure from scripts)."""
+        from research_companion.discover import DiscoveredPaper
+        from research_companion.fetch import FetchError
+
+        found = [DiscoveredPaper(title="Graph RAG Survey", authors=["A"], year=2024,
+                                 citation_count=1, arxiv_id="2401.00001", doi=None,
+                                 s2_id=None, url="")]
+        monkeypatch.setattr("research_companion.discover.search_topic", lambda *a, **k: found)
+
+        def _always_fails(target):
+            raise FetchError("boom")
+
+        monkeypatch.setattr("research_companion.fetch.add_paper", _always_fails)
+
+        rc = cli.main(["discover", "graph RAG", "--add"])
+        assert rc == 1
+
+    def test_discover_cli_add_partial_success_returns_zero(
+        self, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """When at least one add succeeds, exit code stays 0."""
+        from research_companion.discover import DiscoveredPaper
+        from research_companion.fetch import FetchError
+
+        found = [
+            DiscoveredPaper(title="Graph RAG Survey", authors=["A"], year=2024,
+                            citation_count=1, arxiv_id="2401.00001", doi=None,
+                            s2_id=None, url=""),
+            DiscoveredPaper(title="Another Paper", authors=["B"], year=2023,
+                            citation_count=2, arxiv_id="2301.00002", doi=None,
+                            s2_id=None, url=""),
+        ]
+        monkeypatch.setattr("research_companion.discover.search_topic", lambda *a, **k: found)
+
+        meta = types.SimpleNamespace(paper_id="arxiv:2401.00001", title="Graph RAG Survey")
+
+        def _add(target):
+            if target == "2401.00001":
+                return meta
+            raise FetchError("boom")
+
+        monkeypatch.setattr("research_companion.fetch.add_paper", _add)
+
+        rc = cli.main(["discover", "graph RAG", "--add"])
+        assert rc == 0
+
     def test_discover_cli_json_output(self, capsys: pytest.CaptureFixture):
         """--json flag produces valid JSON output."""
 
