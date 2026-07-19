@@ -125,6 +125,10 @@ try:
         index: int
         paper_id: str
 
+    class _UnlinkCitationBody(_BaseModel):
+        """Undo a manual link for POST /api/draft/citations/unlink."""
+        index: int
+
     class _ConverseBody(_BaseModel):
         context: dict = {}
         message: str = ""
@@ -152,6 +156,7 @@ except ImportError:
     _PatchViewBody = None  # type: ignore[assignment,misc]
     _PatchPaperBody = None  # type: ignore[assignment,misc]
     _LinkCitationBody = None  # type: ignore[assignment,misc]
+    _UnlinkCitationBody = None  # type: ignore[assignment,misc]
     _ConverseBody = None  # type: ignore[assignment,misc]
     _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
@@ -1176,6 +1181,61 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 and 1900 <= ref_year <= 2100):
             await asyncio.to_thread(
                 store.update_paper_metadata, body.paper_id, year=ref_year)
+
+        await bus.publish(CitationCoverageUpdated(
+            draft_paper_id=draft_id, **payload["counts"]))
+        _schedule_coverage_refresh()
+        return payload
+
+    @app.post("/api/draft/citations/unlink")
+    async def unlink_draft_citation(body: _UnlinkCitationBody) -> dict:
+        """Undo a manual link created by POST /api/draft/citations/link.
+
+        Only a `match_kind == "manual"` ref can be unlinked (400 otherwise — a
+        wrong manual link was previously permanent short of deleting the
+        paper). Clears the manual mark and re-derives the natural status via
+        `compute_coverage`: the carry-forward path in compute_coverage only
+        resurrects a ref whose PERSISTED record still has match_kind=="manual"
+        (or status=="in_library" for the dedup-carryover branch), so saving
+        the cleared record first (match_kind=None, status="unchecked") before
+        recomputing guarantees the link is not resurrected.
+        """
+        from research_companion import store
+        from research_companion.agents.events import CitationCoverageUpdated
+        from research_companion.citations_coverage import (
+            compute_coverage,
+            is_stale,
+            load_coverage,
+            save_coverage,
+        )
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            raise HTTPException(status_code=400, detail="No draft set")
+
+        # Coverage read-modify-write stays inside the shared lock and persists
+        # exactly once so concurrent refresh/resolve jobs cannot clobber it.
+        async with app.state._coverage_lock:
+            payload = await asyncio.to_thread(load_coverage)
+            if await asyncio.to_thread(is_stale, payload, draft_id):
+                payload = await asyncio.to_thread(compute_coverage, draft_id)
+            refs = (payload or {}).get("references") or []
+            if not refs:
+                raise HTTPException(status_code=400, detail="No citations to unlink")
+            if body.index < 0 or body.index >= len(refs):
+                raise HTTPException(
+                    status_code=400, detail="citation index out of range")
+            rec = refs[body.index]
+            if rec.get("match_kind") != "manual":
+                raise HTTPException(
+                    status_code=400, detail="citation is not a manual link")
+            rec["match_kind"] = None
+            rec["matched_paper_id"] = None
+            rec["status"] = "unchecked"
+            await asyncio.to_thread(save_coverage, payload)
+            # Re-derive the natural status now that the persisted record no
+            # longer carries a manual mark for this raw entry.
+            payload = await asyncio.to_thread(compute_coverage, draft_id)
 
         await bus.publish(CitationCoverageUpdated(
             draft_paper_id=draft_id, **payload["counts"]))

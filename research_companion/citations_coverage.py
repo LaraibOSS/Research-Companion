@@ -478,16 +478,39 @@ def empty_coverage(draft_paper_id: str | None) -> dict:
         "resolved_at": None,
         "references": [],
         "counts": {"total": 0, "in_library": 0, "available": 0,
-                   "unchecked": 0, "unresolved": 0},
+                   "unchecked": 0, "unresolved": 0, "usable": 0},
     }
 
 
+def _paper_ingest_failed(paper_id: str | None, failures: dict) -> bool:
+    """True when the matched library paper's ingest failed — reuses the exact
+    signal `lab_api._build_paper_summary` uses to derive a paper's
+    `status: "failed"` in the library list: a `failed.json` entry keyed by the
+    paper_id, or recorded under a different key with this paper_id inside its
+    body (e.g. an earlier folder-path attempt)."""
+    if not paper_id:
+        return False
+    for key, info in failures.items():
+        if key == paper_id or (isinstance(info, dict) and info.get("paper_id") == paper_id):
+            return True
+    return False
+
+
 def _recount(payload: dict) -> None:
+    from research_companion.store import list_failures
+
+    # Recomputed fresh every time: a failed paper can be retried/fixed later,
+    # and a manual link can point straight at a paper that is currently failed.
+    failures = list_failures()
     counts = {"total": 0, "in_library": 0, "available": 0,
-              "unchecked": 0, "unresolved": 0}
+              "unchecked": 0, "unresolved": 0, "usable": 0}
     for r in payload["references"]:
         counts["total"] += 1
         counts[r["status"]] = counts.get(r["status"], 0) + 1
+        if r["status"] == "in_library":
+            r["ingest_failed"] = _paper_ingest_failed(r.get("matched_paper_id"), failures)
+            if not r["ingest_failed"]:
+                counts["usable"] += 1
     payload["counts"] = counts
 
 

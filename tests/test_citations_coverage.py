@@ -573,6 +573,67 @@ class TestComputeCoverage:
         assert cc.load_coverage() is None  # nothing cached
 
 
+class TestUsableCoverage:
+    """An in_library match to a library paper whose ingest failed must not
+    silently count as usable evidence — "Analysis covers N of M" must exclude
+    it. `counts["usable"]` is the honest subset of `in_library` refs whose
+    matched paper actually has extracted text (i.e. is NOT recorded failed)."""
+
+    def test_in_library_match_to_failed_paper_flagged_and_excluded(
+            self, isolated_papergraph_dir):
+        draft = _seed_draft()
+        _mk_paper("arxiv:1810.04805",
+                  "BERT: Pre-training of Deep Bidirectional Transformers")
+        store.record_failure("arxiv:1810.04805", {"stage": "extract", "error": "boom"})
+
+        payload = cc.compute_coverage(draft)
+        bert = next(r for r in payload["references"] if r["arxiv_id"] == "1810.04805")
+        assert bert["status"] == "in_library"
+        assert bert["ingest_failed"] is True
+        assert payload["counts"]["in_library"] == 1
+        assert payload["counts"]["usable"] == 0
+
+    def test_healthy_in_library_match_is_usable(self, isolated_papergraph_dir):
+        draft = _seed_draft()
+        _mk_paper("arxiv:2106.09685",
+                  "LoRA: Low-Rank Adaptation of Large Language Models")
+
+        payload = cc.compute_coverage(draft)
+        lora = next(r for r in payload["references"] if r["arxiv_id"] == "2106.09685")
+        assert lora["status"] == "in_library"
+        assert not lora.get("ingest_failed")
+        assert payload["counts"]["in_library"] == 1
+        assert payload["counts"]["usable"] == 1
+
+    def test_ingest_failed_flag_recomputed_fresh_after_retry(
+            self, isolated_papergraph_dir):
+        # A failed paper can be retried/fixed later — the flag must reflect
+        # the CURRENT failure state on every recompute, not a cached verdict.
+        draft = _seed_draft()
+        _mk_paper("arxiv:1810.04805",
+                  "BERT: Pre-training of Deep Bidirectional Transformers")
+        store.record_failure("arxiv:1810.04805", {"stage": "extract", "error": "boom"})
+        p1 = cc.compute_coverage(draft)
+        bert1 = next(r for r in p1["references"] if r["arxiv_id"] == "1810.04805")
+        assert bert1["ingest_failed"] is True
+
+        store.clear_failure("arxiv:1810.04805", paper_id="arxiv:1810.04805")
+        p2 = cc.compute_coverage(draft)
+        bert2 = next(r for r in p2["references"] if r["arxiv_id"] == "1810.04805")
+        assert not bert2.get("ingest_failed")
+        assert p2["counts"]["usable"] == 1
+
+    def test_existing_count_keys_unchanged(self, isolated_papergraph_dir):
+        # Characterization: adding "usable" must not remove or rename any
+        # previously-existing counts key.
+        draft = _seed_draft()
+        payload = cc.compute_coverage(draft)
+        for key in ("total", "in_library", "available", "unchecked", "unresolved"):
+            assert key in payload["counts"]
+        assert payload["counts"]["total"] == 4
+        assert "usable" in payload["counts"]
+
+
 # ---------------------------------------------------------------------------
 # resolve_missing
 # ---------------------------------------------------------------------------

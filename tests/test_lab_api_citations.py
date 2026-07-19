@@ -476,3 +476,98 @@ class TestLinkCitation:
             rec = data["references"][0]
             assert rec["status"] != "in_library"
             assert rec["match_kind"] != "manual"
+
+
+class TestUnlinkCitation:
+    """POST /api/draft/citations/unlink — undo a manual link. Only a
+    match_kind=="manual" ref can be unlinked; the natural status (whatever
+    compute_coverage would derive without the manual override) is re-derived,
+    never resurrecting the cleared link."""
+
+    def _mk_paper(self, paper_id, title="Some Other Paper", authors=("A",),
+                  year=2000):
+        store.PaperMetadata(
+            paper_id=paper_id, title=title, authors=list(authors),
+            year=year, added_at="2026-01-02T00:00:00Z").save()
+
+    def _updates(self, bus):
+        return sum(1 for e in bus.history
+                   if type(e).__name__ == "CitationCoverageUpdated")
+
+    def test_unlink_reverts_to_available_when_ref_has_add_target(
+            self, isolated_papergraph_dir):
+        # ref index 1 (Devlin/BERT) parses an arXiv id -> naturally
+        # "available" before any manual link touches it.
+        from research_companion.settings import update_settings
+        update_settings({"auto_add_citations": False})
+        _seed_draft()
+        self._mk_paper("local:linked01")
+        _app, bus, c = _make_client()
+
+        with c:
+            resp = c.post("/api/draft/citations/link",
+                          json={"index": 1, "paper_id": "local:linked01"})
+            assert resp.status_code == 200
+            assert _wait(lambda: self._updates(bus) >= 2)
+            n = self._updates(bus)
+
+            resp = c.post("/api/draft/citations/unlink", json={"index": 1})
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            rec = data["references"][1]
+            assert rec["match_kind"] != "manual"
+            assert rec["matched_paper_id"] is None
+            assert rec["status"] == "available"
+            assert rec["add_target"] == "1810.04805"
+            assert data["counts"]["in_library"] == 0
+            assert _wait(lambda: self._updates(bus) > n)
+
+            # A follow-up recompute must not resurrect the cleared link.
+            again = c.get("/api/draft/citations").json()
+            rec2 = again["references"][1]
+            assert rec2["match_kind"] != "manual"
+            assert rec2["status"] == "available"
+
+    def test_unlink_reverts_to_unchecked_for_title_only_ref(
+            self, isolated_papergraph_dir):
+        # ref index 0 (Vaswani) is title-only -> naturally "unchecked".
+        from research_companion.settings import update_settings
+        update_settings({"auto_add_citations": False})
+        _seed_draft()
+        self._mk_paper("local:linked01")
+        _app, bus, c = _make_client()
+
+        with c:
+            c.post("/api/draft/citations/link",
+                   json={"index": 0, "paper_id": "local:linked01"})
+            assert _wait(lambda: self._updates(bus) >= 2)
+
+            resp = c.post("/api/draft/citations/unlink", json={"index": 0})
+            assert resp.status_code == 200
+            rec = resp.json()["references"][0]
+            assert rec["match_kind"] != "manual"
+            assert rec["matched_paper_id"] is None
+            assert rec["status"] == "unchecked"
+
+    def test_unlink_non_manual_ref_400(self, isolated_papergraph_dir):
+        _seed_draft()
+        _app, _bus, c = _make_client()
+        with c:
+            # index 1 is naturally "available" (parsed arXiv id) — never linked.
+            resp = c.post("/api/draft/citations/unlink", json={"index": 1})
+            assert resp.status_code == 400
+
+    def test_unlink_index_out_of_range_400(self, isolated_papergraph_dir):
+        _seed_draft()
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/unlink", json={"index": 99})
+            assert resp.status_code == 400
+            resp = c.post("/api/draft/citations/unlink", json={"index": -1})
+            assert resp.status_code == 400
+
+    def test_unlink_no_draft_400(self, isolated_papergraph_dir):
+        _app, _bus, c = _make_client()
+        with c:
+            resp = c.post("/api/draft/citations/unlink", json={"index": 0})
+            assert resp.status_code == 400
