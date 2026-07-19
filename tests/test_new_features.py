@@ -374,6 +374,130 @@ class TestExport:
         # Check that a known concept has a wikilink.
         assert "[[Knowledge graph]]" in content
 
+    def _add_two_colliding_papers(self, fake_pdf_bytes: bytes, sample_extraction: dict) -> None:
+        """Two papers whose titles sanitize to the identical base filename
+        ("Deep_Learning_A_Survey") — regression fixture for export collisions."""
+        _add_paper_with_extraction(
+            fake_pdf_bytes, sample_extraction,
+            paper_id="arxiv:1111.11111", title="Deep Learning: A Survey!",
+        )
+        _add_paper_with_extraction(
+            fake_pdf_bytes, sample_extraction,
+            paper_id="arxiv:2222.22222", title="Deep Learning A Survey",
+        )
+        from research_companion.graph import build_graph, save_graph
+        from research_companion.store import graph_json_path, list_papers
+        G = build_graph(list_papers())
+        save_graph(G, graph_json_path())
+
+    def test_export_markdown_disambiguates_colliding_filenames(
+        self, fake_pdf_bytes: bytes,
+        sample_extraction: dict, tmp_path: Path, capsys: pytest.CaptureFixture,
+    ):
+        """Two papers whose titles sanitize to the same base filename must
+        each get their own file — no silent overwrite (previously the second
+        paper's .md clobbered the first's)."""
+        self._add_two_colliding_papers(fake_pdf_bytes, sample_extraction)
+
+        out_dir = tmp_path / "md-export-collide"
+        rc = cli.main(["export", "--format", "markdown", "--output", str(out_dir)])
+        assert rc == 0
+
+        md_files = [f for f in out_dir.glob("*.md") if f.name != "_index.md"]
+        assert len(md_files) == 2
+        stems = {f.stem for f in md_files}
+        assert "Deep_Learning_A_Survey" in stems
+        assert any(s.startswith("Deep_Learning_A_Survey-") for s in stems)
+
+        # Both titles are still findable in their respective files (nothing lost).
+        all_content = "\n".join(f.read_text(encoding="utf-8") for f in md_files)
+        assert "Deep Learning: A Survey!" in all_content
+        assert "Deep Learning A Survey" in all_content
+
+        # The index references two distinct filenames, matching what's on disk.
+        index_text = (out_dir / "_index.md").read_text(encoding="utf-8")
+        for f in md_files:
+            assert f"({f.stem}.md)" in index_text
+
+    def test_export_obsidian_disambiguates_and_backlinks_resolve(
+        self, fake_pdf_bytes: bytes,
+        sample_extraction: dict, tmp_path: Path, capsys: pytest.CaptureFixture,
+    ):
+        """Same collision, obsidian format: paper notes stay distinct AND
+        entity notes' [[wikilinks]] back to papers resolve to real files
+        (not a stale/re-sanitized name that no longer matches disk)."""
+        self._add_two_colliding_papers(fake_pdf_bytes, sample_extraction)
+
+        out_dir = tmp_path / "obsidian-export-collide"
+        rc = cli.main(["export", "--format", "obsidian", "--output", str(out_dir)])
+        assert rc == 0
+
+        md_files = list(out_dir.glob("*.md"))
+        stems = {f.stem for f in md_files}
+        assert "Deep_Learning_A_Survey" in stems
+        assert any(s.startswith("Deep_Learning_A_Survey-") for s in stems)
+
+        # Shared concept "Knowledge graph" (from sample_extraction, used by both
+        # papers) gets one entity note that backlinks to BOTH paper files.
+        entity_file = out_dir / "Knowledge_graph.md"
+        assert entity_file.exists()
+        content = entity_file.read_text(encoding="utf-8")
+
+        import re
+        linked = re.findall(r"\[\[([^\]]+)\]\]", content)
+        assert len(linked) == 2
+        # Every backlink must resolve to an actual written file.
+        for link in linked:
+            assert (out_dir / f"{link}.md").exists(), f"[[{link}]] does not resolve to a file"
+
+    def test_export_obsidian_paper_and_entity_name_collision(
+        self, fake_pdf_bytes: bytes,
+        sample_extraction: dict, tmp_path: Path, capsys: pytest.CaptureFixture,
+    ):
+        """A paper title and an entity name (concept/method/dataset) that
+        sanitize to the SAME base filename must land in two distinct files
+        (paper notes and entity notes previously deduped against separate
+        used-name maps, so one silently overwrote the other), and the
+        surviving entity->paper backlink must resolve to a real file."""
+        # sample_extraction's methods include one named "GraphRAG" — give the
+        # paper the identical title so both sanitize to "GraphRAG".
+        _add_paper_with_extraction(
+            fake_pdf_bytes, sample_extraction,
+            paper_id="arxiv:3333.33333", title="GraphRAG",
+        )
+        from research_companion.graph import build_graph, save_graph
+        from research_companion.store import graph_json_path, list_papers
+        G = build_graph(list_papers())
+        save_graph(G, graph_json_path())
+
+        out_dir = tmp_path / "obsidian-export-name-collide"
+        rc = cli.main(["export", "--format", "obsidian", "--output", str(out_dir)])
+        assert rc == 0
+
+        md_files = list(out_dir.glob("*.md"))
+        stems = {f.stem for f in md_files}
+        assert "GraphRAG" in stems
+        assert any(s.startswith("GraphRAG-") for s in stems)
+
+        contents = {f.stem: f.read_text(encoding="utf-8") for f in md_files}
+        # The paper note has "**Authors:**"; the "GraphRAG" method note has
+        # "**Type:** method" — distinguish which of the two "GraphRAG*" files
+        # is which, and confirm neither clobbered the other.
+        graphrag_stems = [s for s in stems if s == "GraphRAG" or s.startswith("GraphRAG-")]
+        paper_stems = [s for s in graphrag_stems if "**Authors:**" in contents[s]]
+        entity_stems = [s for s in graphrag_stems if "**Type:** method" in contents[s]]
+        assert len(paper_stems) == 1, contents
+        assert len(entity_stems) == 1, contents
+        assert paper_stems[0] != entity_stems[0]
+
+        # The entity note's "Mentioned in" backlink(s) to paper(s) must
+        # resolve to actual written files.
+        import re
+        linked = re.findall(r"\[\[([^\]]+)\]\]", contents[entity_stems[0]])
+        assert linked
+        for link in linked:
+            assert (out_dir / f"{link}.md").exists(), f"[[{link}]] does not resolve to a file"
+
 
 # ---------------------------------------------------------------------------
 # Discover tests
@@ -544,6 +668,56 @@ class TestDiscover:
         assert rc == 1
         err = capsys.readouterr().err
         assert "provide a topic" in err.lower()
+
+    def test_discover_cli_add_all_fail_returns_nonzero(
+        self, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """--add whose every attempted add fails must exit non-zero
+        (previously always returned 0, hiding the failure from scripts)."""
+        from research_companion.discover import DiscoveredPaper
+        from research_companion.fetch import FetchError
+
+        found = [DiscoveredPaper(title="Graph RAG Survey", authors=["A"], year=2024,
+                                 citation_count=1, arxiv_id="2401.00001", doi=None,
+                                 s2_id=None, url="")]
+        monkeypatch.setattr("research_companion.discover.search_topic", lambda *a, **k: found)
+
+        def _always_fails(target):
+            raise FetchError("boom")
+
+        monkeypatch.setattr("research_companion.fetch.add_paper", _always_fails)
+
+        rc = cli.main(["discover", "graph RAG", "--add"])
+        assert rc == 1
+
+    def test_discover_cli_add_partial_success_returns_zero(
+        self, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """When at least one add succeeds, exit code stays 0."""
+        from research_companion.discover import DiscoveredPaper
+        from research_companion.fetch import FetchError
+
+        found = [
+            DiscoveredPaper(title="Graph RAG Survey", authors=["A"], year=2024,
+                            citation_count=1, arxiv_id="2401.00001", doi=None,
+                            s2_id=None, url=""),
+            DiscoveredPaper(title="Another Paper", authors=["B"], year=2023,
+                            citation_count=2, arxiv_id="2301.00002", doi=None,
+                            s2_id=None, url=""),
+        ]
+        monkeypatch.setattr("research_companion.discover.search_topic", lambda *a, **k: found)
+
+        meta = types.SimpleNamespace(paper_id="arxiv:2401.00001", title="Graph RAG Survey")
+
+        def _add(target):
+            if target == "2401.00001":
+                return meta
+            raise FetchError("boom")
+
+        monkeypatch.setattr("research_companion.fetch.add_paper", _add)
+
+        rc = cli.main(["discover", "graph RAG", "--add"])
+        assert rc == 0
 
     def test_discover_cli_json_output(self, capsys: pytest.CaptureFixture):
         """--json flag produces valid JSON output."""

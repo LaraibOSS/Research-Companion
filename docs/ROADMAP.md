@@ -26,7 +26,7 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
 
 ## Phase 2 — Reviewer critique + venue fit — COMPLETE
 - ✅ 🟡 **#7 Scope/venue-fit checker** — matches contributions+abstract against a venue's scope with a deterministic topic-overlap prefilter grounding an LLM fit verdict (strong/moderate/weak/out_of_scope + desk-reject risk). → `research_companion/venues.py` (CS/ML registry + `topic_overlap`) + `research_companion/agents/venuefit.py` (`VenueFitAgent`, `normalize_verdict`); CLI `review --venue <slug>`. Cross-discipline coverage tracked as #11.
-- ✅ 🟡 **#8 Reviewer-style critique engine** — multi-agent pass (methodology/rationale/discussion/fatal-flaw) with confidence scoring. → `research_companion/agents/orchestrator.py` coordinating `novelty` / `priorart` / `citation` / `problem` / `confidence` agents; CLI `review`.
+- ✅ 🟡 **#8 Reviewer-style critique engine** — multi-agent pass (methodology/rationale/discussion/fatal-flaw) with confidence scoring. → `research_companion/agents/orchestrator.py` coordinating the `review` lanes (`citation` / `priorart` / `novelty` / `confidence` and the integrity lanes); CLI `review`. (`problem` and `tracker` are library-level agents, not part of the `review` pipeline.)
 - ✅ 🟡 **#9 Severity-ranked actionable report** — findings are now classified into critical/major/minor and ranked worst-first (OpenJudge Criticality-Verification pattern) on top of the existing confidence scores. → `research_companion/agents/severity.py` (`rank_findings`, `SeverityAgent`); rendered at the top of `report.py`.
 - ✅ 🟡 **#10 Framing/structure advisor** — IMRaD section parse + section-by-section guidance. → `research_companion/sections.py` + `research_companion/alignment.py`; CLI `align`.
 

@@ -523,7 +523,9 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         print(json.dumps([p.to_dict() for p in results], indent=2, ensure_ascii=False))
         if args.add:
             # Still add even in JSON mode.
-            _auto_add_discovered(results, add_paper, FetchError)
+            added, failed = _auto_add_discovered(results, add_paper, FetchError)
+            if failed and not added:
+                return 1
         return 0
 
     # --- pretty print -------------------------------------------------------
@@ -550,11 +552,14 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             print("      [cites your papers]")
 
     # --- auto-add if --add flag set -----------------------------------------
+    exit_code = 0
     if args.add:
         print()
         added, failed = _auto_add_discovered(results, add_paper, FetchError)
         print(f"\nresearch-companion: added {added}/{len(results)}, "
               f"{failed} failed. Run `research-companion build` to extract.")
+        if failed and not added:
+            exit_code = 1
     else:
         print(f"\nTo add all: research-companion discover {'--expand' if args.expand else chr(34) + ' '.join(args.topic) + chr(34)} --add")
         print("Or add individually:")
@@ -564,7 +569,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             print(f"  ... ({len(results) - 5} more)")
 
     print()
-    return 0
+    return exit_code
 
 
 def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, int]:
@@ -821,6 +826,14 @@ def _cmd_review(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0 if all(r.ok for r in results.values()) else 1
 
+    def _fallback_summary(d: object) -> str:
+        # Any future/unforeseen lane: never dump a raw dict repr. Show a
+        # couple of top-level keys (or a truncated str for a non-dict shape).
+        if isinstance(d, dict) and d:
+            items = list(d.items())[:2]
+            return ", ".join(f"{k}={str(v)[:40]}" for k, v in items)
+        return str(d)[:80]
+
     summaries = {
         "ingest": lambda d: f"graph: {d['graph_nodes']} nodes / {d['graph_edges']} edges",
         "citation": lambda d: (f"{d['counts']['verified']} verified · "
@@ -831,13 +844,41 @@ def _cmd_review(args: argparse.Namespace) -> int:
                              or "no claims",
         "confidence": lambda d: f"{len(d['claims'])} claim(s) scored",
         "benchmark": lambda d: f"{len(d['suggestions'])} benchmark(s) suggested",
+        "statsoundness": lambda d: (
+            f"{d['summary']['n_inconsistent'] + d['summary']['n_decision_inconsistent']} "
+            f"inconsistent · {d['summary']['n_impossible_means']} impossible means"),
+        "reproducibility": lambda d: f"level={d['level']} · {len(d['missing'])} gap(s)",
+        "ethics": lambda d: (f"{len(d['present'])} present · "
+                             f"{len(d['missing_expected'])} expected-but-missing"),
+        "overlap": lambda d: (
+            f"{d['summary']['n_passages']} passage(s)"
+            + (f" · {d['summary']['n_semantic']} semantic"
+               if "n_semantic" in d["summary"] else "")),
+        "citation_polarity": lambda d: (
+            ", ".join(f"{k}: {v}" for k, v in sorted(d["counts"].items())) or "no citations"),
+        "severity": lambda d: (
+            f"{len(d['findings'])} finding(s) ranked ({d['counts']['critical']} critical · "
+            f"{d['counts']['major']} major · {d['counts']['minor']} minor)"),
+        "taxonomy": lambda d: f"{d['count']} prior-art group(s)",
+        "venuefit": lambda d: (
+            f"skipped ({d.get('reason', 'n/a')})" if d.get("skipped")
+            else f"[{d['fit']}] {d.get('venue_name', '')}"),
+        "compliance": lambda d: (
+            f"{d['counts'].get('desk_reject', 0)} desk-reject · "
+            f"{d['counts'].get('warning', 0)} warning"),
     }
+    w = max((len(a.name) for a in agents), default=10)
     for agent in agents:
         r = results[agent.name]
         if r.ok:
-            print(f"  {agent.name:<10} done    {summaries.get(agent.name, lambda d: str(d)[:80])(r.data)}")
+            summarize = summaries.get(agent.name, _fallback_summary)
+            try:
+                text = summarize(r.data)
+            except Exception:
+                text = _fallback_summary(r.data)
+            print(f"  {agent.name:<{w}} done    {text}")
         else:
-            print(f"  {agent.name:<10} FAILED  {r.error}")
+            print(f"  {agent.name:<{w}} FAILED  {r.error}")
     ok = all(r.ok for r in results.values())
     print(f"\n{'All agents completed.' if ok else 'Some agents failed.'}")
     line = _readiness_line((_rep or {}).get("readiness"))
@@ -1480,12 +1521,13 @@ def _cmd_check_compliance(args: argparse.Namespace) -> int:
         load_text,
         pdf_page_count,
     )
-    from research_companion.venues import get_venue
+    from research_companion.venues import get_venue, list_venues
 
     venue = get_venue(args.venue)
     if venue is None:
+        valid = ", ".join(sorted(v.slug for v in list_venues()))
         print(f"research-companion: unknown venue {args.venue!r}. "
-              "See `research-companion` venue list for valid slugs.", file=sys.stderr)
+              f"Valid venues: {valid}", file=sys.stderr)
         return 1
 
     fulltext = load_text(args.paper_id) or ""
@@ -2017,7 +2059,8 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("paper_id", help="ID of a paper already built (see `research-companion list`)")
     prv.add_argument("--json", action="store_true", help="JSON output")
     prv.add_argument("--fast", action="store_true",
-                     help="Skip LLM lanes (novelty, confidence, benchmark)")
+                     help="Skip the LLM-backed lanes (novelty, citation_polarity, "
+                          "confidence, benchmark, severity, taxonomy)")
     prv.add_argument("--report", help="Write report.html + report.json to this directory")
     prv.add_argument("--venue",
                      help="Target venue slug/name for a scope/venue-fit check "

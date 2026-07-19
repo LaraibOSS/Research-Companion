@@ -113,6 +113,88 @@ def test_review_cli_full_pipeline_six_lanes(monkeypatch: pytest.MonkeyPatch, cap
         assert lane in out
 
 
+def test_review_full_pipeline_readable_lane_summaries(monkeypatch: pytest.MonkeyPatch, capsys):
+    """Every lane in a full (non-fast) run gets a real one-line summary — no
+    raw dict repr falls through — and the done/FAILED column stays aligned
+    across short (`ingest`) and long (`citation_polarity`) agent names."""
+    paper_id = _seed()
+    store.save_text(paper_id, "Body. We propose X here.")
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _full_overrides())
+    rc = cli.main(["review", paper_id])
+    out = capsys.readouterr().out
+    assert rc == 0
+
+    lines = [ln for ln in out.splitlines()
+             if ln.startswith("  ") and ("done" in ln or "FAILED" in ln)]
+    assert lines, "expected per-lane summary lines"
+
+    # No lane should ever fall through to a raw Python dict repr.
+    for ln in lines:
+        assert "{'" not in ln, f"raw dict leaked into summary line: {ln!r}"
+
+    # done/FAILED must start at the same column on every line (padding is
+    # computed from the longest agent name actually run, e.g. citation_polarity).
+    positions = {(ln.index("done") if "done" in ln else ln.index("FAILED")) for ln in lines}
+    assert len(positions) == 1, "misaligned columns:\n" + "\n".join(lines)
+
+    # Non-original lanes (previously fell back to str(dict)[:80]) now read.
+    overlap_line = next(ln for ln in lines if ln.strip().split()[0] == "overlap")
+    assert "passage" in overlap_line
+
+    stat_line = next(ln for ln in lines if ln.strip().split()[0] == "statsoundness")
+    assert "inconsistent" in stat_line and "impossible means" in stat_line
+
+
+def test_review_summary_falls_back_on_unexpected_lane_data_shape(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+):
+    """A known lane (present in the `summaries` lookup table) that returns
+    ok=True but with data not matching the summarizer's expected shape must
+    not crash the whole review summary — cli.py must catch the exception and
+    fall back to the crash-proof key/value formatter, same as an unknown
+    lane. Regression test for a bare `summarize(r.data)` call that would
+    KeyError and abort the entire `review` command."""
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+
+    from research_companion.agents.ingest import IngestAgent
+    orig_run = IngestAgent.run
+
+    async def malformed_run(self, ctx):
+        # Run the real ingest logic (so downstream lanes still get a graph
+        # via ctx.data) but return a result whose `data` doesn't have the
+        # graph_nodes/graph_edges keys summaries["ingest"] indexes into.
+        result = await orig_run(self, ctx)
+        if result.ok:
+            result.data = {"unexpected_key": 42}
+        return result
+
+    monkeypatch.setattr(IngestAgent, "run", malformed_run)
+
+    rc = cli.main(["review", paper_id])
+    out = capsys.readouterr().out
+    assert rc == 0
+
+    ingest_line = next(ln for ln in out.splitlines() if ln.strip().split()[:1] == ["ingest"])
+    assert "done" in ingest_line
+    # Fell back to _fallback_summary's key=value rendering instead of raising.
+    assert "unexpected_key=42" in ingest_line
+
+
+def test_fast_help_lists_all_skipped_lanes():
+    """The --fast help text must name all six LLM lanes it actually skips,
+    not just the original three (novelty, confidence, benchmark)."""
+    import argparse
+
+    parser = cli._build_parser()
+    sub_action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    review_parser = sub_action.choices["review"]
+    fast_action = next(a for a in review_parser._actions if a.dest == "fast")
+    for lane in ("novelty", "citation_polarity", "confidence", "benchmark",
+                 "severity", "taxonomy"):
+        assert lane in fast_action.help, f"--fast help missing {lane!r}: {fast_action.help!r}"
+
+
 def test_review_cli_fast_skips_llm_lanes(monkeypatch: pytest.MonkeyPatch, capsys):
     paper_id = _seed()
     monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
