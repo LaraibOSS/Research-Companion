@@ -241,3 +241,33 @@ def test_overlap_section_labels_paraphrase_findings():
     assert "70% overlap with" in html          # method absent -> today's wording
     assert "90% paraphrase with" in html       # semantic labeled
     assert "&lt;snip&gt;" in html              # snippet still escaped
+
+
+def test_readiness_narrative_rendered_between_summary_and_lists():
+    from research_companion.report import _render_readiness
+    readiness = {
+        "verdict": "revise",
+        "summary": "revise before submitting",
+        "blockers": [{"lane": "compliance", "title": "no limitations section",
+                      "action": "add one"}],
+        "warnings": [],
+        "narrative": {"take": "Fix the <script>blocker</script> first.",
+                      "plan": ["Add a Limitations section", "Re-run the review"]},
+    }
+    html = _render_readiness(readiness)
+    assert "Reviewer&#x27;s take" in html or "Reviewer's take" in html.replace("&#x27;", "'")
+    assert "&lt;script&gt;" in html                      # escaped, not executable
+    assert "<ol>" in html and "Re-run the review" in html
+    # narrative appears BEFORE the deterministic Must fix list
+    assert html.index("take") < html.index("Must fix")
+    # plan order preserved
+    assert html.index("Add a Limitations section") < html.index("Re-run the review")
+
+
+def test_readiness_without_narrative_is_unchanged():
+    from research_companion.report import _render_readiness
+    readiness = {"verdict": "ready", "summary": "ready, based on the checks that ran",
+                 "blockers": [], "warnings": []}
+    with_key_absent = _render_readiness(readiness)
+    assert "take" not in with_key_absent.lower()
+    assert "<ol>" not in with_key_absent

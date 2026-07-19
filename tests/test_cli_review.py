@@ -242,3 +242,86 @@ def test_readiness_line_not_ready_shows_blockers():
 def test_readiness_line_falsy_returns_empty_string():
     assert cli._readiness_line(None) == ""
     assert cli._readiness_line({}) == ""
+
+
+# ---------------------------------------------------------------------------
+# readiness_narrative attachment (Task 3)
+#
+# Finding: `_seed()` + `_overrides()` already yields a readiness with a
+# warning, with no adjustment needed. `_seed()`'s related_work has two
+# entries: "Attention Is All You Need" (found by the stub `lookup`, so
+# verified) and "A Fabricated Paper Title" (not found, so unverified).
+# readiness._extract_citation() flags `unverified + suspect > 0` as a
+# citation warning, so build_readiness() returns verdict "revise" with one
+# warning — the nothing-to-narrate gate in _attach_readiness_narrative
+# (readiness with no blockers/warnings) is never hit by this stub. No extra
+# citation-count tweak was required.
+# ---------------------------------------------------------------------------
+
+NARRATIVE_JSON = ('{"take": "Address the blocker first.", '
+                  '"plan": ["Fix the compliance blocker"]}')
+
+
+def _narrative_settings(on: bool):
+    from research_companion.settings import DEFAULTS
+    s = dict(DEFAULTS)
+    s["readiness_narrative"] = on
+    return s
+
+
+def test_narrative_attached_to_json_and_persisted_report(monkeypatch, capsys):
+    # setting on + fake narrative llm -> narrative in --json AND the stored report
+    paper_id = _seed()
+    ov = _overrides()
+    ov["_narrative_llm"] = lambda p: NARRATIVE_JSON
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", ov)
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: _narrative_settings(True))
+    saved = {}
+    monkeypatch.setattr("research_companion.store.save_review_report",
+                        lambda pid, rep: saved.update({pid: rep}))
+    cli.main(["review", paper_id, "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["readiness"]["narrative"]["take"] == "Address the blocker first."
+    stored = saved[paper_id]
+    assert stored["readiness"]["narrative"] == payload["readiness"]["narrative"]
+
+
+def test_narrative_absent_when_setting_off(monkeypatch, capsys):
+    paper_id = _seed()
+    ov = _overrides()
+    calls = []
+    ov["_narrative_llm"] = lambda p: calls.append(p) or NARRATIVE_JSON
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", ov)
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: _narrative_settings(False))
+    cli.main(["review", paper_id, "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert "narrative" not in (payload.get("readiness") or {})
+    assert calls == []  # llm never invoked when the setting is off
+
+
+def test_narrative_skipped_under_fast(monkeypatch, capsys):
+    paper_id = _seed()
+    calls = []
+    ov = _overrides()
+    ov["_narrative_llm"] = lambda p: calls.append(p) or NARRATIVE_JSON
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", ov)
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: _narrative_settings(True))
+    cli.main(["review", paper_id, "--fast", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert "narrative" not in (payload.get("readiness") or {})
+    assert calls == []  # llm never invoked under --fast
+
+
+def test_terminal_prints_take_on_readable_path(monkeypatch, capsys):
+    paper_id = _seed()
+    ov = _overrides()
+    ov["_narrative_llm"] = lambda p: NARRATIVE_JSON
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", ov)
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: _narrative_settings(True))
+    cli.main(["review", paper_id])
+    out = capsys.readouterr().out
+    assert "Reviewer's take: Address the blocker first." in out

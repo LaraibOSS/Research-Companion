@@ -804,3 +804,53 @@ def format_venuefit_prompt(
 
 def venuefit_prompt_sha256() -> str:
     return hashlib.sha256(VENUE_FIT_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Readiness narrative prompt (readiness_narrative.py). SHA-cached.
+# Turns the deterministic submission-readiness verdict into a reviewer's take
+# and a prioritized fix plan, grounded ONLY in the blockers/warnings provided.
+# ---------------------------------------------------------------------------
+
+READINESS_NARRATIVE_PROMPT = """You are a senior meta-reviewer. Below is the deterministic
+submission-readiness assessment of a paper: the verdict, the desk-reject blockers, and the
+warnings, each with a recommended action.
+
+Write for the AUTHOR:
+1. "take": a 2-4 sentence reviewer's take consistent with the verdict — what this adds up to.
+2. "plan": an ordered list of the fixes, most urgent first (blockers before warnings). Use only
+   the items listed below. Do not invent findings, checks, or advice about anything not listed.
+
+Assessment:
+- Verdict: <<VERDICT>>
+- Summary: <<SUMMARY>>
+<<ITEMS_BLOCK>>
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "take": "...",
+  "plan": ["...", "..."]
+}
+
+JSON output:"""
+
+
+def format_readiness_narrative_prompt(readiness: dict) -> str:
+    """Substitute placeholders in READINESS_NARRATIVE_PROMPT."""
+    lines = []
+    for kind, key in (("BLOCKER", "blockers"), ("warning", "warnings")):
+        for item in readiness.get(key) or []:
+            lines.append(
+                f"- [{kind}][{item.get('lane', '')}] {item.get('title', '')}"
+                f" -> {item.get('action', '')}"
+            )
+    return (
+        READINESS_NARRATIVE_PROMPT
+        .replace("<<VERDICT>>", str(readiness.get("verdict", "")))
+        .replace("<<SUMMARY>>", str(readiness.get("summary", "")))
+        .replace("<<ITEMS_BLOCK>>", "\n".join(lines))
+    )
+
+
+def readiness_narrative_prompt_sha256() -> str:
+    return hashlib.sha256(READINESS_NARRATIVE_PROMPT.encode("utf-8")).hexdigest()

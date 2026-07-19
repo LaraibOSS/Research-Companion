@@ -493,3 +493,17 @@ def test_semantic_overlap_settings_validated(isolated_papergraph_dir):
         settings.update_settings({"semantic_overlap_threshold": 1.5})
     with pytest.raises(settings.SettingsError):
         settings.update_settings({"semantic_overlap_threshold": True})
+
+
+# ---------------------------------------------------------------------------
+# readiness_narrative setting (Task 3)
+# ---------------------------------------------------------------------------
+
+def test_readiness_narrative_setting_accepted(isolated_papergraph_dir):
+    s = settings.update_settings({"readiness_narrative": True})
+    assert s["readiness_narrative"] is True
+
+
+def test_readiness_narrative_setting_rejects_non_bool(isolated_papergraph_dir):
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"readiness_narrative": "yes"})

@@ -444,3 +444,59 @@ reworded or translated reuse that shingling can't see.
   failure-fallback behavior.
 
 Like the lexical lane, semantic findings surface as `severity: warning` in the readiness synthesis — never a blocker, and never labeled "plagiarism" (the honest label stays *near-duplicate / paraphrase of library paper X*); only compliance desk-reject findings can block.
+
+## 17. Readiness LLM narrative
+
+`research_companion/readiness_narrative.py` is an opt-in LLM pass that sits on
+top of the deterministic submission-readiness verdict from §15: a short
+"reviewer's take" plus a prioritized fix plan, generated once per review and
+attached to `report["readiness"]["narrative"]`. `readiness.py` itself is not
+touched by this feature — it stays pure, no-LLM, no-network, exactly as
+described in §15.
+
+- **The grounding guardrail (dict-only diet)** — `generate_readiness_narrative`
+  takes the already-built `readiness` dict and nothing else: no paper text, no
+  lane internals, no retrieval. `prompts.format_readiness_narrative_prompt`
+  serializes only that dict into the prompt, so the model can rephrase and
+  reorder the existing `blockers`/`warnings` punch-list but has no channel to
+  introduce a finding the deterministic lanes didn't already produce. This is
+  the same "narrate, don't re-derive" discipline as `_extract_<lane>` in §15,
+  one layer up.
+- **The `{take, plan}` contract + caps** — `_validate` requires `take` to be a
+  non-empty string and `plan` to be a list of strings, or the whole result is
+  discarded (`None`). On success it truncates defensively even though the
+  prompt already asks for bounded output: `take` to `_TAKE_MAX_CHARS = 800`
+  chars, `plan` to `_PLAN_MAX_ITEMS = 6` items of at most
+  `_PLAN_ITEM_MAX_CHARS = 300` chars each (blank items dropped before the
+  slice). `_default_llm` requests `max_output_tokens=1024` from whichever
+  provider (`RESEARCH_COMPANION_PROVIDER`) is configured.
+- **Degrade to `None` everywhere** — no readiness, or a readiness with no
+  blockers and no warnings (a clean "ready" needs no essay), returns `None`
+  before the LLM is ever invoked (spy-tested: zero calls on the skip paths).
+  Any failure past that point — missing provider key, network error, invalid
+  JSON, wrong shape — is caught by a single broad `except Exception` in
+  `generate_readiness_narrative` and also degrades to `None`. There is no
+  partial narrative: it's the full `{take, plan}` dict or nothing.
+- **The attach-once-before-persistence rule** — `cli.py::_attach_readiness_narrative`
+  is gated on the `readiness_narrative` setting (default `False`), skipped
+  when `args.fast` is set (no LLM lanes run under `--fast`), and skipped when
+  the readiness dict has nothing to narrate. It mutates the already-built
+  report's `readiness` dict in place, and is called exactly once on the `_rep`
+  object built for the always-persisted store copy in `_cmd_review`; the
+  `--report` path reuses that same `_rep` instead of rebuilding the report and
+  calling the narrative a second time, so the persisted store report,
+  `report.json`, `--json` output, and the HTML render all carry the identical
+  narrative (or its identical absence). Any exception inside
+  `_attach_readiness_narrative` is swallowed — the narrative is optional and
+  never breaks the review.
+- **Settings and test seam** — `readiness_narrative` (off by default),
+  validated as a boolean in `settings.py`. Tests inject a fake LLM via
+  `REVIEW_CONTEXT_OVERRIDES["_narrative_llm"]`, the same override-bag pattern
+  used elsewhere in `cli.py` for offline, deterministic characterization
+  tests — no real provider call is ever made in the suite.
+- **Rendering is display-only** — the terminal summary and the HTML report
+  render `narrative.take`/`narrative.plan` when present, but nothing
+  downstream (suggestions, revision tracking, confidence scoring) reads
+  `report["readiness"]["narrative"]`; removing it changes what a human reads,
+  not what the tool decides. With the setting off, or on any failure, output
+  is byte-identical to before this feature existed.

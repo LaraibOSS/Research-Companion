@@ -432,6 +432,17 @@ def _render_readiness(readiness: dict | None) -> str:
                 f'    <h2 style="margin:0 0 6px 0; color:{color};">Submission readiness: '
                 f'{_escape(label)}</h2>\n'
                 f'    <p style="margin:0 0 8px 0; color:#555;">{_escape(readiness.get("summary", ""))}</p>\n')
+    narrative = readiness.get("narrative") or {}
+    take = narrative.get("take")
+    if take:
+        html_out += ("    <p><strong>Reviewer's take:</strong> "
+                     f"{_escape(take)}</p>\n")
+        plan = narrative.get("plan") or []
+        if plan:
+            html_out += "    <p><strong>Suggested fix order:</strong></p>\n    <ol>\n"
+            for step in plan:
+                html_out += f"      <li>{_escape(step)}</li>\n"
+            html_out += "    </ol>\n"
     blockers = readiness.get("blockers") or []
     if blockers:
         html_out += "    <p><strong>Must fix (desk-reject risks):</strong></p>\n    <ul>\n"
