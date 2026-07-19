@@ -374,6 +374,82 @@ class TestExport:
         # Check that a known concept has a wikilink.
         assert "[[Knowledge graph]]" in content
 
+    def _add_two_colliding_papers(self, fake_pdf_bytes: bytes, sample_extraction: dict) -> None:
+        """Two papers whose titles sanitize to the identical base filename
+        ("Deep_Learning_A_Survey") — regression fixture for export collisions."""
+        _add_paper_with_extraction(
+            fake_pdf_bytes, sample_extraction,
+            paper_id="arxiv:1111.11111", title="Deep Learning: A Survey!",
+        )
+        _add_paper_with_extraction(
+            fake_pdf_bytes, sample_extraction,
+            paper_id="arxiv:2222.22222", title="Deep Learning A Survey",
+        )
+        from research_companion.graph import build_graph, save_graph
+        from research_companion.store import graph_json_path, list_papers
+        G = build_graph(list_papers())
+        save_graph(G, graph_json_path())
+
+    def test_export_markdown_disambiguates_colliding_filenames(
+        self, fake_pdf_bytes: bytes,
+        sample_extraction: dict, tmp_path: Path, capsys: pytest.CaptureFixture,
+    ):
+        """Two papers whose titles sanitize to the same base filename must
+        each get their own file — no silent overwrite (previously the second
+        paper's .md clobbered the first's)."""
+        self._add_two_colliding_papers(fake_pdf_bytes, sample_extraction)
+
+        out_dir = tmp_path / "md-export-collide"
+        rc = cli.main(["export", "--format", "markdown", "--output", str(out_dir)])
+        assert rc == 0
+
+        md_files = [f for f in out_dir.glob("*.md") if f.name != "_index.md"]
+        assert len(md_files) == 2
+        stems = {f.stem for f in md_files}
+        assert "Deep_Learning_A_Survey" in stems
+        assert any(s.startswith("Deep_Learning_A_Survey-") for s in stems)
+
+        # Both titles are still findable in their respective files (nothing lost).
+        all_content = "\n".join(f.read_text(encoding="utf-8") for f in md_files)
+        assert "Deep Learning: A Survey!" in all_content
+        assert "Deep Learning A Survey" in all_content
+
+        # The index references two distinct filenames, matching what's on disk.
+        index_text = (out_dir / "_index.md").read_text(encoding="utf-8")
+        for f in md_files:
+            assert f"({f.stem}.md)" in index_text
+
+    def test_export_obsidian_disambiguates_and_backlinks_resolve(
+        self, fake_pdf_bytes: bytes,
+        sample_extraction: dict, tmp_path: Path, capsys: pytest.CaptureFixture,
+    ):
+        """Same collision, obsidian format: paper notes stay distinct AND
+        entity notes' [[wikilinks]] back to papers resolve to real files
+        (not a stale/re-sanitized name that no longer matches disk)."""
+        self._add_two_colliding_papers(fake_pdf_bytes, sample_extraction)
+
+        out_dir = tmp_path / "obsidian-export-collide"
+        rc = cli.main(["export", "--format", "obsidian", "--output", str(out_dir)])
+        assert rc == 0
+
+        md_files = list(out_dir.glob("*.md"))
+        stems = {f.stem for f in md_files}
+        assert "Deep_Learning_A_Survey" in stems
+        assert any(s.startswith("Deep_Learning_A_Survey-") for s in stems)
+
+        # Shared concept "Knowledge graph" (from sample_extraction, used by both
+        # papers) gets one entity note that backlinks to BOTH paper files.
+        entity_file = out_dir / "Knowledge_graph.md"
+        assert entity_file.exists()
+        content = entity_file.read_text(encoding="utf-8")
+
+        import re
+        linked = re.findall(r"\[\[([^\]]+)\]\]", content)
+        assert len(linked) == 2
+        # Every backlink must resolve to an actual written file.
+        for link in linked:
+            assert (out_dir / f"{link}.md").exists(), f"[[{link}]] does not resolve to a file"
+
 
 # ---------------------------------------------------------------------------
 # Discover tests

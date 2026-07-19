@@ -27,3 +27,14 @@ def test_ris_multiple_and_empty():
     assert out.count("TY  - JOUR") == 2
     assert out.count("ER  -") == 2
     assert papers_to_ris([]) == ""
+
+
+def test_ris_is_not_latex_escaped():
+    """RIS is plain tag-based text, not LaTeX — unlike BibTeX export, it must
+    NOT backslash-escape %, &, _, #, $, etc."""
+    rec = {"title": "50% Faster Training & Fine_Tuning #1 costs $5", "authors": [], "year": None}
+    out = papers_to_ris([rec])
+    assert "TI  - 50% Faster Training & Fine_Tuning #1 costs $5" in out
+    assert "\\%" not in out
+    assert "\\&" not in out
+    assert "\\_" not in out

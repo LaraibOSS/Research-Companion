@@ -88,3 +88,29 @@ def test_parse_bibtex_ignores_comment_and_malformed():
 def test_empty_inputs():
     assert papers_to_bibtex([]) == ""
     assert parse_bibtex("") == []
+
+
+def test_bibtex_escapes_latex_specials():
+    """% & _ # $ in a title must be backslash-escaped or they break LaTeX
+    compilation (an unescaped % comments out the rest of the field)."""
+    rec = {
+        "title": "50% Faster Training & Fine_Tuning #1 costs $5",
+        "authors": ["A"],
+        "year": 2021,
+    }
+    out = papers_to_bibtex([rec])
+    assert r"50\% Faster Training \& Fine\_Tuning \#1 costs \$5" in out
+    # Every special must be *preceded* by a backslash — no bare occurrence
+    # (checked positionally rather than by naive substring, since e.g. "#1"
+    # is a substring of the correctly-escaped "\#1").
+    for raw in ("%", "&", "_", "#", "$"):
+        idx = out.find(raw)
+        while idx != -1:
+            assert out[idx - 1] == "\\", f"unescaped {raw!r} at {idx}: ...{out[idx-5:idx+5]}..."
+            idx = out.find(raw, idx + 1)
+
+
+def test_bibtex_escapes_backslash_tilde_caret():
+    rec = {"title": r"A~B^C\D", "authors": ["A"], "year": 2022}
+    out = papers_to_bibtex([rec])
+    assert r"A\textasciitilde{}B\textasciicircum{}C\textbackslash{}D" in out

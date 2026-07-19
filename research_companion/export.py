@@ -67,6 +67,24 @@ def _sanitize_filename(name: str) -> str:
     return s[:120] or "untitled"
 
 
+def _dedupe_filename(base: str, used: dict[str, int]) -> str:
+    """Return a filename unique within *used*, appending -2, -3, ... on collision.
+
+    Mirrors the house pattern in ``interop/bibtex.py``'s ``_alpha_suffix``
+    (used there to disambiguate colliding cite keys): track how many times a
+    base name has been seen and append a short, deterministic disambiguator
+    on repeats, so two different papers/entities whose sanitized names
+    collide never silently overwrite each other on disk.
+
+    Mutates *used* to record the new count for *base*.
+    """
+    if base not in used:
+        used[base] = 1
+        return base
+    used[base] += 1
+    return f"{base}-{used[base]}"
+
+
 # ---------------------------------------------------------------------------
 # Markdown export
 # ---------------------------------------------------------------------------
@@ -76,9 +94,10 @@ def _export_markdown(output_dir: Path) -> Path:
 
     index_lines: list[str] = ["# research-companion — Paper Index\n"]
     file_map: dict[str, str] = {}  # paper_id -> filename (without .md)
+    used_names: dict[str, int] = {}
 
     for meta in papers:
-        fname = _sanitize_filename(meta.title)
+        fname = _dedupe_filename(_sanitize_filename(meta.title), used_names)
         file_map[meta.paper_id] = fname
         ext = extractions.get(meta.paper_id, {})
 
@@ -295,6 +314,14 @@ def _export_obsidian(output_dir: Path) -> Path:
     # Build a paper_id -> title map for back-links.
     paper_title: dict[str, str] = {m.paper_id: m.title for m in papers}
 
+    # paper_id -> actual filename written (without .md), populated below as
+    # paper notes are written. Entity "Mentioned in" back-links look this up
+    # by paper_id instead of re-sanitizing the title, so a back-link always
+    # resolves to the real (possibly disambiguated) file — see the entity
+    # notes loop further down.
+    paper_fname: dict[str, str] = {}
+    used_paper_names: dict[str, int] = {}
+
     # --- Paper notes (one per paper) ---
     for meta in papers:
         ext = extractions.get(meta.paper_id, {})
@@ -375,10 +402,12 @@ def _export_obsidian(output_dir: Path) -> Path:
                     lines.append(f"- {ref}")
             lines.append("")
 
-        fname = _sanitize_filename(meta.title)
+        fname = _dedupe_filename(_sanitize_filename(meta.title), used_paper_names)
+        paper_fname[meta.paper_id] = fname
         (output_dir / f"{fname}.md").write_text("\n".join(lines), encoding="utf-8")
 
     # --- Entity notes (one per concept/method/dataset) ---
+    used_entity_names: dict[str, int] = {}
     for info in entities.values():
         name = info["name"]
         kind = info["kind"]
@@ -394,12 +423,15 @@ def _export_obsidian(output_dir: Path) -> Path:
 
         lines.append("## Mentioned in")
         for pid in paper_ids:
-            title = paper_title.get(pid, pid)
-            fname = _sanitize_filename(title)
+            # Look up the actual filename written for this paper (not a fresh
+            # re-sanitization of its title) so this link resolves correctly
+            # even when the paper's sanitized name collided with another's
+            # and got disambiguated above.
+            fname = paper_fname.get(pid) or _sanitize_filename(paper_title.get(pid, pid))
             lines.append(f"- [[{fname}]]")
         lines.append("")
 
-        entity_fname = _sanitize_filename(name)
+        entity_fname = _dedupe_filename(_sanitize_filename(name), used_entity_names)
         (output_dir / f"{entity_fname}.md").write_text("\n".join(lines), encoding="utf-8")
 
     return output_dir
