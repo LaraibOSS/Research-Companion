@@ -380,6 +380,17 @@ Inference API and requires `HF_TOKEN`. If neither backend is available the
 tool falls back to the lexical check (`check-overlap --semantic` tells you
 why it was skipped; the setting-driven path skips quietly). Semantic matches are advisory warnings — they never block a review and are never labeled plagiarism.
 
+**Reviewer's take (readiness narrative):** on top of the deterministic
+go/no-go readiness verdict, an opt-in LLM pass can add a short "reviewer's
+take" plus a prioritized fix plan — it may rephrase and re-order the existing
+blockers and warnings, but it never invents a finding and never sees the
+paper itself, only the verdict. It's off by default — turn it on with the
+`readiness_narrative` setting. It requires a configured LLM provider and API
+key, and is skipped under `--fast` (and silently skipped on any error, e.g. no
+key configured). Either way, the deterministic verdict and its blocker/warning
+lists are unchanged — the narrative is an additional, display-only layer on
+top, never a replacement.
+
 Lanes run concurrently with failure isolation: one failing lane degrades the
 report, never the run. `--fast` runs only LLM-free lanes. Every run appends
 to a JSONL audit log.

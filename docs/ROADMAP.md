@@ -66,6 +66,12 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   shingler misses. Local sentence-transformers by default (optional
   `semantic` extra); the Hugging Face API only with explicit consent
   (`semantic_overlap_allow_remote`). → `semoverlap.py`.
+- ✅ **Readiness LLM narrative** — an opt-in "reviewer's take" + prioritized fix
+  plan written by the configured LLM on top of the deterministic readiness
+  verdict. Grounded strictly in the readiness dict (it can rephrase and order
+  the existing punch-list, never invent findings); display-only; off by
+  default (`readiness_narrative` setting) and byte-identical when off.
+  → `readiness_narrative.py`.
 
 ---
 
