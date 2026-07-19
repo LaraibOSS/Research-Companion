@@ -11,7 +11,17 @@ building block and returns a JSON-safe dict:
 
 Everything here is local and LLM-free. Network is used only by ``verify_citation``
 (CrossRef/OpenAlex lookups), and the lookup is injectable so tests stay offline.
-The costed, key-requiring tools (ask_library / review_draft) are deferred to 0.7.1.
+
+Also here: the costed, key-requiring tools --
+
+- ``ask_library``   — LLM Q&A over the local library (qa.answer), cost-gated.
+- ``review_draft``  — the reviewer-style agent pipeline (review_runner.run_review),
+  cost-gated; ``fast=True`` runs only the deterministic (LLM-free, $0) lanes.
+
+Both estimate a call's cost against the ``mcp_cost_cap_usd`` setting *before*
+doing any work and refuse (returning ``{"error", "estimated_cost_usd", "cap_usd"}``)
+without ever invoking the LLM/pipeline when the estimate exceeds the cap. Neither
+tool ever raises to the caller; failures come back as ``{"error": ...}`` dicts.
 """
 from __future__ import annotations
 
@@ -142,3 +152,108 @@ def search_library(*, query: str, k: int = 6, paper_ids: list[str] | None = None
             "mode": r.get("mode", "bm25"),
         })
     return {"query": query, "results": results}
+
+
+# --- Costed, key-requiring tools (v2) ---------------------------------------
+
+_ASK_OUTPUT_TOKENS = 2048
+_REVIEW_OUTPUT_TOKENS_PER_LANE = 2048
+_REVIEW_INPUT_CHARS_PER_LANE = 20_000  # novelty caps fulltext at 20k chars
+_N_LLM_LANES_FULL = 6  # novelty, citation_polarity, confidence, benchmark, severity, taxonomy
+
+
+def _cap_usd() -> float:
+    from research_companion.settings import get_settings
+    try:
+        return float(get_settings().get("mcp_cost_cap_usd", 1.0))
+    except Exception:
+        return 1.0
+
+
+def _refusal(estimated: float, cap: float) -> dict:
+    return {
+        "error": (f"estimated cost ${estimated:.2f} exceeds the "
+                  f"mcp_cost_cap_usd cap (${cap:.2f})"),
+        "estimated_cost_usd": round(estimated, 4),
+        "cap_usd": cap,
+    }
+
+
+def _provider_for_estimate() -> str:
+    from research_companion.cost import configured_provider
+    resolved = configured_provider()
+    return resolved[0] if resolved else "anthropic"
+
+
+def ask_library(*, question: str, k: int | None = None,
+                paper_ids: list[str] | None = None, llm=None) -> dict:
+    """LLM Q&A over the local library (costed). Refuses over the per-call cap.
+
+    The input estimate uses the char_budget setting as an upper bound on the
+    retrieved context (qa.answer assembles context internally, bounded by it).
+    Never raises: failures return {"error": ...}.
+    """
+    from research_companion.cost import chars_to_tokens, estimate_cost
+    from research_companion.settings import get_settings
+
+    try:
+        char_budget = int(get_settings().get("char_budget", 8000))
+    except Exception:
+        char_budget = 8000
+    est = estimate_cost(chars_to_tokens(char_budget + len(question)),
+                        _ASK_OUTPUT_TOKENS, _provider_for_estimate())
+    cap = _cap_usd()
+    if est > cap:
+        return _refusal(est, cap)
+
+    try:
+        from dataclasses import asdict
+
+        from research_companion.qa import answer as qa_answer
+        ans = qa_answer(question, llm=llm, k_sections=k, paper_ids=paper_ids)
+    except Exception as exc:  # missing key, SDK/network error, ... never raise
+        return {"error": str(exc)}
+    return {
+        "question": question,
+        "answer": ans.answer,
+        "sources": [asdict(s) for s in ans.sources],
+        "cited": [asdict(s) for s in ans.cited],
+        "unverified_quotes": list(ans.unverified_quotes),
+        "estimated_cost_usd": round(est, 4),
+    }
+
+
+def review_draft(*, paper_id: str, venue: str | None = None, fast: bool = False,
+                 llm=None, lookup=None, search=None) -> dict:
+    """Run the reviewer-style pipeline on a stored paper (costed, read-only).
+
+    fast=True runs only the deterministic lanes (estimate ~$0). Refuses over
+    the per-call cap; never raises: failures return {"error": ...}.
+    """
+    from research_companion.cost import chars_to_tokens, estimate_cost
+    from research_companion.store import PaperMetadata, load_text
+
+    try:
+        meta = PaperMetadata.load(paper_id)
+        text = load_text(paper_id)
+        if meta is None and text is None:
+            return {"error": f"unknown paper_id {paper_id!r} — add/ingest it first"}
+
+        n_lanes = 0 if fast else _N_LLM_LANES_FULL + (1 if venue else 0)  # venuefit is the LLM venue lane
+        in_tokens = n_lanes * chars_to_tokens(min(len(text or ""), _REVIEW_INPUT_CHARS_PER_LANE))
+        est = estimate_cost(in_tokens, n_lanes * _REVIEW_OUTPUT_TOKENS_PER_LANE,
+                            _provider_for_estimate())
+        cap = _cap_usd()
+    except Exception as exc:
+        return {"error": str(exc)}
+    if est > cap:
+        return _refusal(est, cap)
+
+    try:
+        from research_companion import review_runner
+        report = review_runner.run_review(paper_id, venue=venue, fast=fast,
+                                          llm=llm, lookup=lookup, search=search)
+    except Exception as exc:
+        return {"error": str(exc)}
+    report["estimated_cost_usd"] = round(est, 4)
+    return report

@@ -500,3 +500,90 @@ described in §15.
   `report["readiness"]["narrative"]`; removing it changes what a human reads,
   not what the tool decides. With the setting off, or on any failure, output
   is byte-identical to before this feature existed.
+
+## 18. Cost-gated MCP tools (v2)
+
+`ask_library` (cited LLM Q&A over the library) and `review_draft` (the
+reviewer-style agent pipeline, read-only) extend the MCP trust-layer server
+(`mcp_server.py` + `mcp_tools.py`, four deterministic key-free tools —
+`verify_citation`/`ground_claim`/`citation_coverage`/`search_library`) beyond
+those four. They are LLM-backed and therefore costed, so they only ever join
+the server behind a **triple boundary**, and every call is still capped
+individually.
+
+- **The triple boundary** — `mcp_server.py::costed_tools_active()` is `True`
+  only when *both* (a) the `mcp_costed_tools` setting is on (default `False`)
+  *and* (b) `cost.configured_provider()` finds an LLM key matching the
+  **resolved** provider (`RESEARCH_COMPANION_PROVIDER`, default `"anthropic"`,
+  and its matching key env var — a key for the *other* provider does not
+  count, since it would only fail at call time). `active_tool_names()`
+  exposes the tool set `create_server()` would register right now without
+  needing the `mcp` SDK installed, which is how the registration gating is
+  unit-tested. With either half of the boundary off, `create_server()`
+  registers only `TOOL_HANDLERS` (the original four); with both on, it also
+  registers `COSTED_TOOL_HANDLERS` (`ask_library`, `review_draft`). A default
+  `mcp serve` — the setting is off by default — is therefore byte-identical
+  to the v1 (four-tool) server.
+- **The per-call cap is the third gate, independent of the first two** —
+  even with the boundary open, `mcp_tools.py` estimates each call's cost
+  *before* doing any work and refuses (never raises) once the estimate
+  exceeds `mcp_cost_cap_usd` (default `$1.00`, validated in `settings.py` to
+  `[0, 100]`). The refusal shape is `{"error": "...", "estimated_cost_usd":
+  <float>, "cap_usd": <float>}` — structured, not an exception, so a calling
+  agent can branch on it. There is no spend ledger: the cap is evaluated
+  per-call from a fresh estimate every time, with no running total across
+  calls.
+- **The estimate math (`cost.py` + `mcp_tools.py`)** — `cost.estimate_cost`
+  prices `(input_tokens, output_tokens, provider)` off a small per-provider
+  `PRICING` table (a coarse guardrail, not the provider's actual invoiced
+  rate) and `cost.chars_to_tokens` applies the repo's standing ~4-chars/token
+  heuristic. `ask_library`'s input estimate is `char_budget` (the
+  `char_budget` setting, default 8000 — an upper bound on the context
+  `qa.answer` assembles internally) plus the question's length, chars, at a
+  fixed `_ASK_OUTPUT_TOKENS = 2048` output budget. `review_draft`'s estimate
+  is lane-based: `fast=True` estimates `$0` (no LLM lanes run); otherwise
+  `n_lanes = _N_LLM_LANES_FULL` (6 — novelty, citation_polarity, confidence,
+  benchmark, severity, taxonomy) `+ 1` when a `venue` is given (the
+  `VenueFitAgent` LLM lane), each lane capped at
+  `_REVIEW_INPUT_CHARS_PER_LANE = 20_000` chars of the paper's fulltext
+  (mirroring `NoveltyAgent`'s own fulltext cap) and
+  `_REVIEW_OUTPUT_TOKENS_PER_LANE = 2048` output tokens. Both estimates use
+  `_provider_for_estimate()` — the resolved provider from
+  `cost.configured_provider()`, falling back to `"anthropic"` pricing if
+  unresolved (estimate-only; the gate above already required a real key to
+  reach this code). **Caveat for the novelty lane:** it issues one LLM call
+  per extracted claim, so actual cost scales with claim count and can exceed
+  the pre-call estimate — the cap is a safety rail, not a hard guarantee.
+- **Restart asymmetry:** registration of costed tools is decided at server startup
+  (`create_server`), but the cap (`mcp_cost_cap_usd`) is re-read on every call. Changing
+  `mcp_costed_tools` or adding/removing the key does NOT change which tools a running
+  server exposes — restart `mcp serve` for that; only cap changes apply live.
+- **`review_runner.run_review` — read-only, async-safe** — a CLI-independent
+  runner that mirrors `_cmd_review` in `cli.py`'s agent-list construction
+  exactly (base 7 lanes, +6 LLM lanes unless `fast`,
+  +`VenueFitAgent`/`ComplianceAgent` when a venue is given) but never writes
+  to the store and never rebuilds the
+  graph. It builds `Bus()` with **no** `EventLog` (unlike `_cmd_review`'s
+  `Bus(log=EventLog(log_path))`), since `EventLog` persists a run to
+  `<papergraph_dir>/runs/*.jsonl` on disk — a bare `Bus()` still gives agents
+  a working pub/sub bus with no disk footprint. Context data uses the same
+  seam keys as `REVIEW_CONTEXT_OVERRIDES` in `cli.py` (`_venue`, `_llm`,
+  `_lookup`, `_search`), so tests inject fakes exactly as `test_cli_review.py`
+  does. Because FastMCP may already be running its own event loop,
+  `run_review` calls `asyncio.get_running_loop()` first: outside a loop it
+  runs the pipeline with a plain `asyncio.run`; inside one, it runs the
+  pipeline on a fresh loop in a one-worker `ThreadPoolExecutor` instead of
+  raising `RuntimeError: asyncio.run() cannot be called from a running event
+  loop`.
+- **Never raises to the MCP caller** — both tools wrap their estimate step
+  and their execution step in broad `except Exception` and return
+  `{"error": str(exc)}` instead of propagating, so a missing key, a network
+  failure, a malformed provider response, or an unknown `paper_id` degrades
+  to a JSON error dict rather than crashing the server process.
+- **v1/v2 schema files** — `docs/mcp-schemas/tools.v1.json` stays the
+  unchanged four-tool set; `docs/mcp-schemas/tools.v2.json` is the six-tool
+  superset (the same four plus `ask_library`/`review_draft`, documented as
+  gated on the setting + key + cap). `mcp serve` itself always builds from
+  the live registry (`TOOL_HANDLERS` + `COSTED_TOOL_HANDLERS` when active);
+  the schema files are a static reference for agent authors, not something
+  the server reads at runtime.

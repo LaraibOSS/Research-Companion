@@ -44,6 +44,8 @@ DEFAULTS: dict[str, Any] = {
     "semantic_overlap_allow_remote": False,
     "semantic_overlap_threshold": 0.83,
     "readiness_narrative": False,
+    "mcp_costed_tools": False,
+    "mcp_cost_cap_usd": 1.0,
 }
 
 _VALID_PROVIDERS = {"anthropic", "openai"}
@@ -269,8 +271,10 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
     - density must be in {comfortable, compact}
     - 1 <= k_sections <= 20
     - 1000 <= char_budget <= 50000
-    - semantic_overlap / semantic_overlap_allow_remote / readiness_narrative must be booleans
+    - semantic_overlap / semantic_overlap_allow_remote / readiness_narrative / mcp_costed_tools
+      must be booleans
     - 0.0 <= semantic_overlap_threshold <= 1.0
+    - 0.0 <= mcp_cost_cap_usd <= 100.0
     - Unknown top-level fields -> SettingsError
     - patch["keys"][name] = "" -> SettingsError (use null to delete)
 
@@ -332,7 +336,7 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
                 f"connectors must be a list of {sorted(VALID_CONNECTORS)}, got {v!r}")
 
     for bool_field in ("semantic_overlap", "semantic_overlap_allow_remote",
-                       "readiness_narrative"):
+                       "readiness_narrative", "mcp_costed_tools"):
         if bool_field in regular_patch:
             v = regular_patch[bool_field]
             if not isinstance(v, bool):
@@ -343,6 +347,12 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0.0 <= v <= 1.0):
             raise SettingsError(
                 f"semantic_overlap_threshold must be a number in [0, 1], got {v!r}")
+
+    if "mcp_cost_cap_usd" in regular_patch:
+        v = regular_patch["mcp_cost_cap_usd"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0.0 <= v <= 100.0):
+            raise SettingsError(
+                f"mcp_cost_cap_usd must be a number in [0, 100], got {v!r}")
 
     if "k_sections" in regular_patch:
         v = regular_patch["k_sections"]

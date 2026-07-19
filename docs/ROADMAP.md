@@ -72,18 +72,26 @@ Status: ✅ shipped · 🟠 partial · ⬜ not started
   the existing punch-list, never invent findings); display-only; off by
   default (`readiness_narrative` setting) and byte-identical when off.
   → `readiness_narrative.py`.
+- ✅ **Cost-gated MCP tools (v2)** — `ask_library` (cited LLM Q&A over the
+  library) and `review_draft` (the reviewer-style pipeline, read-only) join the
+  MCP server behind a triple boundary: an explicit `mcp_costed_tools` opt-in
+  (off by default), an LLM key for the resolved provider, and a per-call
+  `mcp_cost_cap_usd` estimate cap with a structured refusal. A default
+  `mcp serve` still exposes exactly the four key-free tools.
+  → `mcp_tools.py`, `mcp_server.py`, `cost.py`, `review_runner.py`,
+  `docs/mcp-schemas/tools.v2.json`.
 
 ---
 
 ## What's genuinely open
 
 Phases 1–3 are shipped, plus statistical soundness, interoperability, the MCP
-trust-layer, local near-duplicate detection, and semantic (paraphrase)
-overlap. The remaining items are deliberately deferred:
+trust-layer (now including the cost-gated `ask_library`/`review_draft` v2
+tools), local near-duplicate detection, and semantic (paraphrase) overlap. The
+remaining items are deliberately deferred:
 
 1. **True web-corpus plagiarism** (🔵) — the local near-duplicate check ships (`overlap.py`, plus an opt-in embedding/paraphrase pass in `semoverlap.py`); detecting reuse against an external corpus needs a similarity service + a privacy model. The consent-gated `ExternalOverlapProvider` seam already exists; design the boundary before shipping a provider.
-2. **Cost-gated MCP tools** (🔵) — `ask_library` / `review_draft` behind an explicit budget/keys boundary; the v2 MCP schema.
-3. **Entity databases** (🟡) — additional metadata sources beyond the shipped DBLP/PubMed/Europe PMC connectors.
+2. **Entity databases** (🟡) — additional metadata sources beyond the shipped DBLP/PubMed/Europe PMC connectors.
 
 Ongoing (no code, data authoring): grow the venue KB (`docs/VENUE_KB.md`) with
 more venues/disciplines as needed — this is expected maintenance, not a blocking

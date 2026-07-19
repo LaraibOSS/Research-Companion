@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": 1,
+  "version": 2,
   "server": "research-companion",
-  "description": "Deterministic, key-free verification tools exposed by the Research Companion MCP trust-layer server (shipped in v0.7.0). Costed/keyed tools (ask_library, review_draft) are shipped behind an explicit opt-in in tools.v2.json.",
+  "description": "Deterministic, key-free verification tools exposed by the Research Companion MCP trust-layer server (shipped in v0.7.0), plus the costed LLM tools (ask_library, review_draft) shipped behind an explicit opt-in. The costed tools are only exposed when the mcp_costed_tools setting is enabled AND a matching LLM key is configured; every call is capped by the mcp_cost_cap_usd setting and refuses (returning an error/refusal shape instead of raising) once its estimated cost would exceed the cap.",
   "tools": {
     "verify_citation": {
       "description": "Validate a citation against authoritative records (CrossRef/OpenAlex/arXiv).",
@@ -97,6 +97,57 @@
           }
         },
         "required": ["query", "results"]
+      }
+    },
+    "ask_library": {
+      "description": "LLM Q&A over the local library with cited sources (costed; capped). Exposed only when mcp_costed_tools is enabled and an LLM key is configured; refuses (returns the error/refusal shape below) instead of raising when the estimated cost exceeds mcp_cost_cap_usd.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "question": {"type": "string", "description": "Question to answer from the local library."},
+          "k": {"type": "integer", "default": 6, "description": "Max sections to retrieve as context."}
+        },
+        "required": ["question"]
+      },
+      "output": {
+        "type": "object",
+        "description": "On success: the answer with sources and provenance. On refusal or failure: {error, estimated_cost_usd?, cap_usd?} — never raises.",
+        "properties": {
+          "question": {"type": "string"},
+          "answer": {"type": "string"},
+          "sources": {"type": "array", "items": {"type": "object"}},
+          "cited": {"type": "array", "items": {"type": "object"}},
+          "unverified_quotes": {"type": "array", "items": {"type": "string"}},
+          "estimated_cost_usd": {"type": "number"},
+          "error": {"type": "string"},
+          "cap_usd": {"type": "number"}
+        }
+      }
+    },
+    "review_draft": {
+      "description": "Run the reviewer-style review of a stored paper (costed; capped; read-only). Exposed only when mcp_costed_tools is enabled and an LLM key is configured; refuses (returns the error/refusal shape below) instead of raising when the estimated cost exceeds mcp_cost_cap_usd. fast=true runs only the deterministic lanes (estimate ~$0).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "paper_id": {"type": "string", "description": "ID of an already-stored paper."},
+          "venue": {"type": "string", "description": "Optional target venue for a venue-fit lane."},
+          "fast": {"type": "boolean", "default": false, "description": "Run only the deterministic (non-LLM) lanes."}
+        },
+        "required": ["paper_id"]
+      },
+      "output": {
+        "type": "object",
+        "description": "On success: the review report. On refusal or failure: {error, estimated_cost_usd?, cap_usd?} — never raises.",
+        "properties": {
+          "paper_id": {"type": "string"},
+          "title": {"type": "string"},
+          "lanes": {"type": "object"},
+          "readiness": {"type": ["object", "null"]},
+          "generated_by": {"type": "string"},
+          "estimated_cost_usd": {"type": "number"},
+          "error": {"type": "string"},
+          "cap_usd": {"type": "number"}
+        }
       }
     }
   }

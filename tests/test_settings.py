@@ -507,3 +507,23 @@ def test_readiness_narrative_setting_accepted(isolated_papergraph_dir):
 def test_readiness_narrative_setting_rejects_non_bool(isolated_papergraph_dir):
     with pytest.raises(settings.SettingsError):
         settings.update_settings({"readiness_narrative": "yes"})
+
+
+# ---------------------------------------------------------------------------
+# mcp_costed_tools / mcp_cost_cap_usd settings (Task 1)
+# ---------------------------------------------------------------------------
+
+def test_mcp_costed_tools_setting_accepted(isolated_papergraph_dir):
+    s = settings.update_settings({"mcp_costed_tools": True, "mcp_cost_cap_usd": 2.5})
+    assert s["mcp_costed_tools"] is True
+    assert s["mcp_cost_cap_usd"] == 2.5
+
+
+def test_mcp_costed_tools_setting_validated(isolated_papergraph_dir):
+    import pytest
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"mcp_costed_tools": "yes"})
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"mcp_cost_cap_usd": 200.0})
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"mcp_cost_cap_usd": True})

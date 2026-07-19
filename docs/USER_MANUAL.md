@@ -481,6 +481,10 @@ A tab opened mid-work picks up running tasks immediately. Idle = invisible.
   control how much context Ask/Companion retrieve.
 - **Citations** — "Automatically download papers cited by your draft"
   (default on).
+- **MCP costed tools** — `mcp_costed_tools` (default off) opts the MCP server
+  into also exposing `ask_library`/`review_draft`, and `mcp_cost_cap_usd`
+  (default `$1.00`) is the per-call estimate cap that refuses any call over
+  it. See "MCP tools for external agents" in section 19.
 - **About** — replay the intro tour; links to docs.
 
 Close Settings with the **×** button (top-right) or **Escape** — it returns you
@@ -510,7 +514,7 @@ research-companion check-overlap <paper-id> [--semantic] [--allow-remote]  # nea
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
 research-companion import-bib <file.bib>            # import a Zotero/Mendeley .bib into the library
 research-companion cite-tex <file.tex> [--bib f.bib]  # resolve a LaTeX draft's \cite keys
-research-companion mcp serve                        # MCP server exposing verification to agents
+research-companion mcp serve                        # MCP server exposing verification to agents (+opt-in ask_library/review_draft)
 research-companion discover <topic> [--expand]      # find new papers via Semantic Scholar
 research-companion gaps | timeline                  # gap analysis / temporal view
 research-companion export <format>                  # markdown, CSV, JSON, Obsidian vault
@@ -530,6 +534,42 @@ omitted. Available names:
   text.
 
 Example: `research-companion refcheck my-paper --connectors europepmc,pubmed,dblp`.
+
+### MCP tools for external agents
+
+`research-companion mcp serve` always exposes four deterministic, key-free
+tools to any MCP-capable agent — `verify_citation`, `ground_claim`,
+`citation_coverage`, `search_library` — with no API key required and nothing
+sent anywhere but the bibliographic lookups already used elsewhere.
+
+Two more tools, `ask_library` (cited LLM Q&A over your library) and
+`review_draft` (the reviewer-style pipeline, read-only — it never writes to
+the store), are available but **off by default**. To turn them on:
+
+1. Enable the **MCP costed tools** setting (`mcp_costed_tools`) in Settings,
+   or set it via the settings API/file.
+2. Configure an API key for the provider you use (Settings → Model, or the
+   matching environment variable). Both a key and the setting are required —
+   either one alone leaves the server exposing just the original four tools.
+
+Once both are on, every `ask_library`/`review_draft` call is still checked
+against **`mcp_cost_cap_usd`** (default **$1.00 per call**) *before* any LLM
+call is made. If the estimated cost exceeds the cap, the call is refused with
+a structured error (`{"error", "estimated_cost_usd", "cap_usd"}`) instead of
+running — there's no partial charge, and no spend ledger across calls; each
+call is estimated fresh. These estimates are coarse guardrails sized from
+your retrieval/lane settings, not an invoice from the provider, so treat the
+cap as a safety rail, not a budget tracker. **Important caveat for the novelty
+lane specifically:** it issues one LLM call per extracted claim, so a claim-heavy
+paper's actual cost scales with claim count and can exceed the pre-call estimate —
+the cap is a safety rail, not a hard guarantee. `review_draft(fast=true)` runs
+only the deterministic lanes — no LLM call, no cost, effectively $0 — the
+same as `research-companion review --fast`.
+
+**Restart asymmetry:** the set of tools exposed (whether the costed tools are registered)
+is determined at server startup. Changing `mcp_costed_tools` or adding/removing the key
+does NOT change which tools a running server exposes — restart `mcp serve` for that.
+Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live without restart.
 
 ## 20. Data, privacy & costs
 
@@ -593,6 +633,7 @@ Example: `research-companion refcheck my-paper --connectors europepmc,pubmed,dbl
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
-deterministic key-free tools) and near-duplicate/overlap detection in 0.7.1. Still
-ahead: cost-gated MCP tools (`ask_library` / `review_draft`) and venue-checklist skill
-packs. See [ROADMAP.md](ROADMAP.md).
+deterministic key-free tools) and near-duplicate/overlap detection in 0.7.1. The
+cost-gated `ask_library`/`review_draft` MCP tools (opt-in setting + key + a
+per-call cost cap) have since shipped too — see "MCP tools for external agents"
+above. Still ahead: venue-checklist skill packs. See [ROADMAP.md](ROADMAP.md).
