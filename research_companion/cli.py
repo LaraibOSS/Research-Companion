@@ -155,6 +155,25 @@ _DEFAULT_MODELS = {
 _EST_OUTPUT_TOKENS_PER_PAPER = 800
 
 
+def _resolve_provider_model(args: argparse.Namespace) -> tuple[str, str | None]:
+    """Resolve (provider, model) as flag > env > default ("anthropic").
+
+    Shared by handlers that consume args.provider/args.model directly (build,
+    cost-estimate, chat, lab ingest) rather than through a per-command LLM
+    resolver like _resolve_llm_for_align. The parser default for --provider on
+    these commands is None, so a bare `args.provider` is only non-None when the
+    user actually passed the flag; this is what lets RESEARCH_COMPANION_PROVIDER
+    take effect when the flag is omitted.
+    """
+    import os
+
+    provider = getattr(args, "provider", None) or os.environ.get(
+        "RESEARCH_COMPANION_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
+    return provider, model
+
+
 def _lookup_pricing(provider: str) -> tuple[float, float]:
     """Return (input_cost_per_1M, output_cost_per_1M) for *provider*."""
     bucket = _PRICING.get(provider, _PRICING["anthropic"])
@@ -180,8 +199,8 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
 
-    provider = args.provider
-    model = args.model or _DEFAULT_MODELS.get(provider, _DEFAULT_MODELS["anthropic"])
+    provider, model_flag = _resolve_provider_model(args)
+    model = model_flag or _DEFAULT_MODELS.get(provider, _DEFAULT_MODELS["anthropic"])
     prompt_sha = extraction_prompt_sha256()
 
     cached_n = 0
@@ -236,7 +255,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
 
-    print(f"research-companion: extracting from {len(papers)} paper(s) using {args.provider}...")
+    provider, model = _resolve_provider_model(args)
+    print(f"research-companion: extracting from {len(papers)} paper(s) using {provider}...")
     total_in = total_out = 0
     cached_n = 0
     failed: list[str] = []
@@ -245,7 +265,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     for i, meta in enumerate(papers, 1):
         prefix = f"  [{i}/{len(papers)}]"
         try:
-            _, usage = extract_paper(meta, provider=args.provider, model=args.model, force=args.force)
+            _, usage = extract_paper(meta, provider=provider, model=model, force=args.force)
         except ExtractionError as e:
             print(f"{prefix} FAILED  {meta.title[:60]}: {e}", file=sys.stderr)
             failed.append(meta.paper_id)
@@ -262,10 +282,10 @@ def _cmd_build(args: argparse.Namespace) -> int:
     print(f"\nresearch-companion: extraction done in {time.perf_counter()-t0:.1f}s. "
           f"{cached_n} cached, {len(failed)} failed, {total_in}+{total_out} tokens used.")
     if total_in + total_out > 0:
-        model_label = args.model or _DEFAULT_MODELS.get(args.provider, args.provider)
-        est = _estimate_cost(total_in, total_out, args.provider)
+        model_label = model or _DEFAULT_MODELS.get(provider, provider)
+        est = _estimate_cost(total_in, total_out, provider)
         print(f"research-companion: estimated cost: ~${est:,.2f} "
-              f"(based on {args.provider} {model_label} pricing)")
+              f"(based on {provider} {model_label} pricing)")
 
     print("research-companion: building cross-paper graph...")
     G = build_graph(papers)
@@ -300,8 +320,10 @@ def _cmd_chat(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
 
+    provider, model = _resolve_provider_model(args)
+
     if args.question:
-        ans = chat(args.question, G=G, provider=args.provider, model=args.model, depth=args.depth)
+        ans = chat(args.question, G=G, provider=provider, model=model, depth=args.depth)
         _print_answer(ans)
         return 0
 
@@ -318,7 +340,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
             continue
         if q in ("exit", "quit", ":q"):
             return 0
-        ans = chat(q, G=G, provider=args.provider, model=args.model, depth=args.depth)
+        ans = chat(q, G=G, provider=provider, model=model, depth=args.depth)
         _print_answer(ans)
 
 
@@ -1894,13 +1916,14 @@ def _cmd_lab_ingest(args: argparse.Namespace) -> int:
         from research_companion.lab import ingest_folder as _real_ingest
         ingest_fn = _real_ingest
 
+    provider, model = _resolve_provider_model(args)
     try:
         result = _asyncio.run(
             ingest_fn(
                 folder,
                 bus=bus,
-                provider=getattr(args, "provider", "anthropic"),
-                model=getattr(args, "model", None),
+                provider=provider,
+                model=model,
                 align=not getattr(args, "no_align", False),
             )
         )
@@ -2031,13 +2054,15 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.set_defaults(func=_cmd_add)
 
     pb = sub.add_parser("build", help="Run extraction on all papers and build the graph")
-    pb.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pb.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                    help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pb.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pb.add_argument("--force", action="store_true", help="Re-extract even if cached")
     pb.set_defaults(func=_cmd_build)
 
     pce = sub.add_parser("cost-estimate", help="Estimate API cost for the next build")
-    pce.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pce.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pce.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pce.set_defaults(func=_cmd_cost_estimate)
 
@@ -2047,7 +2072,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     pc = sub.add_parser("chat", help="Ask a question (one-shot if argument given, else REPL)")
     pc.add_argument("question", nargs="?", help="Question (omit for interactive REPL)")
-    pc.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pc.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                    help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pc.add_argument("--model", default=None)
     pc.add_argument("--depth", type=int, default=2, help="BFS hop depth (default 2)")
     pc.set_defaults(func=_cmd_chat)
@@ -2207,7 +2233,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pal.add_argument("paper_id", help="Candidate paper ID to align against the draft")
     pal.add_argument("--against", metavar="PAPER_ID",
                      help="Draft paper ID (overrides configured draft)")
-    pal.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pal.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pal.add_argument("--model", default=None, help="Model override")
     pal.add_argument("--force", action="store_true", help="Re-run even if cached")
     pal.add_argument("--json", action="store_true", help="JSON output")
@@ -2227,7 +2254,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pcmp = sub.add_parser("compare", help="Compare two papers: entity overlap and metrics")
     pcmp.add_argument("paper_a", help="First paper ID")
     pcmp.add_argument("paper_b", help="Second paper ID")
-    pcmp.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    pcmp.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pcmp.add_argument("--model", default=None, help="Model override (for summary LLM)")
     pcmp.add_argument("--no-summary", action="store_true", help="Skip LLM summary generation")
     pcmp.add_argument("--json", action="store_true", help="JSON output")
@@ -2252,7 +2280,8 @@ def _build_parser() -> argparse.ArgumentParser:
     plab_ingest = lab_sub.add_parser("ingest", help="Ingest a folder of PDFs into the knowledge graph")
     plab_ingest.add_argument("folder", help="Path to folder containing PDF files")
     plab_ingest.add_argument("--no-align", action="store_true", help="Skip alignment stage")
-    plab_ingest.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
+    plab_ingest.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+                             help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     plab_ingest.add_argument("--model", default=None, help="Model override")
     plab_ingest.set_defaults(func=_cmd_lab_ingest)
 

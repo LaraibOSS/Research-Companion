@@ -135,6 +135,106 @@ def test_build_then_stats_then_view(monkeypatch: pytest.MonkeyPatch, tmp_path,
     assert store.graph_html_path().exists()
 
 
+# ---------------------------------------------------------------------------
+# build --provider: flag > RESEARCH_COMPANION_PROVIDER > "anthropic" default.
+#
+# Regression coverage for the bug where the parser default of "anthropic"
+# made args.provider never None, so RESEARCH_COMPANION_PROVIDER was silently
+# ignored whenever --provider was omitted.
+# ---------------------------------------------------------------------------
+
+def _seed_one_paper(tmp_path, fake_pdf_bytes, title="Env Provider Paper"):
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    cli.main(["add", str(pdf), "--title", title])
+
+
+def test_build_no_flag_honors_env_provider(monkeypatch, tmp_path, fake_pdf_bytes,
+                                            sample_extraction, capsys):
+    """`build` with no --provider flag must resolve RESEARCH_COMPANION_PROVIDER."""
+    _seed_one_paper(tmp_path, fake_pdf_bytes)
+    capsys.readouterr()
+    monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+    calls = []
+    monkeypatch.setattr(
+        extract, "_call_openai",
+        lambda prompt, model, max_output_tokens=2048, **kw: (
+            calls.append(("openai", model)) or
+            (json.dumps(sample_extraction), {"input_tokens": 1, "output_tokens": 1})
+        ),
+    )
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model, max_output_tokens=2048: (
+            calls.append(("anthropic", model)) or
+            (json.dumps(sample_extraction), {"input_tokens": 1, "output_tokens": 1})
+        ),
+    )
+
+    rc = cli.main(["build"])
+    assert rc == 0
+    assert calls, "extraction was never called"
+    assert calls[0][0] == "openai"
+
+
+def test_build_explicit_flag_overrides_env_provider(monkeypatch, tmp_path, fake_pdf_bytes,
+                                                      sample_extraction, capsys):
+    """`build --provider anthropic` must win over RESEARCH_COMPANION_PROVIDER=openai."""
+    _seed_one_paper(tmp_path, fake_pdf_bytes)
+    capsys.readouterr()
+    monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+    calls = []
+    monkeypatch.setattr(
+        extract, "_call_openai",
+        lambda prompt, model, max_output_tokens=2048, **kw: (
+            calls.append(("openai", model)) or
+            (json.dumps(sample_extraction), {"input_tokens": 1, "output_tokens": 1})
+        ),
+    )
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model, max_output_tokens=2048: (
+            calls.append(("anthropic", model)) or
+            (json.dumps(sample_extraction), {"input_tokens": 1, "output_tokens": 1})
+        ),
+    )
+
+    rc = cli.main(["build", "--provider", "anthropic"])
+    assert rc == 0
+    assert calls, "extraction was never called"
+    assert calls[0][0] == "anthropic"
+
+
+def test_build_no_flag_no_env_defaults_to_anthropic(monkeypatch, tmp_path, fake_pdf_bytes,
+                                                      sample_extraction, capsys):
+    """No flag, no env: still defaults to anthropic (no regression).
+
+    Note: RESEARCH_COMPANION_PROVIDER is pinned to "anthropic" suite-wide by
+    conftest's _restore_os_environ (so cli.main()'s unconditional real-.env load
+    can't leak the maintainer's own RESEARCH_COMPANION_PROVIDER=openai dev
+    setting into tests); this asserts the observable default-resolution
+    behavior rather than a literally-unset env var.
+    """
+    _seed_one_paper(tmp_path, fake_pdf_bytes)
+    capsys.readouterr()
+
+    calls = []
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model, max_output_tokens=2048: (
+            calls.append(("anthropic", model)) or
+            (json.dumps(sample_extraction), {"input_tokens": 1, "output_tokens": 1})
+        ),
+    )
+
+    rc = cli.main(["build"])
+    assert rc == 0
+    assert calls
+    assert calls[0][0] == "anthropic"
+
+
 def test_chat_one_shot_with_mocked_llm(monkeypatch, tmp_path, fake_pdf_bytes,
                                          sample_extraction, capsys):
     # Setup: add paper, mock extraction, build graph.
@@ -296,6 +396,97 @@ def test_compare_with_injected_llm(monkeypatch, capsys):
     out = capsys.readouterr().out
     result = json.loads(out)
     assert result["summary"] == "Papers differ significantly."
+
+
+# ---------------------------------------------------------------------------
+# compare --provider: flag > RESEARCH_COMPANION_PROVIDER > "anthropic" default.
+#
+# Same regression as build: the parser default of "anthropic" made
+# args.provider never None, dead-coding RESEARCH_COMPANION_PROVIDER whenever
+# --provider was omitted. These exercise the real resolver (no COMPARE_
+# CONTEXT_OVERRIDES seam), asserting on which of extract._call_openai /
+# extract._call_anthropic actually gets invoked.
+# ---------------------------------------------------------------------------
+
+def _seed_two_papers_for_compare():
+    ext_a = {
+        "concepts": [{"name": "C", "definition": "C"}],
+        "methods": [], "datasets": [], "claims": [{"text": "Claim A"}], "results": [],
+        "related_work": [],
+    }
+    ext_b = {
+        "concepts": [],
+        "methods": [], "datasets": [], "claims": [{"text": "Claim B"}], "results": [],
+        "related_work": [],
+    }
+    store.PaperMetadata(paper_id="arxiv:0001", title="P1", authors=["A"]).save()
+    store.PaperMetadata(paper_id="arxiv:0002", title="P2", authors=["B"]).save()
+    store.save_extraction("arxiv:0001", ext_a, prompt_sha=extract.extraction_prompt_sha256())
+    store.save_extraction("arxiv:0002", ext_b, prompt_sha=extract.extraction_prompt_sha256())
+
+
+def test_compare_no_flag_honors_env_provider(monkeypatch, capsys):
+    """`compare` with no --provider flag must resolve RESEARCH_COMPANION_PROVIDER."""
+    _seed_two_papers_for_compare()
+    monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+    calls = []
+    monkeypatch.setattr(
+        extract, "_call_openai",
+        lambda prompt, model=None, **kw: (calls.append(("openai", model)) or ("Summary", {})),
+    )
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model=None, **kw: (calls.append(("anthropic", model)) or ("Summary", {})),
+    )
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--json"])
+    assert rc == 0
+    assert calls
+    assert calls[0][0] == "openai"
+
+
+def test_compare_explicit_flag_overrides_env_provider(monkeypatch, capsys):
+    """`compare --provider anthropic` must win over RESEARCH_COMPANION_PROVIDER=openai."""
+    _seed_two_papers_for_compare()
+    monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
+
+    calls = []
+    monkeypatch.setattr(
+        extract, "_call_openai",
+        lambda prompt, model=None, **kw: (calls.append(("openai", model)) or ("Summary", {})),
+    )
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model=None, **kw: (calls.append(("anthropic", model)) or ("Summary", {})),
+    )
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--provider", "anthropic", "--json"])
+    assert rc == 0
+    assert calls
+    assert calls[0][0] == "anthropic"
+
+
+def test_compare_no_flag_no_env_defaults_to_anthropic(monkeypatch, capsys):
+    """No flag, no env: still defaults to anthropic (no regression).
+
+    Note: RESEARCH_COMPANION_PROVIDER is pinned to "anthropic" suite-wide by
+    conftest's _restore_os_environ (see test_build_no_flag_no_env_defaults_to_anthropic
+    for why); this asserts the observable default-resolution behavior rather
+    than a literally-unset env var.
+    """
+    _seed_two_papers_for_compare()
+
+    calls = []
+    monkeypatch.setattr(
+        extract, "_call_anthropic",
+        lambda prompt, model=None, **kw: (calls.append(("anthropic", model)) or ("Summary", {})),
+    )
+
+    rc = cli.main(["compare", "arxiv:0001", "arxiv:0002", "--json"])
+    assert rc == 0
+    assert calls
+    assert calls[0][0] == "anthropic"
 
 
 # ---------------------------------------------------------------------------
