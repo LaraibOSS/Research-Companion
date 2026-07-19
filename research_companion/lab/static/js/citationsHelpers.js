@@ -19,17 +19,22 @@ const STATUS_ORDER = ['available', 'unchecked', 'unresolved', 'in_library'];
  * Extract the counts object from a coverage response, zeroing any missing fields.
  * Safe on null/undefined input.
  *
+ * `usable` (in_library minus ingest-failed) falls back to `in_library` when the
+ * backend payload predates the field, so stale/cached payloads don't regress.
+ *
  * @param {object|null|undefined} coverage
- * @returns {{ total, in_library, available, unchecked, unresolved }}
+ * @returns {{ total, in_library, available, unchecked, unresolved, usable }}
  */
 export function coverageCounts(coverage) {
   const raw = coverage && coverage.counts ? coverage.counts : {};
+  const in_library = raw.in_library || 0;
   return {
     total:      raw.total      || 0,
-    in_library: raw.in_library || 0,
+    in_library,
     available:  raw.available  || 0,
     unchecked:  raw.unchecked  || 0,
     unresolved: raw.unresolved || 0,
+    usable: raw.usable !== undefined ? raw.usable : in_library,
   };
 }
 
@@ -62,7 +67,13 @@ export function coverageSource(coverage) {
  * 'related_work' or 'none'), the count is the LLM's related-work mentions, not
  * the reference list — so it must not be labelled "cited papers".
  *
- * @param {{ total: number, in_library: number }} counts
+ * Uses `counts.usable` (in_library minus ingest-failed) as the analysis-ready
+ * count, falling back to `counts.in_library` when `usable` is undefined
+ * (backward compat with stale payloads). When some in-library papers are
+ * unusable (ingest failed), appends a clarifying suffix so the banner doesn't
+ * overclaim coverage.
+ *
+ * @param {{ total: number, in_library: number, usable?: number }} counts
  * @param {string} [source] — coverage source ('bibliography' | 'related_work' | 'none')
  * @returns {string}
  */
@@ -70,23 +81,36 @@ export function bannerText(counts, source) {
   if (source && source !== 'bibliography') {
     return `Based on ${counts.total} related-work mentions (full bibliography not detected)`;
   }
+  const inLibrary = counts.in_library || 0;
+  const usable = counts.usable !== undefined ? counts.usable : inLibrary;
+  const unreadable = inLibrary - usable;
+  const suffix = unreadable > 0 ? ` (${unreadable} in library but unreadable)` : '';
   // "cited references" (not "papers") so this reads as draft-bibliography
   // coverage, distinct from the Library's paper total.
-  return `Analysis covers ${counts.in_library} of ${counts.total} cited references`;
+  return `Analysis covers ${usable} of ${counts.total} cited references${suffix}`;
 }
 
 /**
  * Map a reference entry's status to a display chip.
  * If entry.downloading is true, shows a "Downloading…" loading chip.
+ * If status is 'in_library' but entry.ingest_failed is true, the matched
+ * paper exists but its ingest failed — it's unusable for analysis, so the
+ * chip must say so (warn-styled, not the green "in library" ok chip).
  *
- * @param {{ status: string, downloading?: boolean }} entry
+ * @param {{ status: string, downloading?: boolean, ingest_failed?: boolean }} entry
  * @returns {{ label: string, cls: string }}
  */
 export function statusChip(entry) {
   if (entry.downloading) return { label: 'Downloading…', cls: 'chip-loading' };
   switch (entry.status) {
-    case 'in_library': return { label: 'In library ✓', cls: 'chip-ok' };
-    case 'available':  return { label: 'Add ↓',       cls: 'chip-add' };
+    case 'in_library':
+      return entry.ingest_failed
+        ? { label: 'In library — ingest failed', cls: 'chip-warn' }
+        : { label: 'In library ✓', cls: 'chip-ok' };
+    // 'available' status means a fetchable match was found but is NOT yet in
+    // the library — "Missing" avoids reading as a second Add button next to
+    // the row's real Add action.
+    case 'available':  return { label: 'Missing',          cls: 'chip-add' };
     case 'unchecked':  return { label: 'Not checked',      cls: 'chip-muted' };
     case 'unresolved': return { label: 'Unresolved ?',     cls: 'chip-warn' };
     default:           return { label: entry.status || '', cls: 'chip-muted' };

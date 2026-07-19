@@ -287,6 +287,15 @@ export const resolveCitations = () => post('/api/draft/citations/resolve');
 export const linkCitation = (index, paperId) =>
   post('/api/draft/citations/link', { index, paper_id: paperId });
 
+/**
+ * POST /api/draft/citations/unlink — undo a manual link created by
+ * linkCitation. body: { index }. Returns the full updated coverage payload
+ * (same shape as GET /api/draft/citations).
+ * 400 no-draft / index out of range / ref is not a manual link.
+ */
+export const unlinkCitation = (index) =>
+  post('/api/draft/citations/unlink', { index });
+
 // ---------------------------------------------------------------------------
 // Background-activity endpoints (W5-ACT)
 // ---------------------------------------------------------------------------

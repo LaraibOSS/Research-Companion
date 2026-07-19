@@ -80,6 +80,24 @@ test('coverageCounts: partial counts defaults missing fields to 0', () => {
   assert.equal(c.unresolved, 0);
 });
 
+test('coverageCounts: usable passes through when present', () => {
+  const cov = { counts: { total: 10, in_library: 4, usable: 3 } };
+  const c = coverageCounts(cov);
+  assert.equal(c.usable, 3);
+});
+
+test('coverageCounts: usable falls back to in_library when absent (stale payload)', () => {
+  const cov = { counts: { total: 10, in_library: 4 } };
+  const c = coverageCounts(cov);
+  assert.equal(c.usable, 4);
+});
+
+test('coverageCounts: usable is 0 (not fallback) when explicitly 0', () => {
+  const cov = { counts: { total: 10, in_library: 4, usable: 0 } };
+  const c = coverageCounts(cov);
+  assert.equal(c.usable, 0);
+});
+
 // -----------------------------------------------------------------------
 // missingCount
 // -----------------------------------------------------------------------
@@ -128,6 +146,21 @@ test('bannerText: none source also uses the related-work wording', () => {
   assert.ok(!/cited references/.test(text));
 });
 
+test('bannerText: uses usable count when lower than in_library, with unreadable suffix', () => {
+  const text = bannerText({ total: 12, in_library: 5, usable: 3 });
+  assert.equal(text, 'Analysis covers 3 of 12 cited references (2 in library but unreadable)');
+});
+
+test('bannerText: usable equal to in_library omits the unreadable suffix', () => {
+  const text = bannerText({ total: 12, in_library: 5, usable: 5 });
+  assert.equal(text, 'Analysis covers 5 of 12 cited references');
+});
+
+test('bannerText: usable undefined falls back to in_library (stale payload, no suffix)', () => {
+  const text = bannerText({ total: 8, in_library: 3 });
+  assert.equal(text, 'Analysis covers 3 of 8 cited references');
+});
+
 // -----------------------------------------------------------------------
 // coverageSource
 // -----------------------------------------------------------------------
@@ -154,8 +187,26 @@ test('statusChip: in_library', () => {
 
 test('statusChip: available', () => {
   const chip = statusChip({ status: 'available' });
-  assert.equal(chip.label, 'Add ↓');
+  assert.equal(chip.label, 'Missing');
   assert.equal(chip.cls, 'chip-add');
+});
+
+test('statusChip: in_library with ingest_failed uses warn chip', () => {
+  const chip = statusChip({ status: 'in_library', ingest_failed: true });
+  assert.equal(chip.label, 'In library — ingest failed');
+  assert.equal(chip.cls, 'chip-warn');
+});
+
+test('statusChip: in_library without ingest_failed stays the ok chip', () => {
+  const chip = statusChip({ status: 'in_library', ingest_failed: false });
+  assert.equal(chip.label, 'In library ✓');
+  assert.equal(chip.cls, 'chip-ok');
+});
+
+test('statusChip: in_library with ingest_failed still yields to downloading', () => {
+  const chip = statusChip({ status: 'in_library', ingest_failed: true, downloading: true });
+  assert.equal(chip.label, 'Downloading…');
+  assert.equal(chip.cls, 'chip-loading');
 });
 
 test('statusChip: unchecked', () => {

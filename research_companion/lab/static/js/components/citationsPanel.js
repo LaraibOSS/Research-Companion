@@ -131,13 +131,13 @@ async function _fetchAndUpdate() {
 
 function _render() {
   if (!_panel) return;
-  const { citationCoverage, activeJobs } = _storeRef.getState();
+  const { citationCoverage, activeJobs, papers } = _storeRef.getState();
   const downloadTargets = citationDownloadTargets(activeJobs);
-  _panel.innerHTML = _buildHtml(citationCoverage, downloadTargets);
+  _panel.innerHTML = _buildHtml(citationCoverage, downloadTargets, papers);
   _bindEvents(citationCoverage);
 }
 
-function _buildHtml(coverage, downloadTargets = new Set()) {
+function _buildHtml(coverage, downloadTargets = new Set(), papers = null) {
   const counts = coverageCounts(coverage);
   const refs = coverage && Array.isArray(coverage.references) ? coverage.references : [];
   const source = coverage && coverage.source;
@@ -151,9 +151,14 @@ function _buildHtml(coverage, downloadTargets = new Set()) {
   const grouped = groupByStatus(markedRefs);
   const missing = missingCount(counts);
 
-  // Header title
+  // Header title — the in_library/total headline plus a breakdown so the
+  // "Add all" count reconciles with what's shown (fetchable vs. unresolved).
+  const breakdownParts = [];
+  if (counts.available > 0) breakdownParts.push(`${counts.available} fetchable`);
+  if (counts.unresolved > 0) breakdownParts.push(`${counts.unresolved} unresolved`);
+  const breakdown = breakdownParts.length > 0 ? ` · ${breakdownParts.join(' · ')}` : '';
   const headerTitle = counts.total > 0
-    ? `Cited references — ${counts.in_library} of ${counts.total} in library`
+    ? `Cited references — ${counts.in_library} of ${counts.total} in library${breakdown}`
     : 'Cited references';
 
   // Related-work amber note
@@ -186,7 +191,7 @@ function _buildHtml(coverage, downloadTargets = new Set()) {
       : 'No draft is set. Upload your draft paper to see citation coverage.';
     bodyHtml = `<div class="citations-empty">${escapeHtml(emptyMsg)}</div>`;
   } else {
-    bodyHtml = grouped.map(entry => _renderRow(entry)).join('');
+    bodyHtml = grouped.map(entry => _renderRow(entry, papers)).join('');
   }
 
   return `
@@ -207,7 +212,13 @@ function _buildHtml(coverage, downloadTargets = new Set()) {
     </div>`;
 }
 
-function _renderRow(entry) {
+/**
+ * @param {object} entry — reference entry
+ * @param {Map|Array|null} papers — library papers snapshot (store.papers Map,
+ *   the same shape/source _buildLinkPicker uses) for resolving the matched
+ *   paper's title without a per-row fetch.
+ */
+function _renderRow(entry, papers = null) {
   const chip = statusChip(entry);
   const rawTitle = (entry.resolved && entry.resolved.title)
     || entry.title
@@ -225,12 +236,27 @@ function _renderRow(entry) {
     ? `<button class="btn btn-secondary btn-sm citations-row-link" data-index="${escapeHtml(String(entry.index))}">Link…</button>`
     : '';
 
-  // Manually-linked rows: keep the "In library ✓" chip but flag provenance.
+  // Manually-linked rows: keep the "In library ✓" chip but flag provenance,
+  // and offer Unlink (only manual links are reversible — auto matches aren't).
   const manual = entry.match_kind === 'manual';
   const chipTitle = manual ? ' title="manually linked"' : '';
   const manualMark = manual
     ? `<span class="citation-manual-mark" title="manually linked">manually linked</span>`
     : '';
+  const unlinkBtn = manual
+    ? `<button class="btn btn-secondary btn-sm citations-row-unlink" data-index="${escapeHtml(String(entry.index))}">Unlink</button>`
+    : '';
+
+  // For in_library rows, show what this reference actually resolved to — the
+  // matched paper's title, looked up from the already-fetched library
+  // snapshot (no per-row fetch; same `papers` source _buildLinkPicker reads
+  // from state.papers).
+  let linkedTitleLine = '';
+  if (entry.status === 'in_library' && entry.matched_paper_id) {
+    const matched = papers instanceof Map ? papers.get(entry.matched_paper_id) : null;
+    const matchedTitle = (matched && matched.title) || entry.matched_paper_id;
+    linkedTitleLine = `<div class="citation-row-detail">→ ${escapeHtml(matchedTitle)}</div>`;
+  }
 
   return `
     <div class="citation-row" data-index="${escapeHtml(String(entry.index))}" title="${rawAttr}">
@@ -238,11 +264,13 @@ function _renderRow(entry) {
         <span class="citation-row-title">${escapeHtml(rawTitle)}</span>
         ${year ? `<span class="citation-row-year">${escapeHtml(String(year))}</span>` : ''}
       </div>
+      ${linkedTitleLine}
       <div class="citation-row-meta">
         <span class="citation-chip ${escapeHtml(chip.cls)}"${chipTitle}>${escapeHtml(chip.label)}</span>
         ${manualMark}
         ${addBtn}
         ${linkBtn}
+        ${unlinkBtn}
       </div>
     </div>`;
 }
@@ -317,6 +345,28 @@ function _bindEvents(coverage) {
         btn.textContent = 'Failed';
         btn.disabled = false;
         showToast(err.message || 'Failed to add paper', 'error');
+      }
+    });
+  });
+
+  // Per-row Unlink buttons — only rendered for match_kind === 'manual' rows.
+  // Mirrors the link flow: POST, push the returned coverage into the store
+  // (re-renders the panel), toast on success/failure. No confirm() — a link
+  // is trivially re-creatable via "Link…", so there's nothing to lose.
+  _panel.querySelectorAll('.citations-row-unlink').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idxStr = btn.dataset.index;
+      const idx = Number(idxStr);
+      btn.disabled = true;
+      btn.textContent = 'Unlinking…';
+      try {
+        const payload = await _apiRef.unlinkCitation(idx);
+        _storeRef.setCitationCoverage(payload);
+        showToast('Unlinked', 'info');
+      } catch (err) {
+        showToast(err.message || 'Unlink failed', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Unlink';
       }
     });
   });
