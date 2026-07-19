@@ -290,16 +290,15 @@ def test_narrative_attached_to_json_and_persisted_report(monkeypatch, capsys):
 def test_narrative_absent_when_setting_off(monkeypatch, capsys):
     paper_id = _seed()
     ov = _overrides()
-
-    def _boom(p):
-        raise AssertionError("narrative llm must not be called when setting off")
-    ov["_narrative_llm"] = _boom
+    calls = []
+    ov["_narrative_llm"] = lambda p: calls.append(p) or NARRATIVE_JSON
     monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", ov)
     monkeypatch.setattr("research_companion.settings.get_settings",
                         lambda: _narrative_settings(False))
     cli.main(["review", paper_id, "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert "narrative" not in (payload.get("readiness") or {})
+    assert calls == []  # llm never invoked when the setting is off
 
 
 def test_narrative_skipped_under_fast(monkeypatch, capsys):
