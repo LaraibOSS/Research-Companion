@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 from research_companion import __version__
+from research_companion.cost import estimate_cost as _estimate_cost
 
 # Consistent status glyphs for terminal output across commands.
 # Every value is a fixed-width 2-character code so per-item rows in refcheck,
@@ -140,12 +141,6 @@ def _cmd_add(args: argparse.Namespace) -> int:
 # Pricing (USD per 1M tokens, as of 2025)
 # ---------------------------------------------------------------------------
 
-_PRICING: dict[str, dict[str, tuple[float, float]]] = {
-    # provider -> model-prefix -> (input_per_1M, output_per_1M)
-    "anthropic": {"default": (3.00, 15.00)},
-    "openai":    {"default": (2.50, 10.00)},
-}
-
 _DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-7",
     "openai":    "gpt-4o-2024-11-20",
@@ -172,20 +167,6 @@ def _resolve_provider_model(args: argparse.Namespace) -> tuple[str, str | None]:
     )
     model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
     return provider, model
-
-
-def _lookup_pricing(provider: str) -> tuple[float, float]:
-    """Return (input_cost_per_1M, output_cost_per_1M) for *provider*."""
-    bucket = _PRICING.get(provider, _PRICING["anthropic"])
-    return bucket["default"]
-
-
-def _estimate_cost(
-    total_input_tokens: int, total_output_tokens: int, provider: str,
-) -> float:
-    """Return estimated cost in USD."""
-    in_rate, out_rate = _lookup_pricing(provider)
-    return (total_input_tokens / 1_000_000) * in_rate + (total_output_tokens / 1_000_000) * out_rate
 
 
 def _cmd_cost_estimate(args: argparse.Namespace) -> int:
