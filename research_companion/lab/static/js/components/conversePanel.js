@@ -14,6 +14,7 @@ import { escapeHtml } from '../format.js';
 import { renderAnswerHtml, renderUnverifiedHtml } from '../answerHtml.js';
 import { attachCiteHandlers } from './citeMiniCard.js';
 import { showToast } from './toast.js';
+import { confirmDialog } from './confirmDialog.js';
 import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
@@ -415,7 +416,12 @@ function _scrollToBottom() {
 // ---------------------------------------------------------------------------
 
 async function _clearChat() {
-  if (!confirm('Clear this conversation?')) return;
+  const ok = await confirmDialog({
+    title: 'Clear this conversation?',
+    confirmLabel: 'Clear',
+    cancelLabel: 'Cancel',
+  });
+  if (!ok) return;
 
   const thread = _thread();
 

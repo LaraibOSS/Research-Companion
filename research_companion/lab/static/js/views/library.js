@@ -9,6 +9,7 @@ import { open as drawerOpen, close as drawerClose } from '../components/drawer.j
 import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
+import { confirmDialog } from '../components/confirmDialog.js';
 import { buildRows, sortRows, draftActionFor } from '../libraryHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
@@ -170,7 +171,12 @@ async function _handleAdd() {
  * @param {{ onSuccess?: () => void }} [opts] — e.g. close the drawer
  */
 async function removePaperFlow(paperId, { onSuccess } = {}) {
-  if (!confirm(`Remove paper ${paperId}?`)) return;
+  const ok = await confirmDialog({
+    title: `Remove paper ${paperId}?`,
+    confirmLabel: 'Remove',
+    cancelLabel: 'Cancel',
+  });
+  if (!ok) return;
   try {
     const res = await api.deletePaper(paperId);
     const s = store.getState();
