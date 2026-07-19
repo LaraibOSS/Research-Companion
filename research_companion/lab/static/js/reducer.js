@@ -327,6 +327,7 @@ export function applyEvent(state, evt) {
           available:  evt.available  || 0,
           unchecked:  evt.unchecked  || 0,
           unresolved: evt.unresolved || 0,
+          usable:     (evt.usable !== undefined && evt.usable !== null) ? evt.usable : (evt.in_library || 0),
         },
         stale: true,
       };

@@ -310,6 +310,43 @@ test('citation_coverage_updated: returns ["citations"]', () => {
   assert.deepEqual(topics, ['citations']);
 });
 
+test('citation_coverage_updated: includes usable field in counts', () => {
+  const state = makeState();
+  state.citationCoverage = null;
+  applyEvent(state, {
+    event: 'citation_coverage_updated',
+    draft_paper_id: 'p1',
+    total: 10,
+    in_library: 5,
+    available: 3,
+    unchecked: 1,
+    unresolved: 1,
+    usable: 3,
+    seq: 1,
+  });
+  assert.ok(state.citationCoverage, 'citationCoverage should be set');
+  assert.equal(state.citationCoverage.counts.usable, 3, 'usable field should be preserved');
+  assert.equal(state.citationCoverage.counts.in_library, 5, 'in_library still present');
+});
+
+test('citation_coverage_updated: usable falls back to in_library when absent', () => {
+  const state = makeState();
+  state.citationCoverage = null;
+  applyEvent(state, {
+    event: 'citation_coverage_updated',
+    draft_paper_id: 'p1',
+    total: 10,
+    in_library: 5,
+    available: 3,
+    unchecked: 1,
+    unresolved: 1,
+    seq: 1,
+    // note: no usable field, simulating old/replayed events
+  });
+  assert.ok(state.citationCoverage, 'citationCoverage should be set');
+  assert.equal(state.citationCoverage.counts.usable, 5, 'usable should fallback to in_library');
+});
+
 // ---------------------------------------------------------------------------
 // W5-ACT: job_started / job_finished
 // ---------------------------------------------------------------------------
