@@ -27,6 +27,39 @@ from pathlib import Path
 
 from research_companion import __version__
 
+# Consistent status glyphs for terminal output across commands.
+# Every value is a fixed-width 2-character code so per-item rows in refcheck,
+# check-stats, check-overlap, check-compliance, and gaps line up:
+#   OK  = healthy / good / consistent / addressed
+#   !!  = needs attention (suspect / inconsistent / warning / partially addressed)
+#   XX  = confirmed problem (unverified / decision_inconsistent / desk_reject / overlap finding)
+#   --  = neutral / informational / skipped / still open
+# Keys are the literal per-item status strings already used by each command's
+# domain module (e.g. refcheck's "verified"/"suspect"/"unverified", statcheck's
+# "consistent"/"inconsistent"/..., compliance's "desk_reject"/"warning"/"skipped",
+# gaps' "addressed"/"partially"/"open") plus a few generic aliases.
+_STATUS_GLYPH = {
+    # ok
+    "ok": "OK", "pass": "OK", "good": "OK",
+    "verified": "OK", "consistent": "OK", "addressed": "OK",
+    # warn
+    "warn": "!!", "warning": "!!", "suspect": "!!", "review": "!!",
+    "inconsistent": "!!", "partially": "!!",
+    # fail
+    "fail": "XX", "error": "XX", "bad": "XX",
+    "unverified": "XX", "decision_inconsistent": "XX", "impossible_mean": "XX",
+    "desk_reject": "XX",
+    # neutral
+    "info": "--", "skip": "--", "skipped": "--", "neutral": "--", "open": "--",
+}
+
+
+def _glyph(status: str) -> str:
+    """Map a per-item status string to one of four canonical 2-char glyphs
+    (OK / !! / XX / --) shared by refcheck, check-stats, check-overlap,
+    check-compliance, and gaps. Unknown statuses fall back to neutral ("--")."""
+    return _STATUS_GLYPH.get(status, "--")
+
 
 def _parse_connectors_arg(value):
     """Parse --connectors 'europepmc,pubmed,dblp' -> ['europepmc','pubmed','dblp'];
@@ -584,7 +617,7 @@ def _auto_add_discovered(results, add_paper_fn, fetch_error_cls) -> tuple[int, i
             print(f"  + {meta.paper_id}  {meta.title[:60]}")
             added += 1
         except fetch_error_cls as e:
-            print(f"  x failed: {p.title[:50]}: {e}", file=sys.stderr)
+            print(f"  research-companion: failed: {p.title[:50]}: {e}", file=sys.stderr)
             failed += 1
     return added, failed
 
@@ -1323,9 +1356,8 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
         print("research-companion: no references found in this paper's extraction.")
         return 0
 
-    symbol = {"verified": "OK ", "suspect": "?? ", "unverified": "XX "}
     for ref, verdict in report.entries:
-        print(f"{symbol[verdict.status]} [{verdict.status}] {ref.title}")
+        print(f"{_glyph(verdict.status)} [{verdict.status}] {ref.title}")
         for reason in verdict.reasons:
             print(f"        - {reason}")
     print(
@@ -1359,10 +1391,8 @@ def _cmd_check_stats(args: argparse.Namespace) -> int:
         print("research-companion: no parseable statistics found (nothing to check).")
         return 0
 
-    symbol = {"consistent": "OK ", "inconsistent": "?? ",
-              "decision_inconsistent": "XX ", "impossible_mean": "XX "}
     for f in findings:
-        sym = symbol.get(f["status"], "?? ")
+        sym = _glyph(f["status"])
         if f.get("test_type") == "mean":
             print(f"{sym}[{f['status']}] mean={f['mean']} N={f['n']}")
         else:
@@ -1494,7 +1524,9 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
     for f in result["findings"]:
         pct = round(float(f["score"]) * 100)
         label = "paraphrase" if f.get("method") == "semantic" else "overlap"
-        print(f"XX [{pct}% {label}] with {f['matched_paper_id']}: "
+        # Every overlap finding surfaced here is already a flagged problem
+        # (near-duplicate or paraphrase match), so it always maps to "fail".
+        print(f"{_glyph('fail')} [{pct}% {label}] with {f['matched_paper_id']}: "
               f"\"{f['snippet'][:120]}...\"")
     print(f"\nSummary: {result['summary']['text']}")
 
@@ -1574,19 +1606,19 @@ def _cmd_check_compliance(args: argparse.Namespace) -> int:
     if desk_rejects:
         print("Desk-reject risks:")
         for c in desk_rejects:
-            print(f"  XX [{c['check']}] {c['message']}")
+            print(f"  {_glyph(c['severity'])} [{c['check']}] {c['message']}")
             if c.get("detail"):
                 print(f"     {c['detail']}")
     if warnings:
         print("Warnings:")
         for c in warnings:
-            print(f"  ?? [{c['check']}] {c['message']}")
+            print(f"  {_glyph(c['severity'])} [{c['check']}] {c['message']}")
             if c.get("detail"):
                 print(f"     {c['detail']}")
     if skipped:
         print("Skipped:")
         for c in skipped:
-            print(f"  -- [{c['check']}] {c['message']}")
+            print(f"  {_glyph(c['status'])} [{c['check']}] {c['message']}")
     if not desk_rejects and not warnings:
         print("research-companion: no compliance issues found.")
 
@@ -1703,12 +1735,6 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
     total_gaps = sum(len(p.get("gaps", [])) for p in papers)
     print(f"\nresearch-companion: {total_gaps} gap(s) across {len(papers)} paper(s)\n")
 
-    _STATUS_GLYPH = {
-        "addressed": "[+]",
-        "partially": "[~]",
-        "open": "[ ]",
-    }
-
     for paper in papers:
         title = paper.get("title", paper.get("paper_id", "?"))
         year = paper.get("year") or "?"
@@ -1719,7 +1745,7 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
             kind = gap.get("kind", "?")
             res = gap.get("resolution", {})
             status = res.get("status", "open")
-            glyph = _STATUS_GLYPH.get(status, "[ ]")
+            glyph = _glyph(status)
             draft_mark = " [DRAFT]" if gid in draft_addresses else ""
             print(f"    {glyph} [{kind}] {stmt}{draft_mark}")
         print()
@@ -1876,7 +1902,7 @@ def _cmd_workspace(args: argparse.Namespace) -> int:
         try:
             rec = workspaces.create_workspace(args.name)
         except workspaces.WorkspaceError as exc:
-            print(f"error: {exc}", file=sys.stderr)
+            print(f"research-companion: {exc}", file=sys.stderr)
             return 1
         print(f"created workspace: {rec['id']}  ({rec['name']})")
         return 0
@@ -1894,12 +1920,12 @@ def _cmd_workspace(args: argparse.Namespace) -> int:
             if candidate in known:
                 ws_id = candidate
         if ws_id is None:
-            print(f"error: unknown workspace: {target!r}", file=sys.stderr)
+            print(f"research-companion: unknown workspace: {target!r}", file=sys.stderr)
             return 1
         try:
             workspaces.activate_workspace(ws_id)
         except workspaces.WorkspaceError as exc:
-            print(f"error: {exc}", file=sys.stderr)
+            print(f"research-companion: {exc}", file=sys.stderr)
             return 1
         print(f"active workspace: {ws_id}")
         return 0

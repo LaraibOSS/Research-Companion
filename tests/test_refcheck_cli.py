@@ -63,6 +63,25 @@ def test_refcheck_cli_json_output(monkeypatch: pytest.MonkeyPatch, capsys):
     assert payload["references"][0]["status"] == "verified"
 
 
+def test_refcheck_cli_suspect_uses_standard_warn_glyph(monkeypatch: pytest.MonkeyPatch, capsys):
+    """A 'suspect' verdict (record found but title mismatched) must print the
+    shared WARN glyph ("!!"), not the old per-command "??" literal."""
+    paper_id = _seed_paper_with_refs(["Some Real Paper Title From 2020"])
+
+    def _lookup(ref):
+        return {"title": "A Completely Unrelated Record Title", "authors": [],
+                "year": 2020, "doi": None, "arxiv_id": None}
+
+    monkeypatch.setattr(retrieval, "default_lookup", lambda: _lookup)
+
+    rc = cli.main(["refcheck", paper_id])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "suspect" in out.lower()
+    assert "!!" in out
+    assert "??" not in out
+
+
 def test_refcheck_cli_errors_when_no_extraction(capsys):
     rc = cli.main(["refcheck", "local:doesnotexist"])
     assert rc == 1

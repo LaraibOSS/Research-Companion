@@ -23,7 +23,11 @@ class TestWorkspaceCli:
         cli.main(["workspace", "create", "Twice"])
         rc = cli.main(["workspace", "create", "twice"])
         assert rc == 1
-        assert "error" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        # Every user-facing stderr error is prefixed "research-companion:",
+        # not the old bare "error:".
+        assert err.strip().startswith("research-companion:")
+        assert not err.strip().startswith("error:")
 
     def test_use_by_id_and_by_name(self, isolated_root_dir, capsys):
         cli.main(["workspace", "create", "Proj X"])
@@ -36,7 +40,9 @@ class TestWorkspaceCli:
     def test_use_unknown_errors(self, isolated_root_dir, capsys):
         rc = cli.main(["workspace", "use", "nope"])
         assert rc == 1
-        assert "unknown workspace" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "unknown workspace" in err
+        assert err.strip().startswith("research-companion:")
 
     def test_round_trip_isolation(self, isolated_root_dir, capsys):
         # Paper saved in main is invisible from a fresh workspace and back
