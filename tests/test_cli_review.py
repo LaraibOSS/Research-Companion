@@ -145,6 +145,42 @@ def test_review_full_pipeline_readable_lane_summaries(monkeypatch: pytest.Monkey
     assert "inconsistent" in stat_line and "impossible means" in stat_line
 
 
+def test_review_summary_falls_back_on_unexpected_lane_data_shape(
+    monkeypatch: pytest.MonkeyPatch, capsys,
+):
+    """A known lane (present in the `summaries` lookup table) that returns
+    ok=True but with data not matching the summarizer's expected shape must
+    not crash the whole review summary — cli.py must catch the exception and
+    fall back to the crash-proof key/value formatter, same as an unknown
+    lane. Regression test for a bare `summarize(r.data)` call that would
+    KeyError and abort the entire `review` command."""
+    paper_id = _seed()
+    monkeypatch.setattr(cli, "REVIEW_CONTEXT_OVERRIDES", _overrides())
+
+    from research_companion.agents.ingest import IngestAgent
+    orig_run = IngestAgent.run
+
+    async def malformed_run(self, ctx):
+        # Run the real ingest logic (so downstream lanes still get a graph
+        # via ctx.data) but return a result whose `data` doesn't have the
+        # graph_nodes/graph_edges keys summaries["ingest"] indexes into.
+        result = await orig_run(self, ctx)
+        if result.ok:
+            result.data = {"unexpected_key": 42}
+        return result
+
+    monkeypatch.setattr(IngestAgent, "run", malformed_run)
+
+    rc = cli.main(["review", paper_id])
+    out = capsys.readouterr().out
+    assert rc == 0
+
+    ingest_line = next(ln for ln in out.splitlines() if ln.strip().split()[:1] == ["ingest"])
+    assert "done" in ingest_line
+    # Fell back to _fallback_summary's key=value rendering instead of raising.
+    assert "unexpected_key=42" in ingest_line
+
+
 def test_fast_help_lists_all_skipped_lanes():
     """The --fast help text must name all six LLM lanes it actually skips,
     not just the original three (novelty, confidence, benchmark)."""

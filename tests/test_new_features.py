@@ -450,6 +450,54 @@ class TestExport:
         for link in linked:
             assert (out_dir / f"{link}.md").exists(), f"[[{link}]] does not resolve to a file"
 
+    def test_export_obsidian_paper_and_entity_name_collision(
+        self, fake_pdf_bytes: bytes,
+        sample_extraction: dict, tmp_path: Path, capsys: pytest.CaptureFixture,
+    ):
+        """A paper title and an entity name (concept/method/dataset) that
+        sanitize to the SAME base filename must land in two distinct files
+        (paper notes and entity notes previously deduped against separate
+        used-name maps, so one silently overwrote the other), and the
+        surviving entity->paper backlink must resolve to a real file."""
+        # sample_extraction's methods include one named "GraphRAG" — give the
+        # paper the identical title so both sanitize to "GraphRAG".
+        _add_paper_with_extraction(
+            fake_pdf_bytes, sample_extraction,
+            paper_id="arxiv:3333.33333", title="GraphRAG",
+        )
+        from research_companion.graph import build_graph, save_graph
+        from research_companion.store import graph_json_path, list_papers
+        G = build_graph(list_papers())
+        save_graph(G, graph_json_path())
+
+        out_dir = tmp_path / "obsidian-export-name-collide"
+        rc = cli.main(["export", "--format", "obsidian", "--output", str(out_dir)])
+        assert rc == 0
+
+        md_files = list(out_dir.glob("*.md"))
+        stems = {f.stem for f in md_files}
+        assert "GraphRAG" in stems
+        assert any(s.startswith("GraphRAG-") for s in stems)
+
+        contents = {f.stem: f.read_text(encoding="utf-8") for f in md_files}
+        # The paper note has "**Authors:**"; the "GraphRAG" method note has
+        # "**Type:** method" — distinguish which of the two "GraphRAG*" files
+        # is which, and confirm neither clobbered the other.
+        graphrag_stems = [s for s in stems if s == "GraphRAG" or s.startswith("GraphRAG-")]
+        paper_stems = [s for s in graphrag_stems if "**Authors:**" in contents[s]]
+        entity_stems = [s for s in graphrag_stems if "**Type:** method" in contents[s]]
+        assert len(paper_stems) == 1, contents
+        assert len(entity_stems) == 1, contents
+        assert paper_stems[0] != entity_stems[0]
+
+        # The entity note's "Mentioned in" backlink(s) to paper(s) must
+        # resolve to actual written files.
+        import re
+        linked = re.findall(r"\[\[([^\]]+)\]\]", contents[entity_stems[0]])
+        assert linked
+        for link in linked:
+            assert (out_dir / f"{link}.md").exists(), f"[[{link}]] does not resolve to a file"
+
 
 # ---------------------------------------------------------------------------
 # Discover tests

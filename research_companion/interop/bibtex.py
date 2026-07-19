@@ -44,7 +44,12 @@ def cite_key(rec: Any) -> str:
 
 
 def _escape(value: str) -> str:
-    """LaTeX-escape a field value for BibTeX export (title/author/doi/url/abstract).
+    """LaTeX-escape a field value for BibTeX export (title/author/abstract).
+
+    NOT used for ``doi``/``url`` fields — those are emitted raw (only
+    ``.strip()``ped) since a URL or DOI legitimately contains characters like
+    ``~ _ % # &`` that must survive untouched for ``\\url{}``/``\\path{}`` to
+    handle correctly; LaTeX-escaping them would corrupt the value.
 
     NOT used for RIS export — RIS is plain tag-based text, not LaTeX, and
     ``interop/ris.py`` writes field values verbatim (only ``.strip()``ped).
@@ -89,10 +94,10 @@ def paper_to_bibtex(rec: Any, key: str | None = None, entry_type: str = "article
         fields.append(("year", str(year)))
     doi = _get(rec, "doi")
     if doi:
-        fields.append(("doi", _escape(doi)))
+        fields.append(("doi", str(doi).strip()))
     url = _get(rec, "url") or _get(rec, "source_url")
     if url:
-        fields.append(("url", _escape(url)))
+        fields.append(("url", str(url).strip()))
     abstract = _get(rec, "abstract")
     if abstract:
         fields.append(("abstract", _escape(abstract)))

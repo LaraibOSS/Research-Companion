@@ -872,7 +872,11 @@ def _cmd_review(args: argparse.Namespace) -> int:
         r = results[agent.name]
         if r.ok:
             summarize = summaries.get(agent.name, _fallback_summary)
-            print(f"  {agent.name:<{w}} done    {summarize(r.data)}")
+            try:
+                text = summarize(r.data)
+            except Exception:
+                text = _fallback_summary(r.data)
+            print(f"  {agent.name:<{w}} done    {text}")
         else:
             print(f"  {agent.name:<{w}} FAILED  {r.error}")
     ok = all(r.ok for r in results.values())

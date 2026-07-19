@@ -320,7 +320,12 @@ def _export_obsidian(output_dir: Path) -> Path:
     # resolves to the real (possibly disambiguated) file — see the entity
     # notes loop further down.
     paper_fname: dict[str, str] = {}
-    used_paper_names: dict[str, int] = {}
+    # Shared across BOTH paper and entity notes below — they are written to the
+    # same output_dir, so a paper title and an entity name that sanitize to the
+    # same base filename must be deduped against ONE namespace. Two separate
+    # dicts (one per category) would let a paper note and an entity note both
+    # claim the same on-disk filename and silently overwrite each other.
+    used_names: dict[str, int] = {}
 
     # --- Paper notes (one per paper) ---
     for meta in papers:
@@ -402,12 +407,11 @@ def _export_obsidian(output_dir: Path) -> Path:
                     lines.append(f"- {ref}")
             lines.append("")
 
-        fname = _dedupe_filename(_sanitize_filename(meta.title), used_paper_names)
+        fname = _dedupe_filename(_sanitize_filename(meta.title), used_names)
         paper_fname[meta.paper_id] = fname
         (output_dir / f"{fname}.md").write_text("\n".join(lines), encoding="utf-8")
 
     # --- Entity notes (one per concept/method/dataset) ---
-    used_entity_names: dict[str, int] = {}
     for info in entities.values():
         name = info["name"]
         kind = info["kind"]
@@ -431,7 +435,7 @@ def _export_obsidian(output_dir: Path) -> Path:
             lines.append(f"- [[{fname}]]")
         lines.append("")
 
-        entity_fname = _dedupe_filename(_sanitize_filename(name), used_entity_names)
+        entity_fname = _dedupe_filename(_sanitize_filename(name), used_names)
         (output_dir / f"{entity_fname}.md").write_text("\n".join(lines), encoding="utf-8")
 
     return output_dir
