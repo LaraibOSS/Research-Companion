@@ -4,7 +4,7 @@
 
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
-import { needsMetadata, formatFailureReason } from '../libraryHelpers.js';
+import { needsMetadata, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
 
 /**
  * Render a paper card element.
@@ -88,6 +88,9 @@ export function renderPaperCard(paper) {
         ${paper.status === 'failed'
           ? `<button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>`
           : `<button class="btn btn-sm btn-read" data-paper-id="${escapeHtml(paper.paper_id)}">Read</button>`}
+        ${paper.status === 'failed' && isMissingPdfFailure(paper.failure_reason)
+          ? `<button class="btn btn-sm btn-upload-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Upload PDF</button>`
+          : ''}
         <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
       </div>
     </div>

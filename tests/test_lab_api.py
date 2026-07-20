@@ -3309,6 +3309,149 @@ class TestUploadPaper:
         assert "JobDone" in kinds
 
 
+# ---------------------------------------------------------------------------
+# POST /api/papers/{id}/pdf — upload a PDF for an EXISTING paper (e.g. after
+# a "no PDF on disk" / "PDF not found" failure) and kick the SAME retry-flow
+# re-ingest as POST /api/papers/{id}/retry.
+# ---------------------------------------------------------------------------
+
+class TestUploadPaperPdf:
+    def _client(self, retry_override=None):
+        app = create_lab_app(Bus())
+        if retry_override is not None:
+            app.state.retry_override = retry_override
+        return app, TestClient(app)
+
+    def _post(self, c, paper_id, *, body=_UPLOAD_PDF, ctype="application/pdf"):
+        return c.post(f"/api/papers/{paper_id}/pdf", content=body,
+                      headers={"Content-Type": ctype})
+
+    def test_upload_pdf_unknown_paper_404(self, isolated_papergraph_dir):
+        app, c = self._client()
+        with c:
+            resp = self._post(c, "arxiv:does_not_exist")
+            assert resp.status_code == 404
+
+    def test_upload_pdf_rejects_non_pdf_400(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_400")
+        app, c = self._client()
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_400", body=b"hello, not a pdf at all")
+            assert resp.status_code == 400
+            assert "PDF" in resp.json()["detail"]
+
+    def test_upload_pdf_rejects_empty_400(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_empty")
+        app, c = self._client()
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_empty", body=b"")
+            assert resp.status_code == 400
+
+    def test_upload_pdf_requires_pdf_content_type_415(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_ctype")
+        app, c = self._client()
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_ctype", ctype="text/plain")
+            assert resp.status_code == 415
+
+    def test_upload_pdf_rejects_oversize_413(self, isolated_papergraph_dir, monkeypatch):
+        import research_companion.lab_api as la
+        monkeypatch.setattr(la, "_MAX_UPLOAD_BYTES", 1024)
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_big")
+        app, c = self._client()
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_big", body=b"%PDF-1.4" + b"x" * 2048)
+            assert resp.status_code == 413
+
+    def test_upload_pdf_happy_path_202_and_saved(self, isolated_papergraph_dir):
+        """Valid PDF bytes for an existing (failed) paper -> 202, the PDF is
+        saved to the paper's canonical location, the job completes via the
+        SAME job-flow seam POST .../retry uses, and the stale failure record
+        is cleared on success."""
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_ok")
+        store.record_failure("arxiv:up_pdf_ok", {
+            "stage": "extract", "error": "no PDF on disk for arxiv:up_pdf_ok",
+            "paper_id": "arxiv:up_pdf_ok",
+        })
+
+        calls = []
+
+        async def fake_retry(path, paper_id, bus):
+            calls.append((path, paper_id))
+
+        app, c = self._client(retry_override=fake_retry)
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_ok")
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["job_id"]
+            assert data["paper_id"] == "arxiv:up_pdf_ok"
+
+            import time
+            job = None
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{data['job_id']}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "done", job
+
+        saved = store.pdf_path("arxiv:up_pdf_ok")
+        assert saved is not None
+        assert saved.read_bytes() == _UPLOAD_PDF
+        # The retry-flow seam ran exactly once for this paper (job reuse, not
+        # a hand-rolled duplicate pipeline).
+        assert len(calls) == 1
+        assert calls[0][1] == "arxiv:up_pdf_ok"
+        # The stale failure record is cleared on success, same as /retry.
+        assert "arxiv:up_pdf_ok" not in store.list_failures()
+
+    def test_upload_pdf_pipeline_stages_run_via_seams(self, isolated_papergraph_dir):
+        """When retry_override is NOT set, the real _retry_paper_task runs and
+        the pipeline stage seams fire — proves the endpoint reuses the retry
+        job flow rather than a separately-implemented pipeline."""
+        from unittest.mock import patch
+
+        from research_companion import store as _store
+
+        paper_id = "local:pipe_pdf_test"
+        meta = _store.PaperMetadata(paper_id=paper_id, title="Pipe PDF Test",
+                                    authors=["A"], added_at="2024-01-01T00:00:00Z")
+        meta.save()
+        _store.save_text(paper_id, "Introduction Methods Results. " * 10)
+        _store.record_failure(paper_id, {"stage": "extract", "error": "no PDF on disk",
+                                         "paper_id": paper_id})
+
+        _fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=False)
+
+        def fake_add_local_pdf(path):
+            return meta
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        app.state.pipeline_overrides = seam_overrides
+
+        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), TestClient(app) as c:
+            resp = self._post(c, paper_id)
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            import time
+            job = None
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "done", job
+
+        assert counts["extractor"] >= 1
+        assert counts["sectioner"] >= 1
+        assert paper_id not in _store.list_failures()
+
+
 class TestPipelineProviderFromSettings:
     """REGRESSION: the extraction pipeline resolved its provider from a raw
     env var (defaulting to anthropic) while /api/settings resolved it from

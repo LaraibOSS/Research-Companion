@@ -709,6 +709,89 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         return {"job_id": job_id}
 
     # -----------------------------------------------------------------
+    # POST /api/papers/{id}/pdf
+    # Upload a replacement PDF for an EXISTING paper (the "no PDF on disk" /
+    # "PDF not found" Library hint) and kick the SAME retry-flow re-ingest as
+    # POST /api/papers/{id}/retry — no separate pipeline is implemented here.
+    # Raw-body upload, same CSRF/size/magic-byte checks as
+    # POST /api/papers/upload (see there for the full rationale): a "simple"
+    # cross-origin content type is rejected so a hostile page cannot silently
+    # POST bytes to this endpoint without a CORS preflight this server never
+    # answers.
+    # -----------------------------------------------------------------
+    @app.post("/api/papers/{paper_id:path}/pdf", status_code=202)
+    async def upload_paper_pdf(paper_id: str, request: Request) -> dict:
+        from research_companion import store
+
+        meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype not in ("application/pdf", "application/octet-stream"):
+            raise HTTPException(status_code=415,
+                                detail="upload must be application/pdf")
+
+        try:
+            declared = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            declared = 0
+        if declared > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413,
+                                detail="PDF exceeds the 50 MB upload limit")
+
+        body = await request.body()
+        if not body:
+            raise HTTPException(status_code=400, detail="upload body is empty")
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413,
+                                detail="PDF exceeds the 50 MB upload limit")
+        if not body.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=400,
+                detail="file does not look like a PDF (missing %PDF- header)")
+
+        pdf_path = await asyncio.to_thread(store.save_pdf, paper_id, body)
+        path_str = str(pdf_path)
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        retry_label = f"Retrying {paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "retry",
+                                  "label": retry_label, "target": ""}
+
+        if app.state.retry_override is not None:
+            coro = app.state.retry_override(path_str, paper_id, bus)
+        else:
+            coro = _retry_paper_task(
+                path_str,
+                paper_id,
+                bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
+
+        async def _run():
+            await _announce_start(job_id, "retry", retry_label)
+            try:
+                await coro
+                # Same clear_failure semantics as /retry: drop the entry keyed
+                # by the just-saved pdf path AND any stale entry recorded
+                # under a different key for this paper_id (e.g. the original
+                # "no PDF on disk" record from the first ingest attempt).
+                store.clear_failure(path_str, paper_id=paper_id)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry",
+                                          "label": retry_label, "target": ""}
+                _schedule_coverage_refresh()
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry",
+                                          "label": retry_label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "retry")
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id, "paper_id": paper_id}
+
+    # -----------------------------------------------------------------
     # DELETE /api/papers/{id}
     # -----------------------------------------------------------------
     @app.delete("/api/papers/{paper_id:path}")
