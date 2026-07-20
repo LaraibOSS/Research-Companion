@@ -481,3 +481,71 @@ test('blockIntersectsRange: null/missing range never intersects', () => {
   assert.equal(blockIntersectsRange({ start: 10, end: 20 }, undefined), false);
   assert.equal(blockIntersectsRange(null, [10, 20]), false);
 });
+
+// -----------------------------------------------------------------------
+// _isDisplayLine heuristic refinement (prose vs. equations)
+// -----------------------------------------------------------------------
+
+test('sectionBlocks: short prose with = and terminal period is NOT display (bug fix)', () => {
+  // This used to be mis-styled as display, but it's prose: "and this shows y = f(x) clearly."
+  const raw = 'Before this. and this shows y = f(x) clearly. After that.';
+  const blocks = sectionBlocks(raw);
+  assertCoverage(raw, blocks);
+  // Should be 1 paragraph (not display + para)
+  const paras = blocks.filter(b => b.kind === 'para');
+  const displays = blocks.filter(b => b.kind === 'display');
+  assert.equal(displays.length, 0);
+  assert.equal(paras.length, 1);
+});
+
+test('sectionBlocks: equation with numbering still becomes display even with period', () => {
+  // "st = S(st−1, Wxxt) (1)" with equation number is still display
+  const raw = 'st = S(st−1, Wxxt) (1)\n\nMore text continues.';
+  const blocks = sectionBlocks(raw);
+  assertCoverage(raw, blocks);
+  const displays = blocks.filter(b => b.kind === 'display');
+  assert.equal(displays.length, 1);
+  assert.equal(displays[0].text, 'st = S(st−1, Wxxt) (1)');
+});
+
+test('sectionBlocks: short equation without period is still display', () => {
+  // "E = mc2" without terminal punctuation is display
+  const raw = 'E = mc2\n\nMore text.';
+  const blocks = sectionBlocks(raw);
+  assertCoverage(raw, blocks);
+  const displays = blocks.filter(b => b.kind === 'display');
+  assert.equal(displays.length, 1);
+  assert.equal(displays[0].text, 'E = mc2');
+});
+
+test('sectionBlocks: prose line with stray double-space is NOT columnar (bug fix)', () => {
+  // Single double-space in prose should not trigger table detection
+  const raw = 'This has been shown  in many settings.';
+  const blocks = sectionBlocks(raw);
+  assertCoverage(raw, blocks);
+  const tables = blocks.filter(b => b.kind === 'table');
+  assert.equal(tables.length, 0);
+  // Should be a paragraph, not a table
+  const paras = blocks.filter(b => b.kind === 'para');
+  assert.equal(paras.length, 1);
+});
+
+test('sectionBlocks: two numeric-heavy lines with space runs form a table', () => {
+  // Two columnar lines with multiple space runs and numeric tokens
+  const raw = '1  2  3  4  5\n\n0.5  1.0  1.5  2.0';
+  const blocks = sectionBlocks(raw);
+  assertCoverage(raw, blocks);
+  const tables = blocks.filter(b => b.kind === 'table');
+  // Both lines are columnar → 1 table
+  assert.equal(tables.length, 1);
+});
+
+test('sectionBlocks: two numeric-heavy lines with 2 space runs form a table', () => {
+  // Two lines with 2 space runs + 3+ numeric tokens
+  const raw = '1 2 3 4 5\n\n0.5 1.0 1.5';
+  const blocks = sectionBlocks(raw);
+  assertCoverage(raw, blocks);
+  const tables = blocks.filter(b => b.kind === 'table');
+  // Both lines meet criteria → 1 table
+  assert.equal(tables.length, 1);
+});

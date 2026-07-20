@@ -216,17 +216,25 @@ function _isCaptionLine(s) {
 
 function _isDisplayLine(s) {
   if (s.length === 0 || s.length > DISPLAY_MAX_LEN) return false;
+  // Equation numbering like (3) overrides the period rule
   if (DISPLAY_NUMBERING_RE.test(s)) return true;
-  return s.includes('=');
+  // Must contain = to be considered display
+  if (!s.includes('=')) return false;
+  // Do not treat as display if it ends with sentence-terminal punctuation
+  // (these are prose, not equations)
+  if (_endsTerminal(s)) return false;
+  return true;
 }
 
 function _isColumnarLine(s) {
-  if (/\t/.test(s)) return true;
+  if (/	/.test(s)) return true;
   const spaceRuns = (s.match(/ {2,}/g) || []).length;
-  if (spaceRuns >= 2) return true;
+  // Require 3+ space runs, OR (2 runs AND 3+ numeric tokens)
+  if (spaceRuns >= 3) return true;
   const tokens = s.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return false;
   const numericTokens = tokens.filter(t => /^-?\d+(\.\d+)?%?$/.test(t)).length;
+  if (spaceRuns === 2 && numericTokens >= 3) return true;
   return numericTokens >= 3 && numericTokens / tokens.length >= 0.5;
 }
 
