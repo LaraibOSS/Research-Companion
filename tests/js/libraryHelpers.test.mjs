@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
 
@@ -389,4 +389,39 @@ test('metadataBannerText: plural count -> "N papers need metadata"', () => {
     metadataBannerText(5),
     '5 papers need metadata — add authors/year so they appear on the timeline and match your citations'
   );
+});
+
+// ---------------------------------------------------------------------------
+// formatFailureReason
+// ---------------------------------------------------------------------------
+
+test('formatFailureReason: null/undefined/empty -> ""', () => {
+  assert.equal(formatFailureReason(null), '');
+  assert.equal(formatFailureReason(undefined), '');
+  assert.equal(formatFailureReason(''), '');
+});
+
+test('formatFailureReason: short reason returned unchanged', () => {
+  assert.equal(formatFailureReason('parser crashed'), 'parser crashed');
+});
+
+test('formatFailureReason: long reason truncated to ~80 chars with an ellipsis', () => {
+  const long = 'x'.repeat(120);
+  const out = formatFailureReason(long);
+  assert.ok(out.length <= 81, `expected <= 81 chars, got ${out.length}`);
+  assert.ok(out.endsWith('…'));
+  assert.ok(long.startsWith(out.slice(0, -1)));
+});
+
+test('formatFailureReason: "no PDF on disk" reason gets a plain-language hint appended', () => {
+  const out = formatFailureReason('no PDF on disk for doi:10.1234/abcd');
+  assert.ok(out.includes('no PDF on disk for doi:10.1234/abcd'));
+  assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
+});
+
+test('formatFailureReason: hint is appended even when the raw reason needed truncation', () => {
+  const long = 'no PDF on disk for doi:' + '1'.repeat(100);
+  const out = formatFailureReason(long);
+  assert.ok(out.includes('…'));
+  assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
 });

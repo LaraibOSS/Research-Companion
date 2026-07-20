@@ -10,7 +10,7 @@ import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
-import { buildRows, sortRows, draftActionFor } from '../libraryHelpers.js';
+import { buildRows, sortRows, draftActionFor, formatFailureReason } from '../libraryHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -280,10 +280,22 @@ function _renderGridCards(grid, papers) {
       retryBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const pid = retryBtn.dataset.paperId;
+        // Immediate feedback: the click did something, even before the
+        // background job (or its failure) comes back over SSE. If the retry
+        // succeeds server-side, the eventual re-render (paper_added /
+        // alignment_ready / strength_updated / ingest_failed all notify the
+        // 'papers' topic this view subscribes to) replaces this whole card,
+        // so the disabled/relabeled state here is only ever transient.
+        retryBtn.disabled = true;
+        retryBtn.textContent = 'Retrying…';
         try {
           const res = await api.retryPaper(pid);
           showToast(`Retrying — job ${res.job_id}`, 'info');
         } catch (err) {
+          // The retry request itself failed (e.g. 404/network) — no job was
+          // even queued, so no re-render is coming. Restore the button.
+          retryBtn.disabled = false;
+          retryBtn.textContent = 'Retry';
           showToast(`Retry failed: ${err.message}`, 'error');
         }
       });
@@ -341,9 +353,14 @@ const _LIST_COLS = [
 
 const STANCE_ICONS = { strengthens: '▲', challenges: '⚡', alternative: '◆' };
 
-function _statusPillHtml(status) {
+function _statusPillHtml(status, failureReason) {
   const cls = `lib-status-pill lib-status-pill-${escapeHtml(status)}`;
-  return `<span class="${cls}">${escapeHtml(status)}</span>`;
+  // Full (untruncated) reason as a hover tooltip directly on the chip that
+  // says "failed" — this is the most discoverable spot for "why".
+  const titleAttr = status === 'failed' && failureReason
+    ? ` title="${escapeHtml(failureReason)}"`
+    : '';
+  return `<span class="${cls}"${titleAttr}>${escapeHtml(status)}</span>`;
 }
 
 function _renderList(grid, papers, draftId) {
@@ -369,10 +386,14 @@ function _renderList(grid, papers, draftId) {
     const addedTxt = row.addedAt ? escapeHtml(timeAgo(row.addedAt)) : '<span class="muted">—</span>';
     const yearTxt  = row.year ? escapeHtml(String(row.year)) : '<span class="muted">—</span>';
 
-    // Failure indicator
+    // Failure indicator — short truncated reason under the title, full
+    // reason as a tooltip on the row and (mainly) on the status chip itself.
     const failureAttr  = row.failureReason ? ` title="${escapeHtml(row.failureReason)}"` : '';
     const retryBtnHtml = row.status === 'failed'
       ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
+      : '';
+    const failureReasonHtml = row.status === 'failed' && row.failureReason
+      ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason))}</div>`
       : '';
 
     // Missing-metadata pill — opens the drawer straight into edit mode.
@@ -385,9 +406,9 @@ function _renderList(grid, papers, draftId) {
       : '';
 
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${failureReasonHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
-      <td class="lib-td lib-td-status">${_statusPillHtml(row.status)}</td>
+      <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
       <td class="lib-td lib-td-relation">${relationTxt}</td>
       <td class="lib-td lib-td-added">${addedTxt}</td>
@@ -433,10 +454,16 @@ function _renderList(grid, papers, draftId) {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const pid = btn.dataset.paperId;
+      // Same immediate-feedback + rely-on-re-render pattern as the card
+      // variant above (see comment there).
+      btn.disabled = true;
+      btn.textContent = 'Retrying…';
       try {
         const res = await api.retryPaper(pid);
         showToast(`Retrying — job ${res.job_id}`, 'info');
       } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Retry';
         showToast(`Retry failed: ${err.message}`, 'error');
       }
     });

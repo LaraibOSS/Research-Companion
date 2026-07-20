@@ -4,7 +4,7 @@
 
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
-import { needsMetadata } from '../libraryHelpers.js';
+import { needsMetadata, formatFailureReason } from '../libraryHelpers.js';
 
 /**
  * Render a paper card element.
@@ -57,7 +57,20 @@ export function renderPaperCard(paper) {
     alternative > 0 ? `<span class="stance-chip stance-alternative"${tip('alternative')}>◆${alternative}</span>` : '',
   ].filter(Boolean).join('');
 
-  const bandLabel = paper.strength ? paper.strength.band : (paper.status === 'processing' ? 'processing' : 'unscored');
+  const isFailed = paper.status === 'failed';
+  const bandLabel = isFailed
+    ? 'failed'
+    : (paper.strength ? paper.strength.band : (paper.status === 'processing' ? 'processing' : 'unscored'));
+
+  // Failed status chip gets the full (untruncated) reason as a hover tooltip;
+  // the muted line under the title gets the short, truncated version so a
+  // long error message can't blow out the card layout.
+  const chipTitleAttr = isFailed && paper.failure_reason
+    ? ` title="${escapeHtml(paper.failure_reason)}"`
+    : '';
+  const strengthChipHtml = isFailed
+    ? `<span class="strength-badge" style="color:${borderColor}"${chipTitleAttr}>${escapeHtml(bandLabel)}</span>`
+    : `<span class="strength-badge" style="color:${borderColor}"${tip('strength')}>${escapeHtml(bandLabel)}</span>`;
 
   card.innerHTML = `
     <div class="paper-card-body">
@@ -66,10 +79,10 @@ export function renderPaperCard(paper) {
       <div class="paper-badges">
         ${badges.join('')}
         ${stanceHtml}
-        <span class="strength-badge" style="color:${borderColor}"${tip('strength')}>${escapeHtml(bandLabel)}</span>
+        ${strengthChipHtml}
       </div>
-      ${paper.status === 'failed' && paper.failure_reason
-        ? `<div class="failure-reason muted">${escapeHtml(paper.failure_reason)}</div>`
+      ${isFailed && paper.failure_reason
+        ? `<div class="failure-reason muted" title="${escapeHtml(paper.failure_reason)}">${escapeHtml(formatFailureReason(paper.failure_reason))}</div>`
         : ''}
       <div class="card-actions">
         ${paper.status === 'failed'

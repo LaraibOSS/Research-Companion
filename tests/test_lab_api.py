@@ -139,6 +139,24 @@ class TestStaticMount:
         finally:
             test_file.unlink(missing_ok=True)
 
+    def test_static_response_has_no_cache_header(self, isolated_papergraph_dir):
+        """Static responses must carry Cache-Control: no-cache so browsers
+        revalidate (cheap 304 via the existing ETag) instead of heuristically
+        caching JS/CSS and showing a stale UI after an upgrade."""
+        import research_companion.lab_api as _la_mod
+        static_dir = Path(_la_mod.__file__).parent / "lab" / "static"
+        test_file = static_dir / "test_cache_asset.js"
+        test_file.write_text("console.log('hi');", encoding="utf-8")
+        try:
+            c = _make_client()
+            resp = c.get("/static/test_cache_asset.js")
+            assert resp.status_code == 200
+            assert resp.headers.get("cache-control") == "no-cache"
+            # no-cache (revalidate-always), not no-store (never-cache)
+            assert "no-store" not in resp.headers.get("cache-control", "")
+        finally:
+            test_file.unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # GET /api/lab
@@ -1303,6 +1321,16 @@ class TestRetryPaper:
         # Failure entry must still be present (not silently cleared)
         failures = store.list_failures()
         assert path_key in failures, "failure entry was incorrectly cleared after retry failure"
+
+        # An IngestFailed event must be published so the frontend's 'papers'
+        # topic re-renders the row (otherwise a disabled "Retrying..." retry
+        # button has nothing to tell it the job finished — see reducer.js's
+        # 'ingest_failed' case).
+        from research_companion.agents.events import IngestFailed
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert failed_events, "no IngestFailed event was published for the failed retry"
+        assert any(e.paper_id == path_key for e in failed_events)
+        assert any("add failed in retry" in e.error for e in failed_events)
 
     def test_retry_pipeline_stages_run_on_success(self, isolated_papergraph_dir):
         """When retry succeeds, pipeline stage seams are invoked and failure is cleared."""

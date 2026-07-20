@@ -439,6 +439,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+    # StaticFiles already sets ETag/Last-Modified, but neither header alone
+    # stops a browser from heuristically caching JS/CSS with no explicit
+    # freshness policy — that's exactly why users see a stale UI after an
+    # upgrade. "no-cache" (NOT "no-store") forces revalidation on every
+    # request; the existing ETag makes that a cheap 304 rather than a full
+    # re-download, so this costs a round trip, not the asset itself.
+    @app.middleware("http")
+    async def _static_no_cache(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # -----------------------------------------------------------------
     # GET /
     # -----------------------------------------------------------------
@@ -2429,7 +2442,7 @@ async def _retry_paper_task(
     the failure entry is kept (not cleared).
     """
 
-    from research_companion.agents.events import JobDone, PaperAdded
+    from research_companion.agents.events import IngestFailed, JobDone, PaperAdded
     from research_companion.lab import _default_aligner, _default_strengther, ingest_one
 
     if pipeline_overrides is None:
@@ -2438,7 +2451,20 @@ async def _retry_paper_task(
     # Re-attempt add_paper for the path — let errors propagate so the job is
     # recorded as "failed" and the failure entry is preserved.
     from research_companion.fetch import add_local_pdf
-    meta = await asyncio.to_thread(add_local_pdf, path)
+    try:
+        meta = await asyncio.to_thread(add_local_pdf, path)
+    except Exception as exc:
+        # add_local_pdf failing again (e.g. "no PDF on disk...") raises before
+        # ingest_one ever runs, so none of ingest_one's own IngestFailed
+        # publishes fire. Without this, the SSE stream is silent on this path
+        # and the Library row (which may show a transient "Retrying..." button
+        # state) never re-renders — the failure is real but invisible. Publish
+        # here so the frontend's 'papers' topic refreshes and the row reflects
+        # the (unchanged, still-persisted) failed status again.
+        await bus.publish(IngestFailed(
+            path=path, stage="add", error=str(exc), paper_id=paper_id,
+        ))
+        raise
 
     await bus.publish(PaperAdded(
         paper_id=meta.paper_id,

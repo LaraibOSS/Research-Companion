@@ -35,6 +35,31 @@ export function needsMetadata(paper) {
   return noYear || noAuthors;
 }
 
+// Inline reason text is truncated so a long parser/network error message
+// doesn't blow out the row/card layout; the FULL reason still belongs in a
+// `title` tooltip at the render site (see paperCard.js / views/library.js).
+const FAILURE_REASON_MAX_LEN = 80;
+
+/**
+ * Format a paper's failure_reason for short, honest inline display:
+ * truncate to ~80 chars, and when the reason is the "no PDF on disk"
+ * case, append a plain-language hint telling the user what to do about it.
+ *
+ * @param {string|null|undefined} reason
+ * @returns {string} '' when there is no reason to show
+ */
+export function formatFailureReason(reason) {
+  if (!reason) return '';
+  let text = reason;
+  if (text.length > FAILURE_REASON_MAX_LEN) {
+    text = text.slice(0, FAILURE_REASON_MAX_LEN - 1).trimEnd() + '…';
+  }
+  if (reason.startsWith('no PDF on disk')) {
+    text += ' — upload the PDF to ingest this paper';
+  }
+  return text;
+}
+
 /**
  * Build the aggregate missing-metadata banner text, correctly pluralized
  * for both "paper(s)" and "need(s)".
