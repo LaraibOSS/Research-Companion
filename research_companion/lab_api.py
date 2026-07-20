@@ -2429,6 +2429,19 @@ async def _upload_paper_task(meta, bus: Bus, *, pipeline_overrides: dict | None 
     await _run_paper_pipeline(meta, path_str, bus, pipeline_overrides=pipeline_overrides)
 
 
+class _RetryFatalStageFailure(RuntimeError):
+    """Raised by _retry_paper_task when ingest_one returns False (a fatal-stage
+    failure: extract/sections/graph).
+
+    ingest_one already called store.record_failure(...) and published its own
+    IngestFailed for that stage before returning False, so this exception
+    carries the already-recorded reason purely to propagate failure up to the
+    /retry job wrapper (_run()) — it must NOT be treated as a new failure to
+    record or announce again (no second record_failure, no second
+    IngestFailed publish).
+    """
+
+
 async def _retry_paper_task(
     path: str,
     paper_id: str,
@@ -2439,9 +2452,14 @@ async def _retry_paper_task(
     """Re-run the add + full pipeline for a failed paper.
 
     Raises on add failure so the caller's _run() records "failed" status and
-    the failure entry is kept (not cleared).
+    the failure entry is kept (not cleared). Also raises (as
+    _RetryFatalStageFailure) when ingest_one signals a fatal-stage failure via
+    its False return, so a fatal-stage retry failure doesn't get treated as
+    success by _run() (which would otherwise clear_failure and erase the
+    failure record ingest_one just wrote).
     """
 
+    from research_companion import store
     from research_companion.agents.events import IngestFailed, JobDone, PaperAdded
     from research_companion.lab import _default_aligner, _default_strengther, ingest_one
 
@@ -2454,15 +2472,23 @@ async def _retry_paper_task(
     try:
         meta = await asyncio.to_thread(add_local_pdf, path)
     except Exception as exc:
-        # add_local_pdf failing again (e.g. "no PDF on disk...") raises before
+        # add_local_pdf failing again (e.g. "PDF not found: ...") raises before
         # ingest_one ever runs, so none of ingest_one's own IngestFailed
         # publishes fire. Without this, the SSE stream is silent on this path
         # and the Library row (which may show a transient "Retrying..." button
         # state) never re-renders — the failure is real but invisible. Publish
         # here so the frontend's 'papers' topic refreshes and the row reflects
-        # the (unchanged, still-persisted) failed status again.
+        # the failed status again.
+        #
+        # Also persist the NEW error via record_failure: without this,
+        # GET /api/papers (which reads store.list_failures()) would keep
+        # showing whatever reason was recorded on the *previous* failed
+        # attempt after a page reload, even though the live SSE event above
+        # carries the current one.
+        error_str = str(exc)
+        store.record_failure(path, {"stage": "add", "error": error_str, "paper_id": paper_id})
         await bus.publish(IngestFailed(
-            path=path, stage="add", error=str(exc), paper_id=paper_id,
+            path=path, stage="add", error=error_str, paper_id=paper_id,
         ))
         raise
 
@@ -2488,7 +2514,7 @@ async def _retry_paper_task(
 
     provider, model = _pipeline_provider_model()
 
-    await ingest_one(
+    ok = await ingest_one(
         meta,
         path,
         bus=bus,
@@ -2500,6 +2526,23 @@ async def _retry_paper_task(
         extractor=extractor,
         sectioner=sectioner,
     )
+
+    if not ok:
+        # Fatal stage (extract/sections/graph) failed. ingest_one already
+        # recorded the failure and published its own IngestFailed for that
+        # stage -- re-read the persisted reason (rather than fabricating a
+        # new one) so the job's "detail" reflects the real cause, falling
+        # back to a generic message if the record is somehow missing.
+        failures = store.list_failures()
+        info = failures.get(path)
+        if info is None:
+            info = next(
+                (v for v in failures.values()
+                 if isinstance(v, dict) and v.get("paper_id") == meta.paper_id),
+                None,
+            )
+        reason = info.get("error") if isinstance(info, dict) else None
+        raise _RetryFatalStageFailure(reason or "ingest failed")
 
     await bus.publish(JobDone(job="retry"))
 

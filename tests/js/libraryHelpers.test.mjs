@@ -425,3 +425,9 @@ test('formatFailureReason: hint is appended even when the raw reason needed trun
   assert.ok(out.includes('…'));
   assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
 });
+
+test('formatFailureReason: "PDF not found" reason (retry path) also gets the upload hint', () => {
+  const out = formatFailureReason('PDF not found: /some/path/paper.pdf');
+  assert.ok(out.includes('PDF not found: /some/path/paper.pdf'));
+  assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
+});

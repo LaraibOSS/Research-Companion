@@ -42,8 +42,10 @@ const FAILURE_REASON_MAX_LEN = 80;
 
 /**
  * Format a paper's failure_reason for short, honest inline display:
- * truncate to ~80 chars, and when the reason is the "no PDF on disk"
- * case, append a plain-language hint telling the user what to do about it.
+ * truncate to ~80 chars, and when the reason is a missing-PDF case, append a
+ * plain-language hint telling the user what to do about it. Two wordings can
+ * reach here: "no PDF on disk" (extract.py, first ingest) and "PDF not
+ * found" (fetch.py's add_local_pdf, the retry path).
  *
  * @param {string|null|undefined} reason
  * @returns {string} '' when there is no reason to show
@@ -54,7 +56,7 @@ export function formatFailureReason(reason) {
   if (text.length > FAILURE_REASON_MAX_LEN) {
     text = text.slice(0, FAILURE_REASON_MAX_LEN - 1).trimEnd() + '…';
   }
-  if (reason.startsWith('no PDF on disk')) {
+  if (reason.startsWith('no PDF on disk') || reason.startsWith('PDF not found')) {
     text += ' — upload the PDF to ingest this paper';
   }
   return text;
