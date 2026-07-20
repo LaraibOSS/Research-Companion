@@ -199,6 +199,7 @@ class CitationCoverageUpdated:
     available: int
     unchecked: int
     unresolved: int
+    usable: int = 0
 
 
 @dataclass

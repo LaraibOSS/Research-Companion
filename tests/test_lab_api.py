@@ -139,6 +139,24 @@ class TestStaticMount:
         finally:
             test_file.unlink(missing_ok=True)
 
+    def test_static_response_has_no_cache_header(self, isolated_papergraph_dir):
+        """Static responses must carry Cache-Control: no-cache so browsers
+        revalidate (cheap 304 via the existing ETag) instead of heuristically
+        caching JS/CSS and showing a stale UI after an upgrade."""
+        import research_companion.lab_api as _la_mod
+        static_dir = Path(_la_mod.__file__).parent / "lab" / "static"
+        test_file = static_dir / "test_cache_asset.js"
+        test_file.write_text("console.log('hi');", encoding="utf-8")
+        try:
+            c = _make_client()
+            resp = c.get("/static/test_cache_asset.js")
+            assert resp.status_code == 200
+            assert resp.headers.get("cache-control") == "no-cache"
+            # no-cache (revalidate-always), not no-store (never-cache)
+            assert "no-store" not in resp.headers.get("cache-control", "")
+        finally:
+            test_file.unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # GET /api/lab
@@ -1304,6 +1322,16 @@ class TestRetryPaper:
         failures = store.list_failures()
         assert path_key in failures, "failure entry was incorrectly cleared after retry failure"
 
+        # An IngestFailed event must be published so the frontend's 'papers'
+        # topic re-renders the row (otherwise a disabled "Retrying..." retry
+        # button has nothing to tell it the job finished — see reducer.js's
+        # 'ingest_failed' case).
+        from research_companion.agents.events import IngestFailed
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)]
+        assert failed_events, "no IngestFailed event was published for the failed retry"
+        assert any(e.paper_id == path_key for e in failed_events)
+        assert any("add failed in retry" in e.error for e in failed_events)
+
     def test_retry_pipeline_stages_run_on_success(self, isolated_papergraph_dir):
         """When retry succeeds, pipeline stage seams are invoked and failure is cleared."""
         from unittest.mock import patch
@@ -1357,6 +1385,131 @@ class TestRetryPaper:
         # Failure entry must be cleared on success
         failures = store.list_failures()
         assert path_key not in failures, "failure entry was not cleared after successful retry"
+
+    def test_retry_add_failure_persists_new_reason(self, isolated_papergraph_dir):
+        """The retry's NEW error must be persisted via record_failure, not just
+        published live — otherwise GET /api/papers (store.list_failures()) shows
+        the OLD reason after a page reload."""
+        from unittest.mock import patch
+
+        from research_companion import store
+
+        path_key = "local:stale_reason_paper"
+        store.record_failure(path_key, {"stage": "extract", "error": "OLD stale error",
+                                        "paper_id": path_key})
+
+        def raising_add_local_pdf(path):
+            raise RuntimeError("brand new retry failure text")
+
+        bus = Bus()
+        app = create_lab_app(bus)
+
+        with patch("research_companion.fetch.add_local_pdf", raising_add_local_pdf), TestClient(app) as c:
+            resp = c.post(f"/api/papers/{path_key}/retry")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            import time
+            job = None
+            for _ in range(100):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "failed", f"expected failed, got: {job}"
+
+        failures = store.list_failures()
+        assert path_key in failures, "failure entry was incorrectly cleared after retry failure"
+        assert failures[path_key]["error"] == "brand new retry failure text", (
+            f"expected the NEW error persisted, got: {failures[path_key]!r}"
+        )
+
+    def test_retry_fatal_stage_failure_keeps_failure_record(self, isolated_papergraph_dir):
+        """When ingest_one returns False (a fatal stage failed during retry),
+        the job must end 'failed' and the failure record ingest_one wrote must
+        survive -- not get wiped by _run()'s success-path clear_failure. No
+        duplicate IngestFailed should be published for the same stage."""
+        from unittest.mock import patch
+
+        from research_companion import store
+        from research_companion.agents.events import IngestFailed
+        from research_companion.store import PaperMetadata
+
+        path_key = "some/fatal_retry.pdf"
+        paper_id_val = "local:fatal_retry_test"
+        store.record_failure(path_key, {"stage": "extract", "error": "old error",
+                                        "paper_id": paper_id_val})
+
+        real_meta = PaperMetadata(
+            paper_id=paper_id_val,
+            title="Fatal Retry Paper",
+            authors=["Auth"],
+            year=2024,  # non-None year: keeps the app's on-startup weak-metadata
+                        # backfill (_maybe_backfill_active_workspace) from also
+                        # picking up this paper and re-invoking the same
+                        # failing_extractor override independently of our retry,
+                        # which would otherwise publish its own extra IngestFailed
+                        # and make the "exactly one" assertion below flaky.
+            added_at="2024-01-01T00:00:00Z",
+        )
+        real_meta.save()
+        store.save_text(paper_id_val, "Introduction Methods Results. " * 10)
+
+        def fake_add_local_pdf(path):
+            return real_meta
+
+        def failing_extractor(meta, *, provider="anthropic", model=None, force=False):
+            raise RuntimeError("extractor blew up on retry")
+
+        def fake_sectioner(pid, **kwargs):
+            from research_companion.sections import Section
+            return [Section(section_id="s1", title="Introduction", level=1,
+                            parent=None, char_start=0, char_end=50)]
+
+        seam_overrides = {
+            "extractor": failing_extractor,
+            "sectioner": fake_sectioner,
+            "aligner": None,
+            "strengther": None,
+        }
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        app.state.pipeline_overrides = seam_overrides
+
+        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), TestClient(app) as c:
+            resp = c.post(f"/api/papers/{paper_id_val}/retry")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            import time
+            job = None
+            for _ in range(100):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "failed", f"expected failed, got: {job}"
+
+        # The failure record ingest_one wrote must NOT have been cleared by
+        # _run()'s success path.
+        failures = store.list_failures()
+        assert path_key in failures, "fatal-stage failure record was wiped after retry"
+        assert failures[path_key]["error"] == "extractor blew up on retry"
+
+        # Exactly one IngestFailed for the "extract" stage -- ingest_one
+        # publishes it; _retry_paper_task must not publish a second one.
+        extract_failed = [
+            e for e in bus.history
+            if isinstance(e, IngestFailed)
+            and e.stage == "extract"
+            and e.paper_id == paper_id_val
+            and e.path == path_key
+        ]
+        assert len(extract_failed) == 1, (
+            f"expected exactly one 'extract' IngestFailed for this retry, got {len(extract_failed)}: "
+            f"{[e for e in bus.history if isinstance(e, IngestFailed)]}"
+        )
 
 
 # ---------------------------------------------------------------------------

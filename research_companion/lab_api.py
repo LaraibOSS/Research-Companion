@@ -125,6 +125,10 @@ try:
         index: int
         paper_id: str
 
+    class _UnlinkCitationBody(_BaseModel):
+        """Undo a manual link for POST /api/draft/citations/unlink."""
+        index: int
+
     class _ConverseBody(_BaseModel):
         context: dict = {}
         message: str = ""
@@ -152,6 +156,7 @@ except ImportError:
     _PatchViewBody = None  # type: ignore[assignment,misc]
     _PatchPaperBody = None  # type: ignore[assignment,misc]
     _LinkCitationBody = None  # type: ignore[assignment,misc]
+    _UnlinkCitationBody = None  # type: ignore[assignment,misc]
     _ConverseBody = None  # type: ignore[assignment,misc]
     _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
@@ -433,6 +438,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    # StaticFiles already sets ETag/Last-Modified, but neither header alone
+    # stops a browser from heuristically caching JS/CSS with no explicit
+    # freshness policy — that's exactly why users see a stale UI after an
+    # upgrade. "no-cache" (NOT "no-store") forces revalidation on every
+    # request; the existing ETag makes that a cheap 304 rather than a full
+    # re-download, so this costs a round trip, not the asset itself.
+    @app.middleware("http")
+    async def _static_no_cache(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     # -----------------------------------------------------------------
     # GET /
@@ -1176,6 +1194,61 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 and 1900 <= ref_year <= 2100):
             await asyncio.to_thread(
                 store.update_paper_metadata, body.paper_id, year=ref_year)
+
+        await bus.publish(CitationCoverageUpdated(
+            draft_paper_id=draft_id, **payload["counts"]))
+        _schedule_coverage_refresh()
+        return payload
+
+    @app.post("/api/draft/citations/unlink")
+    async def unlink_draft_citation(body: _UnlinkCitationBody) -> dict:
+        """Undo a manual link created by POST /api/draft/citations/link.
+
+        Only a `match_kind == "manual"` ref can be unlinked (400 otherwise — a
+        wrong manual link was previously permanent short of deleting the
+        paper). Clears the manual mark and re-derives the natural status via
+        `compute_coverage`: the carry-forward path in compute_coverage only
+        resurrects a ref whose PERSISTED record still has match_kind=="manual"
+        (or status=="in_library" for the dedup-carryover branch), so saving
+        the cleared record first (match_kind=None, status="unchecked") before
+        recomputing guarantees the link is not resurrected.
+        """
+        from research_companion import store
+        from research_companion.agents.events import CitationCoverageUpdated
+        from research_companion.citations_coverage import (
+            compute_coverage,
+            is_stale,
+            load_coverage,
+            save_coverage,
+        )
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            raise HTTPException(status_code=400, detail="No draft set")
+
+        # Coverage read-modify-write stays inside the shared lock and persists
+        # exactly once so concurrent refresh/resolve jobs cannot clobber it.
+        async with app.state._coverage_lock:
+            payload = await asyncio.to_thread(load_coverage)
+            if await asyncio.to_thread(is_stale, payload, draft_id):
+                payload = await asyncio.to_thread(compute_coverage, draft_id)
+            refs = (payload or {}).get("references") or []
+            if not refs:
+                raise HTTPException(status_code=400, detail="No citations to unlink")
+            if body.index < 0 or body.index >= len(refs):
+                raise HTTPException(
+                    status_code=400, detail="citation index out of range")
+            rec = refs[body.index]
+            if rec.get("match_kind") != "manual":
+                raise HTTPException(
+                    status_code=400, detail="citation is not a manual link")
+            rec["match_kind"] = None
+            rec["matched_paper_id"] = None
+            rec["status"] = "unchecked"
+            await asyncio.to_thread(save_coverage, payload)
+            # Re-derive the natural status now that the persisted record no
+            # longer carries a manual mark for this raw entry.
+            payload = await asyncio.to_thread(compute_coverage, draft_id)
 
         await bus.publish(CitationCoverageUpdated(
             draft_paper_id=draft_id, **payload["counts"]))
@@ -2356,6 +2429,19 @@ async def _upload_paper_task(meta, bus: Bus, *, pipeline_overrides: dict | None 
     await _run_paper_pipeline(meta, path_str, bus, pipeline_overrides=pipeline_overrides)
 
 
+class _RetryFatalStageFailure(RuntimeError):
+    """Raised by _retry_paper_task when ingest_one returns False (a fatal-stage
+    failure: extract/sections/graph).
+
+    ingest_one already called store.record_failure(...) and published its own
+    IngestFailed for that stage before returning False, so this exception
+    carries the already-recorded reason purely to propagate failure up to the
+    /retry job wrapper (_run()) — it must NOT be treated as a new failure to
+    record or announce again (no second record_failure, no second
+    IngestFailed publish).
+    """
+
+
 async def _retry_paper_task(
     path: str,
     paper_id: str,
@@ -2366,10 +2452,15 @@ async def _retry_paper_task(
     """Re-run the add + full pipeline for a failed paper.
 
     Raises on add failure so the caller's _run() records "failed" status and
-    the failure entry is kept (not cleared).
+    the failure entry is kept (not cleared). Also raises (as
+    _RetryFatalStageFailure) when ingest_one signals a fatal-stage failure via
+    its False return, so a fatal-stage retry failure doesn't get treated as
+    success by _run() (which would otherwise clear_failure and erase the
+    failure record ingest_one just wrote).
     """
 
-    from research_companion.agents.events import JobDone, PaperAdded
+    from research_companion import store
+    from research_companion.agents.events import IngestFailed, JobDone, PaperAdded
     from research_companion.lab import _default_aligner, _default_strengther, ingest_one
 
     if pipeline_overrides is None:
@@ -2378,7 +2469,28 @@ async def _retry_paper_task(
     # Re-attempt add_paper for the path — let errors propagate so the job is
     # recorded as "failed" and the failure entry is preserved.
     from research_companion.fetch import add_local_pdf
-    meta = await asyncio.to_thread(add_local_pdf, path)
+    try:
+        meta = await asyncio.to_thread(add_local_pdf, path)
+    except Exception as exc:
+        # add_local_pdf failing again (e.g. "PDF not found: ...") raises before
+        # ingest_one ever runs, so none of ingest_one's own IngestFailed
+        # publishes fire. Without this, the SSE stream is silent on this path
+        # and the Library row (which may show a transient "Retrying..." button
+        # state) never re-renders — the failure is real but invisible. Publish
+        # here so the frontend's 'papers' topic refreshes and the row reflects
+        # the failed status again.
+        #
+        # Also persist the NEW error via record_failure: without this,
+        # GET /api/papers (which reads store.list_failures()) would keep
+        # showing whatever reason was recorded on the *previous* failed
+        # attempt after a page reload, even though the live SSE event above
+        # carries the current one.
+        error_str = str(exc)
+        store.record_failure(path, {"stage": "add", "error": error_str, "paper_id": paper_id})
+        await bus.publish(IngestFailed(
+            path=path, stage="add", error=error_str, paper_id=paper_id,
+        ))
+        raise
 
     await bus.publish(PaperAdded(
         paper_id=meta.paper_id,
@@ -2402,7 +2514,7 @@ async def _retry_paper_task(
 
     provider, model = _pipeline_provider_model()
 
-    await ingest_one(
+    ok = await ingest_one(
         meta,
         path,
         bus=bus,
@@ -2414,6 +2526,23 @@ async def _retry_paper_task(
         extractor=extractor,
         sectioner=sectioner,
     )
+
+    if not ok:
+        # Fatal stage (extract/sections/graph) failed. ingest_one already
+        # recorded the failure and published its own IngestFailed for that
+        # stage -- re-read the persisted reason (rather than fabricating a
+        # new one) so the job's "detail" reflects the real cause, falling
+        # back to a generic message if the record is somehow missing.
+        failures = store.list_failures()
+        info = failures.get(path)
+        if info is None:
+            info = next(
+                (v for v in failures.values()
+                 if isinstance(v, dict) and v.get("paper_id") == meta.paper_id),
+                None,
+            )
+        reason = info.get("error") if isinstance(info, dict) else None
+        raise _RetryFatalStageFailure(reason or "ingest failed")
 
     await bus.publish(JobDone(job="retry"))
 
