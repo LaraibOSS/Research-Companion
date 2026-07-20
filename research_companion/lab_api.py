@@ -713,6 +713,14 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Upload a replacement PDF for an EXISTING paper (the "no PDF on disk" /
     # "PDF not found" Library hint) and kick the SAME retry-flow re-ingest as
     # POST /api/papers/{id}/retry — no separate pipeline is implemented here.
+    #
+    # Invariant enforced server-side (not just by the client UI): this only
+    # ever replaces a PDF the paper NEEDS — i.e. it has no PDF on disk yet,
+    # OR it has a failure record (a failed re-ingest, possibly from a corrupt
+    # PDF, is always re-uploadable). A healthy paper that already has a PDF
+    # and no failure record is rejected with 409 so a stray/careless request
+    # can't silently overwrite good text/analysis.
+    #
     # Raw-body upload, same CSRF/size/magic-byte checks as
     # POST /api/papers/upload (see there for the full rationale): a "simple"
     # cross-origin content type is rejected so a hostile page cannot silently
@@ -726,6 +734,18 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+
+        existing_pdf = await asyncio.to_thread(store.pdf_path, paper_id)
+        if existing_pdf is not None:
+            failures = await asyncio.to_thread(store.list_failures)
+            has_failure = any(
+                key == paper_id or info.get("paper_id") == paper_id
+                for key, info in failures.items()
+            )
+            if not has_failure:
+                raise HTTPException(
+                    status_code=409,
+                    detail="paper already has a PDF — remove it first or use retry")
 
         ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
         if ctype not in ("application/pdf", "application/octet-stream"):

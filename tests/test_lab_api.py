@@ -3408,6 +3408,67 @@ class TestUploadPaperPdf:
         # The stale failure record is cleared on success, same as /retry.
         assert "arxiv:up_pdf_ok" not in store.list_failures()
 
+    def test_upload_pdf_healthy_paper_with_pdf_409(self, isolated_papergraph_dir):
+        """A healthy paper that already has a PDF on disk and no failure
+        record must reject the upload with 409 — this is the server-side
+        gate; the on-disk PDF must be left untouched."""
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_healthy")
+        original = b"%PDF-1.4 original healthy pdf bytes"
+        store.save_pdf("arxiv:up_pdf_healthy", original)
+
+        app, c = self._client()
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_healthy")
+            assert resp.status_code == 409
+            assert "PDF" in resp.json()["detail"]
+
+        saved = store.pdf_path("arxiv:up_pdf_healthy")
+        assert saved is not None
+        assert saved.read_bytes() == original
+
+    def test_upload_pdf_with_failure_record_wins_over_existing_pdf_202(
+            self, isolated_papergraph_dir):
+        """A paper that HAS a PDF on disk but also has a failure record
+        (e.g. a failed re-ingest from a corrupt PDF) must still be
+        re-uploadable — the failure record wins over the has-a-pdf gate."""
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:up_pdf_failed_with_pdf")
+        store.save_pdf("arxiv:up_pdf_failed_with_pdf", b"%PDF-1.4 corrupt/partial bytes")
+        store.record_failure("arxiv:up_pdf_failed_with_pdf", {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": "arxiv:up_pdf_failed_with_pdf",
+        })
+
+        calls = []
+
+        async def fake_retry(path, paper_id, bus):
+            calls.append((path, paper_id))
+
+        app, c = self._client(retry_override=fake_retry)
+        with c:
+            resp = self._post(c, "arxiv:up_pdf_failed_with_pdf")
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["job_id"]
+            assert data["paper_id"] == "arxiv:up_pdf_failed_with_pdf"
+
+            import time
+            job = None
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{data['job_id']}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "done", job
+
+        saved = store.pdf_path("arxiv:up_pdf_failed_with_pdf")
+        assert saved is not None
+        assert saved.read_bytes() == _UPLOAD_PDF
+        assert len(calls) == 1
+
     def test_upload_pdf_pipeline_stages_run_via_seams(self, isolated_papergraph_dir):
         """When retry_override is NOT set, the real _retry_paper_task runs and
         the pipeline stage seams fire — proves the endpoint reuses the retry
