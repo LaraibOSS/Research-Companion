@@ -457,6 +457,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # re-download, so this costs a round trip, not the asset itself.
     @app.middleware("http")
     async def _static_no_cache(request, call_next):
+        # PDF.js vendor assets must never answer 304: Chromium does not apply
+        # a 304's updated Content-Type to its module-script MIME check, so a
+        # browser cache that stored .mjs as text/plain (from a server run
+        # before the mimetypes registration above) is only repaired by a full
+        # 200 replacing the entry. Stripping the conditional headers makes
+        # StaticFiles serve the complete file every time (localhost-sized
+        # cost; the viewer is ~3 MB and loads lazily).
+        if request.url.path.startswith("/static/vendor/pdfjs/"):
+            request.scope["headers"] = [
+                (k, v)
+                for (k, v) in request.scope["headers"]
+                if k.lower() not in (b"if-none-match", b"if-modified-since")
+            ]
         response = await call_next(request)
         if request.url.path.startswith("/static"):
             response.headers["Cache-Control"] = "no-cache"

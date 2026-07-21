@@ -190,7 +190,7 @@ class TestStaticMount:
         stored a wrong MIME type (e.g. text/plain from a pre-fix server) heal
         itself on the next revalidation instead of being poisoned forever."""
         c = _make_client()
-        path = "/static/vendor/pdfjs/web/viewer.mjs"
+        path = "/static/js/readerPdfHelpers.js"
         first = c.get(path)
         assert first.status_code == 200
         etag = first.headers.get("etag")
@@ -201,6 +201,33 @@ class TestStaticMount:
         assert mime in ("text/javascript", "application/javascript"), (
             f"304 for {path} carried {mime!r}; poisoned browser caches can never heal"
         )
+
+    def test_pdfjs_assets_never_304(self, isolated_papergraph_dir):
+        """The pdfjs vendor tree must always answer a full 200, even to
+        conditional requests. Verified empirically: Chromium does NOT apply a
+        304's updated Content-Type to its module-script MIME check, so a cache
+        that stored .mjs as text/plain (from a server run before the mimetypes
+        registration) can only be repaired by a full 200 replacing the entry —
+        header-freshening 304s leave the viewer permanently broken."""
+        c = _make_client()
+        path = "/static/vendor/pdfjs/web/viewer.mjs"
+        first = c.get(path)
+        assert first.status_code == 200
+        etag = first.headers.get("etag")
+        conditional = c.get(
+            path,
+            headers={
+                "If-None-Match": etag or '"anything"',
+                "If-Modified-Since": first.headers.get("last-modified", ""),
+            },
+        )
+        assert conditional.status_code == 200, (
+            "pdfjs assets must never 304: Chromium keeps a poisoned MIME type "
+            "across 304 revalidations and the viewer never boots"
+        )
+        assert len(conditional.content) == len(first.content)
+        mime = conditional.headers.get("content-type", "").split(";")[0].strip()
+        assert mime in ("text/javascript", "application/javascript")
 
 
 # ---------------------------------------------------------------------------
