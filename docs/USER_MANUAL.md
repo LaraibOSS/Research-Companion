@@ -348,7 +348,7 @@ actually says.
   in the extracted text when it can be located there. **Text** is the
   exact-offset view described above — unchanged, and it remains the *only*
   tab for papers with no stored PDF at all (for example, a paper added by
-  arXiv ID, DOI, or Semantic Scholar ID whose PDF download failed — its
+  DOI or Semantic Scholar ID whose PDF download failed — its
   metadata was saved, but there is no file to show), or when the Original
   tab's viewer fails to load (the reader falls back to Text automatically
   with a toast).
