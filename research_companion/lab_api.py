@@ -460,6 +460,15 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         response = await call_next(request)
         if request.url.path.startswith("/static"):
             response.headers["Cache-Control"] = "no-cache"
+            # StaticFiles omits Content-Type on 304s, but browsers update a
+            # stored response's headers from the 304 (RFC 9111 §4.3.4) — so a
+            # cache that stored a wrong MIME type (e.g. .mjs as text/plain
+            # from a server run before the mimetypes registration above) can
+            # only heal if the 304 restates the correct type.
+            if response.status_code == 304 and "content-type" not in response.headers:
+                guessed, _ = mimetypes.guess_type(request.url.path)
+                if guessed:
+                    response.headers["Content-Type"] = guessed
         return response
 
     # -----------------------------------------------------------------

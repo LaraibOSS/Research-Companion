@@ -184,6 +184,24 @@ class TestStaticMount:
                 f"{path} served as {mime!r}; ES modules need a JavaScript MIME type"
             )
 
+    def test_static_304_carries_content_type(self, isolated_papergraph_dir):
+        """A 304 revalidation must include Content-Type: browsers update stored
+        response headers from the 304 (RFC 9111), so this lets a cache that
+        stored a wrong MIME type (e.g. text/plain from a pre-fix server) heal
+        itself on the next revalidation instead of being poisoned forever."""
+        c = _make_client()
+        path = "/static/vendor/pdfjs/web/viewer.mjs"
+        first = c.get(path)
+        assert first.status_code == 200
+        etag = first.headers.get("etag")
+        assert etag
+        revalidated = c.get(path, headers={"If-None-Match": etag})
+        assert revalidated.status_code == 304
+        mime = revalidated.headers.get("content-type", "").split(";")[0].strip()
+        assert mime in ("text/javascript", "application/javascript"), (
+            f"304 for {path} carried {mime!r}; poisoned browser caches can never heal"
+        )
+
 
 # ---------------------------------------------------------------------------
 # GET /api/lab
