@@ -635,8 +635,12 @@ Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live wi
   `workspaces/` — plain JSON and PDFs you can inspect.
 - **What leaves your machine:** paper text goes to the AI provider you
   configured, only when a task needs it (extraction, alignment, answers);
-  bibliographic lookups query CrossRef/OpenAlex/arXiv/Semantic Scholar;
-  optional embeddings go to the Hugging Face Inference API. Nothing else.
+  bibliographic lookups query CrossRef/OpenAlex/arXiv/Semantic Scholar; a
+  **Find PDF** search (section 6) additionally queries Unpaywall, but only
+  when you've set a contact email in Settings — Unpaywall requires one as
+  its polite identifier, so leaving that field empty means Unpaywall is
+  never contacted at all; optional embeddings go to the Hugging Face
+  Inference API. Nothing else.
 - **Costs, measured live:** extraction ≈ $0.02 per paper (GPT-4o class);
   re-extracting a 16-paper library cost $0.51; an alignment or a grounded
   answer is one model call. Everything cached is free to re-run.

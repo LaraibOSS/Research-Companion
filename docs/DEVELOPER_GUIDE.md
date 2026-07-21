@@ -735,14 +735,20 @@ plain links.
   lookup, or a title search when there's no DOI) → `arxiv` (only for an
   arXiv id an *earlier* provider just surfaced — e.g. S2's
   `externalIds.ArXiv` field — never the paper's own arXiv id, which the
-  caller would already have tried directly.
-- **Links accumulate regardless of the stop.** Every provider that runs
-  contributes its landing-page URL to `links` (deduped by URL) even after a
-  PDF has been found by an earlier one, and `locate_pdf` always appends a
-  `"DOI page"` link (when there's a DOI) and a `"Google Scholar"` search link
-  (when there's a title) — both are pure string formatting, no HTTP call.
-  So a caller that only wants the direct PDF reads `pdf_url`; a caller
-  building a "try these instead" UI reads `links`.
+  caller would already have tried directly).
+- **Links stop accumulating once a PDF is found.** The loop checks
+  `pdf_url is not None` at the *top* of each iteration, so a provider whose
+  own turn finds the PDF still contributes its own landing-page link first
+  (each branch calls `add_link(...)` before checking whether it got a
+  `pdf_url`), but every later provider in the order never runs at all — no
+  fetch, no link (`tests/test_oa_locator.py::test_locate_stops_at_first_pdf`
+  asserts `calls == ["s2"]` when `s2` hits: `unpaywall`/`openalex` are never
+  even called). Separately, and unconditionally after the loop exits either
+  way, `locate_pdf` appends a `"DOI page"` link (when there's a DOI) and a
+  `"Google Scholar"` search link (when there's a title) — both pure string
+  formatting, no HTTP call, so they're present on a hit or a miss. A caller
+  that only wants the direct PDF reads `pdf_url`; a caller building a "try
+  these instead" UI reads `links`.
 - **Identifiers** come from `meta.paper_id`'s namespace prefix
   (`doi:`/`arxiv:`/`s2:`, via `_derive_ids`), overlaid with any `extra_ids`
   the caller already resolved (e.g. `fetch.add_s2` passes the DOI/arXiv ids
