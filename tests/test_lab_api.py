@@ -3585,6 +3585,244 @@ class TestUploadPaperPdf:
         assert paper_id not in _store.list_failures()
 
 
+# ---------------------------------------------------------------------------
+# POST /api/papers/{id}/find-pdf and POST /api/papers/find-pdfs — locate an
+# open-access PDF (research_companion.oa_locator.locate_pdf) for a paper
+# whose ingest failed for lack of one, download it, and re-run the SAME
+# retry-flow job the /retry endpoint uses.
+# ---------------------------------------------------------------------------
+
+class TestFindPdf:
+    def _client(self, find_pdf_override=None):
+        app = create_lab_app(Bus())
+        if find_pdf_override is not None:
+            app.state.find_pdf_override = find_pdf_override
+        return app, TestClient(app)
+
+    def _poll(self, c, job_id, tries=100):
+        import time
+        job = None
+        for _ in range(tries):
+            job = c.get(f"/api/jobs/{job_id}").json()
+            if job["status"] != "running":
+                break
+            time.sleep(0.05)
+        return job
+
+    def test_404_without_failure_record(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/papers/doi%3A10.1%2Fnope/find-pdf")
+        assert resp.status_code == 404
+
+    def test_409_when_failure_is_not_missing_pdf(self, isolated_papergraph_dir):
+        """A failure whose error text is NOT a missing-PDF reason (e.g. a
+        parse error with the PDF already present on disk) is not something
+        find-pdf can fix -- reject it distinctly from the no-record 404."""
+        from research_companion import store
+
+        store.record_failure("arxiv:findpdf_parse_err", {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": "arxiv:findpdf_parse_err",
+        })
+        c = _make_client()
+        resp = c.post("/api/papers/arxiv:findpdf_parse_err/find-pdf")
+        assert resp.status_code == 409
+
+    def test_miss_persists_oa_links_and_shows_in_listing(self, isolated_papergraph_dir, monkeypatch):
+        """When locate_pdf finds only landing-page links (no downloadable
+        PDF), the job completes as 'done' -- a miss is a completed search,
+        not a failed job -- and the links are persisted onto the failure
+        record (read-modify-write: the original error/stage survive) so
+        GET /api/papers' listing carries oa_links for the library card."""
+        from research_companion import oa_locator, store
+        from research_companion.agents.events import IngestFailed
+
+        paper_id = "arxiv:findpdf_miss"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_miss",
+            "paper_id": paper_id,
+        })
+
+        seeded_links = [{"label": "Publisher page", "url": "https://example.org/paper"}]
+
+        def fake_locate(meta):
+            return oa_locator.OaLocation(pdf_url=None, links=seeded_links, source="openalex")
+
+        monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        with TestClient(app) as c:
+            resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"a miss must be 'done', not 'failed': {job}"
+            assert job["detail"] == "no open-access PDF found (1 links)"
+
+        # The failure record must survive (not cleared) with the ORIGINAL
+        # error preserved and oa_links merged in (read-modify-write).
+        failures = store.list_failures()
+        assert paper_id in failures, "failure record was incorrectly cleared on a miss"
+        assert failures[paper_id]["error"] == "no PDF on disk for arxiv:findpdf_miss"
+        assert failures[paper_id]["oa_links"] == seeded_links
+
+        # GET /api/papers must carry oa_links through _build_paper_summary.
+        papers = c.get("/api/papers").json()
+        mine = next(p for p in papers if p["paper_id"] == paper_id)
+        assert mine["oa_links"] == seeded_links
+        assert mine["status"] == "failed"
+
+        # The library card needs an event to re-render with the new links.
+        failed_events = [e for e in bus.history if isinstance(e, IngestFailed)
+                        and e.paper_id == paper_id and e.stage == "find-pdf"]
+        assert failed_events, "no IngestFailed event was published for the miss"
+
+    def test_miss_for_unrelated_paper_shows_empty_oa_links(self, isolated_papergraph_dir):
+        """A healthy paper with no failure record must show oa_links: []
+        (not absent) so Task 4's frontend never has to guard for a missing key."""
+        _make_paper(isolated_papergraph_dir, "arxiv:findpdf_healthy")
+        c = _make_client()
+        papers = c.get("/api/papers").json()
+        mine = next(p for p in papers if p["paper_id"] == "arxiv:findpdf_healthy")
+        assert mine["oa_links"] == []
+
+    def test_hit_downloads_and_reingests(self, isolated_papergraph_dir, monkeypatch):
+        """When locate_pdf returns a direct pdf_url and the download seam
+        succeeds, the PDF is saved to disk, the SAME retry-flow pipeline the
+        /retry endpoint uses runs (via pipeline_overrides), and the failure
+        record is cleared -- the paper is no longer 'failed'."""
+        from unittest.mock import patch
+
+        from research_companion import oa_locator, store
+        from research_companion.store import PaperMetadata
+
+        paper_id = "local:findpdf_hit"
+        path_key = "some/original/download/path.pdf"
+        meta = PaperMetadata(paper_id=paper_id, title="Find PDF Hit Paper",
+                             authors=["Author"], added_at="2024-01-01T00:00:00Z")
+        meta.save()
+        store.save_text(paper_id, "Introduction Methods Results. " * 10)
+        store.record_failure(path_key, {
+            "stage": "extract", "error": f"PDF not found: {path_key}",
+            "paper_id": paper_id,
+        })
+
+        _fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=False)
+
+        def fake_locate(m):
+            return oa_locator.OaLocation(pdf_url="https://example.org/hit.pdf", links=[],
+                                         source="unpaywall")
+
+        def fake_download(url, *, timeout=60.0):
+            return _UPLOAD_PDF
+
+        def fake_add_local_pdf(path):
+            return meta
+
+        monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)
+
+        bus = Bus()
+        app = create_lab_app(bus)
+        app.state.pipeline_overrides = seam_overrides
+
+        with patch("research_companion.fetch._try_download_pdf", fake_download), \
+             patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), \
+             TestClient(app) as c:
+            resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"expected done, got: {job}"
+
+        saved = store.pdf_path(paper_id)
+        assert saved is not None
+        assert saved.read_bytes() == _UPLOAD_PDF
+
+        assert counts["extractor"] >= 1
+        assert counts["sectioner"] >= 1
+
+        failures = store.list_failures()
+        assert path_key not in failures, "failure record was not cleared on a hit"
+
+        papers = c.get("/api/papers").json()
+        mine = next(p for p in papers if p["paper_id"] == paper_id)
+        assert mine["status"] != "failed"
+
+    def test_batch_409_when_running_and_counts(self, isolated_papergraph_dir):
+        """Two failed (missing-PDF) papers seeded: the first sweep POST
+        returns 202 with count 2 and processes both sequentially (one
+        find_pdf_override call per paper); an immediate second POST 409s
+        because the sweep flag is still set; with no failures left, a
+        fresh sweep POST returns 200 {"count": 0}."""
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:findpdf_batch_1", write_extraction=False)
+        _make_paper(isolated_papergraph_dir, "arxiv:findpdf_batch_2", write_extraction=False)
+        store.record_failure("arxiv:findpdf_batch_1", {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_batch_1",
+            "paper_id": "arxiv:findpdf_batch_1",
+        })
+        store.record_failure("arxiv:findpdf_batch_2", {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_batch_2",
+            "paper_id": "arxiv:findpdf_batch_2",
+        })
+
+        calls = []
+
+        async def fake_find(matched_key, paper_id, bus):
+            calls.append((matched_key, paper_id))
+            # A no-op "success": clear_failure runs regardless in the caller,
+            # so no need to touch the store here.
+
+        app, c = self._client(find_pdf_override=fake_find)
+        with c:
+            resp = c.post("/api/papers/find-pdfs")
+            assert resp.status_code == 202
+            data = resp.json()
+            assert data["count"] == 2
+            job_id = data["job_id"]
+
+            # Immediate second sweep must 409 -- the flag is set synchronously.
+            resp2 = c.post("/api/papers/find-pdfs")
+            assert resp2.status_code == 409
+
+            job = self._poll(c, job_id, tries=200)
+            assert job["status"] == "done", f"expected done, got: {job}"
+
+        assert len(calls) == 2, f"expected both papers processed, got: {calls}"
+        assert {p for _, p in calls} == {"arxiv:findpdf_batch_1", "arxiv:findpdf_batch_2"}
+
+        # The flag must be reset after the sweep finishes -- a THIRD sweep
+        # (now with nothing left to do, since the fake "succeeded" clears
+        # both failures via the same clear_failure the endpoint runs) must
+        # see count 0, proving the flag never gets stuck True.
+        resp3 = c.post("/api/papers/find-pdfs")
+        assert resp3.status_code == 200
+        assert resp3.json() == {"count": 0}
+
+    def test_batch_zero_when_no_failures(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/papers/find-pdfs")
+        assert resp.status_code == 200
+        assert resp.json() == {"count": 0}
+
+    def test_batch_skips_non_missing_pdf_failures(self, isolated_papergraph_dir):
+        """A failure that isn't a missing-PDF case must not be swept up by
+        the batch endpoint."""
+        from research_companion import store
+
+        store.record_failure("arxiv:findpdf_batch_skip", {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": "arxiv:findpdf_batch_skip",
+        })
+        c = _make_client()
+        resp = c.post("/api/papers/find-pdfs")
+        assert resp.status_code == 200
+        assert resp.json() == {"count": 0}
+
+
 class TestPipelineProviderFromSettings:
     """REGRESSION: the extraction pipeline resolved its provider from a raw
     env var (defaulting to anthropic) while /api/settings resolved it from

@@ -50,6 +50,29 @@ def _pipeline_provider_model() -> tuple[str, str | None]:
 # Upload size cap for POST /api/papers/upload (module-level so tests can patch it)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+
+class _FindPdfMiss(Exception):
+    """Raised by _find_pdf_for_failure when locate_pdf found no downloadable
+    PDF. Carries the candidate-link count so the job wrapper can record a
+    distinct "done" (not "failed") outcome — a miss is a completed search,
+    not an error."""
+
+    def __init__(self, link_count: int) -> None:
+        self.link_count = link_count
+        super().__init__(f"no open-access PDF found ({link_count} links)")
+
+
+def _is_missing_pdf_failure(reason: str | None) -> bool:
+    """True when a failure's error text indicates the paper has no PDF on
+    disk -- the only failure class POST /api/papers/{id}/find-pdf can
+    actually fix. Mirrors research_companion/lab/static/js/libraryHelpers.js's
+    isMissingPdfFailure: two wordings reach here -- "no PDF on disk"
+    (extract.py, first ingest) and "PDF not found" (fetch.py's
+    add_local_pdf, the retry path)."""
+    if not reason:
+        return False
+    return reason.startswith("no PDF on disk") or reason.startswith("PDF not found")
+
 # ---------------------------------------------------------------------------
 # Request body models (module-level so annotations resolve correctly with
 # `from __future__ import annotations` in effect).
@@ -301,10 +324,12 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
     paper_id = meta.paper_id
     status = "pending"
     failure_reason = None
+    oa_links: list[dict] = []
     for key, info in failures.items():
         if key == paper_id or info.get("paper_id") == paper_id:
             status = "failed"
             failure_reason = info.get("error")
+            oa_links = info.get("oa_links") or []
             break
 
     if status != "failed" and store.load_extraction(
@@ -343,6 +368,7 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         "added_at": meta.added_at,
         "parse_source": getattr(meta, "parse_source", "") or "",
         "ocr_used": bool(getattr(meta, "ocr_used", False)),
+        "oa_links": oa_links,
     }
 
 
@@ -418,6 +444,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
     app.state.auto_added_targets: set = set()
     app.state.retry_override = None
+    # find-pdf (OA locator) seams: find_pdf_override mirrors retry_override for
+    # tests; find_pdf_sweep_running guards the batch endpoint against overlapping
+    # sweeps (single flag, reset in the sweep job's `finally`).
+    app.state.find_pdf_override = None
+    app.state.find_pdf_sweep_running = False
     # One-shot weak-metadata backfill (Task 5): test seam + per-session guard so
     # each workspace is scanned at most once. backfill_override lets tests inject
     # a fake in place of the real re-extraction pipeline.
@@ -736,6 +767,184 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                                           "label": retry_label, "target": ""}
             finally:
                 await _announce_finish(job_id, "retry")
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
+    # find-pdf: locate an open-access PDF for a paper whose ingest failed
+    # because no PDF was available (the OA locator wired in Task 1/2).
+    #
+    # A "miss" (locate_pdf/download found nothing usable) is a COMPLETED
+    # search, not a failed job -- the located candidate links (if any) are
+    # persisted onto the failure record via store.record_failure (a
+    # read-modify-write that preserves the original error/stage/paper_id)
+    # and an IngestFailed event is published so the Library card re-renders
+    # with them. A hit downloads the PDF, saves it, and re-runs the SAME
+    # retry-flow job (_retry_paper_task) the /retry endpoint uses -- no
+    # separate ingest pipeline is implemented here.
+    # -----------------------------------------------------------------
+    async def _find_pdf_for_failure(matched_key: str, paper_id: str) -> None:
+        """Locate an OA PDF for one failed paper; on success save it and re-run
+        the ingest pipeline (the retry task expects the PDF on disk); on miss
+        persist the located links into the failure record and publish the
+        failure event so the library card re-renders with them."""
+        from research_companion import store
+        from research_companion.agents.events import IngestFailed
+        from research_companion.fetch import _try_download_pdf
+        from research_companion.oa_locator import locate_pdf
+
+        meta = store.PaperMetadata.load(paper_id)
+        if meta is None:
+            raise RuntimeError(f"no metadata for {paper_id!r}")
+
+        loc = await asyncio.to_thread(locate_pdf, meta)
+        pdf_bytes = None
+        if loc.pdf_url:
+            pdf_bytes = await asyncio.to_thread(_try_download_pdf, loc.pdf_url)
+
+        if pdf_bytes is None:
+            failures = store.list_failures()
+            info = dict(failures.get(matched_key) or {})
+            info["oa_links"] = loc.links
+            info.setdefault("paper_id", paper_id)
+            store.record_failure(matched_key, info)
+            await bus.publish(IngestFailed(
+                path=matched_key, stage="find-pdf",
+                error=info.get("error") or "no open-access PDF found",
+                paper_id=paper_id,
+            ))
+            raise _FindPdfMiss(len(loc.links))
+
+        store.save_pdf(paper_id, pdf_bytes)
+        await _retry_paper_task(matched_key, paper_id, bus,
+                                pipeline_overrides=app.state.pipeline_overrides)
+
+    # -----------------------------------------------------------------
+    # POST /api/papers/find-pdfs  (batch sweep — registered before the
+    # {paper_id:path} routes so "find-pdfs" is never captured as a paper id,
+    # mirroring how POST /api/papers/upload is registered before them)
+    # -----------------------------------------------------------------
+    @app.post("/api/papers/find-pdfs", status_code=202)
+    async def find_all_pdfs() -> Any:
+        from research_companion import store
+
+        if app.state.find_pdf_sweep_running:
+            raise HTTPException(status_code=409,
+                                detail="a find-pdfs sweep is already running")
+
+        failures = store.list_failures()
+        targets: list[tuple[str, str]] = []
+        for key, info in failures.items():
+            if not _is_missing_pdf_failure(info.get("error")):
+                continue
+            targets.append((key, info.get("paper_id") or key))
+
+        if not targets:
+            return JSONResponse(status_code=200, content={"count": 0})
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Finding PDFs for {len(targets)} papers"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "find-pdf",
+                                  "label": label, "target": ""}
+        # Set synchronously (before the background task starts) so an
+        # immediate second POST is guaranteed to see it and 409.
+        app.state.find_pdf_sweep_running = True
+
+        async def _run() -> None:
+            await _announce_start(job_id, "find-pdf", label)
+            try:
+                for idx, (key, pid) in enumerate(targets):
+                    try:
+                        if app.state.find_pdf_override is not None:
+                            await app.state.find_pdf_override(key, pid, bus)
+                        else:
+                            await _find_pdf_for_failure(key, pid)
+                        # Success (a PDF was found and re-ingested) -- clear
+                        # the failure the same way the single-paper endpoint
+                        # does. A miss raises (handled below) so this line
+                        # only runs on an actual hit.
+                        store.clear_failure(key, paper_id=pid)
+                    except Exception:
+                        # One paper's miss/error must not stop the sweep --
+                        # _find_pdf_for_failure already persisted whatever
+                        # there was to persist (oa_links on miss, or nothing
+                        # further to do on a genuine error).
+                        pass
+                    if idx < len(targets) - 1:
+                        await asyncio.sleep(1.0)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "find-pdf",
+                                          "label": label, "target": ""}
+                _schedule_coverage_refresh()
+            finally:
+                # MUST run even if something above raises unexpectedly --
+                # otherwise the sweep flag is stuck True forever and every
+                # future batch request 409s.
+                app.state.find_pdf_sweep_running = False
+                await _announce_finish(job_id, "find-pdf")
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id, "count": len(targets)}
+
+    # -----------------------------------------------------------------
+    # POST /api/papers/{id}/find-pdf
+    # -----------------------------------------------------------------
+    @app.post("/api/papers/{paper_id:path}/find-pdf", status_code=202)
+    async def find_pdf(paper_id: str) -> dict:
+        from research_companion import store
+
+        failures = store.list_failures()
+        matched_key = None
+        matched_info: dict = {}
+        for key, info in failures.items():
+            if key == paper_id or info.get("paper_id") == paper_id:
+                matched_key = key
+                matched_info = info
+                break
+
+        if matched_key is None:
+            raise HTTPException(status_code=404, detail=f"No failure record for {paper_id!r}")
+
+        if not _is_missing_pdf_failure(matched_info.get("error")):
+            raise HTTPException(status_code=409,
+                                detail="failure is not a missing-PDF failure")
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Finding PDF for {paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "find-pdf",
+                                  "label": label, "target": ""}
+
+        if app.state.find_pdf_override is not None:
+            coro = app.state.find_pdf_override(matched_key, paper_id, bus)
+        else:
+            coro = _find_pdf_for_failure(matched_key, paper_id)
+
+        async def _run() -> None:
+            await _announce_start(job_id, "find-pdf", label)
+            try:
+                await coro
+                # Success (a downloadable PDF was found and re-ingested) --
+                # clear the failure the same way /retry does.
+                store.clear_failure(matched_key, paper_id=paper_id)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "find-pdf",
+                                          "label": label, "target": ""}
+                _schedule_coverage_refresh()
+            except _FindPdfMiss as miss:
+                # A miss is a completed search, not a failed job -- the
+                # failure record (with oa_links) was already persisted by
+                # _find_pdf_for_failure; do NOT clear it.
+                app.state.jobs[job_id] = {
+                    "status": "done",
+                    "detail": f"no open-access PDF found ({miss.link_count} links)",
+                    "kind": "find-pdf", "label": label, "target": "",
+                }
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "find-pdf",
+                                          "label": label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "find-pdf")
 
         asyncio.create_task(_run())
         return {"job_id": job_id}
