@@ -3692,14 +3692,31 @@ class TestFindPdf:
         """When locate_pdf returns a direct pdf_url and the download seam
         succeeds, the PDF is saved to disk, the SAME retry-flow pipeline the
         /retry endpoint uses runs (via pipeline_overrides), and the failure
-        record is cleared -- the paper is no longer 'failed'."""
+        record is cleared -- the paper is no longer 'failed'.
+
+        REGRESSION: the failure record's key is very often NOT a filesystem
+        path -- it can be a DOI/target string, or a stale path from an
+        earlier failed attempt (that's exactly why the paper failed). The
+        hit path must save the downloaded bytes and pass the RESULTING
+        on-disk path to _retry_paper_task, never the failure key itself --
+        _retry_paper_task forwards its first arg straight to
+        fetch.add_local_pdf, which raises FetchError("PDF not found: ...")
+        for any path that doesn't exist. fake_add_local_pdf below asserts
+        the path it receives exists on disk (mirroring the real
+        add_local_pdf's own check), so passing the raw failure key here
+        fails this test loudly instead of silently discarding the download.
+        """
         from unittest.mock import patch
 
         from research_companion import oa_locator, store
+        from research_companion.fetch import FetchError
         from research_companion.store import PaperMetadata
 
         paper_id = "local:findpdf_hit"
-        path_key = "some/original/download/path.pdf"
+        # Deliberately NOT a filesystem path -- the common real-world shape
+        # for a failure key (a DOI/target string). Passing this straight to
+        # add_local_pdf is exactly the regression under test.
+        path_key = "doi:10.9999/x"
         meta = PaperMetadata(paper_id=paper_id, title="Find PDF Hit Paper",
                              authors=["Author"], added_at="2024-01-01T00:00:00Z")
         meta.save()
@@ -3719,6 +3736,9 @@ class TestFindPdf:
             return _UPLOAD_PDF
 
         def fake_add_local_pdf(path):
+            p = Path(path)
+            if not p.exists():
+                raise FetchError(f"PDF not found: {p}")
             return meta
 
         monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)

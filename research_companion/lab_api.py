@@ -816,8 +816,14 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             ))
             raise _FindPdfMiss(len(loc.links))
 
-        store.save_pdf(paper_id, pdf_bytes)
-        await _retry_paper_task(matched_key, paper_id, bus,
+        # _retry_paper_task's first arg is passed straight to
+        # fetch.add_local_pdf, which requires an EXISTING filesystem path --
+        # matched_key is the failure-record key (often a DOI/target string or
+        # a stale path, exactly why the paper failed in the first place) and
+        # must NOT be used here. Mirror upload_paper_pdf (~line 1015): save
+        # the bytes first and pass the resulting on-disk path.
+        pdf_path = await asyncio.to_thread(store.save_pdf, paper_id, pdf_bytes)
+        await _retry_paper_task(str(pdf_path), paper_id, bus,
                                 pipeline_overrides=app.state.pipeline_overrides)
 
     # -----------------------------------------------------------------
