@@ -27,6 +27,12 @@ import {
   sectionBlocks,
   blockIntersectsRange,
 } from '../readerHelpers.js';
+import {
+  buildViewerUrl,
+  normalizeQuoteForSearch,
+  readerTabs,
+  findMissState,
+} from '../readerPdfHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Overlay state
@@ -37,6 +43,15 @@ let _panel = null;
 let _open = false;
 let _apiRef = api;
 let _lastFocus = null;
+
+// PDF (Original) tab state — reset per _renderContent() call / on close.
+// A same-origin, same-page-lifetime iframe: never recreated across tab flips.
+const PDF_INIT_GRACE_MS = 500;   // time to let viewer.mjs attach PDFViewerApplication after load
+const PDF_MISS_TIMEOUT_MS = 4000; // time to wait for a find result before declaring a miss
+let _pdfFrame = null;
+let _pdfMissTimer = null;
+let _pdfFindEvents = [];
+let _pdfQuoteRequested = false; // normalizeQuoteForSearch(quote) was non-empty (a search was launched)
 
 // ---------------------------------------------------------------------------
 // Exported mount
@@ -101,6 +116,10 @@ function _close() {
   _overlay.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
   _panel.innerHTML = '';
+  _clearPdfMissTimer();
+  _pdfFrame = null;
+  _pdfFindEvents = [];
+  _pdfQuoteRequested = false;
   // Return focus to the element that opened the reader, if still around.
   if (_lastFocus && typeof _lastFocus.focus === 'function' && document.contains(_lastFocus)) {
     _lastFocus.focus();
@@ -215,6 +234,13 @@ function _renderSectionBlocks(sectionText, sectionTitle, quoteRange) {
 }
 
 function _renderContent(payload, detail) {
+  // Fresh PDF-tab state for this open — a previous paper's iframe/timer/events
+  // must never bleed into this render.
+  _clearPdfMissTimer();
+  _pdfFrame = null;
+  _pdfFindEvents = [];
+  _pdfQuoteRequested = false;
+
   const model = buildReaderModel(payload);
   const rawSections = (payload && Array.isArray(payload.sections)) ? payload.sections : [];
 
@@ -271,11 +297,11 @@ function _renderContent(payload, detail) {
     ? `<div class="reader-empty">No extracted text for this paper${model.hasPdf ? ' — it may be a scanned PDF. Use “View original PDF” above to read it.' : '.'}</div>`
     : '';
 
-  // Figures/charts never make it into the extracted text — say so plainly
-  // rather than let readers wonder where they went, and point at the PDF
-  // link that's already in the header.
+  // Figures/charts never make it into the extracted text — say so plainly.
+  // When there's an Original (PDF) tab, point at it directly; otherwise fall
+  // back to the external PDF link (kept unchanged in the header).
   const figuresNoticeHtml = (!emptyText && model.hasPdf)
-    ? `<div class="reader-figures-notice">Figures and charts aren't part of the text view — open the <a class="reader-pdf-link-inline" href="${escapeHtml(_apiRef.paperPdfUrl(detail.paperId))}" target="_blank" rel="noopener">original PDF</a> to see them.</div>`
+    ? `<div class="reader-figures-notice">Figures and charts aren't part of the text view — switch to the Original tab to see them as typeset.</div>`
     : '';
 
   const sectionsHtml = emptyText ? '' : model.sections.map(s => {
@@ -294,15 +320,184 @@ function _renderContent(payload, detail) {
       </section>`;
   }).join('');
 
-  const bodyHtml = `<div class="reader-body">${noticeHtml}${figuresNoticeHtml}${emptyHtml}${sectionsHtml}</div>`;
+  // Two-tab shell (Original PDF / Text) — only when the paper has a PDF.
+  // The Text pane's own body-rendering logic above is untouched; here we only
+  // decide whether it starts hidden (Original is the default active tab).
+  const tabState = readerTabs(model.hasPdf);
+  const hasTabs = tabState.tabs.length > 1;
 
-  _panel.innerHTML = headerHtml + navHtml + bodyHtml;
+  const tabsHtml = hasTabs ? `
+    <div class="reader-tabs" role="tablist">
+      <button type="button" class="reader-tab${tabState.active === 'original' ? ' reader-tab--active' : ''}"
+              role="tab" aria-selected="${tabState.active === 'original'}" data-tab="original">Original</button>
+      <button type="button" class="reader-tab${tabState.active === 'text' ? ' reader-tab--active' : ''}"
+              role="tab" aria-selected="${tabState.active === 'text'}" data-tab="text">Text</button>
+    </div>` : '';
+
+  const pdfPaneHtml = hasTabs
+    ? `<div class="reader-pdf-pane"${tabState.active === 'original' ? '' : ' hidden'}></div>`
+    : '';
+
+  const bodyHiddenAttr = (hasTabs && tabState.active !== 'text') ? ' hidden' : '';
+  const bodyHtml = `<div class="reader-body"${bodyHiddenAttr}>${noticeHtml}${figuresNoticeHtml}${emptyHtml}${sectionsHtml}</div>`;
+
+  _panel.innerHTML = headerHtml + tabsHtml + navHtml + pdfPaneHtml + bodyHtml;
   _bindClose();
   _bindNav();
+  if (hasTabs) {
+    _bindTabs(detail);
+    // Activate the default tab now — this is what lazily creates the PDF
+    // iframe on first activation of Original (the default when hasPdf).
+    _activateTab(tabState.active, detail);
+  }
   _focusClose();
 
   // Scroll the active section (or its mark) into view.
   _scrollToActive(activeId);
+}
+
+// ---------------------------------------------------------------------------
+// Original (PDF) tab — lazy iframe, tab switching, miss/failure detection
+// ---------------------------------------------------------------------------
+
+function _bindTabs(detail) {
+  _panel.querySelectorAll('.reader-tab').forEach((btn) => {
+    btn.addEventListener('click', () => _activateTab(btn.dataset.tab, detail));
+  });
+}
+
+function _activateTab(tabName, detail) {
+  const pdfPane = _panel.querySelector('.reader-pdf-pane');
+  const bodyEl = _panel.querySelector('.reader-body');
+  if (!bodyEl) return;
+
+  // Any tab switch dismisses a shown/pending miss notice.
+  const notice = pdfPane && pdfPane.querySelector('.reader-pdf-notice');
+  if (notice) notice.remove();
+
+  _panel.querySelectorAll('.reader-tab').forEach((btn) => {
+    const isActive = btn.dataset.tab === tabName;
+    btn.classList.toggle('reader-tab--active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
+  });
+
+  if (tabName === 'original' && pdfPane) {
+    pdfPane.hidden = false;
+    bodyEl.hidden = true;
+    _ensurePdfFrame(pdfPane, detail);
+  } else {
+    if (pdfPane) pdfPane.hidden = true;
+    bodyEl.hidden = false;
+  }
+}
+
+function _clearPdfMissTimer() {
+  if (_pdfMissTimer) {
+    clearTimeout(_pdfMissTimer);
+    _pdfMissTimer = null;
+  }
+}
+
+function _ensurePdfFrame(pdfPane, detail) {
+  if (_pdfFrame) return; // already created — never recreated on tab flips
+  const quote = detail.quote || '';
+  _pdfQuoteRequested = !!normalizeQuoteForSearch(quote);
+
+  const iframe = document.createElement('iframe');
+  iframe.className = 'reader-pdf-frame';
+  iframe.title = 'Original PDF';
+  iframe.addEventListener('error', () => _handlePdfLoadFailure(iframe));
+  iframe.addEventListener('load', () => _handlePdfLoad(iframe, pdfPane));
+  iframe.src = buildViewerUrl(detail.paperId, { quote });
+
+  _pdfFrame = iframe;
+  pdfPane.appendChild(iframe);
+}
+
+function _handlePdfLoad(iframe, pdfPane) {
+  // Grace period for viewer.mjs to finish attaching window.PDFViewerApplication
+  // after the iframe's load event fires; if it never shows up, treat the
+  // viewer as failed rather than leave a blank pane.
+  setTimeout(() => {
+    if (_pdfFrame !== iframe) return; // stale: reader closed/reopened since
+    let app = null;
+    try {
+      app = iframe.contentWindow && iframe.contentWindow.PDFViewerApplication;
+    } catch {
+      app = null;
+    }
+    if (!app) {
+      _handlePdfLoadFailure(iframe);
+      return;
+    }
+    if (_pdfQuoteRequested) _subscribeFindEvents(iframe, app);
+  }, PDF_INIT_GRACE_MS);
+}
+
+function _subscribeFindEvents(iframe, app) {
+  try {
+    Promise.resolve(app.initializedPromise).then(() => {
+      if (_pdfFrame !== iframe) return; // stale: reader closed/reopened since
+      let eventBus = null;
+      try {
+        eventBus = iframe.contentWindow.PDFViewerApplication.eventBus;
+      } catch {
+        eventBus = null;
+      }
+      if (!eventBus) return;
+
+      // updatefindmatchescount fires as pages are progressively scanned;
+      // updatefindcontrolstate fires with the terminal state once the whole
+      // document has been searched (FOUND=0 / NOT_FOUND=1 / WRAPPED=2 are
+      // terminal for a single find-all pass; PENDING=3 means still running).
+      const record = (evt, isFinal) => {
+        const total = (evt && evt.matchesCount && typeof evt.matchesCount.total === 'number')
+          ? evt.matchesCount.total : 0;
+        _pdfFindEvents.push({ total, final: isFinal });
+        _maybeShowMissNotice(false);
+      };
+      const onMatchesCount = (evt) => record(evt, false);
+      const onControlState = (evt) => record(evt, !!evt && evt.state !== 3);
+
+      try {
+        eventBus.on('updatefindmatchescount', onMatchesCount);
+        eventBus.on('updatefindcontrolstate', onControlState);
+      } catch {
+        return;
+      }
+
+      _clearPdfMissTimer();
+      _pdfMissTimer = setTimeout(() => _maybeShowMissNotice(true), PDF_MISS_TIMEOUT_MS);
+    }).catch(() => {});
+  } catch {
+    // Any cross-origin/reach-in failure — miss-detection is best-effort only,
+    // the viewer itself is unaffected.
+  }
+}
+
+function _maybeShowMissNotice(timeoutFired) {
+  if (!_pdfQuoteRequested) return;
+  const state = findMissState(_pdfFindEvents, timeoutFired);
+  if (state === 'pending') return;
+  _clearPdfMissTimer();
+  if (state === 'missed') _showPdfMissNotice();
+}
+
+function _showPdfMissNotice() {
+  const pdfPane = _panel.querySelector('.reader-pdf-pane');
+  if (!pdfPane || pdfPane.querySelector('.reader-pdf-notice')) return;
+  const notice = document.createElement('div');
+  notice.className = 'reader-pdf-notice';
+  notice.textContent = "Couldn't locate this quote in the PDF — the Text tab has it highlighted.";
+  pdfPane.insertBefore(notice, pdfPane.firstChild);
+}
+
+function _handlePdfLoadFailure(iframe) {
+  if (_pdfFrame !== iframe) return; // stale: reader closed/reopened since
+  _clearPdfMissTimer();
+  const textBtn = _panel.querySelector('.reader-tab[data-tab="text"]');
+  if (textBtn && !textBtn.classList.contains('reader-tab--active')) textBtn.click();
+  showToast('PDF viewer failed to load — showing text view', 'error');
 }
 
 // ---------------------------------------------------------------------------
