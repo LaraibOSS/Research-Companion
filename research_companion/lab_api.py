@@ -436,6 +436,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # Mount static files (tolerates sparse/absent directory)
     # -----------------------------------------------------------------
+    # Python's mimetypes DB is platform-dependent (on Windows it reads the
+    # registry) and often lacks .mjs — StaticFiles then serves ES modules as
+    # text/plain, which browsers refuse to execute, so the PDF.js viewer
+    # never boots. Register the JavaScript types explicitly; .js included
+    # because registry entries have been seen to override it too.
+    import mimetypes
+
+    mimetypes.add_type("text/javascript", ".mjs")
+    mimetypes.add_type("text/javascript", ".js")
+
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 

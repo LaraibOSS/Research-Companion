@@ -165,6 +165,25 @@ class TestStaticMount:
         assert resp.status_code == 200
         assert resp.headers.get("cache-control") == "no-cache"
 
+    def test_mjs_modules_served_with_javascript_mime(self, isolated_papergraph_dir):
+        """Browsers refuse to execute ES module scripts served with a
+        non-JavaScript Content-Type, and Python's mimetypes DB has no .mjs
+        mapping on some platforms (notably Windows, where it reads the
+        registry) — without an explicit mapping the PDF.js viewer silently
+        fails to boot."""
+        c = _make_client()
+        for path in (
+            "/static/vendor/pdfjs/web/viewer.mjs",
+            "/static/vendor/pdfjs/build/pdf.mjs",
+            "/static/vendor/pdfjs/build/pdf.worker.mjs",
+        ):
+            resp = c.get(path)
+            assert resp.status_code == 200
+            mime = resp.headers.get("content-type", "").split(";")[0].strip()
+            assert mime in ("text/javascript", "application/javascript"), (
+                f"{path} served as {mime!r}; ES modules need a JavaScript MIME type"
+            )
+
 
 # ---------------------------------------------------------------------------
 # GET /api/lab
