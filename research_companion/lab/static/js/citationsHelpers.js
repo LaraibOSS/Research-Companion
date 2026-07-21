@@ -167,16 +167,27 @@ export function groupByStatus(references) {
  *
  * @param {Array|Map|null} papers  — store paper objects (array or the papers Map)
  * @param {string|null} draftId    — the current draft paper_id (excluded)
+ * @param {Set<string>|Array<string>|null} [matchedPaperIds] — paper_ids already
+ *   `matched_paper_id` of some OTHER in_library reference in the current
+ *   coverage (see matchedPaperIdSet). Omit/null for the old, unannotated
+ *   behavior — matched papers are still selectable (a draft can legitimately
+ *   cite the same work twice), just flagged and demoted so linking a paper
+ *   that's already matched elsewhere is a visible choice, not an accident.
  * @returns {Array<{ paperId: string, label: string }>}
- *   Papers still missing metadata (year == null OR no authors) come first,
- *   then complete papers; both groups sorted by title A–Z.
- *   label = "<title> (<year or —>)".
+ *   Order: unmatched papers first (needs-metadata sub-group before complete,
+ *   each A–Z by title), then matched papers last (same needs-metadata/title
+ *   sub-order). label = "<title> (<year or —>)", with a
+ *   " (already matched to another reference)" suffix for matched papers.
  */
-export function linkTargetOptions(papers, draftId) {
+export function linkTargetOptions(papers, draftId, matchedPaperIds = null) {
   const list = papers instanceof Map
     ? [...papers.values()]
     : (Array.isArray(papers) ? papers : []);
   if (list.length === 0) return [];
+
+  const matchedSet = matchedPaperIds instanceof Set
+    ? matchedPaperIds
+    : new Set(Array.isArray(matchedPaperIds) ? matchedPaperIds : []);
 
   const decorated = list
     .filter(p => p && p.paper_id && p.paper_id !== draftId)
@@ -184,20 +195,45 @@ export function linkTargetOptions(papers, draftId) {
       const hasYear = p.year !== null && p.year !== undefined && p.year !== '';
       const hasAuthors = Array.isArray(p.authors) && p.authors.length > 0;
       const title = p.title || '';
+      const matched = matchedSet.has(p.paper_id);
+      const baseLabel = `${title} (${hasYear ? p.year : '—'})`;
       return {
         paperId: p.paper_id,
-        label: `${title} (${hasYear ? p.year : '—'})`,
+        label: matched ? `${baseLabel} (already matched to another reference)` : baseLabel,
         needsMeta: !hasYear || !hasAuthors,
+        matched,
         title,
       };
     });
 
   decorated.sort((a, b) => {
+    if (a.matched !== b.matched) return a.matched ? 1 : -1;
     if (a.needsMeta !== b.needsMeta) return a.needsMeta ? -1 : 1;
     return a.title.localeCompare(b.title);
   });
 
   return decorated.map(({ paperId, label }) => ({ paperId, label }));
+}
+
+/**
+ * The set of paper_ids that are already `matched_paper_id` of an in_library
+ * reference in *references*, excluding the reference at *excludeIndex* (the
+ * row currently being linked — its own existing match, if any, doesn't count
+ * as "another reference").
+ *
+ * @param {Array|null} references — coverage.references
+ * @param {number|null} [excludeIndex]
+ * @returns {Set<string>}
+ */
+export function matchedPaperIdSet(references, excludeIndex = null) {
+  const set = new Set();
+  if (!Array.isArray(references)) return set;
+  for (const ref of references) {
+    if (!ref || ref.status !== 'in_library' || !ref.matched_paper_id) continue;
+    if (excludeIndex != null && ref.index === excludeIndex) continue;
+    set.add(ref.matched_paper_id);
+  }
+  return set;
 }
 
 /**

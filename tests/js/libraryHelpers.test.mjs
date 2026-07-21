@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason, isMissingPdfFailure } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
 
@@ -430,4 +430,27 @@ test('formatFailureReason: "PDF not found" reason (retry path) also gets the upl
   const out = formatFailureReason('PDF not found: /some/path/paper.pdf');
   assert.ok(out.includes('PDF not found: /some/path/paper.pdf'));
   assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
+});
+
+// ---------------------------------------------------------------------------
+// isMissingPdfFailure
+// ---------------------------------------------------------------------------
+
+test('isMissingPdfFailure: "no PDF on disk" -> true', () => {
+  assert.equal(isMissingPdfFailure('no PDF on disk for doi:10.1234/abcd'), true);
+});
+
+test('isMissingPdfFailure: "PDF not found" -> true', () => {
+  assert.equal(isMissingPdfFailure('PDF not found: /some/path/paper.pdf'), true);
+});
+
+test('isMissingPdfFailure: unrelated failure reason -> false', () => {
+  assert.equal(isMissingPdfFailure('parser crashed'), false);
+  assert.equal(isMissingPdfFailure('rate limited by anthropic API'), false);
+});
+
+test('isMissingPdfFailure: null/undefined/empty -> false', () => {
+  assert.equal(isMissingPdfFailure(null), false);
+  assert.equal(isMissingPdfFailure(undefined), false);
+  assert.equal(isMissingPdfFailure(''), false);
 });

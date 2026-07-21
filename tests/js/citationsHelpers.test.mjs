@@ -23,6 +23,7 @@ const {
   availableEntries,
   groupByStatus,
   linkTargetOptions,
+  matchedPaperIdSet,
   unlinkedCitationOptions,
   coverageSource,
 } = await import(
@@ -355,6 +356,88 @@ test('linkTargetOptions: accepts a Map (store shape) of papers', () => {
   const opts = linkTargetOptions(map, 'p-draft');
   assert.equal(opts.length, 3);
   assert.ok(!opts.some(o => o.paperId === 'p-draft'));
+});
+
+// -----------------------------------------------------------------------
+// linkTargetOptions — already-matched annotation + demotion (fix/upload-pdf-
+// and-link-clarity: warn about accidental duplicate links)
+// -----------------------------------------------------------------------
+
+test('linkTargetOptions: with no matchedPaperIds arg, behaves exactly as before (back-compat)', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft');
+  assert.deepEqual(opts.map(o => o.paperId), ['p-noauth', 'p-noyear', 'p-full']);
+  assert.ok(opts.every(o => !o.label.includes('already matched')));
+});
+
+test('linkTargetOptions: matched papers get the "(already matched to another reference)" suffix', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft', new Set(['p-full']));
+  const full = opts.find(o => o.paperId === 'p-full');
+  assert.equal(full.label, 'Complete Paper (2020) (already matched to another reference)');
+  // Unmatched papers are untouched.
+  const noyear = opts.find(o => o.paperId === 'p-noyear');
+  assert.equal(noyear.label, 'Needs Year (—)');
+});
+
+test('linkTargetOptions: matched papers are sorted AFTER all unmatched papers', () => {
+  // p-noauth needs metadata (would normally sort first) but is matched, so it
+  // must be demoted below every unmatched option, including the "complete"
+  // p-full paper that would otherwise sort after it.
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft', new Set(['p-noauth']));
+  const ids = opts.map(o => o.paperId);
+  assert.deepEqual(ids, ['p-noyear', 'p-full', 'p-noauth']);
+});
+
+test('linkTargetOptions: matched papers remain selectable (still present in options)', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft', new Set(['p-full', 'p-noyear']));
+  assert.equal(opts.length, 3, 'a draft can legitimately cite the same work twice');
+  assert.ok(opts.some(o => o.paperId === 'p-full'));
+  assert.ok(opts.some(o => o.paperId === 'p-noyear'));
+});
+
+test('linkTargetOptions: accepts a plain array as matchedPaperIds, not just a Set', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft', ['p-full']);
+  const full = opts.find(o => o.paperId === 'p-full');
+  assert.ok(full.label.includes('already matched to another reference'));
+});
+
+test('linkTargetOptions: the draft paper is still excluded regardless of matchedPaperIds', () => {
+  const opts = linkTargetOptions(LINK_PAPERS, 'p-draft', new Set(['p-draft', 'p-full']));
+  assert.ok(!opts.some(o => o.paperId === 'p-draft'));
+});
+
+// -----------------------------------------------------------------------
+// matchedPaperIdSet — which papers are matched_paper_id of an in_library
+// reference OTHER than the one currently being linked
+// -----------------------------------------------------------------------
+
+const MATCH_REFS = [
+  { index: 0, status: 'in_library', matched_paper_id: 'pA' },
+  { index: 1, status: 'in_library', matched_paper_id: 'pB' },
+  { index: 2, status: 'available' },
+  { index: 3, status: 'in_library', matched_paper_id: null },
+  { index: 4, status: 'unresolved' },
+];
+
+test('matchedPaperIdSet: null/undefined/non-array references -> empty set', () => {
+  assert.deepEqual([...matchedPaperIdSet(null)], []);
+  assert.deepEqual([...matchedPaperIdSet(undefined)], []);
+  assert.deepEqual([...matchedPaperIdSet({})], []);
+});
+
+test('matchedPaperIdSet: collects matched_paper_id only from in_library refs', () => {
+  const set = matchedPaperIdSet(MATCH_REFS);
+  assert.deepEqual([...set].sort(), ['pA', 'pB']);
+});
+
+test('matchedPaperIdSet: excludes the reference at excludeIndex', () => {
+  const set = matchedPaperIdSet(MATCH_REFS, 0);
+  assert.deepEqual([...set], ['pB']);
+});
+
+test('matchedPaperIdSet: in_library refs with no matched_paper_id contribute nothing', () => {
+  const set = matchedPaperIdSet(MATCH_REFS);
+  assert.equal(set.has(null), false);
+  assert.equal(set.has(undefined), false);
 });
 
 // -----------------------------------------------------------------------

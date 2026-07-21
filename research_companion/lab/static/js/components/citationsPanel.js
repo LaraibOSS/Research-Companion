@@ -16,6 +16,7 @@ import {
   availableEntries,
   groupByStatus,
   linkTargetOptions,
+  matchedPaperIdSet,
 } from '../citationsHelpers.js';
 import { citationDownloadTargets } from '../activityHelpers.js';
 import { escapeHtml } from '../format.js';
@@ -385,7 +386,7 @@ function _bindEvents(coverage) {
       const refs = coverage && Array.isArray(coverage.references) ? coverage.references : [];
       const entry = refs.find(r => String(r.index) === idxStr);
       if (!entry) return;
-      rowEl.appendChild(_buildLinkPicker(entry));
+      rowEl.appendChild(_buildLinkPicker(entry, coverage));
     });
   });
 }
@@ -395,15 +396,25 @@ function _bindEvents(coverage) {
  * <select> of library papers. Linking on `change` calls the backend, updates
  * coverage (which re-renders the panel) and refreshes the library snapshot so
  * the backfilled year shows.
+ *
+ * Options already matched to some OTHER in_library reference are annotated
+ * ("already matched to another reference") and sorted last — still pickable
+ * (a draft can legitimately cite the same work twice) but no longer an easy
+ * way to create an accidental duplicate link without noticing.
+ *
  * @param {object} entry — the reference entry (has .index)
+ * @param {object} coverage — the coverage payload this row was rendered from
+ *   (supplies .references so already-matched papers can be flagged)
  * @returns {HTMLElement}
  */
-function _buildLinkPicker(entry) {
+function _buildLinkPicker(entry, coverage) {
   const state = _storeRef.getState();
   const papers = state.papers instanceof Map
     ? [...state.papers.values()]
     : (Array.isArray(state.papers) ? state.papers : []);
-  const options = linkTargetOptions(papers, state.draftId);
+  const refs = coverage && Array.isArray(coverage.references) ? coverage.references : [];
+  const matchedIds = matchedPaperIdSet(refs, entry.index);
+  const options = linkTargetOptions(papers, state.draftId, matchedIds);
 
   const wrap = document.createElement('div');
   wrap.className = 'citations-link-picker';

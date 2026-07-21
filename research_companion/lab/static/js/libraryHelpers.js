@@ -41,11 +41,25 @@ export function needsMetadata(paper) {
 const FAILURE_REASON_MAX_LEN = 80;
 
 /**
+ * True when a failure_reason indicates the paper has no PDF on disk — the
+ * one failure class an "Upload PDF" action can actually fix. Two wordings
+ * can reach here: "no PDF on disk" (extract.py, first ingest) and "PDF not
+ * found" (fetch.py's add_local_pdf, the retry path). Shared by
+ * formatFailureReason (the inline hint text) and the Library view (which
+ * button to render on a failed row/card).
+ *
+ * @param {string|null|undefined} reason
+ * @returns {boolean}
+ */
+export function isMissingPdfFailure(reason) {
+  if (!reason) return false;
+  return reason.startsWith('no PDF on disk') || reason.startsWith('PDF not found');
+}
+
+/**
  * Format a paper's failure_reason for short, honest inline display:
  * truncate to ~80 chars, and when the reason is a missing-PDF case, append a
- * plain-language hint telling the user what to do about it. Two wordings can
- * reach here: "no PDF on disk" (extract.py, first ingest) and "PDF not
- * found" (fetch.py's add_local_pdf, the retry path).
+ * plain-language hint telling the user what to do about it.
  *
  * @param {string|null|undefined} reason
  * @returns {string} '' when there is no reason to show
@@ -56,7 +70,7 @@ export function formatFailureReason(reason) {
   if (text.length > FAILURE_REASON_MAX_LEN) {
     text = text.slice(0, FAILURE_REASON_MAX_LEN - 1).trimEnd() + '…';
   }
-  if (reason.startsWith('no PDF on disk') || reason.startsWith('PDF not found')) {
+  if (isMissingPdfFailure(reason)) {
     text += ' — upload the PDF to ingest this paper';
   }
   return text;

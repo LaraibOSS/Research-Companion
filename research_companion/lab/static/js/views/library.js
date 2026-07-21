@@ -10,7 +10,7 @@ import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
-import { buildRows, sortRows, draftActionFor, formatFailureReason } from '../libraryHelpers.js';
+import { buildRows, sortRows, draftActionFor, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -191,6 +191,55 @@ async function removePaperFlow(paperId, { onSuccess } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Upload PDF button (shared by grid cards + list rows)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire an "Upload PDF" button: click -> hidden file input -> POST the chosen
+ * file via api.uploadPaperPdf. Success relies on the same SSE-driven re-render
+ * Retry uses (a fresh 'papers' notification replaces this whole card/row), so
+ * only the FAILURE path here restores the button — mirrors the Retry wiring
+ * above/below.
+ * @param {HTMLElement|null} btn
+ */
+function _wireUploadPdfButton(btn) {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pid = btn.dataset.paperId;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf,.pdf';
+    input.style.display = 'none';
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+      try {
+        const res = await api.uploadPaperPdf(pid, file);
+        showToast('PDF uploaded — re-ingesting', 'info');
+        void res; // job_id not needed here — the 'papers' topic re-render handles the row
+      } catch (err) {
+        // Upload itself failed (e.g. 400/404/network) — no job was queued,
+        // so no re-render is coming. Restore the button.
+        btn.disabled = false;
+        btn.textContent = originalText;
+        showToast(`Upload failed: ${err.message}`, 'error');
+      }
+    });
+
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Grid render
 // ---------------------------------------------------------------------------
 
@@ -301,6 +350,9 @@ function _renderGridCards(grid, papers) {
       });
     }
 
+    // Upload PDF button (only rendered by paperCard.js for a missing-PDF failure)
+    _wireUploadPdfButton(card.querySelector('.btn-upload-pdf'));
+
     // Read button -> open the paper in the reader.
     const readBtn = card.querySelector('.btn-read');
     if (readBtn) {
@@ -392,6 +444,9 @@ function _renderList(grid, papers, draftId) {
     const retryBtnHtml = row.status === 'failed'
       ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
       : '';
+    const uploadPdfBtnHtml = row.status === 'failed' && isMissingPdfFailure(row.failureReason)
+      ? `<button class="btn btn-sm btn-upload-pdf lib-upload-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Upload PDF</button>`
+      : '';
     const failureReasonHtml = row.status === 'failed' && row.failureReason
       ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason))}</div>`
       : '';
@@ -406,7 +461,7 @@ function _renderList(grid, papers, draftId) {
       : '';
 
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${failureReasonHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${failureReasonHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
@@ -468,6 +523,9 @@ function _renderList(grid, papers, draftId) {
       }
     });
   });
+
+  // Wire upload-PDF buttons in list
+  grid.querySelectorAll('.lib-upload-pdf-btn').forEach(btn => _wireUploadPdfButton(btn));
 
   // Wire per-row read buttons -> open the paper in the reader.
   grid.querySelectorAll('.btn-row-read').forEach(btn => {

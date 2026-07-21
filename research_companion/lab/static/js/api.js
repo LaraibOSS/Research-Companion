@@ -71,6 +71,21 @@ export async function uploadPaper(file, setDraft = false) {
 /** POST /api/papers/{id}/retry */
 export const retryPaper = (paperId) => post(`/api/papers/${encodeURIComponent(paperId)}/retry`);
 
+/**
+ * POST /api/papers/{id}/pdf — upload a replacement PDF for an EXISTING
+ * (usually failed, "no PDF on disk") paper. Raw body, same convention as
+ * uploadPaper above. Returns { job_id, paper_id }. 404 unknown paper,
+ * 400 non-PDF body, 415 wrong content type, 413 oversize.
+ */
+export async function uploadPaperPdf(paperId, file) {
+  const res = await fetch(`/api/papers/${encodeURIComponent(paperId)}/pdf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf' },
+    body: file,
+  });
+  return _handleResponse(res);
+}
+
 /** DELETE /api/papers/{id} */
 export const deletePaper = (paperId) => del(`/api/papers/${encodeURIComponent(paperId)}`);
 
