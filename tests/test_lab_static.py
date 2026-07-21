@@ -485,6 +485,15 @@ def test_graph_js_section_row_uses_section_id():
     )
 
 
+def test_graph_js_section_bullet_uses_plain_number():
+    """graph.js section-bullet must render 'n.' not the '§' glyph."""
+    graph_js = (STATIC_DIR / "js" / "views" / "graph.js").read_text(encoding="utf-8")
+    assert "§" not in graph_js, "graph.js must not contain the § glyph"
+    assert '"graph-section-bullet">${idx + 1}.</span>' in graph_js, (
+        "graph.js section-bullet must render the plain 'n.' form"
+    )
+
+
 # ---------------------------------------------------------------------------
 # W3-F1: Frontend shell fixes
 # ---------------------------------------------------------------------------
@@ -910,6 +919,15 @@ def test_home_view_escapes_server_strings():
     """home.js must use escapeHtml for server strings (titles, event details)."""
     home_js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
     assert "escapeHtml" in home_js, "home.js must use escapeHtml"
+
+
+def test_home_js_suggestion_source_label_has_no_section_glyph():
+    """home.js suggestion source-label fallback must not use the § glyph."""
+    home_js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "§" not in home_js, "home.js must not contain the § glyph"
+    assert "src.label || (src.section_id ? `${src.section_id}` : '')" in home_js, (
+        "home.js source-label fallback must render the bare section_id"
+    )
 
 
 def test_next_action_js_exports_select_next_actions():

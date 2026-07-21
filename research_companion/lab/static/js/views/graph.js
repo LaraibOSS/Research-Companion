@@ -709,7 +709,7 @@ function _renderSectionList() {
       const count = sec.node_count != null ? ` <span class="muted">${sec.node_count}</span>` : '';
       rows.push(
         `<div class="graph-section-row${isActive ? ' active' : ''}" data-section-id="${escapeHtml(sec.section_id)}">` +
-        `<span class="graph-section-bullet">§${idx + 1}</span> ${title}${count}` +
+        `<span class="graph-section-bullet">${idx + 1}.</span> ${title}${count}` +
         `<button class="draft-read-btn graph-section-read" data-section-id="${escapeHtml(sec.section_id)}" title="Read this section" aria-label="Read section">Read</button>` +
         `</div>`
       );
