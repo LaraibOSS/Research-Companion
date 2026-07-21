@@ -28,7 +28,7 @@ from pathlib import Path
 import feedparser
 import httpx
 
-from research_companion.oa_locator import locate_pdf
+from research_companion.oa_locator import OaLocation, locate_pdf
 from research_companion.store import (
     PaperMetadata,
     find_existing_paper_for,
@@ -260,7 +260,10 @@ def add_doi(url_or_doi: str) -> PaperMetadata:
         # open-access aggregators before giving up.
         _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
                               authors=meta_dict["authors"], year=meta_dict["year"])
-        _loc = locate_pdf(_stub)
+        try:
+            _loc = locate_pdf(_stub)
+        except Exception:
+            _loc = OaLocation()
         if _loc.pdf_url:
             pdf_bytes = _try_download_pdf(_loc.pdf_url)
     if pdf_bytes is not None:
@@ -360,7 +363,10 @@ def add_s2(url_or_id: str) -> PaperMetadata:
         # before giving up.
         _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
                               authors=meta_dict["authors"], year=meta_dict["year"])
-        _loc = locate_pdf(_stub)
+        try:
+            _loc = locate_pdf(_stub, extra_ids={"doi": doi_ext, "arxiv": arxiv_ext})
+        except Exception:
+            _loc = OaLocation()
         if _loc.pdf_url:
             pdf_bytes = _try_download_pdf(_loc.pdf_url)
 

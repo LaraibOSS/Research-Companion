@@ -125,13 +125,15 @@ def _parse_openalex(data) -> dict:
 # ---------------------------------------------------------------------------
 
 def locate_pdf(meta, *, settings: dict | None = None,
-               providers: tuple = DEFAULT_PROVIDERS) -> OaLocation:
+               providers: tuple = DEFAULT_PROVIDERS,
+               extra_ids: dict | None = None) -> OaLocation:
     if settings is None:
         from research_companion.settings import get_settings
         settings = get_settings()
     email = (settings.get("contact_email") or "").strip()
 
     ids = _derive_ids(meta)
+    ids.update({k: v for k, v in (extra_ids or {}).items() if v})
     title = (meta.title or "").strip()
     pdf_url: str | None = None
     source: str | None = None

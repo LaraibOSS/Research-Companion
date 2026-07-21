@@ -118,6 +118,42 @@ def test_locate_all_fail_is_empty_plus_string_fallback_links(monkeypatch):
     assert loc.pdf_url is None and loc.source is None
     assert [link["label"] for link in loc.links] == ["Google Scholar"]  # no DOI ⇒ Scholar only
 
+def test_extra_ids_doi_enables_unpaywall_for_s2_paper(monkeypatch):
+    """An s2: paper has no derivable DOI on its own, so unpaywall is normally
+    skipped. extra_ids={"doi": ...} (from the caller's already-fetched
+    external_ids) must merge over the derived ids and unlock it."""
+    import research_companion.oa_locator as oa
+    calls = []
+    monkeypatch.setattr(oa, "_fetch_s2", lambda ids, title: S2_MISS)
+    def fake_unpaywall(doi, email):
+        calls.append(doi)
+        return UPW_HIT
+    monkeypatch.setattr(oa, "_fetch_unpaywall", fake_unpaywall)
+    monkeypatch.setattr(oa, "_fetch_openalex", lambda ids, title: None)
+    loc = locate_pdf(_meta("s2:abc123def"), settings={"contact_email": "a@b.c"},
+                      extra_ids={"doi": "10.1/x"})
+    assert calls == ["10.1/x"]
+    assert loc.pdf_url == "https://repo.org/y.pdf"
+    assert loc.source == "unpaywall"
+
+
+def test_extra_ids_arxiv_suppresses_arxiv_fallback_retry(monkeypatch):
+    """When the caller already knows the arXiv id (and already tried it
+    directly, per fetch.add_s2), extra_ids={"arxiv": ...} must make
+    ids.get("arxiv") truthy so the arxiv-fallback branch does not redundantly
+    retry the same id."""
+    import research_companion.oa_locator as oa
+    s2_no_pdf_but_arxiv = {"title": "t", "openAccessPdf": None,
+                           "externalIds": {"ArXiv": "1603.08983"}, "paperId": "p1"}
+    monkeypatch.setattr(oa, "_fetch_s2", lambda ids, title: s2_no_pdf_but_arxiv)
+    monkeypatch.setattr(oa, "_fetch_unpaywall", lambda doi, email: None)
+    monkeypatch.setattr(oa, "_fetch_openalex", lambda ids, title: None)
+    loc = locate_pdf(_meta("s2:abc123def"), settings={"contact_email": ""},
+                      extra_ids={"arxiv": "1603.08983"})
+    assert loc.pdf_url is None
+    assert loc.source is None
+
+
 def test_links_dedup_by_url(monkeypatch):
     import research_companion.oa_locator as oa
     dup = {"best_oa_location": {"pdf_url": None, "landing_page_url": "https://doi.org/10.1/x"}}

@@ -163,6 +163,30 @@ def test_add_doi_degrades_identically_when_locator_empty(monkeypatch: pytest.Mon
             "will not work without a PDF.") in out
 
 
+def test_add_doi_locator_exception_falls_back_to_metadata_only(monkeypatch: pytest.MonkeyPatch,
+                                                                 capsys: pytest.CaptureFixture):
+    """locate_pdf raising must not abort the whole add — same never-crash contract
+    as every other seam in this module (cli.py's add loop only catches FetchError)."""
+    monkeypatch.setattr(
+        fetch, "_doi_metadata",
+        lambda doi, timeout=30.0: {"title": "T", "authors": [], "year": 2020, "abstract": ""},
+    )
+    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
+
+    def raise_locate(meta, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(fetch, "locate_pdf", raise_locate)
+
+    meta = fetch.add_doi("10.9999/locator-crashes")
+
+    assert store.pdf_path(meta.paper_id) is None  # metadata-only, exactly as today
+    out = capsys.readouterr().out
+    assert ("warning: could not download PDF for DOI 10.9999/locator-crashes "
+            "(likely paywalled). Metadata saved, but text extraction "
+            "will not work without a PDF.") in out
+
+
 def test_add_s2_uses_oa_locator_when_direct_fails(monkeypatch: pytest.MonkeyPatch,
                                                     fake_pdf_bytes: bytes):
     """Direct arXiv/DOI attempts fail, but the OA locator finds a PDF elsewhere."""
@@ -214,6 +238,33 @@ def test_add_s2_degrades_identically_when_locator_empty(monkeypatch: pytest.Monk
     monkeypatch.setattr(fetch, "locate_pdf", lambda meta, **kw: OaLocation())
 
     s2_id = "b" * 40
+    meta = fetch.add_s2(s2_id)
+
+    assert store.pdf_path(meta.paper_id) is None
+    out = capsys.readouterr().out
+    assert (f"warning: could not download PDF for S2 paper {s2_id}. "
+            f"Metadata saved, but text extraction will not work without a PDF.") in out
+
+
+def test_add_s2_locator_exception_falls_back_to_metadata_only(monkeypatch: pytest.MonkeyPatch,
+                                                                capsys: pytest.CaptureFixture):
+    """Same never-crash contract for add_s2: a locate_pdf exception must not
+    propagate out of add_s2."""
+    monkeypatch.setattr(
+        fetch, "_s2_metadata",
+        lambda s2_id, timeout=30.0: {
+            "title": "T", "authors": [], "year": 2020, "abstract": "",
+            "external_ids": {},
+        },
+    )
+    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
+
+    def raise_locate(meta, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(fetch, "locate_pdf", raise_locate)
+
+    s2_id = "c" * 40
     meta = fetch.add_s2(s2_id)
 
     assert store.pdf_path(meta.paper_id) is None
