@@ -11,7 +11,7 @@ import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { buildRows, sortRows, draftActionFor, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
-import { findPdfAffordance, oaLinksLine } from '../oaLinkHelpers.js';
+import { findPdfAffordance, oaLinksLine, pollDecision } from '../oaLinkHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -261,6 +261,7 @@ function _wireUploadPdfButton(btn) {
  */
 function _wireFindPdfButton(btn) {
   if (!btn) return;
+  const originalText = btn.textContent;
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
     const pid = btn.dataset.paperId;
@@ -269,37 +270,52 @@ function _wireFindPdfButton(btn) {
     try {
       const res = await api.findPdf(pid);
       showToast(`Looking for a PDF — job ${res.job_id}`, 'info');
-      _watchFindPdfJob(res.job_id);
+      _watchFindPdfJob(res.job_id, () => {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      });
     } catch (err) {
       // The request itself failed (e.g. 404/409/network) — no job was
       // queued, so no re-render is coming. Restore the button.
       btn.disabled = false;
-      btn.textContent = 'Find PDF';
+      btn.textContent = originalText;
       showToast(`Find PDF failed: ${err.message}`, 'error');
     }
   });
 }
 
+const _FIND_PDF_POLL_MS = 1000;
+
 /**
- * Poll GET /api/jobs/{id} until the find-pdf job is no longer "running",
- * then refresh the library snapshot so a miss's oa_links (or a hit's new
- * status) show up. A hit re-ingests through the normal pipeline and gets its
- * own SSE-driven re-render too, but polling here is what covers the miss case
- * and keeps this button's success path independent of that pipeline.
+ * Poll GET /api/jobs/{id} until the find-pdf job reaches a terminal status
+ * (or the poll loop itself gives up), then refresh the library snapshot so
+ * a miss's oa_links (or a hit's new status) show up. A hit re-ingests
+ * through the normal pipeline and gets its own SSE-driven re-render too, but
+ * polling here is what covers the miss case and keeps this button's success
+ * path independent of that pipeline.
+ *
+ * The per-attempt continue/stop/retry/give-up decision is delegated to the
+ * pure `pollDecision` (oaLinkHelpers.js) so it's node-testable; this loop
+ * just tracks the two counters it needs (consecutiveFailures, elapsedPolls)
+ * and acts on the verdict. Bounded so a job that never reaches a terminal
+ * status (e.g. the server-side task wedged) can't poll forever — see
+ * pollDecision's docstring for the caps.
+ *
  * @param {string} jobId
+ * @param {() => void} [onGiveUp] - called (before the final refresh) when
+ *   polling stops without ever seeing a terminal status via a normal
+ *   success/404 path — i.e. only on the 'give-up' outcome. Lets the caller
+ *   restore its OWN button (label included) independently of whether the
+ *   final refresh manages to re-render it. Grid cards get replaced wholesale
+ *   by the next papers refresh anyway; this is the fallback for when that
+ *   refresh itself fails, or for the header sweep button which isn't
+ *   replaced (only its disabled/label state is recomputed on refresh).
  */
-function _watchFindPdfJob(jobId) {
-  const POLL_MS = 1000;
-  const poll = async () => {
-    try {
-      const job = await api.getJob(jobId);
-      if (job && job.status === 'running') {
-        setTimeout(poll, POLL_MS);
-        return;
-      }
-    } catch {
-      // Job gone/unknown — stop polling but still try one final refresh.
-    }
+function _watchFindPdfJob(jobId, onGiveUp) {
+  let consecutiveFailures = 0;
+  let elapsedPolls = 0;
+
+  const finalRefresh = async () => {
     try {
       const fresh = await api.getPapers();
       _refreshPapers(fresh);
@@ -307,6 +323,58 @@ function _watchFindPdfJob(jobId) {
       console.warn('[library] papers refresh after find-pdf failed', err);
     }
   };
+
+  const poll = async () => {
+    elapsedPolls += 1;
+    let job = null;
+    let err = null;
+    try {
+      job = await api.getJob(jobId);
+    } catch (e) {
+      err = e;
+    }
+
+    if (!err) {
+      consecutiveFailures = 0; // any successful poll resets the failure streak
+      if (job && job.status !== 'running') {
+        // Normal completion (done/failed/etc.) -- not a pollDecision case;
+        // see its docstring.
+        await finalRefresh();
+        return;
+      }
+    }
+
+    const decision = pollDecision({
+      status: job ? job.status : undefined,
+      error: err,
+      consecutiveFailures,
+      elapsedPolls,
+    });
+
+    switch (decision) {
+      case 'continue':
+        setTimeout(poll, _FIND_PDF_POLL_MS);
+        return;
+      case 'retry-transient':
+        consecutiveFailures += 1;
+        setTimeout(poll, _FIND_PDF_POLL_MS);
+        return;
+      case 'stop-404':
+        // Job record is genuinely gone (e.g. server restarted mid-poll) --
+        // stop and refresh so the button doesn't stay stuck disabled, but no
+        // "taking too long" toast: this isn't that case.
+        if (onGiveUp) onGiveUp();
+        await finalRefresh();
+        return;
+      case 'give-up':
+      default:
+        if (onGiveUp) onGiveUp();
+        await finalRefresh();
+        showToast('Find PDF is taking unusually long — refresh to check its status.', 'info');
+        return;
+    }
+  };
+
   poll();
 }
 
@@ -316,7 +384,9 @@ function _watchFindPdfJob(jobId) {
  * _renderGrid (called on every 'papers' notify) recomputing the missing-PDF
  * count and un-disabling the button each time it runs — the same
  * "papers refresh" the single-button watcher triggers once its sweep job
- * finishes.
+ * finishes (or gives up — see _watchFindPdfJob's onGiveUp, which also
+ * re-enables this button directly as a fallback since it isn't replaced by
+ * _renderGrid the way a grid card is).
  * @param {HTMLElement|null} btn
  */
 function _wireFindAllPdfsButton(btn) {
@@ -330,7 +400,7 @@ function _wireFindAllPdfsButton(btn) {
         btn.disabled = false; // no job queued — nothing else will re-enable it
       } else {
         showToast(`Finding PDFs for ${res.count} paper(s) — job ${res.job_id}`, 'info');
-        _watchFindPdfJob(res.job_id);
+        _watchFindPdfJob(res.job_id, () => { btn.disabled = false; });
       }
     } catch (err) {
       btn.disabled = false;

@@ -61,3 +61,61 @@ export function oaLinksLine(links) {
 
   return { show: items.length > 0, items };
 }
+
+// ---------------------------------------------------------------------------
+// Find-PDF job poll state machine
+// ---------------------------------------------------------------------------
+
+// A find-pdf job's GET /api/jobs/{id} status is polled roughly once a
+// second (views/library.js) until it leaves "running" — this bounds that
+// loop to ~2 minutes of wall-clock time so a job that never reaches a
+// terminal status (e.g. it wedged server-side) can't leave the poll running
+// forever.
+const MAX_POLLS = 120;
+
+// A run of consecutive polling failures this deep (e.g. a network blip)
+// gives up rather than retrying indefinitely; any successful poll resets
+// this counter back to zero (see views/library.js).
+const MAX_CONSECUTIVE_FAILURES = 5;
+
+/**
+ * Decide what a find-pdf job poll loop should do next, given the outcome of
+ * the CURRENT poll attempt.
+ *
+ * Only call this for an attempt that is still "in flight" from the caller's
+ * point of view: either the GET succeeded and the job is still 'running',
+ * or the GET itself failed. A GET that succeeds with a TERMINAL job status
+ * ('done'/'failed'/etc.) is normal completion, not this function's
+ * concern — the caller should stop and do its final refresh directly
+ * without consulting this decision.
+ *
+ * Precedence: a definitive 404 (job unknown — e.g. the server lost the job
+ * record) always stops the loop immediately, even if the poll-count cap has
+ * also been reached. Short of that, the poll-count cap is checked before
+ * classifying any error, so it bounds BOTH the "still running" path and
+ * repeated non-404 failures — otherwise a failure pattern that never quite
+ * hits MAX_CONSECUTIVE_FAILURES (because occasional polls succeed) could
+ * keep the loop alive indefinitely.
+ *
+ * @param {object} args
+ * @param {string|undefined} args.status - job.status from a successful GET
+ *   (expected 'running' here per the note above — not otherwise consulted;
+ *   accepted for shape parity with the caller's poll result and to make
+ *   test fixtures read naturally), or undefined when the GET failed.
+ * @param {{status?: number}|Error|null|undefined} args.error - the thrown
+ *   error from a failed GET (api.js sets `.status` from the HTTP response
+ *   status when available), or falsy when the GET succeeded.
+ * @param {number} [args.consecutiveFailures] - consecutive prior failures
+ *   BEFORE this attempt (the caller resets this to 0 on any successful poll).
+ * @param {number} [args.elapsedPolls] - total poll attempts made so far,
+ *   INCLUDING this one.
+ * @returns {'continue'|'stop-404'|'retry-transient'|'give-up'}
+ */
+export function pollDecision({ status, error, consecutiveFailures = 0, elapsedPolls = 0 } = {}) {
+  if (error && error.status === 404) return 'stop-404';
+  if (elapsedPolls >= MAX_POLLS) return 'give-up';
+  if (error) {
+    return (consecutiveFailures + 1 >= MAX_CONSECUTIVE_FAILURES) ? 'give-up' : 'retry-transient';
+  }
+  return 'continue';
+}

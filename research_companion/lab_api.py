@@ -859,8 +859,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         app.state.find_pdf_sweep_running = True
 
         async def _run() -> None:
-            await _announce_start(job_id, "find-pdf", label)
             try:
+                # Inside the try (unlike the pre-existing add/retry/upload
+                # endpoints) so a raise here can't wedge the job at "running"
+                # forever -- the finally below always clears
+                # find_pdf_sweep_running and announces the finish either way.
+                await _announce_start(job_id, "find-pdf", label)
                 for idx, (key, pid) in enumerate(targets):
                     try:
                         if app.state.find_pdf_override is not None:
@@ -928,8 +932,13 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             coro = _find_pdf_for_failure(matched_key, paper_id)
 
         async def _run() -> None:
-            await _announce_start(job_id, "find-pdf", label)
             try:
+                # Inside the try (unlike the pre-existing add/retry/upload
+                # endpoints) so a raise here can't wedge the job at "running"
+                # forever -- it now falls through to the "except Exception"
+                # below, which marks the job "failed", and the finally still
+                # announces the finish either way.
+                await _announce_start(job_id, "find-pdf", label)
                 await coro
                 # Success (a downloadable PDF was found and re-ingested) --
                 # clear the failure the same way /retry does.
