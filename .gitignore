@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 *.egg
 build/
+# the PDF.js vendor dist ships a build/ dir that must stay tracked
+!research_companion/lab/static/vendor/pdfjs/build/
 dist/
 .venv/
 venv/
