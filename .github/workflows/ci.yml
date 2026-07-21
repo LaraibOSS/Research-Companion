@@ -89,6 +89,7 @@ jobs:
           wheel-test/bin/python -c "from research_companion import add_paper, build_graph, chat, view"
           wheel-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/index.html').is_file(), 'packaged Lab static assets missing from wheel'"
           wheel-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/vendor/pdfjs/web/viewer.html').is_file(), 'packaged PDF.js viewer missing from wheel'"
+          wheel-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/vendor/pdfjs/build/pdf.worker.mjs').is_file(), 'packaged PDF.js worker missing from wheel'"
           wheel-test/bin/python -c "from research_companion.mcp_server import create_server; create_server()"
       - name: Install SDIST + smoke test
         run: |
@@ -98,6 +99,7 @@ jobs:
           sdist-test/bin/python -c "from research_companion import add_paper, build_graph, chat, view"
           sdist-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/index.html').is_file(), 'packaged Lab static assets missing from sdist'"
           sdist-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/vendor/pdfjs/web/viewer.html').is_file(), 'packaged PDF.js viewer missing from sdist'"
+          sdist-test/bin/python -c "from importlib.resources import files; assert files('research_companion').joinpath('lab/static/vendor/pdfjs/build/pdf.worker.mjs').is_file(), 'packaged PDF.js worker missing from sdist'"
 
   dependency-review:
     name: dependency-review

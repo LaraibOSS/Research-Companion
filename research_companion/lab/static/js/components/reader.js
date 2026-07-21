@@ -32,6 +32,7 @@ import {
   normalizeQuoteForSearch,
   readerTabs,
   findMissState,
+  findDispatchParams,
 } from '../readerPdfHelpers.js';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ let _pdfFrame = null;
 let _pdfMissTimer = null;
 let _pdfFindEvents = [];
 let _pdfQuoteRequested = false; // normalizeQuoteForSearch(quote) was non-empty (a search was launched)
+let _pdfSearchPhrase = ''; // the normalized phrase, kept for the post-subscribe re-dispatch
 
 // ---------------------------------------------------------------------------
 // Exported mount
@@ -120,6 +122,7 @@ function _close() {
   _pdfFrame = null;
   _pdfFindEvents = [];
   _pdfQuoteRequested = false;
+  _pdfSearchPhrase = '';
   // Return focus to the element that opened the reader, if still around.
   if (_lastFocus && typeof _lastFocus.focus === 'function' && document.contains(_lastFocus)) {
     _lastFocus.focus();
@@ -240,6 +243,7 @@ function _renderContent(payload, detail) {
   _pdfFrame = null;
   _pdfFindEvents = [];
   _pdfQuoteRequested = false;
+  _pdfSearchPhrase = '';
 
   const model = buildReaderModel(payload);
   const rawSections = (payload && Array.isArray(payload.sections)) ? payload.sections : [];
@@ -401,7 +405,8 @@ function _clearPdfMissTimer() {
 function _ensurePdfFrame(pdfPane, detail) {
   if (_pdfFrame) return; // already created — never recreated on tab flips
   const quote = detail.quote || '';
-  _pdfQuoteRequested = !!normalizeQuoteForSearch(quote);
+  _pdfSearchPhrase = normalizeQuoteForSearch(quote);
+  _pdfQuoteRequested = !!_pdfSearchPhrase;
 
   const iframe = document.createElement('iframe');
   iframe.className = 'reader-pdf-frame';
@@ -462,6 +467,19 @@ function _subscribeFindEvents(iframe, app) {
       try {
         eventBus.on('updatefindmatchescount', onMatchesCount);
         eventBus.on('updatefindcontrolstate', onControlState);
+      } catch {
+        return;
+      }
+
+      // The #search fragment launches the viewer's own find, which can
+      // complete BEFORE these listeners attach (verified: on a local server
+      // the fragment find finishes ~0.5s after documentloaded, while this
+      // subscription lands after iframe load + the init grace period) — its
+      // events would be lost and the timeout would declare a false miss.
+      // Re-dispatching the same query forces a deterministic re-search whose
+      // events always arrive after the listeners above.
+      try {
+        eventBus.dispatch('find', findDispatchParams(_pdfSearchPhrase));
       } catch {
         return;
       }

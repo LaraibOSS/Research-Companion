@@ -436,6 +436,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # Mount static files (tolerates sparse/absent directory)
     # -----------------------------------------------------------------
+    # Python's mimetypes DB is platform-dependent (on Windows it reads the
+    # registry) and often lacks .mjs — StaticFiles then serves ES modules as
+    # text/plain, which browsers refuse to execute, so the PDF.js viewer
+    # never boots. Register the JavaScript types explicitly; .js included
+    # because registry entries have been seen to override it too.
+    import mimetypes
+
+    mimetypes.add_type("text/javascript", ".mjs")
+    mimetypes.add_type("text/javascript", ".js")
+
     _STATIC_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -447,9 +457,31 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # re-download, so this costs a round trip, not the asset itself.
     @app.middleware("http")
     async def _static_no_cache(request, call_next):
+        # PDF.js vendor assets must never answer 304: Chromium does not apply
+        # a 304's updated Content-Type to its module-script MIME check, so a
+        # browser cache that stored .mjs as text/plain (from a server run
+        # before the mimetypes registration above) is only repaired by a full
+        # 200 replacing the entry. Stripping the conditional headers makes
+        # StaticFiles serve the complete file every time (localhost-sized
+        # cost; the viewer is ~3 MB and loads lazily).
+        if request.url.path.startswith("/static/vendor/pdfjs/"):
+            request.scope["headers"] = [
+                (k, v)
+                for (k, v) in request.scope["headers"]
+                if k.lower() not in (b"if-none-match", b"if-modified-since")
+            ]
         response = await call_next(request)
         if request.url.path.startswith("/static"):
             response.headers["Cache-Control"] = "no-cache"
+            # StaticFiles omits Content-Type on 304s, but browsers update a
+            # stored response's headers from the 304 (RFC 9111 §4.3.4) — so a
+            # cache that stored a wrong MIME type (e.g. .mjs as text/plain
+            # from a server run before the mimetypes registration above) can
+            # only heal if the 304 restates the correct type.
+            if response.status_code == 304 and "content-type" not in response.headers:
+                guessed, _ = mimetypes.guess_type(request.url.path)
+                if guessed:
+                    response.headers["Content-Type"] = guessed
         return response
 
     # -----------------------------------------------------------------

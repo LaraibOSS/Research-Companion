@@ -5,6 +5,7 @@ import {
   normalizeQuoteForSearch,
   readerTabs,
   findMissState,
+  findDispatchParams,
 } from '../../research_companion/lab/static/js/readerPdfHelpers.js';
 
 test('normalizeQuoteForSearch collapses whitespace and heals hyphenation', () => {
@@ -49,4 +50,16 @@ test('findMissState transitions', () => {
   assert.equal(findMissState([{ total: 0, final: true }], false), 'missed');
   assert.equal(findMissState([], true), 'missed');
   assert.equal(findMissState([{ total: 0, final: false }], false), 'pending');
+});
+
+test('findDispatchParams matches the viewer find-event contract (string query = phrase)', () => {
+  const params = findDispatchParams('state transition model');
+  assert.equal(params.query, 'state transition model');
+  assert.equal(typeof params.query, 'string'); // string = phrase search; array would split words
+  assert.equal(params.type, '');
+  assert.equal(params.highlightAll, true);
+  assert.equal(params.caseSensitive, false);
+  assert.equal(params.entireWord, false);
+  assert.equal(params.findPrevious, false);
+  assert.equal(params.matchDiacritics, true);
 });

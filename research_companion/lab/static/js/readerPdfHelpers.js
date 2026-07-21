@@ -27,6 +27,25 @@ export function buildViewerUrl(paperId, opts = {}) {
   return url;
 }
 
+export function findDispatchParams(phrase) {
+  // Payload contract of the vendored viewer's `find` eventBus event
+  // (see onFindFromUrlHash in web/viewer.mjs): a STRING query means phrase
+  // search (an array would mean individual words); type '' with an unchanged
+  // query still forces a full re-search, which is what lets the reader
+  // re-dispatch after subscribing without losing events to the #search
+  // fragment's earlier find.
+  return {
+    source: null,
+    type: '',
+    query: phrase,
+    caseSensitive: false,
+    entireWord: false,
+    highlightAll: true,
+    findPrevious: false,
+    matchDiacritics: true,
+  };
+}
+
 export function readerTabs(hasPdf) {
   return hasPdf
     ? { tabs: ['original', 'text'], active: 'original' }
