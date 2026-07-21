@@ -35,7 +35,7 @@ function _showMiniCard(chip, citation) {
   card.innerHTML = `
     <div class="cite-minicard-title">${escapeHtml(citation.title || citation.paper_id || '')}</div>
     ${citation.section_title
-      ? `<div class="cite-minicard-section muted">&sect; ${escapeHtml(citation.section_title)}</div>`
+      ? `<div class="cite-minicard-section muted">${escapeHtml(citation.section_title)}</div>`
       : ''}
     ${citation.cited
       ? '<span class="badge badge-ok">cited</span>'

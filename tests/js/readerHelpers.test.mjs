@@ -160,8 +160,8 @@ test('sectionNav: numbered labels, level preserved', () => {
     { id: 'b', title: 'Methods', level: 2 },
   ]);
   assert.deepEqual(nav, [
-    { id: 'a', label: '§1 Abstract', level: 1 },
-    { id: 'b', label: '§2 Methods', level: 2 },
+    { id: 'a', label: '1. Abstract', level: 1 },
+    { id: 'b', label: '2. Methods', level: 2 },
   ]);
 });
 

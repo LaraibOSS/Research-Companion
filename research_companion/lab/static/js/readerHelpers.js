@@ -89,7 +89,7 @@ export function hasReadableText(model) {
 }
 
 /**
- * Build the section navigation list with "§n Title" labels (1-based).
+ * Build the section navigation list with "n. Title" labels (1-based).
  *
  * @param {Array<{id, title, level}>} sections
  * @returns {Array<{id, label, level}>}
@@ -98,7 +98,7 @@ export function sectionNav(sections) {
   const secs = Array.isArray(sections) ? sections : [];
   return secs.map((s, i) => ({
     id: s.id,
-    label: `§${i + 1} ${s.title || ''}`.trimEnd(),
+    label: `${i + 1}. ${s.title || ''}`.trimEnd(),
     level: s.level || 1,
   }));
 }
