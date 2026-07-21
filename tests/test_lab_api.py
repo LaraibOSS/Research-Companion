@@ -157,6 +157,14 @@ class TestStaticMount:
         finally:
             test_file.unlink(missing_ok=True)
 
+    def test_vendored_pdfjs_viewer_served(self, isolated_papergraph_dir):
+        """The vendored PDF.js viewer must be reachable through the static mount
+        with the same no-cache Cache-Control convention as other static assets."""
+        c = _make_client()
+        resp = c.get("/static/vendor/pdfjs/web/viewer.html")
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-cache"
+
 
 # ---------------------------------------------------------------------------
 # GET /api/lab

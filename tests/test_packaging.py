@@ -176,6 +176,17 @@ def test_vendor_js_covered():
     )
 
 
+def test_pdfjs_viewer_covered():
+    """The vendored PDF.js viewer must be covered by a package-data glob."""
+    globs = _get_package_data_globs()
+    assert _any_glob_matches("lab/static/vendor/pdfjs/web/viewer.html", globs), (
+        "lab/static/vendor/pdfjs/web/viewer.html is not covered by any package-data glob"
+    )
+    assert _any_glob_matches("lab/static/vendor/pdfjs/build/pdf.worker.mjs", globs), (
+        "pdf.worker.mjs is not covered by any package-data glob"
+    )
+
+
 # ---------------------------------------------------------------------------
 # GitHub Actions workflow assertions
 # ---------------------------------------------------------------------------

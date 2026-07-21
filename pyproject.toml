@@ -84,6 +84,7 @@ research_companion = [
     "lab/static/js/*.js",
     "lab/static/js/**/*.js",
     "lab/static/vendor/*",
+    "lab/static/vendor/pdfjs/**/*",
 ]
 
 [tool.pytest.ini_options]
