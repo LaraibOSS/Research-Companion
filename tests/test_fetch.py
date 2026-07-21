@@ -113,6 +113,115 @@ def test_add_paper_routes_arxiv_vs_local(monkeypatch: pytest.MonkeyPatch,
     assert local_meta.paper_id.startswith("local:")
 
 
+def test_add_doi_uses_oa_locator_when_direct_fails(monkeypatch: pytest.MonkeyPatch,
+                                                     fake_pdf_bytes: bytes):
+    """Direct DOI download fails, but the OA locator finds a PDF elsewhere."""
+    from research_companion.oa_locator import OaLocation
+
+    monkeypatch.setattr(
+        fetch, "_doi_metadata",
+        lambda doi, timeout=30.0: {"title": "T", "authors": [], "year": 2020, "abstract": ""},
+    )
+    calls = []
+
+    def fake_try(url, **kw):
+        calls.append(url)
+        return fake_pdf_bytes if url == "https://oa.org/found.pdf" else None
+
+    monkeypatch.setattr(fetch, "_try_download_pdf", fake_try)
+    monkeypatch.setattr(
+        fetch, "locate_pdf",
+        lambda meta_or_stub, **kw: OaLocation(pdf_url="https://oa.org/found.pdf",
+                                               links=[], source="s2"),
+    )
+
+    meta = fetch.add_doi("10.9999/oa-test")
+
+    assert store.pdf_path(meta.paper_id) is not None  # PDF saved via locator URL
+    assert calls[0].startswith("https://doi.org/")     # direct attempt still tried first
+    assert calls[-1] == "https://oa.org/found.pdf"
+
+
+def test_add_doi_degrades_identically_when_locator_empty(monkeypatch: pytest.MonkeyPatch,
+                                                           capsys: pytest.CaptureFixture):
+    """When both the direct attempt and the locator fail, behavior is unchanged."""
+    from research_companion.oa_locator import OaLocation
+
+    monkeypatch.setattr(
+        fetch, "_doi_metadata",
+        lambda doi, timeout=30.0: {"title": "T", "authors": [], "year": 2020, "abstract": ""},
+    )
+    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
+    monkeypatch.setattr(fetch, "locate_pdf", lambda meta, **kw: OaLocation())
+
+    meta = fetch.add_doi("10.9999/paywalled")
+
+    assert store.pdf_path(meta.paper_id) is None  # metadata-only, exactly as today
+    out = capsys.readouterr().out
+    assert ("warning: could not download PDF for DOI 10.9999/paywalled "
+            "(likely paywalled). Metadata saved, but text extraction "
+            "will not work without a PDF.") in out
+
+
+def test_add_s2_uses_oa_locator_when_direct_fails(monkeypatch: pytest.MonkeyPatch,
+                                                    fake_pdf_bytes: bytes):
+    """Direct arXiv/DOI attempts fail, but the OA locator finds a PDF elsewhere."""
+    from research_companion.oa_locator import OaLocation
+
+    monkeypatch.setattr(
+        fetch, "_s2_metadata",
+        lambda s2_id, timeout=30.0: {
+            "title": "T", "authors": [], "year": 2020, "abstract": "",
+            "external_ids": {"ArXiv": "1234.5678", "DOI": "10.9999/s2-test"},
+        },
+    )
+    calls = []
+
+    def fake_try(url, **kw):
+        calls.append(url)
+        return fake_pdf_bytes if url == "https://oa.org/s2-found.pdf" else None
+
+    monkeypatch.setattr(fetch, "_try_download_pdf", fake_try)
+    monkeypatch.setattr(
+        fetch, "locate_pdf",
+        lambda meta_or_stub, **kw: OaLocation(pdf_url="https://oa.org/s2-found.pdf",
+                                               links=[], source="unpaywall"),
+    )
+
+    s2_id = "a" * 40
+    meta = fetch.add_s2(s2_id)
+
+    assert store.pdf_path(meta.paper_id) is not None
+    # arXiv attempt first, then DOI attempt, then the locator URL last.
+    assert calls[0] == fetch.ARXIV_PDF_URL.format(arxiv_id="1234.5678")
+    assert calls[1] == "https://doi.org/10.9999/s2-test"
+    assert calls[-1] == "https://oa.org/s2-found.pdf"
+
+
+def test_add_s2_degrades_identically_when_locator_empty(monkeypatch: pytest.MonkeyPatch,
+                                                          capsys: pytest.CaptureFixture):
+    """When arXiv/DOI attempts and the locator all fail, behavior is unchanged."""
+    from research_companion.oa_locator import OaLocation
+
+    monkeypatch.setattr(
+        fetch, "_s2_metadata",
+        lambda s2_id, timeout=30.0: {
+            "title": "T", "authors": [], "year": 2020, "abstract": "",
+            "external_ids": {},
+        },
+    )
+    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
+    monkeypatch.setattr(fetch, "locate_pdf", lambda meta, **kw: OaLocation())
+
+    s2_id = "b" * 40
+    meta = fetch.add_s2(s2_id)
+
+    assert store.pdf_path(meta.paper_id) is None
+    out = capsys.readouterr().out
+    assert (f"warning: could not download PDF for S2 paper {s2_id}. "
+            f"Metadata saved, but text extraction will not work without a PDF.") in out
+
+
 def test_arxiv_metadata_wraps_http_errors_in_fetcherror(monkeypatch: pytest.MonkeyPatch):
     """A throttled arXiv API (429) must surface as FetchError, not a raw traceback."""
     import httpx
