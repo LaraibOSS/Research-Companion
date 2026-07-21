@@ -344,14 +344,19 @@ actually says.
   built-in viewer. When you arrive via a quote or citation click, the
   viewer searches for that quote and highlights it in the PDF itself; if it
   can't be located (locating is best-effort, not guaranteed), a small notice
-  says so and points you at the Text tab, which still has it highlighted.
-  **Text** is the exact-offset view described above — unchanged, and it
-  remains the *only* tab for papers with no stored PDF (a scanned PDF you
-  added by hand, for instance), or when the Original tab's viewer fails to
-  load (the reader falls back to Text automatically with a toast).
+  says so and points you at the Text tab, which shows the quote highlighted
+  in the extracted text when it can be located there. **Text** is the
+  exact-offset view described above — unchanged, and it remains the *only*
+  tab for papers with no stored PDF at all (for example, a paper added by
+  arXiv ID, DOI, or Semantic Scholar ID whose PDF download failed — its
+  metadata was saved, but there is no file to show), or when the Original
+  tab's viewer fails to load (the reader falls back to Text automatically
+  with a toast).
 - **View original PDF** (in the header) still opens the stored PDF in a new
   browser tab, independent of the in-reader Original tab.
-- **Scanned PDFs** (and any paper with no extracted text) show a clear
+- **Scanned PDFs** still have a stored file, so — like any paper with a PDF —
+  they open on the Original tab by default. Switch to the Text tab (where a
+  paper with no stored PDF at all lands directly) and you'll see a clear
   empty-state — *"No extracted text — use View original PDF"* — instead of a
   blank pane, so you always have a way to reach the source.
 - The Text tab's note about figures and charts not being part of the

@@ -679,7 +679,7 @@ cross-origin iframe, no CDN dependency, and no network call at read time.
   wheel and sdist and asserts `lab/static/vendor/pdfjs/web/viewer.html` is
   actually present inside the installed package — a packaging-glob typo would
   fail CI, not just look right in the source tree.
-- **Serving** — `tests/test_lab_api.py::test_vendored_pdfjs_viewer_served`
+- **Serving** — `tests/test_lab_api.py::TestStaticMount::test_vendored_pdfjs_viewer_served`
   pins that `GET /static/vendor/pdfjs/web/viewer.html` returns 200 with the
   same `no-cache` header as other static assets.
 
