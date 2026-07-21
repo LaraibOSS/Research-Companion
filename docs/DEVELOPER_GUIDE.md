@@ -715,3 +715,141 @@ without a browser. The DOM-dependent parts (iframe creation, tab switching,
 on the real PDF.js viewer's runtime behavior inside an iframe — and are
 verified manually per the upgrade procedure above and whenever
 `components/reader.js` changes in this area.
+
+## 20. Finding open-access PDFs online
+
+When a paper's PDF can't be downloaded (a paywalled DOI, an S2 entry with no
+direct file), `research_companion/oa_locator.py` gives it one more chance by
+asking the open-access aggregators the tool already trusts for either a
+direct PDF or a landing page you can follow yourself. It never scrapes a
+paywall and never bypasses one — only open, key-free aggregator APIs and
+plain links.
+
+### The locator
+
+`locate_pdf(meta, *, settings=None, providers=DEFAULT_PROVIDERS, extra_ids=None) -> OaLocation(pdf_url, links, source)`:
+
+- **Provider order (stops at the first direct PDF):** `s2` (Semantic
+  Scholar's `openAccessPdf` field) → `unpaywall` (only when the paper has a
+  DOI **and** the `contact_email` setting is non-empty) → `openalex` (a DOI
+  lookup, or a title search when there's no DOI) → `arxiv` (only for an
+  arXiv id an *earlier* provider just surfaced — e.g. S2's
+  `externalIds.ArXiv` field — never the paper's own arXiv id, which the
+  caller would already have tried directly.
+- **Links accumulate regardless of the stop.** Every provider that runs
+  contributes its landing-page URL to `links` (deduped by URL) even after a
+  PDF has been found by an earlier one, and `locate_pdf` always appends a
+  `"DOI page"` link (when there's a DOI) and a `"Google Scholar"` search link
+  (when there's a title) — both are pure string formatting, no HTTP call.
+  So a caller that only wants the direct PDF reads `pdf_url`; a caller
+  building a "try these instead" UI reads `links`.
+- **Identifiers** come from `meta.paper_id`'s namespace prefix
+  (`doi:`/`arxiv:`/`s2:`, via `_derive_ids`), overlaid with any `extra_ids`
+  the caller already resolved (e.g. `fetch.add_s2` passes the DOI/arXiv ids
+  Semantic Scholar's own metadata surfaced, so the locator doesn't have to
+  re-discover them).
+- **Seams:** every network call lives in a module-level `_fetch_s2` /
+  `_fetch_unpaywall` / `_fetch_openalex` function, all routed through
+  `_get_json`, which wraps the request in a single broad `except Exception`
+  and returns `None` on **any** failure — bad status, timeout, malformed
+  JSON, whatever. Parsers (`_parse_s2`, `_parse_unpaywall`, `_parse_openalex`)
+  are pure functions over already-fetched dicts. Tests monkeypatch the
+  `_fetch_*` functions directly and never touch the network — see
+  `tests/test_oa_locator.py`.
+
+### Etiquette
+
+- **≤3 HTTP GETs per lookup.** `s2`, `unpaywall`, `openalex` each cost at
+  most one GET, and the loop stops at the first direct `pdf_url`; `arxiv`
+  never makes a request — it only formats a URL from an id another provider
+  already returned. Worst case (no hit anywhere) is exactly one GET per one
+  of those three providers, three total.
+- **`contact_email` is the polite identifier.** Unpaywall's API requires a
+  contact email on every request; rather than send a placeholder, the
+  locator skips the Unpaywall step entirely when the `contact_email` setting
+  (`settings.py`, default `""`) is empty — s2/openalex/arxiv still run. This
+  is the *only* provider the setting affects.
+- **1s spacing between papers in a batch.** The sweep endpoint (below) awaits
+  `asyncio.sleep(1.0)` between targets so a "find all" run doesn't hammer the
+  aggregator APIs back-to-back for a whole library's worth of failures.
+
+### Everything degrades
+
+Any failure anywhere in the locator — a provider down, a malformed response,
+an unresolvable identifier — means *that provider contributes nothing*, not
+a crash: `_get_json` catches it and returns `None`, the parser sees `None`
+and returns an all-`None` dict, and `locate_pdf` moves on to the next
+provider (or returns an `OaLocation()` with no `pdf_url` and no `links` if
+every provider whiffed). Callers add a second belt: `fetch.add_doi` and
+`fetch.add_s2` (`fetch.py`) call `locate_pdf` inside their own
+`try/except Exception: OaLocation()` **after** their direct download attempt
+(DOI URL / arXiv+DOI) fails, so even a bug inside the locator can never
+break the add path — it falls back to the metadata-only save with the exact
+same warning text as before this feature (`tests/test_fetch.py`'s
+`test_add_doi_locator_exception_falls_back_to_metadata_only` /
+`test_add_s2_locator_exception_falls_back_to_metadata_only` pin this
+byte-identically).
+
+### Wired into ingest, the Lab, and the sweep
+
+- **`fetch.add_doi` / `fetch.add_s2`** consult the locator only as a
+  fallback after their own direct attempt fails — same behavior as always
+  when the direct attempt already succeeds.
+- **`POST /api/papers/{id}/find-pdf`** (`lab_api.py`) locates a PDF for one
+  already-failed paper: `404` when there's no failure record for that id at
+  all, `409` when the failure isn't a missing-PDF one (`_is_missing_pdf_failure`
+  — mirrors `lab/static/js/libraryHelpers.js`'s `isMissingPdfFailure`, the
+  same two wordings, "no PDF on disk" / "PDF not found" — reused rather than
+  re-implemented so the button's visibility and the endpoint's gate never
+  drift apart). Otherwise it returns `202` with a job id. A **hit** downloads
+  the PDF, saves it, and re-runs `_retry_paper_task` — the same retry-flow
+  job `/retry` uses, not a separate ingest path. A **miss** (`_FindPdfMiss`,
+  raised by `_find_pdf_for_failure`) persists the located `links` onto the
+  failure record via `store.record_failure` (a read-modify-write that
+  preserves the original `error`/`stage`/`paper_id`) as `oa_links`, publishes
+  an `IngestFailed` so the Library card re-renders with them, and completes
+  the job `"done"` (not `"failed"`) with detail
+  `"no open-access PDF found (N links)"` — a miss is a completed search, not
+  an error.
+- **`POST /api/papers/find-pdfs`** sweeps every missing-PDF failure
+  sequentially, 1s apart (see Etiquette). It's registered *before* the
+  `{paper_id:path}` routes so `"find-pdfs"` is never captured as a paper id
+  (the same ordering trick as `POST /api/papers/upload`).
+  `app.state.find_pdf_sweep_running` guards against overlapping sweeps
+  (`409` while one is running, set synchronously before the background task
+  starts); `{"count": 0}` (200) when there's nothing to do; one paper's
+  miss/error never stops the rest.
+- **Summary plumbing:** `_build_paper_summary` (`lab_api.py`) reads
+  `oa_links` off the matching failure record and includes it on every
+  `GET /api/papers` entry, so the Library can render the links line without
+  a second request.
+
+### UI
+
+`research_companion/lab/static/js/oaLinkHelpers.js` is the pure, DOM-free
+layer (`node:test`-covered in `tests/js/oaLinkHelpers.test.mjs`):
+
+- `findPdfAffordance(paper)` → `'hidden' | 'button' | 'button-with-links'`,
+  gated on `status === 'failed'` and `isMissingPdfFailure(paper.failure_reason)`.
+- `oaLinksLine(links)` validates and caps the list at 5 entries, dropping
+  anything that isn't `{label: string, url: http(s)-string}` (blocks
+  `javascript:` and other unsafe schemes a malformed locator response might
+  carry).
+- `pollDecision({status, error, consecutiveFailures, elapsedPolls})` drives
+  the job-poll loop in `views/library.js`: bounded to `MAX_POLLS = 120`
+  (~2 minutes at roughly 1 poll/second), gives up after
+  `MAX_CONSECUTIVE_FAILURES = 5` in a row, and a `404` always stops
+  immediately (the job record is gone) even if the poll-count cap was also
+  hit.
+
+Both `components/paperCard.js` (grid) and `views/library.js` (list) render
+the same affordance from these helpers: a **Find PDF** button next to
+**Upload PDF** on a failed, missing-PDF paper, and — once a search has come
+back with a miss that still found candidate links — a muted
+*"Not freely available — try:"* line with up to 5 links (`target="_blank"
+rel="noopener"`). The Library header's **"Find PDFs for all missing (n)"**
+button posts to the sweep endpoint and is recomputed (count, visibility,
+enabled state) on every papers refresh. Settings gained a **Contact email**
+field (`contact_email`, empty by default) wired straight to the setting
+above — the UI hint is explicit that leaving it blank only skips the
+Unpaywall lookup, nothing else.

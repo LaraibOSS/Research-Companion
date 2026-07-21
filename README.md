@@ -62,6 +62,7 @@ Research Companion grew from "help me read papers" into "help me get a paper sub
 - **Domain connectors** — opt-in **PubMed**, **Europe PMC**, and **DBLP** sources so biomedical and CS references verify and prior-art reaches beyond the general databases (`--connectors dblp` etc.; off by default, byte-identical when disabled).
 - **MCP trust-layer server** (`mcp serve`) — exposes four deterministic, key-free verification tools (verify a citation, ground a claim, check citation coverage, search your library) to any MCP-capable agent, plus two opt-in costed tools (`ask_library`, `review_draft`) behind an explicit setting, a configured key, and a per-call cost cap — off by default.
 - **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, and LaTeX `\cite`-key resolution (`export-bib` / `import-bib` / `cite-tex`).
+- **Find PDF** — a one-click search across open-access aggregators (Semantic Scholar, Unpaywall, OpenAlex, arXiv) for a paper whose PDF failed to download, with a header sweep for every missing PDF at once and honest fallback links when no free copy exists.
 
 Everything above is deterministic at the core, opt-in wherever it costs money or sends data anywhere, and designed to leave the tool byte-identical when a feature is off. See the [Roadmap](docs/ROADMAP.md).
 
