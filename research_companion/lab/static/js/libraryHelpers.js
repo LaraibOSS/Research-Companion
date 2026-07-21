@@ -129,7 +129,7 @@ export function dominantRelation(stanceCounts) {
  * @param {Map|Array} papersMapOrArray  — papers from the store
  * @param {string|null} draftId         — current draft paper_id (or null)
  * @returns {Array<{paperId, title, year, status, strengthBand, strengthScore,
- *                  relation, addedAt, isDraft, failureReason}>}
+ *                  relation, addedAt, isDraft, failureReason, oaLinks}>}
  */
 export function buildRows(papersMapOrArray, draftId) {
   // Normalise to array
@@ -157,6 +157,9 @@ export function buildRows(papersMapOrArray, draftId) {
     needsMetadata: needsMetadata(paper),
     ocrUsed:      !!paper.ocr_used,
     parseSource:  paper.parse_source || '',
+    // Carried through (not transformed) so the list view can run the same
+    // findPdfAffordance/oaLinksLine checks (oaLinkHelpers.js) the grid does.
+    oaLinks:      Array.isArray(paper.oa_links) ? paper.oa_links : [],
   });
 
   const draftRow  = papers.filter(p => draftId != null && p.paper_id === draftId).map(toRow);

@@ -11,6 +11,7 @@ import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { buildRows, sortRows, draftActionFor, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
+import { findPdfAffordance, oaLinksLine } from '../oaLinkHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -572,6 +573,22 @@ function _renderList(grid, papers, draftId) {
       ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason))}</div>`
       : '';
 
+    // "Find PDF" affordance — mirrors paperCard.js so a failed, missing-PDF
+    // row offers the same open-access search + links as the grid card.
+    // findPdfAffordance/oaLinksLine take a paper-shaped object; the row uses
+    // camelCase (failureReason/oaLinks) so it's adapted here rather than
+    // renaming the row's own fields.
+    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks });
+    const findPdfBtnHtml = findPdfState !== 'hidden'
+      ? `<button class="btn btn-sm btn-find-pdf lib-find-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Find PDF</button>`
+      : '';
+    const oaLine = findPdfState === 'button-with-links' ? oaLinksLine(row.oaLinks) : { show: false, items: [] };
+    const oaLinksHtml = oaLine.show
+      ? `<div class="oa-links muted">Not freely available — try: ${oaLine.items
+          .map(l => `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.label)}</a>`)
+          .join(', ')}</div>`
+      : '';
+
     // Missing-metadata pill — opens the drawer straight into edit mode.
     const metadataPillHtml = row.needsMetadata
       ? ` <button class="lib-status-pill lib-status-pill-metadata lib-meta-btn" data-paper-id="${escapeHtml(row.paperId)}" title="Missing authors/year — click to add">Needs metadata</button>`
@@ -582,7 +599,7 @@ function _renderList(grid, papers, draftId) {
       : '';
 
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${failureReasonHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${failureReasonHtml}${oaLinksHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
@@ -617,10 +634,11 @@ function _renderList(grid, papers, draftId) {
     });
   });
 
-  // Wire row clicks -> drawer
+  // Wire row clicks -> drawer (not for the "Find PDF" links line — those are
+  // external anchors meant to navigate, not open the drawer; see grid guard).
   grid.querySelectorAll('.lib-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('.oa-links')) return;
       _openDrawer(row.dataset.paperId);
     });
   });
@@ -647,6 +665,9 @@ function _renderList(grid, papers, draftId) {
 
   // Wire upload-PDF buttons in list
   grid.querySelectorAll('.lib-upload-pdf-btn').forEach(btn => _wireUploadPdfButton(btn));
+
+  // Wire find-PDF buttons in list (same handler + job-polling as the grid)
+  grid.querySelectorAll('.lib-find-pdf-btn').forEach(btn => _wireFindPdfButton(btn));
 
   // Wire per-row read buttons -> open the paper in the reader.
   grid.querySelectorAll('.btn-row-read').forEach(btn => {
