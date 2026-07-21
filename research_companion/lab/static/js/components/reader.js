@@ -24,6 +24,8 @@ import {
   quoteRangeWithinSection,
   effectiveQuoteRange,
   hasReadableText,
+  sectionBlocks,
+  blockIntersectsRange,
 } from '../readerHelpers.js';
 
 // ---------------------------------------------------------------------------
@@ -168,6 +170,50 @@ function _renderError(message) {
   _focusClose();
 }
 
+// ---------------------------------------------------------------------------
+// Section body — block model rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a section's body from its typed block model (see readerHelpers'
+ * sectionBlocks). Blocks whose [start,end) intersect the active quote range
+ * render in RAW mode (escaped + <mark>-sliced straight off the section's raw
+ * text, pre-wrap preserved) — paragraph joining/hyphen-repair/whitespace
+ * collapsing is skipped for exactly those blocks so the quote-highlight span
+ * is never disturbed. All other blocks render "pretty" per their kind.
+ *
+ * @param {string} sectionText — the section's raw (already char-sliced) text
+ * @param {string} sectionTitle
+ * @param {number[]|null} quoteRange — section-relative [start, end) or null
+ * @returns {string} HTML
+ */
+function _renderSectionBlocks(sectionText, sectionTitle, quoteRange) {
+  const blocks = sectionBlocks(sectionText, sectionTitle);
+  return blocks.map(b => {
+    if (blockIntersectsRange(b, quoteRange)) {
+      const markStart = Math.max(b.start, Math.min(quoteRange[0], b.end));
+      const markEnd = Math.max(b.start, Math.min(quoteRange[1], b.end));
+      const before = escapeHtml(sectionText.slice(b.start, markStart));
+      const marked = escapeHtml(sectionText.slice(markStart, markEnd));
+      const after = escapeHtml(sectionText.slice(markEnd, b.end));
+      return `<div class="reader-raw">${before}<mark class="reader-quote">${marked}</mark>${after}</div>`;
+    }
+    switch (b.kind) {
+      case 'heading-echo':
+        return '';
+      case 'caption':
+        return b.text ? `<p class="reader-caption">${escapeHtml(b.text)}</p>` : '';
+      case 'display':
+        return b.text ? `<div class="reader-display">${escapeHtml(b.text)}</div>` : '';
+      case 'table':
+        return b.text.trim() ? `<pre class="reader-table">${escapeHtml(b.text)}</pre>` : '';
+      case 'para':
+      default:
+        return b.text ? `<p class="reader-para">${escapeHtml(b.text)}</p>` : '';
+    }
+  }).join('');
+}
+
 function _renderContent(payload, detail) {
   const model = buildReaderModel(payload);
   const rawSections = (payload && Array.isArray(payload.sections)) ? payload.sections : [];
@@ -225,31 +271,30 @@ function _renderContent(payload, detail) {
     ? `<div class="reader-empty">No extracted text for this paper${model.hasPdf ? ' — it may be a scanned PDF. Use “View original PDF” above to read it.' : '.'}</div>`
     : '';
 
+  // Figures/charts never make it into the extracted text — say so plainly
+  // rather than let readers wonder where they went, and point at the PDF
+  // link that's already in the header.
+  const figuresNoticeHtml = (!emptyText && model.hasPdf)
+    ? `<div class="reader-figures-notice">Figures and charts aren't part of the text view — open the <a class="reader-pdf-link-inline" href="${escapeHtml(_apiRef.paperPdfUrl(detail.paperId))}" target="_blank" rel="noopener">original PDF</a> to see them.</div>`
+    : '';
+
   const sectionsHtml = emptyText ? '' : model.sections.map(s => {
     const isActive = s.id === activeId;
     const tag = s.level >= 2 ? 'h4' : 'h3';
-    let textHtml;
     const rel = isActive
       ? quoteRangeWithinSection(charStartById[s.id] || 0, s.text, effectiveRange)
       : null;
-    if (rel) {
-      const before = escapeHtml(s.text.slice(0, rel[0]));
-      const marked = escapeHtml(s.text.slice(rel[0], rel[1]));
-      const after = escapeHtml(s.text.slice(rel[1]));
-      textHtml = `${before}<mark class="reader-quote">${marked}</mark>${after}`;
-    } else {
-      textHtml = escapeHtml(s.text);
-    }
+    const bodyInnerHtml = _renderSectionBlocks(s.text, s.title, rel);
     const idAttr = escapeHtml(String(s.id));
     return `
       <section class="reader-section${isActive ? ' reader-section--active' : ''}"
                data-section-id="${idAttr}" id="reader-sec-${idAttr}">
         <${tag} class="reader-section-title">${escapeHtml(s.title || '')}</${tag}>
-        <div class="reader-text">${textHtml}</div>
+        <div class="reader-text">${bodyInnerHtml}</div>
       </section>`;
   }).join('');
 
-  const bodyHtml = `<div class="reader-body">${noticeHtml}${emptyHtml}${sectionsHtml}</div>`;
+  const bodyHtml = `<div class="reader-body">${noticeHtml}${figuresNoticeHtml}${emptyHtml}${sectionsHtml}</div>`;
 
   _panel.innerHTML = headerHtml + navHtml + bodyHtml;
   _bindClose();
