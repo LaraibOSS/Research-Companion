@@ -480,7 +480,13 @@ function _maybeShowMissNotice(timeoutFired) {
   const state = findMissState(_pdfFindEvents, timeoutFired);
   if (state === 'pending') return;
   _clearPdfMissTimer();
-  if (state === 'missed') _showPdfMissNotice();
+  if (state === 'missed') {
+    _showPdfMissNotice();
+  } else {
+    // A late match after the timeout: retract the now-wrong miss notice.
+    const stale = _panel && _panel.querySelector('.reader-pdf-notice');
+    if (stale) stale.remove();
+  }
 }
 
 function _showPdfMissNotice() {
