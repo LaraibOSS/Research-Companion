@@ -1,0 +1,50 @@
+PDF.js prebuilt viewer (vendored)
+=================================
+
+Version: 4.10.38
+Source:  https://github.com/mozilla/pdf.js/releases/download/v4.10.38/pdfjs-4.10.38-dist.zip
+License: Apache License 2.0 (see LICENSE in this directory)
+
+This directory contains a trimmed subset of Mozilla's official prebuilt
+"pdfjs-4.10.38-dist.zip" release asset, vendored for offline/local serving
+of the "Original (PDF)" viewer tab. Nothing here was rebuilt or modified
+from source; files are copied as-is from the release archive.
+
+Kept (as shipped in the release, unmodified):
+  - build/pdf.mjs               - PDF.js core library
+  - build/pdf.worker.mjs        - PDF.js background worker
+  - web/viewer.html             - prebuilt viewer page
+  - web/viewer.mjs              - prebuilt viewer application code
+  - web/viewer.css              - viewer stylesheet
+  - web/images/                 - viewer toolbar/UI icons (~255 KB)
+  - web/locale/locale.json      - locale manifest (lists all locale paths;
+                                  left un-trimmed, see "Trimmed" below)
+  - web/locale/en-US/           - English (US) locale strings only
+  - web/standard_fonts/         - standard PDF font substitutes (~804 KB;
+                                  needed for PDFs that don't embed fonts)
+  - web/cmaps/                  - CJK character maps (~1.5 MB; kept, under
+                                  the ~2 MB budget, needed for some CJK PDFs)
+
+Trimmed (removed from the release archive to keep this vendor tree small):
+  - All *.map source-map files (pdf.mjs.map ~1.7 MB, pdf.worker.mjs.map
+    ~5.1 MB, viewer.mjs.map ~1.3 MB, pdf.sandbox.mjs.map ~0.6 MB) - not
+    needed to serve/run the viewer; only useful for debugging pdf.js's
+    own minified source.
+  - build/pdf.sandbox.mjs (~0.7 MB) - the QuickJS sandbox bundle used only
+    for executing embedded PDF JavaScript actions (rare in research
+    papers). It is imported lazily (dynamic `import()`) only if a PDF
+    actually invokes scripting; if missing, that one code path rejects
+    gracefully without breaking normal viewing/printing/searching.
+  - web/debugger.mjs, web/debugger.css - pdf.js's internal developer
+    debug tool; not needed to serve the viewer.
+  - web/compressed.tracemonkey-pldi-09.pdf - Mozilla's bundled sample
+    PDF; not needed.
+  - web/locale/<all locales except en-US> (111 of 112 locale directories)
+    - only the default English (US) locale is kept. web/locale/locale.json
+      itself was left as shipped (it still lists paths for every locale),
+      so a non-English browser will get one harmless 404 per missing
+      locale file and then fall back to the hardcoded English strings
+      baked into viewer.mjs's GenericL10n fallback bundle. No functional
+      breakage, just an English-only UI for now.
+
+Total vendored size after trimming: ~5.9 MB (259 files).

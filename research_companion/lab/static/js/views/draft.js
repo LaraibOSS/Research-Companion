@@ -214,7 +214,7 @@ function _renderSectionList(sections) {
       <div class="draft-section-row${isActive ? ' draft-section-active' : ''}${hasChallenges ? ' draft-section-challenges' : ''}"
            data-section-id="${escapeHtml(sec.section_id)}">
         <div class="draft-section-title-row">
-          <span class="draft-section-num">§${idx + 1}</span>
+          <span class="draft-section-num">${idx + 1}.</span>
           <span class="draft-section-name">${escapeHtml(sec.title || sec.section_id)}</span>
           <button class="draft-read-btn" data-section-id="${escapeHtml(sec.section_id)}" title="Read this section" aria-label="Read section">Read</button>
         </div>
@@ -264,7 +264,7 @@ function _renderDetail(sections) {
   if (alignments.length === 0) {
     detailEl.innerHTML = `
       <div class="draft-detail-header">
-        <h2 class="draft-detail-title">§${secIdx + 1} ${escapeHtml(sec.title || sec.section_id)}</h2>
+        <h2 class="draft-detail-title">${secIdx + 1}. ${escapeHtml(sec.title || sec.section_id)}</h2>
       </div>
       <div class="draft-empty-align muted">No papers aligned to this section yet.</div>
     `;
@@ -300,7 +300,7 @@ function _renderDetail(sections) {
 
   detailEl.innerHTML = `
     <div class="draft-detail-header">
-      <h2 class="draft-detail-title">§${secIdx + 1} ${escapeHtml(sec.title || sec.section_id)}</h2>
+      <h2 class="draft-detail-title">${secIdx + 1}. ${escapeHtml(sec.title || sec.section_id)}</h2>
       <div class="draft-counts muted">${escapeHtml(countsLine)}</div>
     </div>
     <div class="draft-align-cards">${groupHtml}</div>

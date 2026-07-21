@@ -335,12 +335,33 @@ actually says.
 
 **Inside the reader:**
 
-- A **section-navigation rail** lists the paper's sections; click any one to
-  jump to it. The current section (or the located quote) is highlighted.
-- **View original PDF** opens the stored PDF in a new browser tab.
-- **Scanned PDFs** (and any paper with no extracted text) show a clear
+- A **section-navigation rail** lists the paper's sections as plain numbers
+  (*"1. Introduction"*, *"2. Related Work"*, ...); click any one to jump to
+  it. The current section (or the located quote) is highlighted.
+- **Two tabs, for papers with a stored PDF: Original and Text.**
+  **Original** is the default — it shows the actual typeset PDF (real
+  formulas, tables, and figures, not the plain-text extraction) in a
+  built-in viewer. When you arrive via a quote or citation click, the
+  viewer searches for that quote and highlights it in the PDF itself; if it
+  can't be located (locating is best-effort, not guaranteed), a small notice
+  says so and points you at the Text tab, which shows the quote highlighted
+  in the extracted text when it can be located there. **Text** is the
+  exact-offset view described above — unchanged, and it remains the *only*
+  tab for papers with no stored PDF at all (for example, a paper added by
+  DOI or Semantic Scholar ID whose PDF download failed — its
+  metadata was saved, but there is no file to show), or when the Original
+  tab's viewer fails to load (the reader falls back to Text automatically
+  with a toast).
+- **View original PDF** (in the header) still opens the stored PDF in a new
+  browser tab, independent of the in-reader Original tab.
+- **Scanned PDFs** still have a stored file, so — like any paper with a PDF —
+  they open on the Original tab by default. Switch to the Text tab (where a
+  paper with no stored PDF at all lands directly) and you'll see a clear
   empty-state — *"No extracted text — use View original PDF"* — instead of a
   blank pane, so you always have a way to reach the source.
+- The Text tab's note about figures and charts not being part of the
+  extracted text now points you at the **Original** tab (when the paper has
+  one) to see them as typeset, instead of only linking out to the PDF.
 
 ## 12. The review team
 

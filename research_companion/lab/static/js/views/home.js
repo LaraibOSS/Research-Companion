@@ -341,7 +341,7 @@ function _sugsHtml(openSugs, totalOpen) {
     // Source label disambiguates same-titled suggestions targeting different sections
     // (older payloads carry only section_id, no label)
     const src = s.source || {};
-    const srcLabel = src.label || (src.section_id ? `§${src.section_id}` : '');
+    const srcLabel = src.label || (src.section_id ? `${src.section_id}` : '');
     const srcHtml = srcLabel
       ? `<span class="home-sug-src muted">${escapeHtml(srcLabel)}</span>`
       : '';

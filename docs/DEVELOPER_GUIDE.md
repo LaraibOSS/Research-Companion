@@ -587,3 +587,131 @@ individually.
   the live registry (`TOOL_HANDLERS` + `COSTED_TOOL_HANDLERS` when active);
   the schema files are a static reference for agent authors, not something
   the server reads at runtime.
+
+## 19. The reader's "Original (PDF)" tab
+
+The reader (`research_companion/lab/static/js/components/reader.js`) shows a
+paper two ways: **Original** (the typeset PDF, rendered by a vendored PDF.js
+viewer) and **Text** (the existing exact-offset extracted-text view,
+unchanged). Original is the default tab for any paper with a stored PDF; a
+paper with no PDF gets the Text tab only, byte-identical to before this
+feature.
+
+### Architecture
+
+- **Pure helpers** — `research_companion/lab/static/js/readerPdfHelpers.js` is
+  DOM-free and unit-tested under `node:test`
+  (`tests/js/readerPdfHelpers.test.mjs`):
+  - `buildViewerUrl(paperId, { quote })` builds the same-origin viewer URL
+    (`/static/vendor/pdfjs/web/viewer.html?file=<paper PDF URL>`), appending a
+    `#search=<phrase>&phrase=true` fragment — PDF.js's own find-controller
+    query syntax — only when a normalized quote is non-empty.
+  - `normalizeQuoteForSearch(quote)` turns an evidence quote into a search
+    phrase PDF.js can actually match: collapses whitespace, heals line-break
+    hyphenation (`word-\nword` → `wordword`), strips wrapping quote
+    marks/ellipses, and caps the result at 12 words (a long quote rarely
+    matches as one contiguous PDF text run, so search on a short anchor
+    instead).
+  - `readerTabs(hasPdf)` returns `{ tabs, active }` — `['original', 'text']`
+    with `active: 'original'` when the paper has a PDF, `['text']` with
+    `active: 'text'` otherwise. This is the single source of truth for tab
+    defaulting; the component never computes it inline.
+  - `findMissState(events, timeoutFired)` reduces a list of PDF.js find
+    events into `'found' | 'missed' | 'pending'` — see below.
+- **The component** (`components/reader.js`) renders the tab strip only when
+  `readerTabs(...).tabs.length > 1`, lazily creates a same-origin `<iframe>`
+  pointed at `buildViewerUrl(...)` the first time the Original tab is
+  activated, and never recreates it on subsequent tab flips within the same
+  reader open — flipping tabs just toggles `hidden` on the PDF pane vs. the
+  text body.
+
+### Quote → in-PDF highlight, and honest miss detection
+
+When the reader is opened with a quote (e.g. clicking a verified evidence
+quote on an alignment card, or a citation chip), the Original tab's iframe
+loads with the `#search=...&phrase=true` fragment, which drives PDF.js's own
+find controller to search and highlight on load — no page-guessing, no
+custom rendering of PDF content.
+
+Because the fragment search runs asynchronously inside the vendored viewer,
+the reader listens to `window.PDFViewerApplication.eventBus` inside the
+iframe (reached via `iframe.contentWindow`, guarded with `try/catch` for any
+cross-origin/attachment failure) for `updatefindmatchescount` and
+`updatefindcontrolstate` events, and folds them through `findMissState`. If
+no match is confirmed within `PDF_MISS_TIMEOUT_MS` (4000 ms), a muted,
+dismissible notice appears in the PDF pane: *"Couldn't locate this quote in
+the PDF — the Text tab has it highlighted."* This is best-effort — it never
+claims the quote will always be found, and it degrades to just showing the
+PDF unhighlighted rather than failing the tab.
+
+**Failure mode:** if the iframe's `load` event fires but
+`PDFViewerApplication` never attaches within `PDF_INIT_GRACE_MS` (500 ms), or
+the iframe fires its own `error` event, the reader treats the viewer as
+failed: it auto-switches to the Text tab and shows an error toast ("PDF
+viewer failed to load — showing text view"). The Text tab is always
+byte-identical to the pre-existing reader, so this is a safe fallback, not a
+degraded experience.
+
+### The vendor directory contract
+
+`research_companion/lab/static/vendor/pdfjs/` vendors a **trimmed subset** of
+Mozilla's official prebuilt `pdfjs-<version>-dist.zip` release asset — files
+are copied as-is from the release archive, nothing rebuilt or modified. It is
+served same-origin at `/static/vendor/pdfjs/web/viewer.html` (same no-cache
+`Cache-Control` convention as the rest of `lab/static/`) so there is no
+cross-origin iframe, no CDN dependency, and no network call at read time.
+
+- **`VERSION.txt`** (in that directory) is the source of truth: it records
+  the pinned version, the exact release-asset URL it was fetched from, and
+  the full list of what was kept vs. trimmed from the release archive (with
+  the reason for each trim — mostly source maps and the rarely-needed
+  scripting sandbox bundle). Read it before touching anything under
+  `vendor/pdfjs/`.
+- **`LICENSE`** — the Apache License 2.0 text, kept in-tree per pdf.js's own
+  license terms.
+- **Packaging** — `pyproject.toml`'s `[tool.setuptools.package-data]` includes
+  `"lab/static/vendor/pdfjs/**/*"` as its own nested glob (in addition to the
+  existing `lab/static/vendor/*`, which does not recurse into
+  subdirectories), so the whole vendored tree ships inside both the wheel and
+  the sdist. `tests/test_packaging.py::test_pdfjs_viewer_covered` pins that
+  the viewer HTML and the worker script are each covered by some glob, and
+  the CI workflow (`.github/workflows/ci.yml`) additionally builds a real
+  wheel and sdist and asserts `lab/static/vendor/pdfjs/web/viewer.html` is
+  actually present inside the installed package — a packaging-glob typo would
+  fail CI, not just look right in the source tree.
+- **Serving** — `tests/test_lab_api.py::TestStaticMount::test_vendored_pdfjs_viewer_served`
+  pins that `GET /static/vendor/pdfjs/web/viewer.html` returns 200 with the
+  same `no-cache` header as other static assets.
+
+### Upgrading the vendored PDF.js version
+
+There is no fetch script — this is a deliberate one-time-per-upgrade manual
+step, not an automated dependency:
+
+1. Download the new release asset from Mozilla's releases page:
+   `https://github.com/mozilla/pdf.js/releases/download/v<X.Y.Z>/pdfjs-<X.Y.Z>-dist.zip`.
+2. Replace the vendored subset under `lab/static/vendor/pdfjs/`, preserving
+   the same directory layout (`build/`, `web/`, `web/cmaps/`,
+   `web/standard_fonts/`, `web/locale/en-US/`) and the same trim list
+   recorded in `VERSION.txt` (drop `*.map` files, `pdf.sandbox.mjs`,
+   `web/debugger.*`, the bundled sample PDF, and every locale directory
+   except `en-US`) — re-verify the trim list against the new release in case
+   file names or sizes changed.
+3. Update `VERSION.txt`: the version number, the release URL, and the kept/
+   trimmed lists if anything about the archive's contents changed.
+4. Run the full gate (below) — it re-checks packaging coverage and serving,
+   but not that the viewer actually renders a PDF, which is a manual step.
+5. Manually verify: open the Lab, open a paper that has a PDF (Original tab
+   should be the default and load), and click a verified evidence quote to
+   confirm it still gets located and highlighted in the new viewer version.
+
+### Testing split
+
+Pure logic (`readerPdfHelpers.js`) is fully covered by
+`tests/js/readerPdfHelpers.test.mjs` under `node:test` — URL building, quote
+normalization, tab defaulting, and miss-state reduction are all exercised
+without a browser. The DOM-dependent parts (iframe creation, tab switching,
+`eventBus` wiring, load-failure fallback) are not unit-tested — they depend
+on the real PDF.js viewer's runtime behavior inside an iframe — and are
+verified manually per the upgrade procedure above and whenever
+`components/reader.js` changes in this area.

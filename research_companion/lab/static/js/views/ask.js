@@ -125,7 +125,7 @@ async function _loadSections() {
     sections.forEach((sec, idx) => {
       const opt = document.createElement('option');
       opt.value = sec.section_id || '';
-      opt.textContent = `§${idx + 1} ${sec.title || sec.section_id || ''}`;
+      opt.textContent = `${idx + 1}. ${sec.title || sec.section_id || ''}`;
       select.appendChild(opt);
     });
   } catch {
