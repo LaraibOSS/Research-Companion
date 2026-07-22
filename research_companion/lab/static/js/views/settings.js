@@ -128,6 +128,22 @@ function _render(s) {
     </div>
   </div>
 
+  <!-- 2b. Open-access lookups -->
+  <div class="settings-card" id="sc-oa-lookups">
+    <div class="settings-card-title">Open-Access Lookups</div>
+    <div class="settings-field">
+      <label class="settings-label">Contact email (open-access lookups)</label>
+      <input type="text" class="settings-input" id="s-contact-email"
+        value="${escapeHtml(s.contact_email || '')}" placeholder="you@example.com">
+      <span class="settings-hint">Optional. Sent to Unpaywall when searching for a free PDF of a
+        failed paper — it identifies you as a polite API user and can unlock lookups that would
+        otherwise be skipped. Never shared beyond that request.</span>
+    </div>
+    <div class="settings-section-actions">
+      <button class="btn btn-accent btn-sm" id="save-oa-lookups">Save</button>
+    </div>
+  </div>
+
   <!-- 3. Appearance -->
   <div class="settings-card" id="sc-appearance">
     <div class="settings-card-title">Appearance</div>
@@ -309,6 +325,22 @@ function _wireEvents(s) {
         hf_token: hfToken,
       };
       await _savePatch(formState, s, saveSearch);
+    });
+  }
+
+  // Save open-access lookups section
+  const saveOaLookups = _el.querySelector('#save-oa-lookups');
+  if (saveOaLookups) {
+    saveOaLookups.addEventListener('click', async () => {
+      const contactEmail = _el.querySelector('#s-contact-email').value.trim();
+      const formState = {
+        provider: s.provider, model: s.model,
+        theme: s.theme, accent: s.accent, density: s.density,
+        k_sections: s.k_sections, char_budget: s.char_budget,
+        contact_email: contactEmail,
+        anthropic_api_key: '', openai_api_key: '', hf_token: '',
+      };
+      await _savePatch(formState, s, saveOaLookups);
     });
   }
 

@@ -46,6 +46,7 @@ DEFAULTS: dict[str, Any] = {
     "readiness_narrative": False,
     "mcp_costed_tools": False,
     "mcp_cost_cap_usd": 1.0,
+    "contact_email": "",
 }
 
 _VALID_PROVIDERS = {"anthropic", "openai"}
@@ -275,6 +276,7 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
       must be booleans
     - 0.0 <= semantic_overlap_threshold <= 1.0
     - 0.0 <= mcp_cost_cap_usd <= 100.0
+    - contact_email must be a string (may be empty)
     - Unknown top-level fields -> SettingsError
     - patch["keys"][name] = "" -> SettingsError (use null to delete)
 
@@ -363,6 +365,11 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
         v = regular_patch["char_budget"]
         if not isinstance(v, int) or isinstance(v, bool) or not (1000 <= v <= 50000):
             raise SettingsError(f"char_budget must be between 1000 and 50000, got {v!r}")
+
+    if "contact_email" in regular_patch:
+        v = regular_patch["contact_email"]
+        if not isinstance(v, str):
+            raise SettingsError(f"contact_email must be a string (may be empty), got {v!r}")
 
     # Validate keys patch (before writing anything)
     if keys_patch is not None:

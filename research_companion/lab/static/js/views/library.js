@@ -11,6 +11,7 @@ import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { buildRows, sortRows, draftActionFor, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
+import { findPdfAffordance, oaLinksLine, pollDecision } from '../oaLinkHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -72,6 +73,7 @@ function _render() {
                placeholder="arXiv ID, URL, or PDF path..." autocomplete="off">
         <button id="lib-add-btn" class="btn btn-accent">Add</button>
         <button id="lib-ingest-btn" class="btn btn-secondary">Ingest folder...</button>
+        <button id="btn-find-all-pdfs" class="btn btn-secondary btn-sm" style="display:none"></button>
         <div class="lib-view-toggle" role="group" aria-label="View mode">
           <button class="lib-view-btn${_viewMode === 'grid' ? ' lib-view-btn-active' : ''}"
                   id="lib-view-grid" title="Grid view" aria-pressed="${_viewMode === 'grid'}">⊞</button>
@@ -138,6 +140,10 @@ function _render() {
   _el.querySelector('#lib-ingest-btn').addEventListener('click', () => {
     openModal('folder');
   });
+
+  // Wire the "Find PDFs for all missing" sweep button (visibility/label/
+  // disabled state are kept in sync by _renderGrid on every papers refresh).
+  _wireFindAllPdfsButton(_el.querySelector('#btn-find-all-pdfs'));
 
   _renderGrid();
 }
@@ -240,6 +246,170 @@ function _wireUploadPdfButton(btn) {
 }
 
 // ---------------------------------------------------------------------------
+// Find PDF (open-access locator) — single paper + header sweep
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire a single-paper "Find PDF" button: click -> POST find-pdf, in-flight
+ * disabled/relabeled state mirrors the Retry wiring above. Unlike Retry, a
+ * search MISS does not emit an ingest_failed/paper_added SSE event (nothing
+ * about the paper's pipeline status changed), so the eventual re-render that
+ * would show the resulting oa_links never arrives on its own. _watchFindPdfJob
+ * below polls the job and explicitly re-fetches /api/papers once it's done,
+ * which is what actually makes a miss's oa_links show up in the card.
+ * @param {HTMLElement|null} btn
+ */
+function _wireFindPdfButton(btn) {
+  if (!btn) return;
+  const originalText = btn.textContent;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const pid = btn.dataset.paperId;
+    btn.disabled = true;
+    btn.textContent = 'Finding…';
+    try {
+      const res = await api.findPdf(pid);
+      showToast(`Looking for a PDF — job ${res.job_id}`, 'info');
+      _watchFindPdfJob(res.job_id, () => {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      });
+    } catch (err) {
+      // The request itself failed (e.g. 404/409/network) — no job was
+      // queued, so no re-render is coming. Restore the button.
+      btn.disabled = false;
+      btn.textContent = originalText;
+      showToast(`Find PDF failed: ${err.message}`, 'error');
+    }
+  });
+}
+
+const _FIND_PDF_POLL_MS = 1000;
+
+/**
+ * Poll GET /api/jobs/{id} until the find-pdf job reaches a terminal status
+ * (or the poll loop itself gives up), then refresh the library snapshot so
+ * a miss's oa_links (or a hit's new status) show up. A hit re-ingests
+ * through the normal pipeline and gets its own SSE-driven re-render too, but
+ * polling here is what covers the miss case and keeps this button's success
+ * path independent of that pipeline.
+ *
+ * The per-attempt continue/stop/retry/give-up decision is delegated to the
+ * pure `pollDecision` (oaLinkHelpers.js) so it's node-testable; this loop
+ * just tracks the two counters it needs (consecutiveFailures, elapsedPolls)
+ * and acts on the verdict. Bounded so a job that never reaches a terminal
+ * status (e.g. the server-side task wedged) can't poll forever — see
+ * pollDecision's docstring for the caps.
+ *
+ * @param {string} jobId
+ * @param {() => void} [onGiveUp] - called (before the final refresh) when
+ *   polling stops without ever seeing a terminal status via a normal
+ *   success/404 path — i.e. only on the 'give-up' outcome. Lets the caller
+ *   restore its OWN button (label included) independently of whether the
+ *   final refresh manages to re-render it. Grid cards get replaced wholesale
+ *   by the next papers refresh anyway; this is the fallback for when that
+ *   refresh itself fails, or for the header sweep button which isn't
+ *   replaced (only its disabled/label state is recomputed on refresh).
+ */
+function _watchFindPdfJob(jobId, onGiveUp) {
+  let consecutiveFailures = 0;
+  let elapsedPolls = 0;
+
+  const finalRefresh = async () => {
+    try {
+      const fresh = await api.getPapers();
+      _refreshPapers(fresh);
+    } catch (err) {
+      console.warn('[library] papers refresh after find-pdf failed', err);
+    }
+  };
+
+  const poll = async () => {
+    elapsedPolls += 1;
+    let job = null;
+    let err = null;
+    try {
+      job = await api.getJob(jobId);
+    } catch (e) {
+      err = e;
+    }
+
+    if (!err) {
+      consecutiveFailures = 0; // any successful poll resets the failure streak
+      if (job && job.status !== 'running') {
+        // Normal completion (done/failed/etc.) -- not a pollDecision case;
+        // see its docstring.
+        await finalRefresh();
+        return;
+      }
+    }
+
+    const decision = pollDecision({
+      status: job ? job.status : undefined,
+      error: err,
+      consecutiveFailures,
+      elapsedPolls,
+    });
+
+    switch (decision) {
+      case 'continue':
+        setTimeout(poll, _FIND_PDF_POLL_MS);
+        return;
+      case 'retry-transient':
+        consecutiveFailures += 1;
+        setTimeout(poll, _FIND_PDF_POLL_MS);
+        return;
+      case 'stop-404':
+        // Job record is genuinely gone (e.g. server restarted mid-poll) --
+        // stop and refresh so the button doesn't stay stuck disabled, but no
+        // "taking too long" toast: this isn't that case.
+        if (onGiveUp) onGiveUp();
+        await finalRefresh();
+        return;
+      case 'give-up':
+      default:
+        if (onGiveUp) onGiveUp();
+        await finalRefresh();
+        showToast('Find PDF is taking unusually long — refresh to check its status.', 'info');
+        return;
+    }
+  };
+
+  poll();
+}
+
+/**
+ * Wire the header "Find PDFs for all missing (n)" sweep button: click ->
+ * POST find-pdfs. Disables immediately; re-enabling is handled by
+ * _renderGrid (called on every 'papers' notify) recomputing the missing-PDF
+ * count and un-disabling the button each time it runs — the same
+ * "papers refresh" the single-button watcher triggers once its sweep job
+ * finishes (or gives up — see _watchFindPdfJob's onGiveUp, which also
+ * re-enables this button directly as a fallback since it isn't replaced by
+ * _renderGrid the way a grid card is).
+ * @param {HTMLElement|null} btn
+ */
+function _wireFindAllPdfsButton(btn) {
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await api.findAllPdfs();
+      if (res && res.count === 0) {
+        showToast('No missing-PDF papers to search', 'info');
+        btn.disabled = false; // no job queued — nothing else will re-enable it
+      } else {
+        showToast(`Finding PDFs for ${res.count} paper(s) — job ${res.job_id}`, 'info');
+        _watchFindPdfJob(res.job_id, () => { btn.disabled = false; });
+      }
+    } catch (err) {
+      btn.disabled = false;
+      showToast(`Find PDFs failed: ${err.message}`, 'error');
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Grid render
 // ---------------------------------------------------------------------------
 
@@ -254,6 +424,24 @@ function _renderGrid() {
   const totalCount = state.papers.size;
   const countEl = _el.querySelector('#lib-count');
   if (countEl) countEl.textContent = `${totalCount} paper${totalCount === 1 ? '' : 's'}`;
+
+  // "Find PDFs for all missing (n)" — visible only when there's work to do.
+  // Counted against ALL papers (not the active filter) so the count always
+  // matches what a sweep would actually target. Re-enabling on every refresh
+  // here (rather than in the click handler) is what makes the button usable
+  // again once a sweep's papers-refresh lands — see _watchFindPdfJob.
+  const findAllBtn = _el.querySelector('#btn-find-all-pdfs');
+  if (findAllBtn) {
+    const missingCount = [...state.papers.values()]
+      .filter(p => p.status === 'failed' && isMissingPdfFailure(p.failure_reason)).length;
+    if (missingCount > 0) {
+      findAllBtn.style.display = '';
+      findAllBtn.textContent = `Find PDFs for all missing (${missingCount})`;
+      findAllBtn.disabled = false;
+    } else {
+      findAllBtn.style.display = 'none';
+    }
+  }
 
   let papers = [...state.papers.values()];
 
@@ -353,6 +541,9 @@ function _renderGridCards(grid, papers) {
     // Upload PDF button (only rendered by paperCard.js for a missing-PDF failure)
     _wireUploadPdfButton(card.querySelector('.btn-upload-pdf'));
 
+    // Find PDF button (only rendered by paperCard.js for a missing-PDF failure)
+    _wireFindPdfButton(card.querySelector('.btn-find-pdf'));
+
     // Read button -> open the paper in the reader.
     const readBtn = card.querySelector('.btn-read');
     if (readBtn) {
@@ -373,9 +564,10 @@ function _renderGridCards(grid, papers) {
       });
     }
 
-    // Click card -> drawer
+    // Click card -> drawer (not for the "Find PDF" links line — those are
+    // external anchors meant to navigate, not open the drawer).
     card.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('.oa-links')) return;
       _openDrawer(paper.paper_id);
     });
     card.addEventListener('keydown', (e) => {
@@ -451,6 +643,22 @@ function _renderList(grid, papers, draftId) {
       ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason))}</div>`
       : '';
 
+    // "Find PDF" affordance — mirrors paperCard.js so a failed, missing-PDF
+    // row offers the same open-access search + links as the grid card.
+    // findPdfAffordance/oaLinksLine take a paper-shaped object; the row uses
+    // camelCase (failureReason/oaLinks) so it's adapted here rather than
+    // renaming the row's own fields.
+    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks });
+    const findPdfBtnHtml = findPdfState !== 'hidden'
+      ? `<button class="btn btn-sm btn-find-pdf lib-find-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Find PDF</button>`
+      : '';
+    const oaLine = findPdfState === 'button-with-links' ? oaLinksLine(row.oaLinks) : { show: false, items: [] };
+    const oaLinksHtml = oaLine.show
+      ? `<div class="oa-links muted">Not freely available — try: ${oaLine.items
+          .map(l => `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.label)}</a>`)
+          .join(', ')}</div>`
+      : '';
+
     // Missing-metadata pill — opens the drawer straight into edit mode.
     const metadataPillHtml = row.needsMetadata
       ? ` <button class="lib-status-pill lib-status-pill-metadata lib-meta-btn" data-paper-id="${escapeHtml(row.paperId)}" title="Missing authors/year — click to add">Needs metadata</button>`
@@ -461,7 +669,7 @@ function _renderList(grid, papers, draftId) {
       : '';
 
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${failureReasonHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${failureReasonHtml}${oaLinksHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
@@ -496,10 +704,11 @@ function _renderList(grid, papers, draftId) {
     });
   });
 
-  // Wire row clicks -> drawer
+  // Wire row clicks -> drawer (not for the "Find PDF" links line — those are
+  // external anchors meant to navigate, not open the drawer; see grid guard).
   grid.querySelectorAll('.lib-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('.oa-links')) return;
       _openDrawer(row.dataset.paperId);
     });
   });
@@ -526,6 +735,9 @@ function _renderList(grid, papers, draftId) {
 
   // Wire upload-PDF buttons in list
   grid.querySelectorAll('.lib-upload-pdf-btn').forEach(btn => _wireUploadPdfButton(btn));
+
+  // Wire find-PDF buttons in list (same handler + job-polling as the grid)
+  grid.querySelectorAll('.lib-find-pdf-btn').forEach(btn => _wireFindPdfButton(btn));
 
   // Wire per-row read buttons -> open the paper in the reader.
   grid.querySelectorAll('.btn-row-read').forEach(btn => {

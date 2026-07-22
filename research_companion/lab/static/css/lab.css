@@ -615,6 +615,27 @@ html, body {
   margin-top: 4px;
 }
 
+.btn-find-pdf[disabled],
+.btn-upload-pdf[disabled],
+.btn-retry[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* "Not freely available — try: <links>" line under a failed card's actions,
+ * shown once a prior Find PDF search came back with a miss but still
+ * surfaced open-access candidate links (see oaLinkHelpers.js). */
+.oa-links {
+  font-size: var(--text-sm);
+  word-break: break-word;
+  margin-top: 4px;
+}
+.oa-links a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.oa-links a:hover { text-decoration: underline; }
+
 /* ---------------------------------------------------------------------------
  * Empty State
  * --------------------------------------------------------------------------- */

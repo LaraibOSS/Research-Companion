@@ -527,3 +527,15 @@ def test_mcp_costed_tools_setting_validated(isolated_papergraph_dir):
         settings.update_settings({"mcp_cost_cap_usd": 200.0})
     with pytest.raises(settings.SettingsError):
         settings.update_settings({"mcp_cost_cap_usd": True})
+
+
+# ---------------------------------------------------------------------------
+# contact_email setting (Task 1: find-pdf-online)
+# ---------------------------------------------------------------------------
+
+def test_contact_email_setting_roundtrip(isolated_papergraph_dir):
+    assert settings.DEFAULTS["contact_email"] == ""
+    settings.update_settings({"contact_email": "me@example.org"})
+    settings.update_settings({"contact_email": ""})   # empty is valid (disables Unpaywall)
+    with pytest.raises(settings.SettingsError):
+        settings.update_settings({"contact_email": 42})   # non-string rejected

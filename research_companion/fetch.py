@@ -28,6 +28,7 @@ from pathlib import Path
 import feedparser
 import httpx
 
+from research_companion.oa_locator import OaLocation, locate_pdf
 from research_companion.store import (
     PaperMetadata,
     find_existing_paper_for,
@@ -254,6 +255,17 @@ def add_doi(url_or_doi: str) -> PaperMetadata:
     # Try to download the PDF by following the DOI URL (may be paywalled).
     doi_url = f"https://doi.org/{doi}"
     pdf_bytes = _try_download_pdf(doi_url)
+    if pdf_bytes is None:
+        # Direct DOI fetch failed (usually a paywalled landing page). Ask the
+        # open-access aggregators before giving up.
+        _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
+                              authors=meta_dict["authors"], year=meta_dict["year"])
+        try:
+            _loc = locate_pdf(_stub)
+        except Exception:
+            _loc = OaLocation()
+        if _loc.pdf_url:
+            pdf_bytes = _try_download_pdf(_loc.pdf_url)
     if pdf_bytes is not None:
         save_pdf(paper_id, pdf_bytes)
     else:
@@ -345,6 +357,18 @@ def add_s2(url_or_id: str) -> PaperMetadata:
         pdf_bytes = _try_download_pdf(ARXIV_PDF_URL.format(arxiv_id=arxiv_ext))
     if pdf_bytes is None and doi_ext:
         pdf_bytes = _try_download_pdf(f"https://doi.org/{doi_ext}")
+
+    if pdf_bytes is None:
+        # Direct arXiv/DOI attempts failed. Ask the open-access aggregators
+        # before giving up.
+        _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
+                              authors=meta_dict["authors"], year=meta_dict["year"])
+        try:
+            _loc = locate_pdf(_stub, extra_ids={"doi": doi_ext, "arxiv": arxiv_ext})
+        except Exception:
+            _loc = OaLocation()
+        if _loc.pdf_url:
+            pdf_bytes = _try_download_pdf(_loc.pdf_url)
 
     if pdf_bytes is not None:
         save_pdf(paper_id, pdf_bytes)

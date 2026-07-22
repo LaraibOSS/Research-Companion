@@ -86,6 +86,22 @@ export async function uploadPaperPdf(paperId, file) {
   return _handleResponse(res);
 }
 
+/**
+ * POST /api/papers/{id}/find-pdf — search open-access sources for a PDF for
+ * a paper whose ingest failed with a missing-PDF reason. Returns {job_id}.
+ * 404 no failure record for this paper, 409 failure is not a missing-PDF one.
+ * A miss still completes the job ("done") and updates the summary's oa_links.
+ */
+export const findPdf = (paperId) =>
+  post(`/api/papers/${encodeURIComponent(paperId)}/find-pdf`);
+
+/**
+ * POST /api/papers/find-pdfs — sweep every missing-PDF failure. Returns
+ * 202 {job_id, count} when there's work to do, or 200 {count: 0} when there
+ * are no missing-PDF failures. 409 when a sweep is already running.
+ */
+export const findAllPdfs = () => post('/api/papers/find-pdfs');
+
 /** DELETE /api/papers/{id} */
 export const deletePaper = (paperId) => del(`/api/papers/${encodeURIComponent(paperId)}`);
 

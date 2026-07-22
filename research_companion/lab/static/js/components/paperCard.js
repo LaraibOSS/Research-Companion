@@ -5,6 +5,7 @@
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
 import { needsMetadata, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
+import { findPdfAffordance, oaLinksLine } from '../oaLinkHelpers.js';
 
 /**
  * Render a paper card element.
@@ -72,6 +73,19 @@ export function renderPaperCard(paper) {
     ? `<span class="strength-badge" style="color:${borderColor}"${chipTitleAttr}>${escapeHtml(bandLabel)}</span>`
     : `<span class="strength-badge" style="color:${borderColor}"${tip('strength')}>${escapeHtml(bandLabel)}</span>`;
 
+  // "Find PDF" affordance (open-access locator) — rendered beside Upload PDF
+  // for a failed, missing-PDF-on-disk paper; the muted links line only shows
+  // once a prior search came back with a miss that still surfaced oa_links.
+  const findPdfState = findPdfAffordance(paper);
+  const oaLine = findPdfState === 'button-with-links'
+    ? oaLinksLine(paper.oa_links)
+    : { show: false, items: [] };
+  const oaLinksHtml = oaLine.show
+    ? `<div class="oa-links muted">Not freely available — try: ${oaLine.items
+        .map(l => `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.label)}</a>`)
+        .join(', ')}</div>`
+    : '';
+
   card.innerHTML = `
     <div class="paper-card-body">
       <div class="paper-title">${escapeHtml(paper.title || 'Untitled')}</div>
@@ -91,8 +105,12 @@ export function renderPaperCard(paper) {
         ${paper.status === 'failed' && isMissingPdfFailure(paper.failure_reason)
           ? `<button class="btn btn-sm btn-upload-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Upload PDF</button>`
           : ''}
+        ${findPdfState !== 'hidden'
+          ? `<button class="btn btn-sm btn-find-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Find PDF</button>`
+          : ''}
         <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
       </div>
+      ${oaLinksHtml}
     </div>
   `;
 

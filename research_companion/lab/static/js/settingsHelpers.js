@@ -12,7 +12,7 @@
 const SECRET_FIELDS = ['anthropic_api_key', 'openai_api_key', 'hf_token'];
 
 /** Non-secret fields that can appear at the top level of a PUT body. */
-const REGULAR_FIELDS = ['provider', 'model', 'theme', 'accent', 'density', 'k_sections', 'char_budget', 'embed_model'];
+const REGULAR_FIELDS = ['provider', 'model', 'theme', 'accent', 'density', 'k_sections', 'char_budget', 'embed_model', 'contact_email'];
 
 /**
  * Build a minimal PUT /api/settings body from form state compared to original.
@@ -23,7 +23,7 @@ const REGULAR_FIELDS = ['provider', 'model', 'theme', 'accent', 'density', 'k_se
  * - Empty string for a secret field -> omit entirely (server rejects "").
  * - null for a secret field -> include as null (server deletes the key).
  *
- * @param {object} formState  — { provider, model, theme, accent, density, k_sections, char_budget, anthropic_api_key, openai_api_key, hf_token }
+ * @param {object} formState  — { provider, model, theme, accent, density, k_sections, char_budget, contact_email, anthropic_api_key, openai_api_key, hf_token }
  * @param {object} original   — the last GET /api/settings result (same shape)
  * @returns {object}  — minimal PUT body; may be {} if nothing changed
  */

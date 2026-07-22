@@ -187,6 +187,37 @@ Click any row/card for the drawer: metadata, sections, alignment summary,
 **Set as draft** / **Unset draft** (marking a draft is no longer one-way),
 and Remove.
 
+### Find a PDF online
+
+A paper can fail to ingest simply because there was no PDF to read — a DOI
+or Semantic Scholar link that turned out to be paywalled, for example. Any
+such paper (grid card or list row) shows a **Find PDF** button next to
+**Upload PDF**. Click it and the tool searches a handful of free,
+open-access sources (Semantic Scholar, Unpaywall, OpenAlex, arXiv) for a
+downloadable copy:
+
+- **Found it** — the PDF downloads straight into your library and the paper
+  re-ingests automatically, exactly like a successful upload.
+- **Didn't find a direct download** — you'll usually still get something: a
+  muted **"Not freely available — try:"** line appears with a handful of
+  links (the paper's page on Semantic Scholar or the publisher's site, its
+  DOI page, a Google Scholar search) that open in a new tab so you can check
+  yourself and upload the PDF by hand if you find one.
+
+A header button, **"Find PDFs for all missing (n)"**, runs this search for
+every failed paper at once, one at a time, so you don't have to click
+through each one.
+
+**Be honest about what this does and doesn't do.** It only ever checks
+open-access aggregators and hands you links — it never scrapes a
+publisher's site or bypasses a paywall. A genuinely paywalled paper will
+usually end in links to follow yourself, not an automatic download.
+
+One optional setting affects this: a **contact email**
+(Settings → see section 18) that identifies you politely to one of the
+lookup sources (Unpaywall requires one). Leaving it blank is fine — it just
+means that one source is skipped; everything else still runs.
+
 ### Paper metadata — automatic and manual
 
 Every paper carries a **title, authors, and year**. These are no longer just
@@ -502,6 +533,10 @@ A tab opened mid-work picks up running tasks immediately. Idle = invisible.
   control how much context Ask/Companion retrieve.
 - **Citations** — "Automatically download papers cited by your draft"
   (default on).
+- **Contact email (open-access lookups)** — optional, blank by default. Used
+  only when you click **Find PDF** (section 6) to identify you politely to
+  one of the lookup sources (Unpaywall). Leaving it blank just skips that
+  one source; the rest of the search still runs.
 - **MCP costed tools** — `mcp_costed_tools` (default off) opts the MCP server
   into also exposing `ask_library`/`review_draft`, and `mcp_cost_cap_usd`
   (default `$1.00`) is the per-call estimate cap that refuses any call over
@@ -600,8 +635,12 @@ Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live wi
   `workspaces/` — plain JSON and PDFs you can inspect.
 - **What leaves your machine:** paper text goes to the AI provider you
   configured, only when a task needs it (extraction, alignment, answers);
-  bibliographic lookups query CrossRef/OpenAlex/arXiv/Semantic Scholar;
-  optional embeddings go to the Hugging Face Inference API. Nothing else.
+  bibliographic lookups query CrossRef/OpenAlex/arXiv/Semantic Scholar; a
+  **Find PDF** search (section 6) additionally queries Unpaywall, but only
+  when you've set a contact email in Settings — Unpaywall requires one as
+  its polite identifier, so leaving that field empty means Unpaywall is
+  never contacted at all; optional embeddings go to the Hugging Face
+  Inference API. Nothing else.
 - **Costs, measured live:** extraction ≈ $0.02 per paper (GPT-4o class);
   re-extracting a 16-paper library cost $0.51; an alignment or a grounded
   answer is one model call. Everything cached is free to re-run.

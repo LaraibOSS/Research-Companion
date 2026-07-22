@@ -239,6 +239,18 @@ test('buildRows carries ocrUsed and parseSource', () => {
   assert.equal(byId.p3.parseSource, '');
 });
 
+test('buildRows carries oa_links through as oaLinks (list-view find-pdf parity)', () => {
+  const papers = [
+    { paper_id: 'p1', title: 'Has links', status: 'failed', failure_reason: 'no PDF on disk',
+      oa_links: [{ label: 'DOI page', url: 'https://doi.org/10.1/x' }] },
+    { paper_id: 'p2', title: 'No links field', status: 'failed', failure_reason: 'no PDF on disk' },
+  ];
+  const rows = buildRows(papers, null);
+  const byId = Object.fromEntries(rows.map(r => [r.paperId, r]));
+  assert.deepEqual(byId.p1.oaLinks, [{ label: 'DOI page', url: 'https://doi.org/10.1/x' }]);
+  assert.deepEqual(byId.p2.oaLinks, []);
+});
+
 // ---------------------------------------------------------------------------
 // sortRows
 // ---------------------------------------------------------------------------
