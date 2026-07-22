@@ -565,6 +565,60 @@ class TestDraftAlignment:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/draft/opportunities
+# ---------------------------------------------------------------------------
+
+class TestDraftOpportunities:
+    def test_no_draft_returns_empty(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/draft/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["draft_id"] is None
+        assert data["sections"] == []
+
+    def test_uncited_paper_surfaced_with_shape(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        draft_id = "local:draftopp001"
+        uncited_id = "arxiv:9999.00001"
+        _make_paper(isolated_papergraph_dir, draft_id, "Draft")
+        _make_paper(isolated_papergraph_dir, uncited_id, "Uncited Candidate")
+        store.set_draft_paper_id(draft_id)
+        store.save_alignment(uncited_id, {
+            "draft_paper_id": draft_id,
+            "sections": [
+                {
+                    "section_id": "s1",
+                    "section_title": "Introduction",
+                    "relation": "strengthens",
+                    "relevance": 0.7,
+                    "rationale": "Relevant",
+                    "evidence": [],
+                }
+            ],
+        })
+        store.save_strength(uncited_id, {"score": 0.8, "band": "strong", "color": "#3fb950"})
+
+        c = _make_client()
+        resp = c.get("/api/draft/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["draft_id"] == draft_id
+        assert len(data["sections"]) >= 1
+        sec = data["sections"][0]
+        assert "section_id" in sec
+        assert "section_title" in sec
+        suggestions = sec["suggestions"]
+        assert len(suggestions) >= 1
+        s = suggestions[0]
+        assert s["paper_id"] == uncited_id
+        assert set(s) >= {"paper_id", "title", "relation", "relevance",
+                          "rationale", "evidence", "strength_band"}
+        assert s["strength_band"] == "strong"
+
+
+# ---------------------------------------------------------------------------
 # GET /api/papers/{id}/alignment
 # ---------------------------------------------------------------------------
 

@@ -1722,6 +1722,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         }
 
     # -----------------------------------------------------------------
+    # GET /api/draft/opportunities — uncited library papers that would
+    # strengthen/challenge/offer alternatives to draft sections, assembled
+    # strictly from stored analysis (no LLM, no network).
+    # -----------------------------------------------------------------
+    @app.get("/api/draft/opportunities")
+    async def get_draft_opportunities() -> dict:
+        from research_companion import store
+        from research_companion.opportunities import build_opportunities
+
+        draft_id = store.get_draft_paper_id()
+        return await asyncio.to_thread(build_opportunities, draft_id)
+
+    # -----------------------------------------------------------------
     # Citation placement — is each cited paper in the right section?
     # (draft-quality check; separate from strength scoring)
     # -----------------------------------------------------------------
