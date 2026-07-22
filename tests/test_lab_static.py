@@ -2017,6 +2017,51 @@ def test_draft_js_renders_opportunities_block_markup():
     assert "draft-opp-save-btn" in js, "draft.js must render the Save note button"
 
 
+def test_draft_js_opportunities_block_renders_in_detail_column_not_section_list():
+    """The full opportunities block (rationale/evidence/Save note) must render
+    in _renderDetail (the right-hand draft-detail column) for the currently
+    selected section, NOT inside _renderSectionList's per-row markup — a
+    narrow scannable nav row is the wrong place for that much content. The
+    left list may keep only a lightweight "+n" count badge."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+
+    detail_start = js.index("function _renderDetail(")
+    detail_body = js[detail_start:js.index("\nfunction _renderAlignCard(")]
+    list_start = js.index("function _renderSectionList(")
+    list_body = js[list_start:js.index("// Uncited-paper opportunities block")]
+
+    # The full block (toggle button + save button) is built/wired from the
+    # detail-column render path.
+    assert "_renderOpportunityBlock(opp)" in detail_body, (
+        "_renderDetail must render the opportunities block for the selected section"
+    )
+    assert "_wireOpportunityBlock(detailEl, sections)" in detail_body, (
+        "_renderDetail must wire the opportunities block's toggle/quote/save handlers"
+    )
+
+    # The left section-list row must NOT embed the full block or its save button —
+    # only the lightweight count badge.
+    assert "draft-opp-save-btn" not in list_body, (
+        "_renderSectionList must not render the Save note button (moved to detail column)"
+    )
+    assert "_renderOpportunityBlock(" not in list_body, (
+        "_renderSectionList must not call _renderOpportunityBlock (moved to detail column)"
+    )
+    assert "draft-opp-count-badge" in list_body, (
+        "_renderSectionList must still render a lightweight '+n' count badge"
+    )
+
+
+def test_draft_js_opportunities_expand_state_persists_per_section():
+    """Expand/collapse of the detail-column opportunities block must persist
+    across re-renders via the module-level _oppExpandedSections set, keyed by
+    section_id (so re-selecting a section restores its expand state)."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "_oppExpandedSections" in js, (
+        "draft.js must track expand state in _oppExpandedSections"
+    )
+
+
 def test_draft_js_opportunities_dispatch_rc_open_reader():
     """draft.js opportunity quote click must dispatch rc:open-reader with {paperId, quote}."""
     js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
