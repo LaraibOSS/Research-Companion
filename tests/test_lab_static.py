@@ -96,6 +96,9 @@ REQUIRED_STATIC_FILES = [
     "js/activityHelpers.js",
     # feat/find-pdf-online additions
     "js/oaLinkHelpers.js",
+    # feat/draft-opportunities (Task 3 + 4) additions
+    "js/opportunityHelpers.js",
+    "js/views/notes.js",
 ]
 
 
@@ -2094,3 +2097,123 @@ def test_lab_css_has_opportunities_block_styles():
     for needle in (".draft-opp-block", ".draft-opp-toggle", ".draft-opp-row",
                    ".draft-opp-quote-btn", ".draft-opp-save-btn"):
         assert needle in css, f"lab.css missing Task 3 style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/draft-opportunities (Task 4): Notes view + sidebar entry
+# ---------------------------------------------------------------------------
+
+def test_index_html_has_notes_nav_button_positioned_correctly():
+    """index.html must have a Notes nav button with data-route="/notes" and a
+    labeled span, placed after #topbar-placement (Citations) and before
+    .nav-spacer."""
+    html = _index_text()
+    assert 'data-route="/notes"' in html, 'index.html missing Notes nav button data-route="/notes"'
+    assert '<span class="nav-label">Notes</span>' in html, (
+        'index.html missing Notes nav-label span'
+    )
+    placement_pos = html.find('id="topbar-placement"')
+    notes_pos = html.find('data-route="/notes"')
+    spacer_pos = html.find('nav-spacer')
+    assert placement_pos != -1 and notes_pos != -1 and spacer_pos != -1, (
+        "index.html missing one of #topbar-placement / Notes button / nav-spacer"
+    )
+    assert placement_pos < notes_pos < spacer_pos, (
+        "Notes nav button must be positioned after #topbar-placement and before .nav-spacer"
+    )
+
+
+def test_main_js_imports_notes_view_and_registers_route():
+    """main.js must import views/notes.js and register the /notes route."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "notesView" in main_js, "main.js must reference notesView"
+    assert "./views/notes.js" in main_js, "main.js must import from './views/notes.js'"
+    assert "registerRoute('/notes'" in main_js, "main.js must call registerRoute('/notes', notesView)"
+
+
+def test_notes_view_js_exists():
+    """js/views/notes.js must exist (Task 4)."""
+    assert (STATIC_DIR / "js" / "views" / "notes.js").exists(), \
+        "Missing js/views/notes.js"
+
+
+def test_notes_view_uses_escape_html_and_calls_notes_endpoints():
+    """views/notes.js must escape server strings and call getNotes/updateNote/
+    deleteNote/exportNotes (Task 4)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in js, "notes.js must use escapeHtml"
+    for name in ("getNotes", "updateNote", "deleteNote", "exportNotes"):
+        assert f"api.{name}(" in js, f"notes.js must call api.{name}(...)"
+
+
+def test_notes_view_uses_note_row_model():
+    """views/notes.js must use noteRowModel from opportunityHelpers.js to
+    normalize saved-note fields (Task 4)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "noteRowModel" in js, "notes.js must reference noteRowModel"
+    assert "opportunityHelpers.js" in js, "notes.js must import from opportunityHelpers.js"
+
+
+def test_notes_view_renders_empty_state():
+    """views/notes.js must render the exact empty-state copy."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "No notes yet — save suggestions from the Draft view." in js, (
+        "notes.js must render the exact empty-state message"
+    )
+
+
+def test_notes_view_dispatches_rc_open_reader():
+    """views/notes.js evidence-quote click must dispatch rc:open-reader with
+    {paperId: note.paper_id, quote: note.evidence_quote} (via noteRowModel's
+    paperId/quote fields)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "rc:open-reader" in js, "notes.js must dispatch rc:open-reader"
+    assert re.search(r"detail:\s*\{\s*paperId:\s*row\.paperId,\s*quote:\s*row\.quote", js), (
+        "notes.js quote handler must dispatch {paperId: row.paperId, quote: row.quote}"
+    )
+
+
+def test_notes_view_exports_markdown_via_blob_download():
+    """views/notes.js Export button must build a Blob + anchor download named
+    revision-notes.md from exportNotes()'s {markdown} payload."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "new Blob(" in js, "notes.js must construct a Blob for the markdown download"
+    assert "revision-notes.md" in js, "notes.js must download the file as revision-notes.md"
+
+
+def test_notes_view_has_status_and_delete_controls():
+    """views/notes.js must wire Mark done / Dismiss / Reopen / Delete controls."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    for needle in ("note-mark-done", "note-dismiss", "note-reopen", "note-delete"):
+        assert needle in js, f"notes.js must reference .{needle}"
+
+
+def test_notes_view_comment_blur_calls_update_note():
+    """views/notes.js editable comment must PATCH on blur via api.updateNote."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "addEventListener('blur'" in js, "notes.js must listen for blur on the comment field"
+    assert "updateNote(row.id, { comment:" in js, (
+        "notes.js must call api.updateNote(row.id, {comment: ...}) on comment blur"
+    )
+
+
+def test_notes_view_exports_mount_and_unmount():
+    """views/notes.js must export mount and unmount (router contract)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "export function mount" in js, "notes.js must export mount"
+    assert "export function unmount" in js, "notes.js must export unmount"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_notes_view_js_returns_200(lab_client):
+    """GET /static/js/views/notes.js must return 200."""
+    res = lab_client.get("/static/js/views/notes.js")
+    assert res.status_code == 200
+
+
+def test_lab_css_has_notes_view_styles():
+    """lab.css must include the Task 4 Notes-view styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".notes-view", ".notes-group", ".note-card", ".note-badge",
+                   ".note-actions", ".note-comment"):
+        assert needle in css, f"lab.css missing Task 4 style: {needle}"

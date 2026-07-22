@@ -1594,6 +1594,165 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
 }
 
 /* ---------------------------------------------------------------------------
+ * Notes view (#/notes) — grouped revision notes captured from the Draft
+ * view's opportunities block (Save note).
+ * --------------------------------------------------------------------------- */
+.notes-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 900px;
+}
+
+.notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.notes-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-fg);
+  margin: 0;
+}
+
+.notes-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.notes-empty {
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.notes-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.notes-group-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.note-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.note-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.note-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.note-relevance { font-size: 11px; }
+
+.note-status-tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: rgba(255,255,255,0.06);
+  color: var(--color-fg-dim);
+  text-transform: capitalize;
+}
+.note-status-tag.note-status-done { color: var(--color-ok); }
+.note-status-tag.note-status-dismissed { color: var(--color-fail); }
+
+.note-paper-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.note-rationale {
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 0;
+  color: var(--color-fg-dim);
+}
+
+.note-quote-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.note-quote-text {
+  flex: 1;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--color-fg-dim);
+}
+
+.note-comment-label {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.note-comment {
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 6px 8px;
+}
+.note-comment:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.note-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.note-time {
+  font-size: 11px;
+}
+
+/* ---------------------------------------------------------------------------
  * Ingest Modal
  * --------------------------------------------------------------------------- */
 .ingest-overlay {
