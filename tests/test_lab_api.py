@@ -4082,3 +4082,80 @@ class TestSimplified:
 
             got = c.get(f"/api/papers/{paper_id}/simplified").json()
             assert got["rewrite"] == old_cache
+
+    def test_simplify_strips_markdown_fences_before_json_parse(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """REGRESSION: the default provider path (Anthropic, no forced JSON
+        response format) routinely wraps its JSON reply in ```json ... ```
+        fences -- the same reason extract._strip_code_fences exists and is
+        used by every other json.loads(raw) caller (novelty, problem,
+        readiness_narrative, rebuttal draft). _do_simplify must strip fences
+        the same way, or a routine fenced response spuriously fails the job."""
+        import research_companion.lab_api as la
+
+        paper_id = "arxiv:simplify_fenced"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        self._seed_sections(paper_id)
+
+        groups = [
+            {"title": "Key claims", "bullets": [{"text": "Fenced but valid.", "section_id": "s1"}]},
+        ]
+
+        def fake_resolve_llm(*, json_mode=True):
+            def fake_llm(prompt: str) -> str:
+                return "```json\n" + json.dumps({"groups": groups}) + "\n```"
+            return fake_llm
+
+        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm)
+
+        _, c = self._client()
+        with c:
+            resp = c.post(f"/api/papers/{paper_id}/simplify")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"expected done, got: {job}"
+
+            got = c.get(f"/api/papers/{paper_id}/simplified").json()
+            assert got["rewrite"]["groups"] == groups
+
+    def test_simplify_falls_back_to_raw_text_without_sections(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """A paper with stored text but no sections.json (e.g. ingested before
+        the sectioner ran, or a stale/partial ingest) must still simplify:
+        the prompt falls back to the raw text[:budget] slice rather than an
+        empty sections_block."""
+        import research_companion.lab_api as la
+        from research_companion import store
+
+        paper_id = "arxiv:simplify_no_sections"
+        paper_text = "Introduction Methods Results. " * 20
+        store.PaperMetadata(paper_id=paper_id, title="No Sections Paper", authors=["A"],
+                            added_at="2026-01-01T00:00:00Z").save()
+        store.save_text(paper_id, paper_text)
+        # Deliberately no store.save_sections(...) call -- no sections.json.
+
+        captured_prompts = []
+
+        def fake_resolve_llm(*, json_mode=True):
+            def fake_llm(prompt: str) -> str:
+                captured_prompts.append(prompt)
+                return json.dumps({"groups": [
+                    {"title": "Key claims", "bullets": [{"text": "t", "section_id": None}]},
+                ]})
+            return fake_llm
+
+        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm)
+
+        _, c = self._client()
+        with c:
+            resp = c.post(f"/api/papers/{paper_id}/simplify")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"expected done, got: {job}"
+
+        assert len(captured_prompts) == 1
+        assert paper_text[:100] in captured_prompts[0]

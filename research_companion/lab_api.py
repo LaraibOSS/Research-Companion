@@ -1892,7 +1892,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                                      .replace("{sections_block}", "".join(blocks) or text[:budget])
             llm = _resolve_llm(json_mode=True)
             raw = await asyncio.to_thread(llm, prompt)
-            data = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(raw, str):
+                from research_companion.extract import _strip_code_fences
+                data = json.loads(_strip_code_fences(raw))
+            else:
+                data = raw
             groups = data.get("groups") if isinstance(data, dict) else None
             if not isinstance(groups, list):
                 raise RuntimeError("simplify: LLM returned no groups")
