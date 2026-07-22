@@ -47,6 +47,39 @@ def _pipeline_provider_model() -> tuple[str, str | None]:
                 os.environ.get("RESEARCH_COMPANION_MODEL"))
 
 
+def _llm_provider_configured() -> bool:
+    """True iff an API key is present for the RESOLVED pipeline provider.
+
+    VERIFIED (Task 2 brief): _resolve_llm() below never fails at construction
+    time for a missing key -- it only resolves (provider, model) and returns a
+    closure; the SDK client (and the missing-key error) only appears inside
+    _call_anthropic/_call_openai, which run when the closure is INVOKED. So
+    `try: _resolve_llm(); except Exception: ...` would always report
+    configured=True regardless of whether a key exists -- the wrong signal for
+    GET /simplified, which must answer with no network call and without
+    swallowing a genuine construction bug. Key PRESENCE via the settings
+    module is the same source get_settings()["keys"] uses for the Settings
+    page's masked key display, so this can never disagree with the UI.
+    """
+    from research_companion.settings import get_settings
+
+    provider, _model = _pipeline_provider_model()
+    keys = get_settings().get("keys", {})
+    return bool(keys.get(f"{provider}_api_key", {}).get("set"))
+
+
+def _simplify_char_budget() -> int:
+    """Same settings["char_budget"] accessor qa.answer uses (research_companion/
+    qa.py, near its k_sections/char_budget resolution) -- reused rather than a
+    new constant so the reader's "Simplify further" job and Ask/QA agree on
+    how much paper text an LLM call is allowed to see."""
+    try:
+        from research_companion.settings import get_settings
+        return int(get_settings().get("char_budget", 8000))
+    except Exception:  # noqa: BLE001 — never let settings issues kill a job
+        return 8000
+
+
 # Upload size cap for POST /api/papers/upload (module-level so tests can patch it)
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -212,6 +245,28 @@ _PLACEHOLDER_HTML = """\
   </script>
 </body>
 </html>
+"""
+
+# ---------------------------------------------------------------------------
+# "Simplify further" (reader tab) prompt
+# ---------------------------------------------------------------------------
+
+_SIMPLIFY_PROMPT = """You are helping a non-expert understand a research paper.
+Rewrite the paper's important points as short, simple-English bullet points.
+Rules:
+- Use ONLY facts stated in the paper text below. Never add outside knowledge.
+- No jargon; explain any unavoidable technical term in plain words.
+- Group bullets under EXACTLY these four headings (omit a heading only if the
+  paper truly has nothing for it): "What this paper is about", "Key claims",
+  "How they did it", "What they found".
+- Where a bullet comes from a specific section, include that section's id.
+Return JSON only: {"groups": [{"title": "...", "bullets": [{"text": "...",
+"section_id": "s1" or null}]}]}
+
+Paper title: {title}
+
+Sections:
+{sections_block}
 """
 
 
@@ -454,6 +509,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # a fake in place of the real re-extraction pipeline.
     app.state.backfill_override = None
     app.state._backfilled_workspaces: set = set()
+    # "Simplify further" (reader tab) job seam -- mirrors retry_override: a
+    # full coroutine(paper_id) replacement so tests never hit a real LLM.
+    app.state.simplify_override = None
 
     # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
     # Tests inject counting/spying fakes here; production code leaves these None
@@ -1767,6 +1825,103 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             media_type="application/pdf",
             headers={"Content-Disposition": f'inline; filename="{paper_id}.pdf"'},
         )
+
+    # -----------------------------------------------------------------
+    # GET /api/papers/{id}/simplified — reader "Simplified" tab payload
+    # (distinct suffix from /text and /pdf above; no route collision)
+    # -----------------------------------------------------------------
+    @app.get("/api/papers/{paper_id:path}/simplified")
+    async def get_simplified(paper_id: str) -> dict:
+        from research_companion import store
+        from research_companion.prompts import extraction_prompt_sha256
+
+        meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id!r}")
+        extraction = await asyncio.to_thread(
+            store.load_extraction, paper_id, prompt_sha=extraction_prompt_sha256())
+        rewrite = await asyncio.to_thread(store.load_simplified, paper_id)
+        return {
+            "extraction": extraction,
+            "rewrite": rewrite,
+            "has_extraction": extraction is not None,
+            "provider_configured": _llm_provider_configured(),
+        }
+
+    # -----------------------------------------------------------------
+    # POST /api/papers/{id}/simplify — on-demand LLM "Simplify further" job
+    # -----------------------------------------------------------------
+    @app.post("/api/papers/{paper_id:path}/simplify", status_code=202)
+    async def simplify_paper(paper_id: str) -> dict:
+        from datetime import datetime, timezone
+
+        from research_companion import store
+
+        text = await asyncio.to_thread(store.load_text, paper_id)
+        if text is None:
+            raise HTTPException(status_code=409,
+                                detail="paper has no stored text to simplify")
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Simplifying {paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None,
+                                  "kind": "simplify", "label": label, "target": ""}
+
+        async def _do_simplify() -> None:
+            sections_payload = await asyncio.to_thread(store.load_sections, paper_id)
+            meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+            stored = (sections_payload or {}).get("sections", [])
+            # Section blocks: id + title + text, respecting the char budget
+            # convention (same settings["char_budget"] accessor qa.answer
+            # uses). Full-paper simplify intentionally ignores k_sections
+            # (that knob scopes RETRIEVAL to the top-k matching sections;
+            # simplify has no query, it walks every section in document
+            # order until the budget is spent) and uses char_budget alone.
+            blocks, budget = [], _simplify_char_budget()
+            used = 0
+            for s in stored:
+                seg = f"[{s['section_id']}] {s.get('title') or ''}\n{s.get('text') or ''}\n"
+                if used + len(seg) > budget:
+                    seg = seg[: max(0, budget - used)]
+                blocks.append(seg)
+                used += len(seg)
+                if used >= budget:
+                    break
+            prompt = _SIMPLIFY_PROMPT.replace("{title}", (meta.title if meta else paper_id)) \
+                                     .replace("{sections_block}", "".join(blocks) or text[:budget])
+            llm = _resolve_llm(json_mode=True)
+            raw = await asyncio.to_thread(llm, prompt)
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            groups = data.get("groups") if isinstance(data, dict) else None
+            if not isinstance(groups, list):
+                raise RuntimeError("simplify: LLM returned no groups")
+            provider, model = _pipeline_provider_model()
+            await asyncio.to_thread(store.save_simplified, paper_id, {
+                "provider": provider, "model": model,
+                "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "groups": groups,
+            })
+
+        if app.state.simplify_override is not None:
+            coro = app.state.simplify_override(paper_id)
+        else:
+            coro = _do_simplify()
+
+        async def _run() -> None:
+            try:
+                await _announce_start(job_id, "simplify", label)
+                await coro
+                app.state.jobs[job_id] = {"status": "done", "detail": None,
+                                          "kind": "simplify", "label": label, "target": ""}
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc),
+                                          "kind": "simplify", "label": label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "simplify")
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id}
 
     # -----------------------------------------------------------------
     # GET /api/graph
