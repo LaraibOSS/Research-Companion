@@ -40,8 +40,10 @@ test('buildViewerUrl with quote appends encoded phrase search', () => {
 });
 
 test('readerTabs matrix', () => {
-  assert.deepEqual(readerTabs(true), { tabs: ['original', 'text'], active: 'original' });
-  assert.deepEqual(readerTabs(false), { tabs: ['text'], active: 'text' });
+  assert.deepEqual(readerTabs(true), { tabs: ['original', 'simplified', 'text'], active: 'original' });
+  assert.deepEqual(readerTabs(true, true), { tabs: ['original', 'simplified', 'text'], active: 'original' });
+  assert.deepEqual(readerTabs(false, true), { tabs: ['simplified', 'text'], active: 'simplified' });
+  assert.deepEqual(readerTabs(false, false), { tabs: ['simplified', 'text'], active: 'text' });
 });
 
 test('findMissState transitions', () => {
