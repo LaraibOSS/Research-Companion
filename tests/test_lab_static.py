@@ -1891,6 +1891,18 @@ def test_activity_helpers_test_file_exists():
         "Missing tests/js/activityHelpers.test.mjs"
 
 
+def test_reader_panes_hidden_attribute_wins_over_display_rules():
+    """The reader's three tab panes share one grid cell and are toggled via the
+    `hidden` attribute — but `.reader-pdf-pane` sets `display: flex`, which
+    outranks the UA's `[hidden] { display: none }`. Without an explicit
+    [hidden] override the PDF pane keeps painting behind the Text/Simplified
+    tabs (user-visible overlap bug). This pins the guard rule."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert ".reader-pdf-pane[hidden]" in css, (
+        "lab.css must explicitly force display:none for hidden reader panes"
+    )
+
+
 # ---------------------------------------------------------------------------
 # feat/sidebar-labels: expanded labeled sidebar; Citations joins main group
 # ---------------------------------------------------------------------------

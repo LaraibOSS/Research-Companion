@@ -5379,6 +5379,16 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   flex-direction: column;
   min-height: 0;
 }
+/* The three tab panes share one grid cell and are toggled with the `hidden`
+ * attribute. `.reader-pdf-pane`'s `display: flex` above outranks the UA's
+ * `[hidden] { display: none }`, so without this override the PDF pane keeps
+ * painting behind the Text/Simplified tabs. Covers all three panes so no
+ * future display rule can reintroduce the overlap. */
+.reader-pdf-pane[hidden],
+.reader-simplified-pane[hidden],
+.reader-body[hidden] {
+  display: none;
+}
 .reader-pdf-frame {
   flex: 1;
   min-height: 0;
