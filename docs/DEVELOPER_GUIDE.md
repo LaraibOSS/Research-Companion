@@ -917,10 +917,21 @@ DOM-free, `node:test`-covered (`tests/js/readerSimplifiedHelpers.test.mjs`):
   `'rewrite'` whenever a cached rewrite object is truthy (regardless of
   `providerConfigured` — an already-cached rewrite still displays even if the
   key was since removed), else `'auto'` when there's an extraction, else
-  `'empty'`. `showButton` is `providerConfigured && hasExtraction` — both the
-  standalone "Simplify further" button and the rewrite view's "Regenerate"
-  button share this one gate, so a missing key or an un-analyzed paper hides
-  both identically.
+  `'empty'`. `showButton` is `providerConfigured && hasExtraction`, and it
+  gates only the **standalone** "Simplify further" button
+  (`reader.js`'s `standaloneButtonHtml`, shown when `view !== 'rewrite'`) —
+  it never runs when there's nothing to feed the summarizer. The rewrite
+  view's **"Regenerate"** button is a separate, deliberately looser gate:
+  `resp.provider_configured` alone (`reader.js`, the `provenanceParts`
+  block), with no `hasExtraction` check. A cached rewrite can outlive its
+  extraction — a prompt-sha bump invalidates `load_extraction` while
+  `simplified.json` still holds an older rewrite (the same situation the
+  adjacent "Show auto summary" toggle's `resp.has_extraction` check
+  documents) — and regeneration doesn't read `extraction.json` at all; the
+  simplify job walks the paper's stored sections directly (see below), so
+  there both is a rewrite to look at and a way to regenerate it even when
+  `hasExtraction` is false. Gating Regenerate on `hasExtraction` too would
+  incorrectly hide the button in exactly that case.
 
 ### Component wiring — `components/reader.js`
 
