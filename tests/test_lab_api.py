@@ -565,6 +565,158 @@ class TestDraftAlignment:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/draft/opportunities
+# ---------------------------------------------------------------------------
+
+class TestDraftOpportunities:
+    def test_no_draft_returns_empty(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/draft/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["draft_id"] is None
+        assert data["sections"] == []
+
+    def test_uncited_paper_surfaced_with_shape(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        draft_id = "local:draftopp001"
+        uncited_id = "arxiv:9999.00001"
+        _make_paper(isolated_papergraph_dir, draft_id, "Draft")
+        _make_paper(isolated_papergraph_dir, uncited_id, "Uncited Candidate")
+        store.set_draft_paper_id(draft_id)
+        store.save_alignment(uncited_id, {
+            "draft_paper_id": draft_id,
+            "sections": [
+                {
+                    "section_id": "s1",
+                    "section_title": "Introduction",
+                    "relation": "strengthens",
+                    "relevance": 0.7,
+                    "rationale": "Relevant",
+                    "evidence": [],
+                }
+            ],
+        })
+        store.save_strength(uncited_id, {"score": 0.8, "band": "strong", "color": "#3fb950"})
+
+        c = _make_client()
+        resp = c.get("/api/draft/opportunities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["draft_id"] == draft_id
+        assert len(data["sections"]) >= 1
+        sec = data["sections"][0]
+        assert "section_id" in sec
+        assert "section_title" in sec
+        suggestions = sec["suggestions"]
+        assert len(suggestions) >= 1
+        s = suggestions[0]
+        assert s["paper_id"] == uncited_id
+        assert set(s) >= {"paper_id", "title", "relation", "relevance",
+                          "rationale", "evidence", "strength_band"}
+        assert s["strength_band"] == "strong"
+
+
+# ---------------------------------------------------------------------------
+# /api/notes — workspace-scoped revision notes CRUD + export
+# ---------------------------------------------------------------------------
+
+class TestNotes:
+    def _rec(self, **kw):
+        base = dict(draft_section_id="s5", draft_section_title="Related Work",
+                    paper_id="B", paper_title="Paper B", relation="strengthens",
+                    relevance=0.8, rationale="why", evidence_quote="q",
+                    evidence_section_id="s1", comment="")
+        base.update(kw)
+        return base
+
+    def test_post_creates_and_get_lists(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json=self._rec())
+        assert resp.status_code == 200
+        note = resp.json()
+        assert note["id"] and note["status"] == "open"
+
+        resp = c.get("/api/notes")
+        assert resp.status_code == 200
+        assert resp.json() == {"notes": [note]}
+
+    def test_post_missing_required_fields_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json={"paper_id": "B"})
+        assert resp.status_code == 400
+        resp = c.post("/api/notes", json={"draft_section_id": "s5"})
+        assert resp.status_code == 400
+
+    def test_patch_status_and_comment(self, isolated_papergraph_dir):
+        c = _make_client()
+        note = c.post("/api/notes", json=self._rec()).json()
+        resp = c.patch(f"/api/notes/{note['id']}", json={"status": "done", "comment": "look here"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "done" and data["comment"] == "look here"
+
+    def test_patch_invalid_status_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        note = c.post("/api/notes", json=self._rec()).json()
+        resp = c.patch(f"/api/notes/{note['id']}", json={"status": "bogus"})
+        assert resp.status_code == 400
+
+    def test_patch_missing_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.patch("/api/notes/missing", json={"status": "done"})
+        assert resp.status_code == 404
+
+    def test_delete_note(self, isolated_papergraph_dir):
+        c = _make_client()
+        note = c.post("/api/notes", json=self._rec()).json()
+        resp = c.delete(f"/api/notes/{note['id']}")
+        assert resp.status_code == 200
+        assert c.get("/api/notes").json() == {"notes": []}
+
+    def test_delete_missing_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.delete("/api/notes/missing")
+        assert resp.status_code == 404
+
+    def test_export_returns_markdown(self, isolated_papergraph_dir):
+        c = _make_client()
+        c.post("/api/notes", json=self._rec())
+        resp = c.get("/api/notes/export")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "## Related Work" in data["markdown"]
+
+    def test_export_survives_note_with_missing_relevance(self, isolated_papergraph_dir):
+        """POST only requires paper_id + draft_section_id, so a note with no
+        relevance is a legal payload. Regression for a str/float sort-key
+        TypeError in notes_to_markdown that 500'd export for the whole
+        workspace when one note's relevance was missing/non-numeric."""
+        c = _make_client()
+        rec = self._rec(paper_id="B", paper_title="No Relevance")
+        del rec["relevance"]
+        c.post("/api/notes", json=rec)
+        c.post("/api/notes", json=self._rec(paper_id="C", paper_title="Has Relevance", relevance=0.6))
+
+        resp = c.get("/api/notes/export")
+        assert resp.status_code == 200
+        md = resp.json()["markdown"]
+        assert "No Relevance" in md and "Has Relevance" in md
+
+    def test_export_route_registered_before_note_id_route(self, isolated_papergraph_dir):
+        """No GET /api/notes/{note_id} handler exists today, so there is no
+        live method collision to demonstrate. This only pins the
+        registration-order convention (export registered before the
+        {note_id} routes) so a future GET-by-id addition doesn't silently
+        swallow "export" as a note_id."""
+        c = _make_client()
+        resp = c.get("/api/notes/export")
+        assert resp.status_code == 200
+        assert "markdown" in resp.json()
+
+
+# ---------------------------------------------------------------------------
 # GET /api/papers/{id}/alignment
 # ---------------------------------------------------------------------------
 

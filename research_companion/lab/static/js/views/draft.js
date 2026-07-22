@@ -16,6 +16,7 @@ import { showToast } from '../components/toast.js';
 import { stanceIcon, strengthColor, escapeHtml, authorsLine } from '../format.js';
 import { explainerBanner } from '../components/explainer.js';
 import { tip } from '../glossary.js';
+import { opportunityModel } from '../opportunityHelpers.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
@@ -25,6 +26,15 @@ let _alignment = null;   // cached { sections: [...] }
 // Evidence quotes for the currently-rendered detail, indexed by data-quote-idx.
 // Kept out of HTML attributes (quotes may contain quotes/newlines).
 let _evidenceQuotes = [];
+
+// Uncited-paper opportunities (GET /api/draft/opportunities), cached raw and
+// re-normalized via opportunityModel() on every section-list render.
+let _opportunities = null;         // { draft_id, sections: [...] } | null
+let _oppExpandedSections = new Set(); // section_ids whose opportunity block is expanded
+// Suggestion+context lookup for opportunity row buttons (quote / Save note),
+// indexed by data-opp-idx. Kept out of HTML attributes for the same reason
+// as _evidenceQuotes above (quotes/titles may contain quotes/newlines).
+let _oppRegistry = [];
 
 // ---------------------------------------------------------------------------
 // Stance ordering
@@ -36,6 +46,13 @@ const STANCE_COLORS = {
   strengthens: '#3fb950',
   challenges:  '#f85149',
   alternative: '#58a6ff',
+};
+
+// Focus hint text for an opportunity row, derived from its relation.
+const OPP_FOCUS_HINTS = {
+  strengthens: 'Could strengthen this section',
+  challenges:  'Challenges the claims in this section',
+  alternative: 'Offers an alternative approach for this section',
 };
 
 // ---------------------------------------------------------------------------
@@ -59,6 +76,9 @@ export function unmount() {
   _el = null;
   _alignment = null;
   _selectedSectionId = null;
+  _opportunities = null;
+  _oppExpandedSections = new Set();
+  _oppRegistry = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +120,15 @@ async function _render() {
     if (!_el) return;
     _el.innerHTML = `<div class="draft-error muted">Could not load alignment: ${escapeHtml(err.message)}</div>`;
     return;
+  }
+
+  // Load / refresh uncited-paper opportunities. Non-fatal: a failure here
+  // must not block the (already-working) alignment view — just render with
+  // zero opportunity blocks.
+  try {
+    _opportunities = await api.getOpportunities();
+  } catch {
+    _opportunities = { draft_id: null, sections: [] };
   }
 
   if (!_el) return;
@@ -189,6 +218,15 @@ function _renderSectionList(sections) {
   const draftPaper = draftId ? _draftPapers.get(draftId) : null;
   const draftTitle = draftPaper ? (draftPaper.title || draftId) : draftId;
 
+  // Uncited-paper opportunities, keyed by section_id — used here only for a
+  // lightweight "+n" count badge. The full block (rationale, evidence quote,
+  // Save note) renders in the detail column for the CURRENTLY SELECTED
+  // section only (see _renderDetail / _renderOpportunityBlock) — a nav row
+  // is too narrow for that much content, and cramming it into every row
+  // would duplicate it across the whole list.
+  const oppSections = opportunityModel((_opportunities && _opportunities.sections) || []);
+  const oppBySectionId = new Map(oppSections.map(o => [o.sectionId, o]));
+
   listEl.innerHTML = sections.map((sec, idx) => {
     const hasChallenges = (sec.alignments || []).some(a => a.relation === 'challenges');
     const isActive = sec.section_id === _selectedSectionId;
@@ -210,12 +248,21 @@ function _renderSectionList(sections) {
       </span>`;
     }).join('');
 
+    // Lightweight "+n" badge — count only. The opportunities themselves
+    // (rationale/evidence/Save note) render in the detail column once this
+    // section is selected; see _renderDetail.
+    const opp = oppBySectionId.get(sec.section_id);
+    const oppBadgeHtml = (opp && opp.count > 0)
+      ? `<span class="draft-opp-count-badge" title="${escapeHtml(String(opp.count))} uncited paper${opp.count !== 1 ? 's' : ''} could help here">+${opp.count}</span>`
+      : '';
+
     return `
       <div class="draft-section-row${isActive ? ' draft-section-active' : ''}${hasChallenges ? ' draft-section-challenges' : ''}"
            data-section-id="${escapeHtml(sec.section_id)}">
         <div class="draft-section-title-row">
           <span class="draft-section-num">${idx + 1}.</span>
           <span class="draft-section-name">${escapeHtml(sec.title || sec.section_id)}</span>
+          ${oppBadgeHtml}
           <button class="draft-read-btn" data-section-id="${escapeHtml(sec.section_id)}" title="Read this section" aria-label="Read section">Read</button>
         </div>
         <div class="draft-chip-strip">${chipHtml}</div>
@@ -244,6 +291,132 @@ function _renderSectionList(sections) {
 }
 
 // ---------------------------------------------------------------------------
+// Uncited-paper opportunities block — rendered in the detail column (right)
+// for the CURRENTLY SELECTED section only, below its existing detail content.
+// ---------------------------------------------------------------------------
+
+function _renderOpportunityBlock(opp) {
+  const expanded = _oppExpandedSections.has(opp.sectionId);
+  const rowsHtml = expanded
+    ? opp.suggestions.map(s => _renderOpportunityRow(opp, s)).join('')
+    : '';
+
+  return `
+    <div class="draft-opp-block">
+      <button class="draft-opp-toggle" type="button"
+              data-opp-section-id="${escapeHtml(opp.sectionId)}"
+              aria-expanded="${expanded ? 'true' : 'false'}">
+        <span class="draft-opp-caret">${expanded ? '▾' : '▸'}</span>
+        Uncited papers that could help here (${opp.count})
+      </button>
+      ${expanded ? `<div class="draft-opp-rows">${rowsHtml}</div>` : ''}
+    </div>
+  `;
+}
+
+function _renderOpportunityRow(opp, s) {
+  const color = STANCE_COLORS[s.relation] || '#8b949e';
+  const icon = stanceIcon(s.relation);
+  const relevancePct = Math.round((s.relevance || 0) * 100);
+  const hint = OPP_FOCUS_HINTS[s.relation] || '';
+
+  // Register the full suggestion (+ section context) out-of-band; the quote
+  // and Save-note buttons reference it by index (mirrors _evidenceQuotes:
+  // quotes/titles may contain characters unsafe for HTML attributes).
+  const idx = _oppRegistry.push({
+    paperId: s.paperId,
+    title: s.title,
+    relation: s.relation,
+    relevance: s.relevance,
+    rationale: s.rationale,
+    quote: s.quote,
+    quoteSectionId: s.quoteSectionId,
+    sectionId: opp.sectionId,
+    sectionTitle: opp.sectionTitle,
+  }) - 1;
+
+  const quoteHtml = s.quote
+    ? `
+      <button class="draft-opp-quote-btn" type="button"
+              data-opp-idx="${idx}" title="Open in source paper">
+        <span class="draft-opp-quote-text">${escapeHtml(s.quote)}</span>
+        <span class="ev-open-hint muted">&#8599; open in source</span>
+      </button>
+    `
+    : '';
+
+  return `
+    <div class="draft-opp-row" style="border-left:3px solid ${escapeHtml(color)}">
+      <div class="draft-opp-row-header">
+        <span class="draft-stance-icon" style="color:${escapeHtml(color)}"${tip(s.relation)}>${escapeHtml(icon)}</span>
+        <span class="draft-opp-title">${escapeHtml(s.title || s.paperId)}</span>
+        <span class="muted draft-opp-relevance">${relevancePct}%</span>
+      </div>
+      ${hint ? `<div class="draft-opp-hint muted">${escapeHtml(hint)}</div>` : ''}
+      ${s.rationale ? `<p class="draft-opp-rationale">${escapeHtml(s.rationale)}</p>` : ''}
+      ${quoteHtml}
+      <button class="draft-opp-save-btn" type="button" data-opp-idx="${idx}">Save note</button>
+    </div>
+  `;
+}
+
+function _wireOpportunityBlock(detailEl, sections) {
+  // Toggle expand/collapse for the current section's block.
+  detailEl.querySelectorAll('.draft-opp-toggle').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sectionId = btn.dataset.oppSectionId;
+      if (_oppExpandedSections.has(sectionId)) {
+        _oppExpandedSections.delete(sectionId);
+      } else {
+        _oppExpandedSections.add(sectionId);
+      }
+      _renderDetail(sections);
+    });
+  });
+
+  // Quote click -> open the suggested (uncited) paper in the reader at that quote.
+  detailEl.querySelectorAll('.draft-opp-quote-btn').forEach(btn => {
+    const openSource = () => {
+      const idx = Number(btn.dataset.oppIdx);
+      const rec = _oppRegistry[idx];
+      if (!rec) return;
+      window.dispatchEvent(new CustomEvent('rc:open-reader', {
+        detail: { paperId: rec.paperId, quote: rec.quote, title: rec.title },
+      }));
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openSource(); });
+  });
+
+  // Save note -> POST /api/notes, then toast.
+  detailEl.querySelectorAll('.draft-opp-save-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.oppIdx);
+      const rec = _oppRegistry[idx];
+      if (!rec) return;
+      try {
+        await api.saveNote({
+          draft_section_id: rec.sectionId,
+          draft_section_title: rec.sectionTitle,
+          paper_id: rec.paperId,
+          paper_title: rec.title,
+          relation: rec.relation,
+          relevance: rec.relevance,
+          rationale: rec.rationale,
+          evidence_quote: rec.quote,
+          evidence_section_id: rec.quoteSectionId,
+          comment: '',
+        });
+        showToast('Saved to Notes', 'info');
+      } catch (err) {
+        showToast(`Failed to save note: ${err.message}`, 'error');
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Right column: section detail
 // ---------------------------------------------------------------------------
 
@@ -261,13 +434,25 @@ function _renderDetail(sections) {
 
   const alignments = sec.alignments || [];
 
+  // Uncited-paper opportunities for the CURRENTLY SELECTED section. Reset the
+  // row registry for this render; _renderOpportunityRow fills it (mirrors
+  // _evidenceQuotes). Computed here (not just in the alignments-present
+  // branch below) so a section with zero *aligned* papers can still surface
+  // uncited-paper opportunities.
+  _oppRegistry = [];
+  const oppSections = opportunityModel((_opportunities && _opportunities.sections) || []);
+  const opp = oppSections.find(o => o.sectionId === sec.section_id) || null;
+  const oppHtml = (opp && opp.count > 0) ? _renderOpportunityBlock(opp) : '';
+
   if (alignments.length === 0) {
     detailEl.innerHTML = `
       <div class="draft-detail-header">
         <h2 class="draft-detail-title">${secIdx + 1}. ${escapeHtml(sec.title || sec.section_id)}</h2>
       </div>
       <div class="draft-empty-align muted">No papers aligned to this section yet.</div>
+      ${oppHtml}
     `;
+    _wireOpportunityBlock(detailEl, sections);
     return;
   }
 
@@ -307,6 +492,7 @@ function _renderDetail(sections) {
     <div class="draft-detail-footer">
       <a class="draft-graph-link" href="#/graph?section=${encodeURIComponent(sec.section_id)}">view in graph &rarr;</a>
     </div>
+    ${oppHtml}
   `;
 
   // Wire paper title clicks -> library drawer
@@ -340,6 +526,8 @@ function _renderDetail(sections) {
       }
     });
   });
+
+  _wireOpportunityBlock(detailEl, sections);
 }
 
 // ---------------------------------------------------------------------------

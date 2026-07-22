@@ -64,6 +64,7 @@ Research Companion grew from "help me read papers" into "help me get a paper sub
 - **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, and LaTeX `\cite`-key resolution (`export-bib` / `import-bib` / `cite-tex`).
 - **Find PDF** — a one-click search across open-access aggregators (Semantic Scholar, Unpaywall, OpenAlex, arXiv) for a paper whose PDF failed to download, with a header sweep for every missing PDF at once and honest fallback links when no free copy exists.
 - **Simplified reader tab** — free, offline, plain-English bullets built from a paper's existing analysis, with an optional one-call "Simplify further" AI rewrite (cached, same provider as Ask) — display-only, it never feeds Ask, Draft, or citations.
+- **Uncited-paper opportunities & revision notes** — the Draft view now surfaces library papers you haven't cited that could strengthen, challenge, or offer an alternative to a section, assembled strictly from stored analysis (no LLM, no network); save one as a note and track it to done in the new **Notes** view, with a Markdown export as a ready-to-use revision checklist.
 
 Everything above is deterministic at the core, opt-in wherever it costs money or sends data anywhere, and designed to leave the tool byte-identical when a feature is off. See the [Roadmap](docs/ROADMAP.md).
 

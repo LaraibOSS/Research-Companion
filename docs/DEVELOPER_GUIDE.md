@@ -1026,3 +1026,133 @@ generation-token guard across all three async paths, the button/toggle
 wiring) are smoke-tested via string assertions on the built JS in
 `tests/test_lab_static.py` rather than a real DOM, the same convention §19's
 PDF-tab wiring uses.
+
+## 22. Uncited-paper opportunities + revision notes
+
+Two small, deliberately dependency-free additions surface library papers your
+draft *doesn't* cite but whose stored analysis says they'd help a section, and
+let you turn any one of those suggestions into a persistent, checklist-style
+revision note. Both are **display-only aids**: nothing here feeds back into
+Ask, Draft alignment, strength, or citations coverage — they only *read*
+those artifacts.
+
+### Opportunities assembly — `research_companion/opportunities.py`
+
+- **`uncited_paper_ids(draft_id) -> set[str]`** — every library `paper_id`,
+  minus the draft itself, minus every `matched_paper_id` in
+  `citations_coverage.compute_coverage(draft_id)["references"]`. Cited-but-
+  unmatched references (no `matched_paper_id`) don't remove anything, so a
+  paper only drops out once coverage has actually resolved it against the
+  library — the same matching `lab_api.py`'s citation endpoints already
+  trust.
+- **`build_opportunities(draft_id | None) -> dict`** — `{"draft_id": None,
+  "sections": []}` immediately when there's no draft (no store reads at
+  all). Otherwise it mirrors `lab_api.get_draft_alignment`'s per-section
+  assembly, but restricted to `uncited_paper_ids(draft_id)`: for each uncited
+  paper it loads `store.load_alignment(paper_id, draft_paper_id=draft_id)`
+  (skipped entirely when `None` — an uncited paper with no stored alignment
+  contributes nothing) and, per aligned section, appends a suggestion
+  carrying `relation`, `relevance`, `rationale`, `evidence` (verbatim from the
+  alignment record — the same evidence blocks the Draft view's alignment
+  cards already render) and `strength_band` from `store.load_strength`.
+  Every field is copied from what an earlier `align` run already persisted;
+  the function makes no LLM call and opens no network connection. Sections
+  are keyed by `section_id`; a section with zero uncited-paper suggestions is
+  omitted from the output entirely (no empty-array placeholder), and each
+  section's `suggestions` list is sorted by `relevance` descending.
+- **`GET /api/draft/opportunities`** (`lab_api.py`) resolves the active draft
+  via `store.get_draft_paper_id()` and calls `build_opportunities` on a
+  worker thread (`asyncio.to_thread`) — the same offloading pattern every
+  other read-only Lab endpoint uses to keep the event loop free.
+- Tested in `tests/test_opportunities.py`: cited-and-draft exclusion, output
+  shape and relevance sort, empty-section omission, and the no-draft shape.
+  `tests/test_lab_api.py`'s `/api/draft/opportunities` cases cover the HTTP
+  layer on top.
+
+### Notes store — `research_companion/notes_store.py`
+
+A note is a structured, citable snapshot of one opportunity suggestion plus
+an optional user comment — not a free-text scratchpad. It's workspace-scoped
+(`papergraph_dir()/notes.json`, a flat JSON array), mirroring the
+failures-store accessors (`record_failure` / `list_failures` /
+`clear_failure`) already in `research_companion/store.py`.
+
+- **Record shape** — `_FIELDS`: `draft_section_id`, `draft_section_title`,
+  `paper_id`, `paper_title`, `relation`, `relevance`, `rationale`,
+  `evidence_quote`, `evidence_section_id`, `comment`; plus server-assigned
+  `id` (`uuid.uuid4().hex`), `created_at` (UTC ISO-8601, `Z` suffix), and
+  `status` (`"open"` / `"done"` / `"dismissed"`, starting `"open"`).
+- **`save_note(record) -> dict`** dedupes on **(`paper_id`,
+  `draft_section_id`)**: if an **open** note already matches, its fields are
+  updated in place (so re-saving a refreshed suggestion doesn't pile up
+  duplicates) rather than appended — except a blank incoming `comment` never
+  blanks an existing one, so a re-save can't silently erase what the user
+  typed. `relevance` is coerced through `_as_float` (falls back to `0.0` on
+  anything non-numeric/`None`) both on write and again wherever
+  `notes_to_markdown` sorts by it, since `relevance` is caller-supplied and
+  only `paper_id`/`draft_section_id` are validated at the API boundary — one
+  bad record on disk must never 500 the whole list or export.
+- **`update_note(note_id, *, status=None, comment=None)`** patches whichever
+  fields are passed and returns `None` for an unknown id.
+  **`delete_note(note_id) -> bool`** removes by id.
+  **`list_notes() -> list[dict]`** returns `[]` on a missing or unparseable
+  file rather than raising.
+- **`notes_to_markdown(notes) -> str`** builds the entire "Revision notes"
+  document server-side — the single source of truth (see the DRY note
+  below). Dismissed notes are dropped first; the rest are grouped by
+  `draft_section_title`, groups sorted alphabetically, notes within a group
+  sorted by relevance descending; a `done` note renders `- [x]`, everything
+  else `- [ ]`, and a non-empty `comment` is appended as `— note: ...`. An
+  all-dismissed/empty note list still renders a valid doc (`_No notes yet._`
+  under the heading) rather than an empty string.
+- **Endpoints** (`lab_api.py`): `GET /api/notes` → `{"notes": [...]}`;
+  `POST /api/notes` → 400 unless both `paper_id` and `draft_section_id` are
+  present, otherwise `save_note(body)`; `PATCH /api/notes/{note_id}` → 400 on
+  an invalid `status` value, 404 unknown id; `DELETE /api/notes/{note_id}` →
+  404 unknown id; `GET /api/notes/export` → `{"markdown": notes_to_markdown(list_notes())}`.
+  **Route order matters**: `/api/notes/export` is registered *before*
+  `/api/notes/{note_id}`, the same fix already applied to
+  `/api/papers/find-pdfs` vs. `/api/papers/{paper_id:path}` — otherwise
+  FastAPI would match `export` as a `note_id` path param.
+- **DRY note vs. the original design sketch**: markdown is built exactly
+  once, in Python, and pytest-covered; the client (`views/notes.js`) only
+  downloads the string as a `.md` file. There is no parallel
+  `notesToMarkdown` in JS — avoid reintroducing one if you're tempted to
+  format notes client-side for a new view.
+- Tested in `tests/test_notes_store.py` (id/status/timestamp assignment,
+  dedupe including the comment-preservation edge case, update/delete,
+  markdown grouping/checkbox/omission, relevance coercion surviving a bad
+  on-disk record) and `tests/test_lab_api.py` (CRUD + export over HTTP,
+  validation errors, the export-route-order regression).
+
+### Frontend — `opportunityHelpers.js`, `views/draft.js`, `views/notes.js`
+
+- **`opportunityHelpers.js`** is pure and DOM-free (`node:test`-covered in
+  `tests/js/opportunityHelpers.test.mjs`), exporting two total functions
+  (malformed input degrades to an empty/neutral result, never throws):
+  `opportunityModel(sections)` normalizes `GET /api/draft/opportunities`'
+  `sections` into `{sectionId, sectionTitle, count, suggestions: [{paperId,
+  title, relation, relevance, rationale, quote, quoteSectionId,
+  strengthBand}]}` (only the *first* evidence quote per suggestion is
+  surfaced), and `noteRowModel(note)` maps a stored note record to Notes-view
+  display fields (`relevancePct`, `badgeColor`/`badgeIcon` from the same
+  relation→color/icon palette `views/draft.js` uses for stance chips).
+- **`views/draft.js`** loads opportunities alongside alignment
+  (`api.getOpportunities()`) in the same `_render()` pass; a failure here is
+  non-fatal and just yields zero opportunity blocks, so it never blocks the
+  already-working alignment view. The section list shows a lightweight
+  `+n` count badge per section; the full block — rationale, relevance,
+  relation badge, an evidence-quote button that dispatches `rc:open-reader`
+  on the *uncited* paper at that quote, and a **Save note** button that
+  `POST`s `/api/notes` — renders only for the currently-selected section, in
+  the detail column, so it can't crowd out the narrow nav rows.
+- **`views/notes.js`** (route `#/notes`) lists every note grouped by
+  `draft_section_title`, each row built through `noteRowModel`. An editable
+  comment `<textarea>` PATCHes on blur (only when changed); Mark
+  done/Dismiss/Reopen call `PATCH {status}`; Delete calls
+  `DELETE /api/notes/{id}`; **Export as Markdown** fetches
+  `GET /api/notes/export` and downloads the returned string client-side as
+  `revision-notes.md` (no client-side formatting — see the DRY note above).
+- Both views' markup and wiring are smoke-tested via string assertions in
+  `tests/test_lab_static.py` (the same convention §19/§21 use), alongside the
+  node-test coverage of the pure helpers.

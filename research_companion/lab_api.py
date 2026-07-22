@@ -1722,6 +1722,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         }
 
     # -----------------------------------------------------------------
+    # GET /api/draft/opportunities — uncited library papers that would
+    # strengthen/challenge/offer alternatives to draft sections, assembled
+    # strictly from stored analysis (no LLM, no network).
+    # -----------------------------------------------------------------
+    @app.get("/api/draft/opportunities")
+    async def get_draft_opportunities() -> dict:
+        from research_companion import store
+        from research_companion.opportunities import build_opportunities
+
+        draft_id = store.get_draft_paper_id()
+        return await asyncio.to_thread(build_opportunities, draft_id)
+
+    # -----------------------------------------------------------------
     # Citation placement — is each cited paper in the right section?
     # (draft-quality check; separate from strength scoring)
     # -----------------------------------------------------------------
@@ -1743,6 +1756,52 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if await asyncio.to_thread(is_stale, payload, draft_id):
             payload = await asyncio.to_thread(compute_placement, draft_id)
         return payload
+
+    # -----------------------------------------------------------------
+    # Revision notes — workspace-scoped notes captured from opportunity
+    # suggestions (research_companion.notes_store, papergraph_dir()/notes.json).
+    #
+    # GET /api/notes/export is registered BEFORE /api/notes/{note_id} so
+    # "export" is never captured as a note_id, mirroring how POST
+    # /api/papers/find-pdfs is registered before /api/papers/{paper_id:path}.
+    # -----------------------------------------------------------------
+    @app.get("/api/notes")
+    async def list_notes_endpoint() -> dict:
+        from research_companion.notes_store import list_notes
+        return {"notes": await asyncio.to_thread(list_notes)}
+
+    @app.post("/api/notes")
+    async def create_note_endpoint(body: dict) -> dict:
+        from research_companion.notes_store import save_note
+        if not body.get("paper_id") or not body.get("draft_section_id"):
+            raise HTTPException(status_code=400, detail="paper_id and draft_section_id required")
+        return await asyncio.to_thread(save_note, body)
+
+    @app.get("/api/notes/export")
+    async def export_notes_endpoint() -> dict:
+        from research_companion.notes_store import list_notes, notes_to_markdown
+        notes = await asyncio.to_thread(list_notes)
+        return {"markdown": notes_to_markdown(notes)}
+
+    @app.patch("/api/notes/{note_id}")
+    async def patch_note_endpoint(note_id: str, body: dict) -> dict:
+        from research_companion.notes_store import update_note
+        status = body.get("status")
+        if status is not None and status not in ("open", "done", "dismissed"):
+            raise HTTPException(status_code=400, detail="invalid status")
+        note = await asyncio.to_thread(update_note, note_id,
+                                       status=status, comment=body.get("comment"))
+        if note is None:
+            raise HTTPException(status_code=404, detail="note not found")
+        return note
+
+    @app.delete("/api/notes/{note_id}")
+    async def delete_note_endpoint(note_id: str) -> dict:
+        from research_companion.notes_store import delete_note
+        ok = await asyncio.to_thread(delete_note, note_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="note not found")
+        return {"deleted": note_id}
 
     # -----------------------------------------------------------------
     # GET /api/papers/{id}/alignment
