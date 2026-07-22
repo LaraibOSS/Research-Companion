@@ -75,6 +75,21 @@ let _simplifiedFetchPromise = null; // in-flight GET /simplified promise (dedupe
 let _simplifiedShowAuto = false;  // "Show auto summary" toggle override while a rewrite exists
 let _readerModelSections = [];    // buildReaderModel(payload).sections — for bullet section labels
 
+// Per-open generation token. The PDF-tab code above guards its async
+// continuations with an identity check (`_pdfFrame !== iframe`) because it
+// has a natural identity object to compare; the Simplified-tab continuations
+// (the no-PDF prefetch, the lazy /simplified fetch, and the Simplify-further
+// job poll) have no such object, so they capture this counter instead.
+// Incremented once per _open_() call (i.e. once per reader open, including
+// reopening the SAME paper) — anything that captured an older value is from
+// a superseded open and must bail before mutating shared state (_simplifiedData)
+// or painting, no matter what the `_open` boolean happens to read at that
+// moment (closing without reopening leaves the token unchanged, which is
+// fine: the panel is already torn down by _close(), so there's nothing left
+// to poison, and the very next _renderContent() resets _simplifiedData
+// regardless).
+let _readerGeneration = 0;
+
 // ---------------------------------------------------------------------------
 // Exported mount
 // ---------------------------------------------------------------------------
@@ -155,6 +170,7 @@ function _close() {
 }
 
 async function _open_(detail) {
+  const gen = ++_readerGeneration; // mint this open's generation token
   _show();
   _renderLoading();
 
@@ -175,7 +191,7 @@ async function _open_(detail) {
   // A late close (Escape during the fetch) — do not clobber it.
   if (!_open) return;
 
-  _renderContent(payload, detail);
+  _renderContent(payload, detail, gen);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +276,7 @@ function _renderSectionBlocks(sectionText, sectionTitle, quoteRange) {
   }).join('');
 }
 
-async function _renderContent(payload, detail) {
+async function _renderContent(payload, detail, gen) {
   // Fresh PDF-tab state for this open — a previous paper's iframe/timer/events
   // must never bleed into this render.
   _clearPdfMissTimer();
@@ -285,13 +301,20 @@ async function _renderContent(payload, detail) {
   // loading state showing until it resolves; PDF papers always default to
   // Original regardless of has_extraction, so they never need this.
   if (!model.hasPdf) {
+    let prefetched = null;
     try {
-      _simplifiedData = await _apiRef.getSimplified(detail.paperId);
+      prefetched = await _apiRef.getSimplified(detail.paperId);
     } catch (err) {
       console.error('[reader] simplified prefetch failed', err);
-      _simplifiedData = null;
+      prefetched = null;
     }
-    if (!_open) return; // late close during the fetch — do not clobber it
+    // Superseded by a newer open (e.g. the user closed and immediately
+    // opened a different paper while this GET was in flight) — bail before
+    // touching _simplifiedData or painting a panel that no longer belongs
+    // to us. gen !== _readerGeneration subsumes the plain !_open check: any
+    // reopen (same or different paper) mints a new token.
+    if (gen !== _readerGeneration) return;
+    _simplifiedData = prefetched;
   }
 
   // Prefer the payload title, fall back to what the caller passed.
@@ -601,6 +624,11 @@ function _ensureSimplifiedPane(pane, detail) {
   }
   if (_simplifiedFetchPromise) return; // already in flight from a prior activation
 
+  // Captured now (synchronously, while this IS the current open) so the
+  // continuations below can tell a superseded open apart from the current
+  // one after the fetch resolves — see the _readerGeneration comment.
+  const gen = _readerGeneration;
+
   pane.innerHTML = `
     <div class="reader-loading">
       <span class="reader-spin" aria-hidden="true"></span>
@@ -609,16 +637,19 @@ function _ensureSimplifiedPane(pane, detail) {
 
   _simplifiedFetchPromise = _apiRef.getSimplified(detail.paperId)
     .then((resp) => {
+      // Superseded by a newer open — bail WITHOUT touching _simplifiedData
+      // or _simplifiedFetchPromise: a newer generation's own render already
+      // reset both, and clobbering them here could stomp its in-flight fetch.
+      if (gen !== _readerGeneration) return;
       _simplifiedFetchPromise = null;
-      if (!_open) return; // reader closed while the fetch was in flight
       _simplifiedData = resp;
       const freshPane = _panel.querySelector('.reader-simplified-pane');
       if (freshPane) _renderSimplifiedPane(freshPane, detail);
     })
     .catch((err) => {
+      if (gen !== _readerGeneration) return;
       _simplifiedFetchPromise = null;
       console.error('[reader] simplified fetch failed', err);
-      if (!_open) return;
       const freshPane = _panel.querySelector('.reader-simplified-pane');
       if (freshPane) {
         freshPane.innerHTML = `<div class="reader-error">Couldn't load the simplified view.</div>`;
@@ -653,7 +684,16 @@ function _renderSimplifiedBullet(bullet, sectionLabelMap) {
   const text = escapeHtml(bullet.text || '');
   const sectionId = bullet.sectionId;
   if (!sectionId) return `<li class="simplified-bullet">${text}</li>`;
-  const label = sectionLabelMap.get(String(sectionId)) || String(sectionId);
+
+  const label = sectionLabelMap.get(String(sectionId));
+  if (label === undefined) {
+    // The cited section isn't in the CURRENT reader sections (e.g. it was
+    // empty and got dropped by buildReaderModel) — a link here would call
+    // _setActive with an id matching nothing, which clears every active
+    // nav/section highlight rather than navigating anywhere. Render a
+    // plain, non-clickable label with the raw id instead.
+    return `<li class="simplified-bullet">${text} <span class="muted">${escapeHtml(String(sectionId))}</span></li>`;
+  }
   const link = ` <a href="#" class="simplified-bullet-link" data-section-id="${escapeHtml(String(sectionId))}">${escapeHtml(label)}</a>`;
   return `<li class="simplified-bullet">${text}${link}</li>`;
 }
@@ -700,7 +740,15 @@ function _renderSimplifiedPane(pane, detail) {
       + backLinkHtml;
   } else {
     const groups = _normalizeRewriteGroups(rewrite.groups);
-    const modelPart = rewrite.model ? ` · ${escapeHtml(rewrite.model)}` : '';
+    // Provenance line: "AI-simplified · <model> · [Regenerate]" — each
+    // segment is optional. The Regenerate button (same showButton gate as
+    // the standalone one below) only appears when a provider is actually
+    // configured; without it there's nothing to regenerate WITH.
+    const provenanceParts = ['AI-simplified'];
+    if (rewrite.model) provenanceParts.push(escapeHtml(rewrite.model));
+    if (resp.provider_configured) {
+      provenanceParts.push('<button type="button" class="btn btn-sm btn-simplify-further">Regenerate</button>');
+    }
     // The toggle only makes sense when there's an auto extraction to show —
     // a rewrite can outlive its extraction cache (e.g. a prompt-sha bump
     // invalidates load_extraction while simplified.json still holds an
@@ -708,8 +756,7 @@ function _renderSimplifiedPane(pane, detail) {
     const toggleHtml = resp.has_extraction
       ? `<div class="simplified-note"><a href="#" class="simplified-toggle-link" data-toggle="auto">Show auto summary</a></div>`
       : '';
-    bodyHtml = `<div class="simplified-provenance">AI-simplified${modelPart} · `
-      + `<button type="button" class="btn btn-sm btn-simplify-further">Regenerate</button></div>`
+    bodyHtml = `<div class="simplified-provenance">${provenanceParts.join(' · ')}</div>`
       + _renderSimplifiedGroups(groups, sectionLabelMap)
       + `<div class="simplified-note">${escapeHtml(SIMPLIFIED_NOTE_COPY)}</div>`
       + toggleHtml;
@@ -752,15 +799,23 @@ function _wireSimplifyButton(btn, detail) {
   const originalLabel = btn.textContent;
   btn.addEventListener('click', async () => {
     if (btn.disabled) return;
+    // Captured at click-time, while this button's pane is definitely the
+    // current open; threaded through the whole job-watch chain below so
+    // every continuation can detect a close+reopen that happened while the
+    // job was running.
+    const gen = _readerGeneration;
     btn.disabled = true;
     btn.textContent = 'Simplifying…';
     try {
       const res = await _apiRef.postSimplify(detail.paperId);
-      _watchSimplifyJob(res.job_id, detail, () => {
+      if (gen !== _readerGeneration) return; // superseded before the job even started polling
+      _watchSimplifyJob(res.job_id, detail, gen, () => {
+        if (gen !== _readerGeneration) return; // this button may not even be on screen anymore
         btn.disabled = false;
         btn.textContent = originalLabel;
       });
     } catch (err) {
+      if (gen !== _readerGeneration) return;
       btn.disabled = false;
       btn.textContent = originalLabel;
       showToast(`Simplify failed: ${err.message}`, 'error');
@@ -779,18 +834,26 @@ const _SIMPLIFY_POLL_MS = 1000;
  * button directly in case the pane itself is gone by then (e.g. the user
  * switched away from the Simplified tab, which does not tear the pane down
  * but a later close/render would).
+ *
+ * `gen` is the generation token captured when the job was kicked off. Every
+ * branch that would mutate _simplifiedData, touch the panel, call onGiveUp,
+ * or show a toast checks it first and bails on a mismatch — otherwise a job
+ * for paper A that outlives a close+reopen onto paper B would (a) poison
+ * B's cached /simplified response with A's content once A's job finishes,
+ * and (b) pop toasts for a job the user can no longer see or care about.
  * @param {string} jobId
  * @param {object} detail
+ * @param {number} gen
  * @param {() => void} [onGiveUp]
  */
-function _watchSimplifyJob(jobId, detail, onGiveUp) {
+function _watchSimplifyJob(jobId, detail, gen, onGiveUp) {
   let consecutiveFailures = 0;
   let elapsedPolls = 0;
 
   const finalRefresh = async () => {
     try {
       const resp = await _apiRef.getSimplified(detail.paperId);
-      if (!_open) return;
+      if (gen !== _readerGeneration) return; // superseded — do not poison a newer open's cache
       _simplifiedData = resp;
       _simplifiedShowAuto = false; // a just-(re)generated rewrite is what should show
       const pane = _panel.querySelector('.reader-simplified-pane');
@@ -801,6 +864,8 @@ function _watchSimplifyJob(jobId, detail, onGiveUp) {
   };
 
   const poll = async () => {
+    if (gen !== _readerGeneration) return; // superseded — stop polling, nothing left to update
+
     elapsedPolls += 1;
     let job = null;
     let err = null;
@@ -809,6 +874,8 @@ function _watchSimplifyJob(jobId, detail, onGiveUp) {
     } catch (e) {
       err = e;
     }
+
+    if (gen !== _readerGeneration) return; // superseded while the GET was in flight
 
     if (!err) {
       consecutiveFailures = 0; // any successful poll resets the failure streak

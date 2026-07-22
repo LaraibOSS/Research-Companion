@@ -1814,6 +1814,62 @@ def test_reader_js_has_simplified_tab_wiring():
     )
 
 
+def test_reader_js_guards_simplified_async_paths_with_generation_token():
+    """reader.js must guard every async continuation that can mutate the
+    Simplified-tab cache/DOM with a per-open generation token, not just the
+    global _open boolean (post-review fix).
+
+    Root cause: the PDF (Original) tab already protects its async
+    continuations with an identity check (`_pdfFrame !== iframe`), but the
+    Simplified tab's continuations (the no-PDF prefetch in _renderContent,
+    the lazy /simplified fetch in _ensureSimplifiedPane, and the Simplify
+    further job poll/finalRefresh in _watchSimplifyJob) had no such guard.
+    Closing the reader on paper A mid-Simplify-job and opening paper B let
+    A's job finish, refetch A's /simplified, pass a bare `if (!_open)`
+    check (true, because B is now open), and poison B's cached
+    _simplifiedData -- rendered into B's pane and cached, so even a fresh
+    tab click on B kept showing A's content.
+    """
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+
+    assert "let _readerGeneration" in js, "reader.js must have a _readerGeneration counter"
+    assert "++_readerGeneration" in js, "reader.js must increment _readerGeneration once per open"
+
+    # Must appear in each of: the no-PDF prefetch, the lazy simplified fetch's
+    # .then/.catch, the postSimplify click handler, and the job poll/
+    # finalRefresh -- not just once. A regression that drops the guard from
+    # any one of those spots reintroduces the poisoning race above.
+    guard_uses = re.findall(r"gen !== _readerGeneration\) return", js)
+    assert len(guard_uses) >= 8, (
+        f"reader.js must gate simplified-tab async continuations on the generation token "
+        f"in every continuation (prefetch, lazy fetch x2, click handler x3, poll x2, "
+        f"finalRefresh); found only {len(guard_uses)}"
+    )
+
+
+def test_reader_js_gates_regenerate_button_on_provider_configured():
+    """The rewrite-view 'Regenerate' button must only render when a provider
+    is configured, matching the standalone 'Simplify further' button's
+    showButton gate (post-review fix -- it previously rendered unconditionally,
+    offering to regenerate with no LLM key present)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "resp.provider_configured" in js, (
+        "reader.js must gate the Regenerate button on resp.provider_configured"
+    )
+
+
+def test_reader_js_bullet_link_only_when_section_exists():
+    """A simplified bullet's section reference must only render as a
+    clickable link when that section exists in the CURRENT reader sections;
+    otherwise it must fall back to a plain, non-clickable label (post-review
+    fix -- a link to a missing section id called _setActive with an id
+    matching nothing, which cleared every active nav/section highlight)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "label === undefined" in js, (
+        "reader.js must check the section-label lookup for a miss before rendering a link"
+    )
+
+
 def test_api_js_has_simplified_endpoints():
     """api.js must export getSimplified/postSimplify (Task 3)."""
     js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
