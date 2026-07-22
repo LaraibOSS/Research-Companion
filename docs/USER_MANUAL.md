@@ -369,27 +369,48 @@ actually says.
 - A **section-navigation rail** lists the paper's sections as plain numbers
   (*"1. Introduction"*, *"2. Related Work"*, ...); click any one to jump to
   it. The current section (or the located quote) is highlighted.
-- **Two tabs, for papers with a stored PDF: Original and Text.**
-  **Original** is the default — it shows the actual typeset PDF (real
+- **Three tabs: Original, Simplified, and Text — for papers with a stored
+  PDF.** **Original** is the default — it shows the actual typeset PDF (real
   formulas, tables, and figures, not the plain-text extraction) in a
   built-in viewer. When you arrive via a quote or citation click, the
   viewer searches for that quote and highlights it in the PDF itself; if it
   can't be located (locating is best-effort, not guaranteed), a small notice
   says so and points you at the Text tab, which shows the quote highlighted
   in the extracted text when it can be located there. **Text** is the
-  exact-offset view described above — unchanged, and it remains the *only*
-  tab for papers with no stored PDF at all (for example, a paper added by
-  DOI or Semantic Scholar ID whose PDF download failed — its
-  metadata was saved, but there is no file to show), or when the Original
-  tab's viewer fails to load (the reader falls back to Text automatically
-  with a toast).
+  exact-offset view described above — unchanged. A paper with **no stored
+  PDF at all** (for example, added by DOI or Semantic Scholar ID whose
+  download failed) only gets **Simplified** and **Text** — it opens on
+  Simplified once the paper has been analyzed, or Text otherwise. The
+  reader also falls back to Text automatically (with a toast) if the
+  Original tab's viewer fails to load.
+- **Simplified** turns the analysis you already ran into plain-English
+  bullets grouped as *What this paper is about*, *Key claims*, *How they did
+  it*, and *What they found* — instant, free, and offline, since it's built
+  from the same extraction the review team already produced, not a new AI
+  call. Each bullet links back to the section it came from. If the paper
+  hasn't been analyzed yet, the tab says so plainly and points you at the
+  Library to run analysis.
+  - **"Simplify further"** (shown when you have an AI provider key
+    configured) asks your configured provider for a tighter rewrite in one
+    call — instructed to use only facts already in the paper, never add
+    outside information. The result is cached, so you only pay for it once;
+    it's labeled *"AI-simplified · &lt;model&gt; · Regenerate"* so you always
+    know which version you're looking at, with a **"Show auto summary"**
+    link back to the free version. If a Simplify further call fails, your
+    last cached rewrite (if any) stays exactly as it was.
+  - **Read it as an aid, not a substitute** — a plain note on the tab says
+    so: simplification can lose nuance that matters. Check the **Original**
+    tab for the real thing before you rely on a claim. Nothing shown here is
+    ever fed back into Ask, Draft alignment, or citations — it's for your
+    eyes only.
 - **View original PDF** (in the header) still opens the stored PDF in a new
   browser tab, independent of the in-reader Original tab.
 - **Scanned PDFs** still have a stored file, so — like any paper with a PDF —
   they open on the Original tab by default. Switch to the Text tab (where a
-  paper with no stored PDF at all lands directly) and you'll see a clear
-  empty-state — *"No extracted text — use View original PDF"* — instead of a
-  blank pane, so you always have a way to reach the source.
+  paper with no stored PDF at all lands directly, unless it's ready to open
+  on Simplified) and you'll see a clear empty-state — *"No extracted text —
+  use View original PDF"* — instead of a blank pane, so you always have a
+  way to reach the source.
 - The Text tab's note about figures and charts not being part of the
   extracted text now points you at the **Original** tab (when the paper has
   one) to see them as typeset, instead of only linking out to the PDF.
@@ -634,8 +655,12 @@ Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live wi
   `settings.json`, `workspaces.json`, and one folder per research under
   `workspaces/` — plain JSON and PDFs you can inspect.
 - **What leaves your machine:** paper text goes to the AI provider you
-  configured, only when a task needs it (extraction, alignment, answers);
-  bibliographic lookups query CrossRef/OpenAlex/arXiv/Semantic Scholar; a
+  configured, only when a task needs it (extraction, alignment, answers, and
+  — only if you click **"Simplify further"** in the reader — a rewrite of
+  that same paper's text, through the same configured provider); the auto
+  **Simplified** tab view itself makes no network call at all, since it's
+  built from extraction already on disk. Bibliographic lookups query
+  CrossRef/OpenAlex/arXiv/Semantic Scholar; a
   **Find PDF** search (section 6) additionally queries Unpaywall, but only
   when you've set a contact email in Settings — Unpaywall requires one as
   its polite identifier, so leaving that field empty means Unpaywall is
@@ -643,7 +668,11 @@ Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live wi
   Inference API. Nothing else.
 - **Costs, measured live:** extraction ≈ $0.02 per paper (GPT-4o class);
   re-extracting a 16-paper library cost $0.51; an alignment or a grounded
-  answer is one model call. Everything cached is free to re-run.
+  answer is one model call. Everything cached is free to re-run. The
+  reader's **Simplified** tab's auto view is always free (it's built from
+  extraction you already paid for); its optional **"Simplify further"**
+  button is one more model call, through the same configured provider as
+  Ask, and is cached until you hit Regenerate.
 
 ## 21. Reading outputs honestly
 

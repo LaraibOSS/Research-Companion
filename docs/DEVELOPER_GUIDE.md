@@ -859,3 +859,159 @@ enabled state) on every papers refresh. Settings gained a **Contact email**
 field (`contact_email`, empty by default) wired straight to the setting
 above — the UI hint is explicit that leaving it blank only skips the
 Unpaywall lookup, nothing else.
+
+## 21. The reader's "Simplified" tab
+
+A third reader tab turns a paper's **existing analysis** into plain-English
+bullets — no new LLM call, no network, on by default the moment a paper has
+been analyzed. An optional **"Simplify further"** button asks the LLM for a
+tighter rewrite, once, cached to disk. The tab is a *display-only*
+comprehension aid: nothing it produces ever feeds Ask, Draft, or citations.
+
+### Tab defaulting
+
+`readerTabs(hasPdf, hasSimplified = false)`
+(`research_companion/lab/static/js/readerPdfHelpers.js`) grew a second
+parameter and now returns three shapes:
+
+- `hasPdf` → `{ tabs: ['original', 'simplified', 'text'], active: 'original' }`
+  — Original stays the default for any paper with a stored PDF, unchanged
+  from §19.
+- `!hasPdf && hasSimplified` → `{ tabs: ['simplified', 'text'], active:
+  'simplified' }` — a paper with no stored PDF at all (added by DOI or
+  Semantic Scholar ID whose download failed; a scanned PDF still has a stored
+  file and keeps the Original tab, so it never reaches this branch) lands on
+  Simplified once it has been analyzed.
+- `!hasPdf && !hasSimplified` → `{ tabs: ['simplified', 'text'], active:
+  'text' }` — an un-analyzed, PDF-less paper still gets the tab (so the
+  empty-state copy and the Simplify path are reachable), but defaults to Text
+  since there is nothing to show yet.
+
+`hasSimplified` is `!!(simplifiedResponse && simplifiedResponse.has_extraction)`
+— the component (`components/reader.js`) has to prefetch `GET /simplified`
+for PDF-less papers *before* it can pick a default tab, since `has_extraction`
+isn't part of the `/text` payload. PDF papers skip this prefetch entirely:
+they always default to Original regardless of analysis state, so the extra
+GET would be wasted.
+
+### Pure model — `readerSimplifiedHelpers.js`
+
+DOM-free, `node:test`-covered (`tests/js/readerSimplifiedHelpers.test.mjs`):
+
+- **`simplifiedModel(extraction)`** turns a stored `extraction.json` payload
+  into `{ groups: [{ title, bullets: [{ text, sectionId }] }] }`. Exactly four
+  possible groups, always in this order, each omitted entirely when empty:
+  - **"What this paper is about"** ← `concepts` (`name — definition`)
+  - **"Key claims"** ← `claims` (`text`)
+  - **"How they did it"** ← `methods` (`name — description`) followed by
+    `datasets` (`"Dataset: " + name — description`) in the same group
+  - **"What they found"** ← `results` (`metric: value (dataset)`, the
+    parenthetical omitted when there's no dataset)
+  - `related_work` is never read — it's citation data, not something to
+    summarize as a finding.
+  - Never throws: `null`/non-object input, or an extraction with none of the
+    five keys, yields `{ groups: [] }`; any bullet missing its own text is
+    dropped rather than rendered blank.
+- **`simplifiedDisplayState({ hasExtraction, rewrite, providerConfigured })`**
+  → `{ view: 'auto' | 'rewrite' | 'empty', showButton }`. `view` is
+  `'rewrite'` whenever a cached rewrite object is truthy (regardless of
+  `providerConfigured` — an already-cached rewrite still displays even if the
+  key was since removed), else `'auto'` when there's an extraction, else
+  `'empty'`. `showButton` is `providerConfigured && hasExtraction` — both the
+  standalone "Simplify further" button and the rewrite view's "Regenerate"
+  button share this one gate, so a missing key or an un-analyzed paper hides
+  both identically.
+
+### Component wiring — `components/reader.js`
+
+- **Lazy fetch, cached per open.** `GET /simplified` is fetched at most once
+  per reader open: eagerly for PDF-less papers (needed for tab defaulting,
+  see above), otherwise lazily on the Simplified tab's first activation
+  (`_ensureSimplifiedPane`). The response is cached in module state
+  (`_simplifiedData`) and reset on every `_renderContent` / `_close` so one
+  paper's cached view can never bleed into the next paper opened in the same
+  reader instance.
+- **Section links.** A bullet's `sectionId` renders as a link to the Text tab
+  labeled with that section's nav label (`"n. Title"`) when the id is still
+  present among the *current* reader's sections; otherwise it renders a
+  plain, non-clickable `<span>` with the raw id — clicking a link for a
+  section that no longer exists would call the nav's `_setActive` with an id
+  matching nothing, clearing every active highlight instead of navigating
+  anywhere (fixed in 1b121e6). `_normalizeRewriteGroups` is the single place
+  the server's `section_id` key is renamed to the client's `sectionId`, so a
+  cached rewrite's bullets render through the exact same
+  `_renderSimplifiedBullet` path as the auto model's.
+- **Empty state.** An un-analyzed paper (`has_extraction: false`) shows
+  exactly: *"This paper hasn't been analyzed yet — run analysis from the
+  Library to get the simplified view."*
+- **Per-open generation guard.** The Simplified tab has three async
+  continuations with no natural identity object to check against (unlike the
+  PDF tab's `_pdfFrame` reference): the no-PDF prefetch, the lazy `/simplified`
+  fetch, and the Simplify-further job poll. All three capture a
+  `_readerGeneration` counter (minted once per `_open_()` call) and re-check
+  it after every `await` before touching `_simplifiedData`, painting, or
+  toasting — so a slow response from a superseded open (closed, or reopened
+  onto a different paper, while the request was in flight) can never poison
+  the paper that's actually on screen.
+
+### "Simplify further" — one cached LLM call
+
+- **`GET /api/papers/{id}/simplified`** (`lab_api.py`) never makes a network
+  call: it loads `extraction.json` (via the existing `store.load_extraction`,
+  keyed by the current `extraction_prompt_sha256()` so a stale extraction
+  under a changed prompt is treated as absent) and `simplified.json` (via
+  `store.load_simplified`), and reports `provider_configured` — key
+  *presence* for the resolved pipeline provider, read the same way the
+  Settings page's masked-key display does (`get_settings()["keys"]`), never
+  by constructing an LLM client — 404 for an unknown paper. Response shape:
+  `{extraction, rewrite, has_extraction, provider_configured}`.
+- **`POST /api/papers/{id}/simplify`** starts a background job (kind
+  `"simplify"`, the same job/poll machinery as every other Lab job — 409 when
+  the paper has no stored text at all). The job walks the paper's sections in
+  document order, packing text into the prompt up to the same
+  `settings["char_budget"]` accessor `qa.answer` uses (`_simplify_char_budget`)
+  — it deliberately ignores `k_sections` (that knob scopes *retrieval* to a
+  query's top-k sections; a full-paper simplify has no query and wants every
+  section, budget permitting) — and calls `_resolve_llm(json_mode=True)`, the
+  same provider seam Ask uses, so "Simplify further" always talks to
+  whichever provider/model you've configured, never a hardcoded one.
+- **Prompt contract** (`_SIMPLIFY_PROMPT`): forbids adding any fact not in the
+  supplied paper text, requires plain-English rewording of unavoidable
+  jargon, and requires grouping under **exactly** the same four headings as
+  the auto model ("What this paper is about" / "Key claims" / "How they did
+  it" / "What they found"), omitting a heading only when the paper truly has
+  nothing for it. Requested JSON shape:
+  `{"groups": [{"title", "bullets": [{"text", "section_id"}]}]}`.
+- **Markdown-fence tolerance.** The raw LLM response is passed through
+  `extract._strip_code_fences` before `json.loads` (18671bb) — the same
+  house convention the extraction pipeline already relies on for providers
+  that wrap JSON in ` ```json ` fences despite `json_mode=True`.
+- **Cache file contract** — `store.save_simplified` / `load_simplified` write
+  and read `papers/<dir>/simplified.json`:
+  `{"provider", "model", "created_at" (UTC ISO-8601, "Z" suffix), "groups"}`.
+  `load_simplified` returns `None` (never raises) on a missing file, a
+  corrupt/non-JSON file, or a JSON value that isn't an object — the reader
+  treats a `None` rewrite identically to "no rewrite yet", never as an error.
+  **Regenerate overwrites** the same file; a failed regenerate call leaves
+  whatever was already cached untouched, since `save_simplified` is only
+  reached after the LLM call and `json.loads` both succeed.
+- **Isolation.** `simplified.json` is written and read in exactly one place
+  each (`lab_api.py`'s two endpoints) plus rendered in `components/reader.js`
+  — no other code path (Ask, Draft alignment, citation grounding, graph
+  build) reads it. The rewrite is a comprehension aid for a human, not a
+  source of truth the pipeline can cite.
+
+### Testing split
+
+Pure logic (`readerSimplifiedHelpers.js`'s grouping/ordering/empty-omission
+and the four-way display-state matrix, plus `readerPdfHelpers.js`'s extended
+`readerTabs`) is fully covered under `node:test`, no browser or server
+involved. The endpoints are covered in `tests/test_lab_api.py` (both-source
+GET shape, 404/409, job kind, fence-stripped parsing, cache overwrite,
+failure-keeps-cache) and `tests/test_store.py` (round-trip and corrupt-file
+handling for `save_simplified`/`load_simplified`). The DOM-dependent parts of
+`components/reader.js` (tab painting, the section-link fallback, the
+generation-token guard across all three async paths, the button/toggle
+wiring) are smoke-tested via string assertions on the built JS in
+`tests/test_lab_static.py` rather than a real DOM, the same convention §19's
+PDF-tab wiring uses.
