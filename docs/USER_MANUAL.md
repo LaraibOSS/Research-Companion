@@ -300,8 +300,8 @@ paper's real title, say — you can **link it by hand**, from either side:
 Citation coverage asks *whether* each cited paper is in your library.
 **Citation placement** asks a different question: is each cited paper
 discussed in the draft section where it is **most relevant**? Open it from
-the **map-pin button in the top bar** (visible with a draft set). Each cited
-paper gets one of three verdicts:
+the **Citations button in the left sidebar** (visible with a draft set). Each
+cited paper gets one of three verdicts:
 
 - **Well-placed** — the paper is cited in the section it fits best.
 - **Misplaced** — the paper would be more relevant in a different section

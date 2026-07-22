@@ -1889,3 +1889,56 @@ def test_activity_helpers_test_file_exists():
     """tests/js/activityHelpers.test.mjs must exist (W5-ACT node tests)."""
     assert (REPO_ROOT / "tests" / "js" / "activityHelpers.test.mjs").exists(), \
         "Missing tests/js/activityHelpers.test.mjs"
+
+
+# ---------------------------------------------------------------------------
+# feat/sidebar-labels: expanded labeled sidebar; Citations joins main group
+# ---------------------------------------------------------------------------
+
+class TestSidebarLabels:
+    def _index(self) -> str:
+        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    def _css(self) -> str:
+        return (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+
+    def test_every_nav_button_has_a_label(self):
+        html = self._index()
+        for label in ("Home", "Library", "Graph", "Draft", "Timeline",
+                      "Ask", "Compare", "Citations", "Help", "Settings"):
+            assert f'<span class="nav-label">{label}</span>' in html, label
+
+    def test_citations_button_sits_after_compare_before_spacer(self):
+        html = self._index()
+        compare = html.index('data-route="/compare"')
+        placement = html.index('id="topbar-placement"')
+        spacer = html.index('class="nav-spacer"')
+        help_btn = html.index('id="topbar-help"')
+        settings = html.index('data-route="/settings"')
+        assert compare < placement < spacer < help_btn < settings
+
+    def test_nav_width_expanded_desktop(self):
+        """Desktop --nav-width must be exactly 208px (one canonical declaration
+        string — no fuzzy/whitespace-tolerant matching)."""
+        css = self._css()
+        assert "--nav-width:    208px;" in css
+
+    def test_nav_width_and_labels_collapse_on_mobile(self):
+        css = self._css()
+        mobile = css[css.index("@media (max-width: 640px)"):]
+        assert "--nav-width: 56px;" in mobile
+        assert ".nav-label" in mobile and "display: none;" in mobile
+
+    def test_tooltip_suppressed_when_labels_visible(self):
+        # desktop rule disabling the [title]::after tooltip for nav buttons
+        # must appear before the 640px block (where it is deliberately re-armed)
+        css = self._css()
+        desktop = css.split("@media (max-width: 640px)")[0]
+        assert ".nav-btn[title]::after" in desktop
+        assert "content: none;" in desktop
+
+    def test_tooltip_rearmed_on_mobile(self):
+        css = self._css()
+        mobile = css[css.index("@media (max-width: 640px)"):]
+        assert ".nav-btn[title]::after" in mobile
+        assert "content: attr(title);" in mobile
