@@ -352,3 +352,40 @@ export const unlinkCitation = (index) =>
  * Used at boot for hydration. Non-fatal when 404 (older server).
  */
 export const getJobs = () => get('/api/jobs');
+
+// ---------------------------------------------------------------------------
+// Draft opportunities + revision notes endpoints (uncited-paper opportunities)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/draft/opportunities — uncited library papers that would
+ * strengthen/challenge/offer alternatives to draft sections. Returns
+ * { draft_id, sections: [{section_id, section_title, suggestions}] }.
+ * Always 200 (no draft: { draft_id: null, sections: [] }).
+ */
+export const getOpportunities = () => get('/api/draft/opportunities');
+
+/** GET /api/notes — returns { notes: [...] } (workspace-scoped revision notes). */
+export const getNotes = () => get('/api/notes');
+
+/**
+ * POST /api/notes — record a note captured from an opportunity suggestion.
+ * body: { draft_section_id, draft_section_title, paper_id, paper_title,
+ *   relation, relevance, rationale, evidence_quote, evidence_section_id, comment }.
+ * Dedupes in place against an existing OPEN note for the same
+ * (paper_id, draft_section_id). Returns the saved note record.
+ */
+export const saveNote = (record) => post('/api/notes', record);
+
+/**
+ * PATCH /api/notes/{id} — body: { status?, comment? }. Returns the updated
+ * note record. 404 unknown note.
+ */
+export const updateNote = (id, patch) =>
+  _fetch('PATCH', `/api/notes/${encodeURIComponent(id)}`, patch);
+
+/** DELETE /api/notes/{id} — returns { deleted: id }. 404 unknown note. */
+export const deleteNote = (id) => del(`/api/notes/${encodeURIComponent(id)}`);
+
+/** GET /api/notes/export — returns { markdown } (Revision notes doc). */
+export const exportNotes = () => get('/api/notes/export');

@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -1954,3 +1954,98 @@ class TestSidebarLabels:
         mobile = css[css.index("@media (max-width: 640px)"):]
         assert ".nav-btn[title]::after" in mobile
         assert "content: attr(title);" in mobile
+
+
+# ---------------------------------------------------------------------------
+# feat/draft-opportunities (Task 3): per-section uncited-paper opportunities
+# block + Save note, wired into views/draft.js
+# ---------------------------------------------------------------------------
+
+def test_opportunity_helpers_js_exists():
+    """js/opportunityHelpers.js must exist (Task 3 pure helpers)."""
+    assert (STATIC_DIR / "js" / "opportunityHelpers.js").exists(), \
+        "Missing js/opportunityHelpers.js"
+
+
+def test_opportunity_helpers_exports_two_functions():
+    """opportunityHelpers.js must export opportunityModel and noteRowModel."""
+    js = (STATIC_DIR / "js" / "opportunityHelpers.js").read_text(encoding="utf-8")
+    assert "export function opportunityModel" in js, \
+        "opportunityHelpers.js must export opportunityModel"
+    assert "export function noteRowModel" in js, \
+        "opportunityHelpers.js must export noteRowModel"
+
+
+def test_opportunity_helpers_test_file_exists():
+    """tests/js/opportunityHelpers.test.mjs must exist (Task 3 node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "opportunityHelpers.test.mjs").exists(), \
+        "Missing tests/js/opportunityHelpers.test.mjs"
+
+
+def test_api_js_has_opportunities_and_notes_endpoints():
+    """api.js must export getOpportunities/getNotes/saveNote/updateNote/
+    deleteNote/exportNotes (Task 3)."""
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    for name in ("getOpportunities", "getNotes", "saveNote", "updateNote",
+                 "deleteNote", "exportNotes"):
+        assert f"export const {name}" in api_js, f"api.js must export {name}"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_opportunity_helpers_js_returns_200(lab_client):
+    """GET /static/js/opportunityHelpers.js must return 200."""
+    res = lab_client.get("/static/js/opportunityHelpers.js")
+    assert res.status_code == 200
+
+
+def test_draft_js_imports_opportunity_model_and_calls_get_opportunities():
+    """draft.js must import opportunityModel and call api.getOpportunities()."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "opportunityModel" in js, "draft.js must reference opportunityModel"
+    assert "getOpportunities" in js, "draft.js must call api.getOpportunities"
+
+
+def test_draft_js_renders_opportunities_block_markup():
+    """draft.js must render the collapsible opportunities block with its
+    count label and toggle/row/save-note hooks."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "draft-opp-block" in js, "draft.js must render .draft-opp-block"
+    assert "Uncited papers that could help here" in js, (
+        "draft.js must render the 'Uncited papers that could help here (n)' label"
+    )
+    assert "draft-opp-toggle" in js, "draft.js must render the collapsible toggle button"
+    assert "draft-opp-save-btn" in js, "draft.js must render the Save note button"
+
+
+def test_draft_js_opportunities_dispatch_rc_open_reader():
+    """draft.js opportunity quote click must dispatch rc:open-reader with {paperId, quote}."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "rc:open-reader" in js, "draft.js must dispatch rc:open-reader"
+    assert re.search(r"detail:\s*\{\s*paperId:\s*rec\.paperId,\s*quote:\s*rec\.quote", js), (
+        "draft.js opportunity quote handler must dispatch {paperId: rec.paperId, quote: rec.quote, ...}"
+    )
+
+
+def test_draft_js_save_note_calls_api_and_toasts():
+    """draft.js Save note handler must call api.saveNote(...) and show a
+    'Saved to Notes' toast."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "api.saveNote(" in js, "draft.js must call api.saveNote(...)"
+    assert "Saved to Notes" in js, "draft.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_draft_js_escapes_opportunity_title_rationale_and_quote():
+    """draft.js opportunity row renderer must escapeHtml every server string
+    (title, rationale, quote) before interpolating into markup."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "escapeHtml(s.title" in js, "draft.js must escapeHtml the opportunity title"
+    assert "escapeHtml(s.rationale)" in js, "draft.js must escapeHtml the opportunity rationale"
+    assert "escapeHtml(s.quote)" in js, "draft.js must escapeHtml the opportunity quote"
+
+
+def test_lab_css_has_opportunities_block_styles():
+    """lab.css must include the Task 3 opportunities-block styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".draft-opp-block", ".draft-opp-toggle", ".draft-opp-row",
+                   ".draft-opp-quote-btn", ".draft-opp-save-btn"):
+        assert needle in css, f"lab.css missing Task 3 style: {needle}"

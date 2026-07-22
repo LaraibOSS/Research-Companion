@@ -1462,6 +1462,124 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
 .draft-error { padding: 20px; }
 .draft-empty-align { padding: 16px 0; font-size: 14px; }
 
+/* --- Uncited-paper opportunities block (per section, under the chip strip) - */
+
+.draft-opp-block {
+  margin-top: 8px;
+  border-top: 1px dashed var(--color-border);
+  padding-top: 8px;
+}
+
+.draft-opp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+  background: transparent;
+  border: none;
+  color: var(--color-fg-dim);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.draft-opp-toggle:hover,
+.draft-opp-toggle:focus-visible {
+  color: var(--color-accent);
+}
+.draft-opp-caret {
+  flex: none;
+  font-size: 10px;
+  width: 10px;
+}
+
+.draft-opp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.draft-opp-row {
+  background: var(--color-panel);
+  border-radius: var(--radius-sm, 4px);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: default;
+}
+
+.draft-opp-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.draft-opp-title {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.draft-opp-relevance {
+  flex: none;
+  font-size: 11px;
+}
+
+.draft-opp-hint {
+  font-size: 11px;
+  font-style: italic;
+}
+
+.draft-opp-rationale {
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+  color: var(--color-fg-dim);
+}
+
+.draft-opp-quote-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.draft-opp-quote-text {
+  flex: 1;
+  font-size: 11.5px;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-dim);
+}
+
+.draft-opp-save-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.draft-opp-save-btn:hover,
+.draft-opp-save-btn:focus-visible {
+  background: var(--color-accent);
+  color: var(--color-bg, #0d1117);
+}
+
 /* ---------------------------------------------------------------------------
  * Ingest Modal
  * --------------------------------------------------------------------------- */
