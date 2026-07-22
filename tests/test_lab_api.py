@@ -619,6 +619,83 @@ class TestDraftOpportunities:
 
 
 # ---------------------------------------------------------------------------
+# /api/notes — workspace-scoped revision notes CRUD + export
+# ---------------------------------------------------------------------------
+
+class TestNotes:
+    def _rec(self, **kw):
+        base = dict(draft_section_id="s5", draft_section_title="Related Work",
+                    paper_id="B", paper_title="Paper B", relation="strengthens",
+                    relevance=0.8, rationale="why", evidence_quote="q",
+                    evidence_section_id="s1", comment="")
+        base.update(kw)
+        return base
+
+    def test_post_creates_and_get_lists(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json=self._rec())
+        assert resp.status_code == 200
+        note = resp.json()
+        assert note["id"] and note["status"] == "open"
+
+        resp = c.get("/api/notes")
+        assert resp.status_code == 200
+        assert resp.json() == {"notes": [note]}
+
+    def test_post_missing_required_fields_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json={"paper_id": "B"})
+        assert resp.status_code == 400
+        resp = c.post("/api/notes", json={"draft_section_id": "s5"})
+        assert resp.status_code == 400
+
+    def test_patch_status_and_comment(self, isolated_papergraph_dir):
+        c = _make_client()
+        note = c.post("/api/notes", json=self._rec()).json()
+        resp = c.patch(f"/api/notes/{note['id']}", json={"status": "done", "comment": "look here"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "done" and data["comment"] == "look here"
+
+    def test_patch_invalid_status_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        note = c.post("/api/notes", json=self._rec()).json()
+        resp = c.patch(f"/api/notes/{note['id']}", json={"status": "bogus"})
+        assert resp.status_code == 400
+
+    def test_patch_missing_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.patch("/api/notes/missing", json={"status": "done"})
+        assert resp.status_code == 404
+
+    def test_delete_note(self, isolated_papergraph_dir):
+        c = _make_client()
+        note = c.post("/api/notes", json=self._rec()).json()
+        resp = c.delete(f"/api/notes/{note['id']}")
+        assert resp.status_code == 200
+        assert c.get("/api/notes").json() == {"notes": []}
+
+    def test_delete_missing_404(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.delete("/api/notes/missing")
+        assert resp.status_code == 404
+
+    def test_export_returns_markdown(self, isolated_papergraph_dir):
+        c = _make_client()
+        c.post("/api/notes", json=self._rec())
+        resp = c.get("/api/notes/export")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "## Related Work" in data["markdown"]
+
+    def test_export_not_captured_as_note_id(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/notes/export")
+        assert resp.status_code == 200
+        assert "markdown" in resp.json()
+
+
+# ---------------------------------------------------------------------------
 # GET /api/papers/{id}/alignment
 # ---------------------------------------------------------------------------
 
