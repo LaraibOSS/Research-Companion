@@ -34,6 +34,18 @@ import {
   findMissState,
   findDispatchParams,
 } from '../readerPdfHelpers.js';
+import {
+  simplifiedModel,
+  simplifiedDisplayState,
+} from '../readerSimplifiedHelpers.js';
+import { pollDecision } from '../oaLinkHelpers.js';
+
+// Verbatim copy — see task-3 brief. Keep in sync with any product-copy review.
+const SIMPLIFIED_EMPTY_COPY =
+  "This paper hasn't been analyzed yet — run analysis from the Library to get the simplified view.";
+const SIMPLIFIED_NOTE_COPY =
+  'This is a simplified aid — it may lose nuance; check the Original tab for the real thing.';
+const TAB_LABELS = { original: 'Original', simplified: 'Simplified', text: 'Text' };
 
 // ---------------------------------------------------------------------------
 // Overlay state
@@ -54,6 +66,14 @@ let _pdfMissTimer = null;
 let _pdfFindEvents = [];
 let _pdfQuoteRequested = false; // normalizeQuoteForSearch(quote) was non-empty (a search was launched)
 let _pdfSearchPhrase = ''; // the normalized phrase, kept for the post-subscribe re-dispatch
+
+// Simplified tab state — reset per _renderContent() call / on close, same
+// discipline as the PDF state above. Cached response is keyed to the paper
+// currently open in the reader (there is only ever one).
+let _simplifiedData = null;       // GET /simplified response, or null until fetched
+let _simplifiedFetchPromise = null; // in-flight GET /simplified promise (dedupes re-activation)
+let _simplifiedShowAuto = false;  // "Show auto summary" toggle override while a rewrite exists
+let _readerModelSections = [];    // buildReaderModel(payload).sections — for bullet section labels
 
 // ---------------------------------------------------------------------------
 // Exported mount
@@ -123,6 +143,10 @@ function _close() {
   _pdfFindEvents = [];
   _pdfQuoteRequested = false;
   _pdfSearchPhrase = '';
+  _simplifiedData = null;
+  _simplifiedFetchPromise = null;
+  _simplifiedShowAuto = false;
+  _readerModelSections = [];
   // Return focus to the element that opened the reader, if still around.
   if (_lastFocus && typeof _lastFocus.focus === 'function' && document.contains(_lastFocus)) {
     _lastFocus.focus();
@@ -236,7 +260,7 @@ function _renderSectionBlocks(sectionText, sectionTitle, quoteRange) {
   }).join('');
 }
 
-function _renderContent(payload, detail) {
+async function _renderContent(payload, detail) {
   // Fresh PDF-tab state for this open — a previous paper's iframe/timer/events
   // must never bleed into this render.
   _clearPdfMissTimer();
@@ -245,8 +269,30 @@ function _renderContent(payload, detail) {
   _pdfQuoteRequested = false;
   _pdfSearchPhrase = '';
 
+  // Fresh Simplified-tab state for this open — a previous paper's cached
+  // /simplified response (and the auto/rewrite toggle) must never bleed in.
+  _simplifiedData = null;
+  _simplifiedFetchPromise = null;
+  _simplifiedShowAuto = false;
+
   const model = buildReaderModel(payload);
   const rawSections = (payload && Array.isArray(payload.sections)) ? payload.sections : [];
+  _readerModelSections = model.sections;
+
+  // No-PDF papers: readerTabs' default active tab (Simplified vs. Text)
+  // depends on has_extraction, which the /text payload doesn't carry. Fetch
+  // /simplified up front ONLY for this case (one extra GET) and keep the
+  // loading state showing until it resolves; PDF papers always default to
+  // Original regardless of has_extraction, so they never need this.
+  if (!model.hasPdf) {
+    try {
+      _simplifiedData = await _apiRef.getSimplified(detail.paperId);
+    } catch (err) {
+      console.error('[reader] simplified prefetch failed', err);
+      _simplifiedData = null;
+    }
+    if (!_open) return; // late close during the fetch — do not clobber it
+  }
 
   // Prefer the payload title, fall back to what the caller passed.
   const headerTitle = (payload && payload.title) || detail.title || model.title;
@@ -324,29 +370,32 @@ function _renderContent(payload, detail) {
       </section>`;
   }).join('');
 
-  // Two-tab shell (Original PDF / Text) — only when the paper has a PDF.
-  // The Text pane's own body-rendering logic above is untouched; here we only
-  // decide whether it starts hidden (Original is the default active tab).
-  const tabState = readerTabs(model.hasPdf);
-  // interim: tab bar still hardcodes Original+Text; gate on hasPdf until the Simplified pane lands and the bar renders from tabState.tabs
-  const hasTabs = model.hasPdf;
+  // Tab shell — three tabs (Original/Simplified/Text) for PDF papers, two
+  // (Simplified/Text) otherwise. Rendered from tabState.tabs (a loop) so a
+  // no-PDF paper gets its two-tab bar too, rather than the earlier interim
+  // hardcoded Original+Text pair gated on model.hasPdf (commit c83ac7b).
+  const tabState = readerTabs(model.hasPdf, !!(_simplifiedData && _simplifiedData.has_extraction));
+  const hasTabs = tabState.tabs.length > 1;
 
   const tabsHtml = hasTabs ? `
     <div class="reader-tabs" role="tablist">
-      <button type="button" class="reader-tab${tabState.active === 'original' ? ' reader-tab--active' : ''}"
-              role="tab" aria-selected="${tabState.active === 'original'}" data-tab="original">Original</button>
-      <button type="button" class="reader-tab${tabState.active === 'text' ? ' reader-tab--active' : ''}"
-              role="tab" aria-selected="${tabState.active === 'text'}" data-tab="text">Text</button>
+      ${tabState.tabs.map(t => `
+      <button type="button" class="reader-tab${tabState.active === t ? ' reader-tab--active' : ''}"
+              role="tab" aria-selected="${tabState.active === t}" data-tab="${t}">${escapeHtml(TAB_LABELS[t] || t)}</button>`).join('')}
     </div>` : '';
 
-  const pdfPaneHtml = hasTabs
+  const pdfPaneHtml = tabState.tabs.includes('original')
     ? `<div class="reader-pdf-pane"${tabState.active === 'original' ? '' : ' hidden'}></div>`
+    : '';
+
+  const simplifiedPaneHtml = tabState.tabs.includes('simplified')
+    ? `<div class="reader-simplified-pane"${tabState.active === 'simplified' ? '' : ' hidden'}></div>`
     : '';
 
   const bodyHiddenAttr = (hasTabs && tabState.active !== 'text') ? ' hidden' : '';
   const bodyHtml = `<div class="reader-body"${bodyHiddenAttr}>${noticeHtml}${figuresNoticeHtml}${emptyHtml}${sectionsHtml}</div>`;
 
-  _panel.innerHTML = headerHtml + tabsHtml + navHtml + pdfPaneHtml + bodyHtml;
+  _panel.innerHTML = headerHtml + tabsHtml + navHtml + pdfPaneHtml + simplifiedPaneHtml + bodyHtml;
   _bindClose();
   _bindNav();
   if (hasTabs) {
@@ -373,6 +422,7 @@ function _bindTabs(detail) {
 
 function _activateTab(tabName, detail) {
   const pdfPane = _panel.querySelector('.reader-pdf-pane');
+  const simplifiedPane = _panel.querySelector('.reader-simplified-pane');
   const bodyEl = _panel.querySelector('.reader-body');
   if (!bodyEl) return;
 
@@ -388,10 +438,17 @@ function _activateTab(tabName, detail) {
 
   if (tabName === 'original' && pdfPane) {
     pdfPane.hidden = false;
+    if (simplifiedPane) simplifiedPane.hidden = true;
     bodyEl.hidden = true;
     _ensurePdfFrame(pdfPane, detail);
+  } else if (tabName === 'simplified' && simplifiedPane) {
+    if (pdfPane) pdfPane.hidden = true;
+    simplifiedPane.hidden = false;
+    bodyEl.hidden = true;
+    _ensureSimplifiedPane(simplifiedPane, detail);
   } else {
     if (pdfPane) pdfPane.hidden = true;
+    if (simplifiedPane) simplifiedPane.hidden = true;
     bodyEl.hidden = false;
   }
 }
@@ -523,6 +580,277 @@ function _handlePdfLoadFailure(iframe) {
   const textBtn = _panel.querySelector('.reader-tab[data-tab="text"]');
   if (textBtn && !textBtn.classList.contains('reader-tab--active')) textBtn.click();
   showToast('PDF viewer failed to load — showing text view', 'error');
+}
+
+// ---------------------------------------------------------------------------
+// Simplified tab — lazy fetch, bullet rendering, section links, Simplify further
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the Simplified pane has content, fetching GET /simplified on the
+ * FIRST activation only. For no-PDF papers _simplifiedData is usually already
+ * populated by _renderContent's up-front prefetch (needed for the tab
+ * default), so this is a cache hit and paints immediately with no refetch.
+ * @param {HTMLElement} pane
+ * @param {object} detail
+ */
+function _ensureSimplifiedPane(pane, detail) {
+  if (_simplifiedData) {
+    _renderSimplifiedPane(pane, detail);
+    return;
+  }
+  if (_simplifiedFetchPromise) return; // already in flight from a prior activation
+
+  pane.innerHTML = `
+    <div class="reader-loading">
+      <span class="reader-spin" aria-hidden="true"></span>
+      <span>Loading…</span>
+    </div>`;
+
+  _simplifiedFetchPromise = _apiRef.getSimplified(detail.paperId)
+    .then((resp) => {
+      _simplifiedFetchPromise = null;
+      if (!_open) return; // reader closed while the fetch was in flight
+      _simplifiedData = resp;
+      const freshPane = _panel.querySelector('.reader-simplified-pane');
+      if (freshPane) _renderSimplifiedPane(freshPane, detail);
+    })
+    .catch((err) => {
+      _simplifiedFetchPromise = null;
+      console.error('[reader] simplified fetch failed', err);
+      if (!_open) return;
+      const freshPane = _panel.querySelector('.reader-simplified-pane');
+      if (freshPane) {
+        freshPane.innerHTML = `<div class="reader-error">Couldn't load the simplified view.</div>`;
+      }
+    });
+}
+
+/** Map section id (string) -> nav label ("n. Title"), from the current paper's sections. */
+function _buildSectionLabelMap() {
+  const map = new Map();
+  sectionNav(_readerModelSections).forEach((n) => map.set(String(n.id), n.label));
+  return map;
+}
+
+/**
+ * Normalize a cached rewrite's groups to the same {title, bullets:[{text,
+ * sectionId}]} shape simplifiedModel() produces, so one bullet renderer
+ * serves both views. This is the ONE place the server's section_id key is
+ * renamed to sectionId.
+ */
+function _normalizeRewriteGroups(groups) {
+  return (Array.isArray(groups) ? groups : []).map((g) => ({
+    title: (g && g.title) || '',
+    bullets: ((g && Array.isArray(g.bullets)) ? g.bullets : []).map((b) => ({
+      text: (b && b.text) || '',
+      sectionId: (b && b.section_id) || null,
+    })),
+  }));
+}
+
+function _renderSimplifiedBullet(bullet, sectionLabelMap) {
+  const text = escapeHtml(bullet.text || '');
+  const sectionId = bullet.sectionId;
+  if (!sectionId) return `<li class="simplified-bullet">${text}</li>`;
+  const label = sectionLabelMap.get(String(sectionId)) || String(sectionId);
+  const link = ` <a href="#" class="simplified-bullet-link" data-section-id="${escapeHtml(String(sectionId))}">${escapeHtml(label)}</a>`;
+  return `<li class="simplified-bullet">${text}${link}</li>`;
+}
+
+function _renderSimplifiedGroups(groups, sectionLabelMap) {
+  return groups.map((g) => `
+    <div class="simplified-group">
+      <h4>${escapeHtml(g.title)}</h4>
+      <ul class="simplified-bullet-list">${g.bullets.map((b) => _renderSimplifiedBullet(b, sectionLabelMap)).join('')}</ul>
+    </div>`).join('');
+}
+
+/**
+ * Paint the Simplified pane per simplifiedDisplayState(). The "Show auto
+ * summary" toggle (_simplifiedShowAuto) only ever applies on top of the
+ * 'rewrite' view — it swaps which content renders without discarding the
+ * cached rewrite, and a matching link switches back.
+ * @param {HTMLElement} pane
+ * @param {object} detail
+ */
+function _renderSimplifiedPane(pane, detail) {
+  const resp = _simplifiedData;
+  if (!pane || !resp) return;
+
+  const rewrite = resp.rewrite;
+  const displayState = simplifiedDisplayState({
+    hasExtraction: !!resp.has_extraction,
+    rewrite,
+    providerConfigured: !!resp.provider_configured,
+  });
+  const sectionLabelMap = _buildSectionLabelMap();
+  const showingAuto = displayState.view !== 'rewrite' || _simplifiedShowAuto;
+
+  let bodyHtml;
+  if (displayState.view === 'empty') {
+    bodyHtml = `<div class="reader-empty">${escapeHtml(SIMPLIFIED_EMPTY_COPY)}</div>`;
+  } else if (showingAuto) {
+    const model = simplifiedModel(resp.extraction);
+    const backLinkHtml = (displayState.view === 'rewrite')
+      ? `<div class="simplified-note"><a href="#" class="simplified-toggle-link" data-toggle="rewrite">Back to AI-simplified summary</a></div>`
+      : '';
+    bodyHtml = _renderSimplifiedGroups(model.groups, sectionLabelMap)
+      + `<div class="simplified-note">${escapeHtml(SIMPLIFIED_NOTE_COPY)}</div>`
+      + backLinkHtml;
+  } else {
+    const groups = _normalizeRewriteGroups(rewrite.groups);
+    const modelPart = rewrite.model ? ` · ${escapeHtml(rewrite.model)}` : '';
+    // The toggle only makes sense when there's an auto extraction to show —
+    // a rewrite can outlive its extraction cache (e.g. a prompt-sha bump
+    // invalidates load_extraction while simplified.json still holds an
+    // older rewrite); simplifiedModel(null) would just render zero groups.
+    const toggleHtml = resp.has_extraction
+      ? `<div class="simplified-note"><a href="#" class="simplified-toggle-link" data-toggle="auto">Show auto summary</a></div>`
+      : '';
+    bodyHtml = `<div class="simplified-provenance">AI-simplified${modelPart} · `
+      + `<button type="button" class="btn btn-sm btn-simplify-further">Regenerate</button></div>`
+      + _renderSimplifiedGroups(groups, sectionLabelMap)
+      + `<div class="simplified-note">${escapeHtml(SIMPLIFIED_NOTE_COPY)}</div>`
+      + toggleHtml;
+  }
+
+  // A standalone "Simplify further" button only when the rewrite itself
+  // isn't the thing on screen (its own provenance line above already carries
+  // the button, relabeled "Regenerate").
+  const standaloneButtonHtml = (displayState.view !== 'rewrite' && displayState.showButton)
+    ? `<div class="simplified-actions"><button type="button" class="btn btn-sm btn-simplify-further">Simplify further</button></div>`
+    : '';
+
+  pane.innerHTML = bodyHtml + standaloneButtonHtml;
+  _bindSimplifiedPane(pane, detail);
+}
+
+function _bindSimplifiedPane(pane, detail) {
+  const toggleLink = pane.querySelector('.simplified-toggle-link');
+  if (toggleLink) {
+    toggleLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      _simplifiedShowAuto = toggleLink.dataset.toggle === 'auto';
+      _renderSimplifiedPane(pane, detail);
+    });
+  }
+
+  pane.querySelectorAll('.simplified-bullet-link').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      _activateTab('text', detail);
+      _setActive(a.dataset.sectionId);
+    });
+  });
+
+  const btn = pane.querySelector('.btn-simplify-further');
+  if (btn) _wireSimplifyButton(btn, detail);
+}
+
+function _wireSimplifyButton(btn, detail) {
+  const originalLabel = btn.textContent;
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Simplifying…';
+    try {
+      const res = await _apiRef.postSimplify(detail.paperId);
+      _watchSimplifyJob(res.job_id, detail, () => {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      });
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      showToast(`Simplify failed: ${err.message}`, 'error');
+    }
+  });
+}
+
+const _SIMPLIFY_POLL_MS = 1000;
+
+/**
+ * Poll GET /api/jobs/{id} for a "Simplify further" job, exactly mirroring
+ * views/library.js's _watchFindPdfJob (same pure pollDecision from
+ * oaLinkHelpers.js, same two counters). On any terminal outcome, re-fetch
+ * /simplified and re-render the pane so the cache and the on-screen content
+ * never disagree; onGiveUp is the fallback that re-enables the CALLER's
+ * button directly in case the pane itself is gone by then (e.g. the user
+ * switched away from the Simplified tab, which does not tear the pane down
+ * but a later close/render would).
+ * @param {string} jobId
+ * @param {object} detail
+ * @param {() => void} [onGiveUp]
+ */
+function _watchSimplifyJob(jobId, detail, onGiveUp) {
+  let consecutiveFailures = 0;
+  let elapsedPolls = 0;
+
+  const finalRefresh = async () => {
+    try {
+      const resp = await _apiRef.getSimplified(detail.paperId);
+      if (!_open) return;
+      _simplifiedData = resp;
+      _simplifiedShowAuto = false; // a just-(re)generated rewrite is what should show
+      const pane = _panel.querySelector('.reader-simplified-pane');
+      if (pane) _renderSimplifiedPane(pane, detail);
+    } catch (err) {
+      console.warn('[reader] simplified refresh after simplify failed', err);
+    }
+  };
+
+  const poll = async () => {
+    elapsedPolls += 1;
+    let job = null;
+    let err = null;
+    try {
+      job = await _apiRef.getJob(jobId);
+    } catch (e) {
+      err = e;
+    }
+
+    if (!err) {
+      consecutiveFailures = 0; // any successful poll resets the failure streak
+      if (job && job.status !== 'running') {
+        if (onGiveUp) onGiveUp();
+        if (job.status === 'failed') {
+          showToast(`Simplify failed: ${job.detail || 'unknown error'}`, 'error');
+        }
+        await finalRefresh();
+        return;
+      }
+    }
+
+    const decision = pollDecision({
+      status: job ? job.status : undefined,
+      error: err,
+      consecutiveFailures,
+      elapsedPolls,
+    });
+
+    switch (decision) {
+      case 'continue':
+        setTimeout(poll, _SIMPLIFY_POLL_MS);
+        return;
+      case 'retry-transient':
+        consecutiveFailures += 1;
+        setTimeout(poll, _SIMPLIFY_POLL_MS);
+        return;
+      case 'stop-404':
+        if (onGiveUp) onGiveUp();
+        await finalRefresh();
+        return;
+      case 'give-up':
+      default:
+        if (onGiveUp) onGiveUp();
+        await finalRefresh();
+        showToast('Simplify is taking unusually long — refresh to check its status.', 'info');
+        return;
+    }
+  };
+
+  poll();
 }
 
 // ---------------------------------------------------------------------------

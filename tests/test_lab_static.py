@@ -1771,6 +1771,64 @@ def test_css_has_activity_spin_and_prefers_reduced_motion():
     assert "prefers-reduced-motion" in css, "lab.css missing prefers-reduced-motion guard"
 
 
+def test_reader_js_renders_tab_bar_from_tabstate_tabs():
+    """reader.js must render the Original/Simplified/Text tab bar by looping
+    over tabState.tabs, not the earlier interim hardcoded Original+Text pair
+    gated on model.hasPdf (commit c83ac7b) -- that interim gate is what left
+    no-PDF papers with no tab bar at all (no Simplified tab either)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+
+    assert "tabState.tabs.map(" in js, (
+        "reader.js must render the tab bar by mapping over tabState.tabs, not a hardcoded pair"
+    )
+    assert "hasTabs = tabState.tabs.length > 1" in js, (
+        "reader.js must derive hasTabs from tabState.tabs.length, not model.hasPdf"
+    )
+    # The interim hardcoded Original tab button markup must be gone -- it
+    # would mean a literal button in the template rather than one produced
+    # by the tabs loop.
+    assert 'data-tab="original">Original</button>' not in js, (
+        "reader.js must not hardcode the Original tab button; it must come from the tabs loop"
+    )
+    # The Original pane/button must only ever exist when 'original' is
+    # actually one of tabState.tabs (no-PDF papers get no PDF pane at all).
+    assert "tabState.tabs.includes('original')" in js, (
+        "reader.js must gate the PDF pane on tabState.tabs.includes('original')"
+    )
+
+
+def test_reader_js_has_simplified_tab_wiring():
+    """reader.js must wire the Simplified tab: lazy /simplified fetch, the
+    exact empty-state and disclaimer copy, and the Simplify further endpoints."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "getSimplified" in js, "reader.js must call api.getSimplified"
+    assert "postSimplify" in js, "reader.js must call api.postSimplify"
+    assert "simplifiedModel" in js, "reader.js must use simplifiedModel"
+    assert "simplifiedDisplayState" in js, "reader.js must use simplifiedDisplayState"
+    assert "pollDecision" in js, "reader.js must bound-poll the simplify job via pollDecision"
+    assert "hasn't been analyzed yet — run analysis from the Library to get the simplified view." in js, (
+        "reader.js must render the exact empty-state copy"
+    )
+    assert "it may lose nuance; check the Original tab for the real thing." in js, (
+        "reader.js must render the exact simplified-note copy"
+    )
+
+
+def test_api_js_has_simplified_endpoints():
+    """api.js must export getSimplified/postSimplify (Task 3)."""
+    js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "export const getSimplified" in js, "api.js must export getSimplified"
+    assert "export const postSimplify" in js, "api.js must export postSimplify"
+
+
+def test_lab_css_has_simplified_tab_styles():
+    """lab.css must style the Simplified pane and its bullets/button (Task 3)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for selector in (".reader-simplified-pane", ".simplified-group", ".simplified-bullet",
+                     ".simplified-note", ".btn-simplify-further"):
+        assert selector in css, f"lab.css missing {selector}"
+
+
 def test_activity_helpers_test_file_exists():
     """tests/js/activityHelpers.test.mjs must exist (W5-ACT node tests)."""
     assert (REPO_ROOT / "tests" / "js" / "activityHelpers.test.mjs").exists(), \
