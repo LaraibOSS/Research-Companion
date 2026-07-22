@@ -688,7 +688,28 @@ class TestNotes:
         data = resp.json()
         assert "## Related Work" in data["markdown"]
 
-    def test_export_not_captured_as_note_id(self, isolated_papergraph_dir):
+    def test_export_survives_note_with_missing_relevance(self, isolated_papergraph_dir):
+        """POST only requires paper_id + draft_section_id, so a note with no
+        relevance is a legal payload. Regression for a str/float sort-key
+        TypeError in notes_to_markdown that 500'd export for the whole
+        workspace when one note's relevance was missing/non-numeric."""
+        c = _make_client()
+        rec = self._rec(paper_id="B", paper_title="No Relevance")
+        del rec["relevance"]
+        c.post("/api/notes", json=rec)
+        c.post("/api/notes", json=self._rec(paper_id="C", paper_title="Has Relevance", relevance=0.6))
+
+        resp = c.get("/api/notes/export")
+        assert resp.status_code == 200
+        md = resp.json()["markdown"]
+        assert "No Relevance" in md and "Has Relevance" in md
+
+    def test_export_route_registered_before_note_id_route(self, isolated_papergraph_dir):
+        """No GET /api/notes/{note_id} handler exists today, so there is no
+        live method collision to demonstrate. This only pins the
+        registration-order convention (export registered before the
+        {note_id} routes) so a future GET-by-id addition doesn't silently
+        swallow "export" as a note_id."""
         c = _make_client()
         resp = c.get("/api/notes/export")
         assert resp.status_code == 200

@@ -55,3 +55,28 @@ def test_markdown_omits_dismissed(isolated_papergraph_dir):
     n = ns.save_note(_rec(paper_title="Gone"))
     ns.update_note(n["id"], status="dismissed")
     assert "Gone" not in ns.notes_to_markdown(ns.list_notes())
+
+
+def test_missing_relevance_coerced_and_export_survives(isolated_papergraph_dir):
+    """A note posted without relevance (POST only validates paper_id +
+    draft_section_id, so this is a legal payload) must not blow up
+    notes_to_markdown's relevance-desc sort with a str/float comparison."""
+    rec = _rec(paper_id="B", paper_title="No Relevance")
+    del rec["relevance"]
+    ns.save_note(rec)
+    ns.save_note(_rec(paper_id="C", paper_title="Has Relevance", relevance=0.6))
+
+    saved = {n["paper_id"]: n for n in ns.list_notes()}
+    assert saved["B"]["relevance"] == 0.0  # coerced, not the string ""
+
+    md = ns.notes_to_markdown(ns.list_notes())
+    assert "No Relevance" in md and "Has Relevance" in md
+
+
+def test_dedupe_preserves_existing_comment_when_resave_omits_it(isolated_papergraph_dir):
+    n = ns.save_note(_rec())
+    ns.update_note(n["id"], comment="keep me")
+    again = ns.save_note(_rec())  # re-save with the default empty comment
+    assert again["id"] == n["id"]
+    assert again["comment"] == "keep me"
+    assert ns.list_notes()[0]["comment"] == "keep me"

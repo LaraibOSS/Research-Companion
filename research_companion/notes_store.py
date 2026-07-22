@@ -21,6 +21,22 @@ def _path():
     return papergraph_dir() / "notes.json"
 
 
+def _as_float(value, default: float = 0.0) -> float:
+    """Coerce a value to float, falling back to default on anything invalid.
+
+    relevance is caller-supplied and only paper_id/draft_section_id are
+    validated at the API boundary, so a note can legitimately arrive (or
+    already exist on disk, from an older/buggy write) with a missing,
+    None, or non-numeric relevance. Both the writer (save_note) and the
+    reader (notes_to_markdown's sort key) must tolerate that without
+    raising, since a single bad record must not 500 the whole export.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def list_notes() -> list[dict]:
     """Load and return all notes. Returns [] if file missing or unparseable."""
     p = _path()
@@ -48,11 +64,17 @@ def save_note(record: dict) -> dict:
     """
     notes = list_notes()
     clean = {k: record.get(k, "") for k in _FIELDS}
+    clean["relevance"] = _as_float(record.get("relevance"))
     for existing in notes:
         if (existing.get("status") == "open"
                 and existing.get("paper_id") == clean["paper_id"]
                 and existing.get("draft_section_id") == clean["draft_section_id"]):
-            existing.update(clean)
+            merged = dict(clean)
+            if not merged["comment"]:
+                # Don't blank a user's existing comment just because a
+                # re-save (e.g. refreshed suggestion) omitted one.
+                merged["comment"] = existing.get("comment", "")
+            existing.update(merged)
             _write(notes)
             return existing
     note = {
@@ -105,7 +127,7 @@ def notes_to_markdown(notes: list[dict]) -> str:
     lines = ["# Revision notes", ""]
     for title in sorted(groups):
         lines.append(f"## {title}")
-        for n in sorted(groups[title], key=lambda x: x.get("relevance", 0.0), reverse=True):
+        for n in sorted(groups[title], key=lambda x: _as_float(x.get("relevance")), reverse=True):
             box = "x" if n.get("status") == "done" else " "
             line = (f"- [{box}] {n.get('paper_title', '')} — {n.get('relation', '')}, "
                     f"relevance {n.get('relevance', 0.0)} — {n.get('rationale', '')}")
