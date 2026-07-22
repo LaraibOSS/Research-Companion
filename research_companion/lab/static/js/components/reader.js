@@ -328,7 +328,8 @@ function _renderContent(payload, detail) {
   // The Text pane's own body-rendering logic above is untouched; here we only
   // decide whether it starts hidden (Original is the default active tab).
   const tabState = readerTabs(model.hasPdf);
-  const hasTabs = tabState.tabs.length > 1;
+  // interim: tab bar still hardcodes Original+Text; gate on hasPdf until the Simplified pane lands and the bar renders from tabState.tabs
+  const hasTabs = model.hasPdf;
 
   const tabsHtml = hasTabs ? `
     <div class="reader-tabs" role="tablist">
