@@ -277,6 +277,18 @@ function _renderSectionBlocks(sectionText, sectionTitle, quoteRange) {
 }
 
 async function _renderContent(payload, detail, gen) {
+  // Superseded by a newer open — e.g. a rapid close-then-reopen onto a
+  // DIFFERENT paper while _open_'s own upstream getPaperText() fetch for
+  // THIS open was still resolving: _open_'s `if (!_open) return;` guard
+  // only catches a plain close (nothing reopened), not a reopen (which sets
+  // _open back to true for the NEW paper) — so without this check a stale
+  // _renderContent(payloadA, ...) call would still run and paint paper A's
+  // content over whatever paper B has already rendered. This single check
+  // protects PDF papers too: the no-PDF prefetch block below has its own
+  // gen check, but PDF papers never run that block, so they had no guard
+  // against this race at all before this line existed.
+  if (gen !== _readerGeneration) return;
+
   // Fresh PDF-tab state for this open — a previous paper's iframe/timer/events
   // must never bleed into this render.
   _clearPdfMissTimer();
@@ -815,7 +827,11 @@ function _wireSimplifyButton(btn, detail) {
         btn.textContent = originalLabel;
       });
     } catch (err) {
-      if (gen !== _readerGeneration) return;
+      // gen mismatch catches a supersede-by-reopen; !_open additionally
+      // catches a PLAIN close (no reopen) — gen alone doesn't change in
+      // that case, so without the extra check this could still restore a
+      // detached button and pop a toast for a reader nobody is looking at.
+      if (gen !== _readerGeneration || !_open) return;
       btn.disabled = false;
       btn.textContent = originalLabel;
       showToast(`Simplify failed: ${err.message}`, 'error');
@@ -875,7 +891,12 @@ function _watchSimplifyJob(jobId, detail, gen, onGiveUp) {
       err = e;
     }
 
-    if (gen !== _readerGeneration) return; // superseded while the GET was in flight
+    // gen mismatch catches a supersede-by-reopen; !_open additionally
+    // catches a PLAIN close (no reopen) — gen alone doesn't change in that
+    // case, so without the extra check a job for an already-closed reader
+    // could still call onGiveUp/finalRefresh and pop the "failed" toast
+    // below.
+    if (gen !== _readerGeneration || !_open) return;
 
     if (!err) {
       consecutiveFailures = 0; // any successful poll resets the failure streak
@@ -912,7 +933,12 @@ function _watchSimplifyJob(jobId, detail, gen, onGiveUp) {
       default:
         if (onGiveUp) onGiveUp();
         await finalRefresh();
-        showToast('Simplify is taking unusually long — refresh to check its status.', 'info');
+        // A fresh check: finalRefresh() just awaited its own GET, a gap
+        // during which the reader could have been closed (or superseded)
+        // even though the check above still held at the time.
+        if (gen === _readerGeneration && _open) {
+          showToast('Simplify is taking unusually long — refresh to check its status.', 'info');
+        }
         return;
     }
   };
