@@ -63,6 +63,7 @@ Research Companion grew from "help me read papers" into "help me get a paper sub
 - **MCP trust-layer server** (`mcp serve`) — exposes four deterministic, key-free verification tools (verify a citation, ground a claim, check citation coverage, search your library) to any MCP-capable agent, plus two opt-in costed tools (`ask_library`, `review_draft`) behind an explicit setting, a configured key, and a per-call cost cap — off by default.
 - **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, and LaTeX `\cite`-key resolution (`export-bib` / `import-bib` / `cite-tex`).
 - **Find PDF** — a one-click search across open-access aggregators (Semantic Scholar, Unpaywall, OpenAlex, arXiv) for a paper whose PDF failed to download, with a header sweep for every missing PDF at once and honest fallback links when no free copy exists.
+- **Simplified reader tab** — free, offline, plain-English bullets built from a paper's existing analysis, with an optional one-call "Simplify further" AI rewrite (cached, same provider as Ask) — display-only, it never feeds Ask, Draft, or citations.
 
 Everything above is deterministic at the core, opt-in wherever it costs money or sends data anywhere, and designed to leave the tool byte-identical when a feature is off. See the [Roadmap](docs/ROADMAP.md).
 

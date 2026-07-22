@@ -5304,6 +5304,7 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 }
 .reader-panel:has(.reader-tabs) .reader-nav,
 .reader-panel:has(.reader-tabs) .reader-pdf-pane,
+.reader-panel:has(.reader-tabs) .reader-simplified-pane,
 .reader-panel:has(.reader-tabs) .reader-body {
   grid-row: 3;
 }
@@ -5371,6 +5372,77 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   color: var(--color-muted);
   font-size: var(--text-sm);
   padding: var(--space-2);
+}
+
+/* Simplified tab — scrolls like .reader-body (same grid slot, same max-width
+ * reading column), but its own class since it never carries quote/offset
+ * highlighting. */
+.reader-simplified-pane {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+}
+.reader-simplified-pane > * {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.simplified-group {
+  margin-bottom: var(--space-5);
+}
+.simplified-group h4 {
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.simplified-bullet-list {
+  margin: 0;
+  padding-left: 1.25em;
+  list-style: disc;
+}
+.simplified-bullet {
+  color: var(--color-fg);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  margin-bottom: var(--space-2);
+}
+.simplified-bullet-link {
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.simplified-bullet-link:hover { text-decoration: underline; }
+.simplified-provenance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+}
+.simplified-note {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0 var(--space-4) 0;
+}
+.simplified-note a,
+.simplified-toggle-link {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.simplified-note a:hover,
+.simplified-toggle-link:hover { text-decoration: underline; }
+.simplified-actions {
+  margin-top: var(--space-4);
+}
+.btn-simplify-further[disabled] {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .reader-notice {

@@ -3868,3 +3868,294 @@ class TestPipelineProviderFromSettings:
         monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", "openai")
         monkeypatch.setenv("RESEARCH_COMPANION_MODEL", "gpt-4o-2024-11-20")
         assert la._pipeline_provider_model() == ("openai", "gpt-4o-2024-11-20")
+
+
+# ---------------------------------------------------------------------------
+# Simplified tab (Task 2): GET .../simplified + POST .../simplify
+# ---------------------------------------------------------------------------
+
+class TestSimplified:
+    def _client(self, simplify_override=None):
+        app = create_lab_app(Bus())
+        if simplify_override is not None:
+            app.state.simplify_override = simplify_override
+        return app, TestClient(app)
+
+    def _poll(self, c, job_id, tries=100):
+        import time
+        job = None
+        for _ in range(tries):
+            job = c.get(f"/api/jobs/{job_id}").json()
+            if job["status"] != "running":
+                break
+            time.sleep(0.05)
+        return job
+
+    def _seed_sections(self, paper_id: str) -> None:
+        from research_companion import store
+        store.save_sections(paper_id, {
+            "sections": [
+                {"section_id": "s1", "title": "Introduction", "level": 1,
+                 "parent": None, "char_start": 0, "char_end": 50,
+                 "text": "This paper introduces a new method."},
+                {"section_id": "s2", "title": "Methods", "level": 1,
+                 "parent": None, "char_start": 50, "char_end": 100,
+                 "text": "We use a graph-based approach."},
+            ]
+        })
+
+    def test_get_simplified_shape_analyzed_paper(self, isolated_papergraph_dir):
+        """A fully-analyzed paper (text + sections + cached extraction under
+        the CURRENT prompt sha) serves the bare extraction dict, no cached
+        rewrite yet, and has_extraction True."""
+        paper_id = "arxiv:simplified_analyzed"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=True)
+        self._seed_sections(paper_id)
+
+        _, c = self._client()
+        resp = c.get(f"/api/papers/{paper_id}/simplified")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["extraction"] == {
+            "concepts": [{"name": "Knowledge Graph", "definition": "A graph"}],
+            "methods": [{"name": "BM25", "description": "Retrieval"}],
+            "datasets": [],
+            "claims": [],
+            "results": [],
+            "related_work": [],
+        }
+        assert data["rewrite"] is None
+        assert data["has_extraction"] is True
+        assert isinstance(data["provider_configured"], bool)
+
+    def test_get_simplified_unanalyzed_paper(self, isolated_papergraph_dir):
+        """Metadata-only paper (never ingested past add) -> no extraction,
+        no rewrite, has_extraction False."""
+        from research_companion import store
+
+        paper_id = "arxiv:simplified_unanalyzed"
+        store.PaperMetadata(paper_id=paper_id, title="Unanalyzed", authors=["A"],
+                            added_at="2026-01-01T00:00:00Z").save()
+
+        _, c = self._client()
+        resp = c.get(f"/api/papers/{paper_id}/simplified")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["extraction"] is None
+        assert data["rewrite"] is None
+        assert data["has_extraction"] is False
+        assert isinstance(data["provider_configured"], bool)
+
+    def test_get_simplified_404_unknown_paper(self, isolated_papergraph_dir):
+        _, c = self._client()
+        resp = c.get("/api/papers/arxiv:does_not_exist/simplified")
+        assert resp.status_code == 404
+
+    def test_get_simplified_provider_configured_reflects_key_presence(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """provider_configured must be derived from key PRESENCE (no network
+        call, no exception-swallowing around a constructor that never fails
+        for a missing key) -- toggle ANTHROPIC_API_KEY and see it flip."""
+        from research_companion import store
+
+        paper_id = "arxiv:simplified_provider_flag"
+        store.PaperMetadata(paper_id=paper_id, title="T", authors=["A"],
+                            added_at="2026-01-01T00:00:00Z").save()
+        monkeypatch.delenv("RESEARCH_COMPANION_PROVIDER", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        _, c = self._client()
+        resp = c.get(f"/api/papers/{paper_id}/simplified")
+        assert resp.json()["provider_configured"] is False
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-test-key")
+        resp2 = c.get(f"/api/papers/{paper_id}/simplified")
+        assert resp2.json()["provider_configured"] is True
+
+    def test_simplify_409_without_text(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        paper_id = "arxiv:simplify_no_text"
+        store.PaperMetadata(paper_id=paper_id, title="No text", authors=["A"],
+                            added_at="2026-01-01T00:00:00Z").save()
+
+        _, c = self._client()
+        resp = c.post(f"/api/papers/{paper_id}/simplify")
+        assert resp.status_code == 409
+
+    def test_simplify_job_caches_and_get_serves_rewrite(self, isolated_papergraph_dir, monkeypatch):
+        import research_companion.lab_api as la
+
+        paper_id = "arxiv:simplify_ok"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        self._seed_sections(paper_id)
+
+        first_groups = [
+            {"title": "What this paper is about", "bullets": [
+                {"text": "It's about graphs.", "section_id": "s1"}]},
+            {"title": "Key claims", "bullets": [
+                {"text": "Graphs help.", "section_id": "s1"}]},
+            {"title": "How they did it", "bullets": [
+                {"text": "They used BM25.", "section_id": "s2"}]},
+            {"title": "What they found", "bullets": [
+                {"text": "It worked.", "section_id": "s2"}]},
+        ]
+
+        def fake_resolve_llm_first(*, json_mode=True):
+            def fake_llm(prompt: str) -> str:
+                return json.dumps({"groups": first_groups})
+            return fake_llm
+
+        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm_first)
+
+        _, c = self._client()
+        with c:
+            resp = c.post(f"/api/papers/{paper_id}/simplify")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"expected done, got: {job}"
+            assert job["kind"] == "simplify"
+
+            got = c.get(f"/api/papers/{paper_id}/simplified").json()
+            assert got["rewrite"]["groups"] == first_groups
+            assert got["rewrite"]["provider"]
+            # model may legitimately be None (settings default -> provider's
+            # own default model, same convention _pipeline_provider_model
+            # uses everywhere else) -- assert presence, not truthiness.
+            assert "model" in got["rewrite"]
+            assert got["rewrite"]["created_at"]
+
+            # Regenerate with a different stub -> cache overwritten.
+            second_groups = [
+                {"title": "Key claims", "bullets": [{"text": "Different.", "section_id": None}]},
+            ]
+
+            def fake_resolve_llm_second(*, json_mode=True):
+                def fake_llm(prompt: str) -> str:
+                    return json.dumps({"groups": second_groups})
+                return fake_llm
+
+            monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm_second)
+
+            resp2 = c.post(f"/api/papers/{paper_id}/simplify")
+            job_id2 = resp2.json()["job_id"]
+            job2 = self._poll(c, job_id2)
+            assert job2["status"] == "done"
+
+            got2 = c.get(f"/api/papers/{paper_id}/simplified").json()
+            assert got2["rewrite"]["groups"] == second_groups
+
+    def test_simplify_llm_error_marks_job_failed_and_keeps_cache(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        import research_companion.lab_api as la
+        from research_companion import store
+
+        paper_id = "arxiv:simplify_llm_error"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        self._seed_sections(paper_id)
+
+        old_cache = {"provider": "anthropic", "model": "old-model",
+                     "created_at": "2026-01-01T00:00:00Z",
+                     "groups": [{"title": "Key claims",
+                                 "bullets": [{"text": "Old cached bullet.", "section_id": "s1"}]}]}
+        store.save_simplified(paper_id, old_cache)
+
+        def fake_resolve_llm_raises(*, json_mode=True):
+            def fake_llm(prompt: str) -> str:
+                raise RuntimeError("provider unreachable")
+            return fake_llm
+
+        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm_raises)
+
+        _, c = self._client()
+        with c:
+            resp = c.post(f"/api/papers/{paper_id}/simplify")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "failed", f"expected failed, got: {job}"
+            assert job["kind"] == "simplify"
+
+            got = c.get(f"/api/papers/{paper_id}/simplified").json()
+            assert got["rewrite"] == old_cache
+
+    def test_simplify_strips_markdown_fences_before_json_parse(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """REGRESSION: the default provider path (Anthropic, no forced JSON
+        response format) routinely wraps its JSON reply in ```json ... ```
+        fences -- the same reason extract._strip_code_fences exists and is
+        used by every other json.loads(raw) caller (novelty, problem,
+        readiness_narrative, rebuttal draft). _do_simplify must strip fences
+        the same way, or a routine fenced response spuriously fails the job."""
+        import research_companion.lab_api as la
+
+        paper_id = "arxiv:simplify_fenced"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        self._seed_sections(paper_id)
+
+        groups = [
+            {"title": "Key claims", "bullets": [{"text": "Fenced but valid.", "section_id": "s1"}]},
+        ]
+
+        def fake_resolve_llm(*, json_mode=True):
+            def fake_llm(prompt: str) -> str:
+                return "```json\n" + json.dumps({"groups": groups}) + "\n```"
+            return fake_llm
+
+        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm)
+
+        _, c = self._client()
+        with c:
+            resp = c.post(f"/api/papers/{paper_id}/simplify")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"expected done, got: {job}"
+
+            got = c.get(f"/api/papers/{paper_id}/simplified").json()
+            assert got["rewrite"]["groups"] == groups
+
+    def test_simplify_falls_back_to_raw_text_without_sections(
+        self, isolated_papergraph_dir, monkeypatch
+    ):
+        """A paper with stored text but no sections.json (e.g. ingested before
+        the sectioner ran, or a stale/partial ingest) must still simplify:
+        the prompt falls back to the raw text[:budget] slice rather than an
+        empty sections_block."""
+        import research_companion.lab_api as la
+        from research_companion import store
+
+        paper_id = "arxiv:simplify_no_sections"
+        paper_text = "Introduction Methods Results. " * 20
+        store.PaperMetadata(paper_id=paper_id, title="No Sections Paper", authors=["A"],
+                            added_at="2026-01-01T00:00:00Z").save()
+        store.save_text(paper_id, paper_text)
+        # Deliberately no store.save_sections(...) call -- no sections.json.
+
+        captured_prompts = []
+
+        def fake_resolve_llm(*, json_mode=True):
+            def fake_llm(prompt: str) -> str:
+                captured_prompts.append(prompt)
+                return json.dumps({"groups": [
+                    {"title": "Key claims", "bullets": [{"text": "t", "section_id": None}]},
+                ]})
+            return fake_llm
+
+        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm)
+
+        _, c = self._client()
+        with c:
+            resp = c.post(f"/api/papers/{paper_id}/simplify")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"expected done, got: {job}"
+
+        assert len(captured_prompts) == 1
+        assert paper_text[:100] in captured_prompts[0]

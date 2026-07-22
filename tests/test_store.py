@@ -136,6 +136,24 @@ def test_load_extraction_corrupt_json_returns_none():
     assert store.load_extraction(paper_id, prompt_sha="abc123") is None
 
 
+def test_save_and_load_simplified_roundtrip():
+    payload = {"provider": "anthropic", "model": "m", "created_at": "2026-07-22T00:00:00Z",
+               "groups": [{"title": "Key claims", "bullets": [{"text": "t", "section_id": "s1"}]}]}
+    store.save_simplified("local:abc", payload)
+    assert store.load_simplified("local:abc") == payload
+    assert store.load_simplified("local:missing") is None
+
+
+def test_load_simplified_corrupt_json_returns_none():
+    """Mirrors load_extraction/load_gaps: a corrupt simplified.json must be a
+    cache miss, not raise -- the GET /simplified endpoint must never 500."""
+    paper_id = "local:corrupt_simplified"
+    d = store.paper_dir(paper_id)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "simplified.json").write_text("not valid json }{", encoding="utf-8")
+    assert store.load_simplified(paper_id) is None
+
+
 def test_list_and_remove_paper():
     a = store.PaperMetadata(paper_id="arxiv:2410.00001", title="A", authors=[],
                             added_at="2026-04-01T10:00:00")

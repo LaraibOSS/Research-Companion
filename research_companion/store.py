@@ -523,6 +523,25 @@ def load_extraction(paper_id: str, *, prompt_sha: str) -> dict[str, Any] | None:
     return payload.get("extraction")
 
 
+def save_simplified(paper_id: str, payload: dict) -> Path:
+    """Save the LLM 'Simplify further' rewrite to papers/<dir>/simplified.json.
+    Display-only comprehension aid — never read by Ask/Draft/analysis paths."""
+    p = paper_dir(paper_id) / "simplified.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_simplified(paper_id: str) -> dict | None:
+    p = paper_dir(paper_id) / "simplified.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def save_citation_polarity(paper_id: str, mapping: dict[str, Any]) -> Path:
     """Persist per-citation polarity for a paper, keyed by the raw related_work
     string. Consumed by build_graph to type cites edges."""

@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -1769,6 +1769,120 @@ def test_css_has_activity_spin_and_prefers_reduced_motion():
     css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
     assert ".activity-spin" in css, "lab.css missing .activity-spin"
     assert "prefers-reduced-motion" in css, "lab.css missing prefers-reduced-motion guard"
+
+
+def test_reader_js_renders_tab_bar_from_tabstate_tabs():
+    """reader.js must render the Original/Simplified/Text tab bar by looping
+    over tabState.tabs, not the earlier interim hardcoded Original+Text pair
+    gated on model.hasPdf (commit c83ac7b) -- that interim gate is what left
+    no-PDF papers with no tab bar at all (no Simplified tab either)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+
+    assert "tabState.tabs.map(" in js, (
+        "reader.js must render the tab bar by mapping over tabState.tabs, not a hardcoded pair"
+    )
+    assert "hasTabs = tabState.tabs.length > 1" in js, (
+        "reader.js must derive hasTabs from tabState.tabs.length, not model.hasPdf"
+    )
+    # The interim hardcoded Original tab button markup must be gone -- it
+    # would mean a literal button in the template rather than one produced
+    # by the tabs loop.
+    assert 'data-tab="original">Original</button>' not in js, (
+        "reader.js must not hardcode the Original tab button; it must come from the tabs loop"
+    )
+    # The Original pane/button must only ever exist when 'original' is
+    # actually one of tabState.tabs (no-PDF papers get no PDF pane at all).
+    assert "tabState.tabs.includes('original')" in js, (
+        "reader.js must gate the PDF pane on tabState.tabs.includes('original')"
+    )
+
+
+def test_reader_js_has_simplified_tab_wiring():
+    """reader.js must wire the Simplified tab: lazy /simplified fetch, the
+    exact empty-state and disclaimer copy, and the Simplify further endpoints."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "getSimplified" in js, "reader.js must call api.getSimplified"
+    assert "postSimplify" in js, "reader.js must call api.postSimplify"
+    assert "simplifiedModel" in js, "reader.js must use simplifiedModel"
+    assert "simplifiedDisplayState" in js, "reader.js must use simplifiedDisplayState"
+    assert "pollDecision" in js, "reader.js must bound-poll the simplify job via pollDecision"
+    assert "hasn't been analyzed yet — run analysis from the Library to get the simplified view." in js, (
+        "reader.js must render the exact empty-state copy"
+    )
+    assert "it may lose nuance; check the Original tab for the real thing." in js, (
+        "reader.js must render the exact simplified-note copy"
+    )
+
+
+def test_reader_js_guards_simplified_async_paths_with_generation_token():
+    """reader.js must guard every async continuation that can mutate the
+    Simplified-tab cache/DOM with a per-open generation token, not just the
+    global _open boolean (post-review fix).
+
+    Root cause: the PDF (Original) tab already protects its async
+    continuations with an identity check (`_pdfFrame !== iframe`), but the
+    Simplified tab's continuations (the no-PDF prefetch in _renderContent,
+    the lazy /simplified fetch in _ensureSimplifiedPane, and the Simplify
+    further job poll/finalRefresh in _watchSimplifyJob) had no such guard.
+    Closing the reader on paper A mid-Simplify-job and opening paper B let
+    A's job finish, refetch A's /simplified, pass a bare `if (!_open)`
+    check (true, because B is now open), and poison B's cached
+    _simplifiedData -- rendered into B's pane and cached, so even a fresh
+    tab click on B kept showing A's content.
+    """
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+
+    assert "let _readerGeneration" in js, "reader.js must have a _readerGeneration counter"
+    assert "++_readerGeneration" in js, "reader.js must increment _readerGeneration once per open"
+
+    # Must appear in each of: the no-PDF prefetch, the lazy simplified fetch's
+    # .then/.catch, the postSimplify click handler, and the job poll/
+    # finalRefresh -- not just once. A regression that drops the guard from
+    # any one of those spots reintroduces the poisoning race above.
+    guard_uses = re.findall(r"gen !== _readerGeneration\) return", js)
+    assert len(guard_uses) >= 8, (
+        f"reader.js must gate simplified-tab async continuations on the generation token "
+        f"in every continuation (prefetch, lazy fetch x2, click handler x3, poll x2, "
+        f"finalRefresh); found only {len(guard_uses)}"
+    )
+
+
+def test_reader_js_gates_regenerate_button_on_provider_configured():
+    """The rewrite-view 'Regenerate' button must only render when a provider
+    is configured, matching the standalone 'Simplify further' button's
+    showButton gate (post-review fix -- it previously rendered unconditionally,
+    offering to regenerate with no LLM key present)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "resp.provider_configured" in js, (
+        "reader.js must gate the Regenerate button on resp.provider_configured"
+    )
+
+
+def test_reader_js_bullet_link_only_when_section_exists():
+    """A simplified bullet's section reference must only render as a
+    clickable link when that section exists in the CURRENT reader sections;
+    otherwise it must fall back to a plain, non-clickable label (post-review
+    fix -- a link to a missing section id called _setActive with an id
+    matching nothing, which cleared every active nav/section highlight)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "label === undefined" in js, (
+        "reader.js must check the section-label lookup for a miss before rendering a link"
+    )
+
+
+def test_api_js_has_simplified_endpoints():
+    """api.js must export getSimplified/postSimplify (Task 3)."""
+    js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "export const getSimplified" in js, "api.js must export getSimplified"
+    assert "export const postSimplify" in js, "api.js must export postSimplify"
+
+
+def test_lab_css_has_simplified_tab_styles():
+    """lab.css must style the Simplified pane and its bullets/button (Task 3)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for selector in (".reader-simplified-pane", ".simplified-group", ".simplified-bullet",
+                     ".simplified-note", ".btn-simplify-further"):
+        assert selector in css, f"lab.css missing {selector}"
 
 
 def test_activity_helpers_test_file_exists():

@@ -133,6 +133,22 @@ export const getPaperText = (id, q) =>
 /** URL for the inline original PDF of a paper (GET /api/papers/{id}/pdf). */
 export const paperPdfUrl = (id) => `/api/papers/${encodeURIComponent(id)}/pdf`;
 
+/**
+ * GET /api/papers/{id}/simplified — reader "Simplified" tab payload.
+ * Returns { extraction: dict|null, rewrite: {provider,model,created_at,groups}|null,
+ * has_extraction, provider_configured }. 404 unknown paper.
+ */
+export const getSimplified = (id) =>
+  get(`/api/papers/${encodeURIComponent(id)}/simplified`);
+
+/**
+ * POST /api/papers/{id}/simplify — kick off an on-demand LLM "Simplify
+ * further" rewrite job. Returns 202 {job_id}. 409 when the paper has no
+ * stored text to simplify.
+ */
+export const postSimplify = (id) =>
+  post(`/api/papers/${encodeURIComponent(id)}/simplify`);
+
 /** GET /api/draft/alignment */
 export const getDraftAlignment = () => get('/api/draft/alignment');
 

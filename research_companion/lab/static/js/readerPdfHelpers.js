@@ -46,10 +46,12 @@ export function findDispatchParams(phrase) {
   };
 }
 
-export function readerTabs(hasPdf) {
-  return hasPdf
-    ? { tabs: ['original', 'text'], active: 'original' }
-    : { tabs: ['text'], active: 'text' };
+export function readerTabs(hasPdf, hasSimplified = false) {
+  if (hasPdf) return { tabs: ['original', 'simplified', 'text'], active: 'original' };
+  return {
+    tabs: ['simplified', 'text'],
+    active: hasSimplified ? 'simplified' : 'text',
+  };
 }
 
 export function findMissState(events, timeoutFired) {
