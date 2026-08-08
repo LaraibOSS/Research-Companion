@@ -467,6 +467,11 @@ function _bindSaveNote(detail, headerTitle) {
   const btn = _panel.querySelector('.reader-save-note-btn');
   if (!btn) return;
   btn.addEventListener('click', async () => {
+    // Reader notes carry no draft_section_id, so the server's (paper_id,
+    // draft_section_id) dedupe never catches a rapid double-click here —
+    // guard it client-side instead.
+    if (btn.disabled) return;
+    btn.disabled = true;
     let selection = '';
     try {
       const sel = window.getSelection && window.getSelection();
@@ -486,6 +491,8 @@ function _bindSaveNote(detail, headerTitle) {
       showToast('Saved to Notes', 'info');
     } catch (err) {
       showToast(`Failed to save note: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
     }
   });
 }

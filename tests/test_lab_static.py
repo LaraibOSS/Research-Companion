@@ -2286,6 +2286,63 @@ def test_draft_js_opportunities_expanded_by_default():
     )
 
 
+def test_draft_js_opportunities_expand_seed_gated_on_nonempty():
+    """Regression (fix round): _oppExpandedInitialized must NOT flip true
+    unconditionally on the first _render() — an early render with zero
+    opportunities (not yet loaded) must not permanently skip seeding once
+    opportunities populate on a later re-render. The flag may only be set
+    AFTER confirming at least one section was actually seeded."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    render_start = js.index("async function _render(")
+    render_body = js[render_start:js.index("\nfunction _renderNoDraft(")]
+
+    # The buggy pattern: setting the flag true BEFORE (or regardless of)
+    # whether the seed loop found anything to add.
+    assert not re.search(
+        r"if\s*\(!_oppExpandedInitialized\)\s*\{\s*_oppExpandedInitialized\s*=\s*true;",
+        render_body,
+    ), (
+        "_oppExpandedInitialized must not be set unconditionally at the top of the "
+        "seeding block — it must only be set once a section was actually seeded"
+    )
+    # The fix: the flag assignment must appear AFTER the seeding loop, gated
+    # on having found at least one opportunity section.
+    add_idx = render_body.index("_oppExpandedSections.add(")
+    initialized_idx = render_body.index("_oppExpandedInitialized = true", add_idx)
+    assert initialized_idx > add_idx, (
+        "_oppExpandedInitialized = true must be set AFTER the seed loop that calls "
+        "_oppExpandedSections.add(...), not before it"
+    )
+
+
+def test_draft_js_opportunity_save_note_uses_build_note_record():
+    """Regression (fix round): the PRE-EXISTING uncited-opportunity Save-note
+    handler must route through buildNoteRecord('opportunity', {...}) so the
+    saved note carries kind:'opportunity' — previously it posted a raw,
+    kind-less object that the server silently defaulted to kind:'freeform',
+    which would have made Task 4's Opportunity kind-filter never show these
+    notes."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "buildNoteRecord('opportunity'" in js, (
+        "draft.js must call buildNoteRecord('opportunity', ...) for the uncited-opportunity "
+        "Save-note handler (kind must not silently default to freeform)"
+    )
+    start = js.index("buildNoteRecord('opportunity'")
+    call_src = js[start:js.index(")", js.index("}", start)) + 1]
+    for key in ("paperId:", "paperTitle:", "sectionId:", "sectionTitle:",
+                "relation:", "relevance:", "rationale:", "quote:", "quoteSectionId:"):
+        assert key in call_src, f"opportunity buildNoteRecord call missing {key}"
+
+    # The old hand-built, kind-less record shape must be gone from the
+    # opportunity Save handler specifically (draft_section_id was the
+    # server-field-named key of the pre-fix raw object).
+    opp_handler_start = js.index("detailEl.querySelectorAll('.draft-opp-save-btn')")
+    opp_handler_body = js[opp_handler_start:js.index("\n  });\n}", opp_handler_start)]
+    assert "draft_section_id: rec.sectionId" not in opp_handler_body, (
+        "the opportunity Save handler must no longer post the old hand-built, kind-less record"
+    )
+
+
 def test_reader_js_save_note_uses_build_note_record():
     """reader.js header 'Save note' button must call buildNoteRecord('reader',
     {paperId, paperTitle, sourceExcerpt, quote}) then saveNote + toast."""
@@ -2341,3 +2398,58 @@ def test_lab_css_has_task3_notes_everywhere_styles():
     for needle in (".draft-note-btn", ".draft-note-form", ".draft-align-save-btn",
                    ".reader-save-note-btn", ".btn-save-note", ".ask-save-note-btn"):
         assert needle in css, f"lab.css missing Task 3 (notes-everywhere) style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/notes-everywhere (Task 3, fix round): in-flight guard against
+# duplicate notes from a rapid double-click on the three kinds (reader/paper/
+# ask) whose records carry no draft_section_id, so the server's
+# (paper_id, draft_section_id) dedupe can never catch the duplicate.
+# ---------------------------------------------------------------------------
+
+def _handler_body(js: str, fn_signature: str) -> str:
+    """Slice out a function body by its declaration text, up to the next
+    top-level function/section-comment boundary (best-effort, good enough for
+    these small single-purpose handlers)."""
+    start = js.index(fn_signature)
+    rest = js[start:]
+    end_markers = ["\n// ---", "\nfunction ", "\nasync function "]
+    end_offset = len(rest)
+    for marker in end_markers:
+        idx = rest.find(marker, 1)  # skip offset 0 (the signature itself may match "\nfunction ")
+        if idx != -1:
+            end_offset = min(end_offset, idx)
+    return rest[:end_offset]
+
+
+def test_reader_js_save_note_guards_duplicate_clicks():
+    """reader.js Save-note handler must disable the button for the duration
+    of the async saveNote call and re-enable it in a finally (reader notes
+    carry no draft_section_id, so the server can't dedupe a double-click)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "function _bindSaveNote(")
+    assert "btn.disabled" in body, "reader.js Save-note handler must guard against re-entrant clicks via btn.disabled"
+    assert "finally" in body, "reader.js Save-note handler must re-enable the button in a finally block"
+
+
+def test_paper_card_js_save_note_guards_duplicate_clicks():
+    """paperCard.js Save-note handler must disable the button for the
+    duration of the async saveNote call and re-enable it in a finally (paper
+    notes carry no draft_section_id, so the server can't dedupe a
+    double-click)."""
+    js = (STATIC_DIR / "js" / "components" / "paperCard.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "saveNoteBtn.addEventListener('click'")
+    assert "saveNoteBtn.disabled" in body, (
+        "paperCard.js Save-note handler must guard against re-entrant clicks via saveNoteBtn.disabled"
+    )
+    assert "finally" in body, "paperCard.js Save-note handler must re-enable the button in a finally block"
+
+
+def test_ask_js_save_note_guards_duplicate_clicks():
+    """ask.js Save-note handler must disable the button for the duration of
+    the async saveNote call and re-enable it in a finally (ask notes carry no
+    draft_section_id, so the server can't dedupe a double-click)."""
+    js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "async function _onSaveNoteClick(")
+    assert "btn.disabled" in body, "ask.js Save-note handler must guard against re-entrant clicks via btn.disabled"
+    assert "finally" in body, "ask.js Save-note handler must re-enable the button in a finally block"

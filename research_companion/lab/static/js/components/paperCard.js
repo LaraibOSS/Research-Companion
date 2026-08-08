@@ -126,6 +126,11 @@ export function renderPaperCard(paper) {
   if (saveNoteBtn) {
     saveNoteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      // Paper notes carry no draft_section_id, so the server's (paper_id,
+      // draft_section_id) dedupe never catches a rapid double-click here —
+      // guard it client-side instead.
+      if (saveNoteBtn.disabled) return;
+      saveNoteBtn.disabled = true;
       try {
         await api.saveNote(buildNoteRecord('paper', {
           paperId: paper.paper_id,
@@ -134,6 +139,8 @@ export function renderPaperCard(paper) {
         showToast('Saved to Notes', 'info');
       } catch (err) {
         showToast(`Failed to save note: ${err.message}`, 'error');
+      } finally {
+        saveNoteBtn.disabled = false;
       }
     });
   }

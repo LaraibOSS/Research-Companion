@@ -144,17 +144,26 @@ async function _render() {
     _opportunities = { draft_id: null, sections: [] };
   }
 
-  // Seed the expand-state set ONCE, on the first successful load, so every
-  // section that has opportunities defaults to expanded rather than
-  // collapsed. Runs only while _oppExpandedInitialized is still false, so a
-  // later re-render (a fresh 'papers'/'alignment' notify) never re-adds a
-  // section the user has since collapsed.
+  // Seed the expand-state set ONCE, so every section that has opportunities
+  // defaults to expanded rather than collapsed. Gated on _oppExpandedInitialized
+  // staying false until a load has ACTUALLY seeded >=1 section — a naive
+  // "flip true on the first _render() no matter what" would wrongly latch
+  // the seed as done on an early render where opportunities are still empty
+  // (e.g. the very first paint, before the backend has anything to offer),
+  // permanently skipping the seed once they populate on a later re-render.
+  // Once at least one section IS seeded, the flag stays true so a later
+  // re-render (a fresh 'papers'/'alignment' notify) never re-adds a section
+  // the user has since collapsed.
   if (!_oppExpandedInitialized) {
-    _oppExpandedInitialized = true;
     const oppSectionsSeed = opportunityModel((_opportunities && _opportunities.sections) || []);
+    let seededAny = false;
     for (const o of oppSectionsSeed) {
-      if (o.count > 0) _oppExpandedSections.add(o.sectionId);
+      if (o.count > 0) {
+        _oppExpandedSections.add(o.sectionId);
+        seededAny = true;
+      }
     }
+    if (seededAny) _oppExpandedInitialized = true;
   }
 
   if (!_el) return;
@@ -477,29 +486,35 @@ function _wireOpportunityBlock(detailEl, sections) {
     btn.addEventListener('click', (e) => { e.stopPropagation(); openSource(); });
   });
 
-  // Save note -> POST /api/notes, then toast.
+  // Save note -> POST /api/notes, then toast. Routed through
+  // buildNoteRecord('opportunity', ...) (not a hand-built object) so the
+  // saved note carries kind:"opportunity" — without this it silently
+  // defaulted to kind:"freeform" server-side, which broke the Notes view's
+  // Opportunity kind-filter (fix round, see task-3-report.md).
   detailEl.querySelectorAll('.draft-opp-save-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const idx = Number(btn.dataset.oppIdx);
       const rec = _oppRegistry[idx];
-      if (!rec) return;
+      if (!rec || btn.disabled) return;
+      btn.disabled = true;
       try {
-        await api.saveNote({
-          draft_section_id: rec.sectionId,
-          draft_section_title: rec.sectionTitle,
-          paper_id: rec.paperId,
-          paper_title: rec.title,
+        await api.saveNote(buildNoteRecord('opportunity', {
+          paperId: rec.paperId,
+          paperTitle: rec.title,
+          sectionId: rec.sectionId,
+          sectionTitle: rec.sectionTitle,
           relation: rec.relation,
           relevance: rec.relevance,
           rationale: rec.rationale,
-          evidence_quote: rec.quote,
-          evidence_section_id: rec.quoteSectionId,
-          comment: '',
-        });
+          quote: rec.quote,
+          quoteSectionId: rec.quoteSectionId,
+        }));
         showToast('Saved to Notes', 'info');
       } catch (err) {
         showToast(`Failed to save note: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
       }
     });
   });

@@ -328,6 +328,12 @@ async function _onSaveNoteClick(e) {
   const entry = _history[entryIdx];
   if (!entry) return;
 
+  // Ask notes carry no draft_section_id, so the server's (paper_id,
+  // draft_section_id) dedupe never catches a rapid double-click here —
+  // guard it client-side instead.
+  if (btn.disabled) return;
+  btn.disabled = true;
+
   const answerText = String((entry.res && entry.res.answer) || '').trim().slice(0, ASK_NOTE_EXCERPT_MAX);
   const citations = (entry.res && entry.res.citations) || [];
   const topCitation = citations[0] || null;
@@ -341,5 +347,7 @@ async function _onSaveNoteClick(e) {
     showToast('Saved to Notes', 'info');
   } catch (err) {
     showToast(`Failed to save note: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
