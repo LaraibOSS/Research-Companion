@@ -1814,6 +1814,125 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
 }
 
 /* ---------------------------------------------------------------------------
+ * Notes view (Task 4) — notebook additions: header actions, group-by toggle,
+ * kind/status filter chips, kind badge, source excerpt, New-note inline form.
+ * --------------------------------------------------------------------------- */
+.notes-header-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.notes-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.notes-groupby-seg {
+  display: flex;
+  gap: 2px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.notes-groupby-btn {
+  padding: 4px 12px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-dim);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.notes-groupby-btn.active {
+  background: var(--color-panel);
+  color: var(--color-fg);
+}
+.notes-groupby-btn:hover:not(.active) {
+  color: var(--color-fg);
+}
+
+.notes-kind-chips,
+.notes-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.note-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: rgba(255,255,255,0.06);
+  color: var(--color-fg-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.note-source-excerpt {
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-fg-dim);
+  font-style: italic;
+}
+
+.notes-new-note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.notes-new-note-label {
+  font-size: 11px;
+}
+.notes-new-note-textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 6px 8px;
+}
+.notes-new-note-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.notes-new-note-section-select,
+.notes-new-note-paper-select {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 6px 8px;
+}
+.notes-new-note-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------------------
  * Ingest Modal
  * --------------------------------------------------------------------------- */
 .ingest-overlay {

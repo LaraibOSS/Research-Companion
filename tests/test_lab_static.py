@@ -2453,3 +2453,105 @@ def test_ask_js_save_note_guards_duplicate_clicks():
     body = _handler_body(js, "async function _onSaveNoteClick(")
     assert "btn.disabled" in body, "ask.js Save-note handler must guard against re-entrant clicks via btn.disabled"
     assert "finally" in body, "ask.js Save-note handler must re-enable the button in a finally block"
+
+
+# ---------------------------------------------------------------------------
+# feat/notes-everywhere (Task 4): notebook view — group by section/paper,
+# kind & status filter chips, New note.
+# ---------------------------------------------------------------------------
+
+def test_notes_view_uses_notes_group_model():
+    """notes.js must group notes via notesGroupModel(filteredNotes, _groupBy)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "notesGroupModel" in js, "notes.js must reference notesGroupModel"
+    assert "notesGroupModel(" in js, "notes.js must call notesGroupModel(...)"
+    # It must be called with a variable, not the raw unfiltered _notes array —
+    # the kind/status chips must filter BEFORE grouping.
+    assert not re.search(r"notesGroupModel\(\s*_notes\s*,", js), (
+        "notesGroupModel must be called with the FILTERED notes list, not raw _notes"
+    )
+
+
+def test_notes_view_has_group_by_toggle():
+    """notes.js must render a Section/Paper group-by toggle, defaulting to
+    'section'."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "_groupBy" in js, "notes.js must track _groupBy state"
+    assert "_groupBy = 'section'" in js, "notes.js must default _groupBy to 'section'"
+    assert "data-groupby" in js, "notes.js must render a group-by control with data-groupby"
+    assert "'section', 'Section'" in js and "'paper', 'Paper'" in js, (
+        "notes.js must render 'Section' and 'Paper' group-by options"
+    )
+
+
+def test_notes_view_has_kind_and_status_filter_chips():
+    """notes.js must render kind and status filter chips, mirroring the
+    Suggestions panel's chip pattern (filter-chips / chip / chip-active)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "_kindFilter" in js, "notes.js must track _kindFilter state"
+    assert "_statusFilter" in js, "notes.js must track _statusFilter state"
+    assert "_kindFilter = 'all'" in js, "notes.js must default _kindFilter to 'all'"
+    assert "_statusFilter = 'open'" in js, "notes.js must default _statusFilter to 'open'"
+    assert "filter-chips" in js, "notes.js must reuse the filter-chips class"
+    assert "chip-active" in js, "notes.js must reuse the chip-active class"
+    for kind_label in ("Alignment", "Opportunity", "Reader", "Ask", "Free-form"):
+        assert kind_label in js, f"notes.js must render the '{kind_label}' kind chip"
+
+
+def test_notes_view_has_new_note_button_and_uses_build_note_record():
+    """notes.js must render a 'New note' button and save via
+    buildNoteRecord('freeform', {...}) -> api.saveNote(...)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "New note" in js, "notes.js must render a 'New note' button"
+    assert "from '../noteRecord.js'" in js, "notes.js must import buildNoteRecord from noteRecord.js"
+    assert "buildNoteRecord('freeform'" in js, (
+        "notes.js's New-note form must call buildNoteRecord('freeform', ...)"
+    )
+    assert "api.saveNote(" in js, "notes.js must call api.saveNote(...) to save the new note"
+
+
+def test_notes_view_new_note_uses_store_papers_for_paper_picker():
+    """notes.js's optional paper <select> must be sourced from
+    store.getState().papers."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "from '../store.js'" in js, "notes.js must import store.js"
+    assert "store.getState()" in js, "notes.js must call store.getState()"
+    assert ".papers" in js, "notes.js must reference store.getState().papers for the paper picker"
+
+
+def test_notes_view_export_passes_group_by_arg():
+    """notes.js's Export button must call api.exportNotes(_groupBy), not the
+    no-arg form, so the exported markdown grouping matches the on-screen
+    group-by toggle."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert re.search(r"exportNotes\(\s*_groupBy\s*\)", js), (
+        "notes.js Export button must call api.exportNotes(_groupBy)"
+    )
+
+
+def test_notes_view_kind_badge_and_source_excerpt_rendered():
+    """notes.js note cards must show a kind badge and escaped source_excerpt
+    (via row.sourceExcerpt) when present."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "note-kind-badge" in js, "notes.js must render a .note-kind-badge element"
+    assert "sourceExcerpt" in js, "notes.js must reference row.sourceExcerpt"
+    assert "escapeHtml(m.sourceExcerpt)" in js, "notes.js must escapeHtml the source excerpt"
+
+
+def test_notes_view_quote_link_requires_paper_and_quote():
+    """notes.js's evidence-quote link must only render when the note has BOTH
+    a paper and a quote (an ask/freeform note without a paper must not show a
+    dangling 'open in source' link)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert re.search(r"m\.quote\s*&&\s*m\.paperId", js), (
+        "notes.js quote-link condition must require both m.quote and m.paperId"
+    )
+
+
+def test_lab_css_has_task4_notebook_styles():
+    """lab.css must include the Task 4 notebook-view additions: group-by
+    toggle, kind badge, and the New-note form."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".notes-groupby-seg", ".notes-groupby-btn", ".note-kind-badge",
+                   ".notes-new-note-form", ".notes-new-note-textarea"):
+        assert needle in css, f"lab.css missing Task 4 notebook style: {needle}"
