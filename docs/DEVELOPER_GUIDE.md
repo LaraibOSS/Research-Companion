@@ -1156,3 +1156,151 @@ failures-store accessors (`record_failure` / `list_failures` /
 - Both views' markup and wiring are smoke-tested via string assertions in
   `tests/test_lab_static.py` (the same convention §19/§21 use), alongside the
   node-test coverage of the pure helpers.
+
+## 23. Notes everywhere — generalized record, five entry points, notebook view
+
+§22 shipped notes as one thing: a citable snapshot of an uncited-paper
+opportunity suggestion, saveable only from the Draft opportunities block.
+This generalizes the same store into a lightweight capture tool usable from
+anywhere in the Lab, without weakening anything §22 already relies on — a
+legacy on-disk note with no `kind` still reads back as `"opportunity"`, and
+every §22 test still passes unmodified. Still **display-only**: nothing a
+note captures is ever fed back into Ask, Draft alignment/strength, or
+citation coverage.
+
+### Generalized record — `research_companion/notes_store.py`
+
+- **`kind`** — one of `"opportunity"`, `"alignment"`, `"reader"`, `"paper"`,
+  `"ask"`, `"freeform"`, added to `_FIELDS` alongside a new
+  **`source_excerpt`** (a verbatim snippet the *user* selected or the tool
+  already produced — a Reader text selection, an Ask answer — never a new
+  claim). Both anchors (`paper_id`, `draft_section_id`) that §22 required are
+  now **optional**: an `ask` note may carry a `paper_id` (from its answer's
+  top citation) with no section; a `reader`/`paper`/`freeform` note may carry
+  either, both, or neither.
+- **Backward compatibility** — `list_notes()` backfills any on-disk record
+  missing a `kind` key to `"opportunity"` (`n.setdefault("kind",
+  "opportunity")`) as it loads, so every note saved before this change reads
+  back unchanged. `save_note()` itself defaults a record with no `kind` to
+  `"freeform"` (the API layer already normalizes this before calling it —
+  see below — so in practice this branch only matters for direct/legacy
+  callers of the store function).
+- **Dedupe stays narrow** — `save_note()`'s open-note dedupe on (`paper_id`,
+  `draft_section_id`) now fires **only when both are truthy** on the
+  incoming record. An `ask` note with only a `paper_id`, or a `freeform` note
+  with neither anchor, always appends a new note instead of silently
+  merging into an unrelated one — merging on a partial key would be wrong
+  (e.g. two different `ask` notes about the same paper are two different
+  answers, not one suggestion being refreshed).
+- Tested in `tests/test_notes_store.py`: `test_kind_and_source_excerpt_persist`,
+  `test_legacy_note_without_kind_defaults_to_opportunity`,
+  `test_dedupe_only_when_both_anchors_present`,
+  `test_markdown_group_by_paper_and_unfiled`.
+
+### Relaxed POST + group-aware export — `lab_api.py`
+
+- **`POST /api/notes`** no longer requires `paper_id` + `draft_section_id`.
+  It 400s only on an invalid `kind` (must be one of the six above, defaulted
+  to `"freeform"` when absent) or when **all four** of `comment`, `paper_id`,
+  `source_excerpt`, `evidence_quote` are empty — i.e. a note must carry
+  *something* (a paper reference, a captured excerpt/quote, or the user's
+  own comment), but no specific combination is mandatory. This is what makes
+  an anchorless `freeform` or `ask` note legal.
+- **`GET /api/notes/export`** takes an optional `?group_by=section|paper`
+  query param (defaulting to, and falling back on any other value to,
+  `"section"`), passed straight through to `notes_to_markdown(notes,
+  group_by=...)` — see §22's markdown grouping, now parameterized by
+  `group_by="paper"` grouping on `paper_title` instead of
+  `draft_section_title` (same `"Unfiled"` fallback key, same
+  relevance-descending sort within a group). The markdown is still built
+  exactly once, server-side, in Python — the DRY note in §22 still holds,
+  there is no client-side `notesToMarkdown`.
+- Tested in `tests/test_lab_api.py`: the relaxed-validation cases (comment-only,
+  bogus-kind rejection, still-rejects-fully-empty) and
+  `?group_by=paper`/`?group_by=bogus` export cases.
+
+### Five entry points — `noteRecord.js` + four call-sites + `views/draft.js`
+
+- **`research_companion/lab/static/js/noteRecord.js`** exports the single
+  builder every "Save note" affordance now goes through:
+  `buildNoteRecord(kind, data) -> record`. It's pure, DOM-free, and total —
+  an unrecognized `kind` degrades to `"freeform"`, every field missing from
+  `data` becomes `""` (relevance becomes `""`, not `0`/`NaN`, so an omitted
+  relevance stays distinguishable from an explicit `0`). This is the one
+  place surface-local field names (`paperId`, `sectionId`, `quote`,
+  `sourceExcerpt`, ...) get mapped to the server's `_FIELDS` names — no
+  call-site hand-builds a POST body.
+- The five ways to reach `POST /api/notes`, all via `buildNoteRecord`:
+  1. **Draft cited-alignment cards** (`views/draft.js`) — a **Save note**
+     button beside each alignment card's evidence quote →
+     `buildNoteRecord('alignment', {...})`.
+  2. **Reader header** (`components/reader.js`) — a header **Save note**
+     button reads `window.getSelection()` (guarded — it can throw or be
+     absent in odd embeds) and posts the selected text as `sourceExcerpt` →
+     `buildNoteRecord('reader', {...})`.
+  3. **Any paper card** (`components/paperCard.js`) — a **Save note** button
+     → `buildNoteRecord('paper', { paperId, paperTitle })`, no section/quote.
+  4. **Ask answers** (`views/ask.js`) — a **Save note** button per answer
+     posts the answer text (trimmed, capped at `ASK_NOTE_EXCERPT_MAX` chars)
+     as `sourceExcerpt`, plus `paperId`/`paperTitle` from the answer's top
+     citation if any → `buildNoteRecord('ask', {...})`. Guarded client-side
+     against a rapid double-click (`btn.disabled`), since an `ask` note
+     often has no `draft_section_id` and so can't rely on the server's
+     both-anchors dedupe to absorb a duplicate.
+  5. **Free-form** — a tiny inline `+ note` form per section row in the
+     Draft view (`views/draft.js`'s `_toggleSectionNoteForm`) →
+     `buildNoteRecord('freeform', { sectionId, sectionTitle, comment })`; and
+     the **New note** button in the Notes view itself (see below).
+  - Plus the pre-existing §22 **uncited-opportunity** Save note, now
+    explicitly routed through `buildNoteRecord('opportunity', {...})` rather
+    than a hand-built object — omitting this previously let the record
+    silently default to `kind:"freeform"` server-side, breaking the Notes
+    view's Opportunity filter (see the fix commit's note in `views/draft.js`
+    around the alignment-card wiring).
+- **`views/draft.js`**'s uncited-opportunities block now renders **expanded
+  by default**: `_oppExpandedSections` is seeded with every section that has
+  opportunities the first time they load (once per mount, gated so a user's
+  own subsequent collapse/expand toggle is never overridden), rather than
+  starting collapsed.
+- Tested in `tests/js/noteRecord.test.mjs` (the builder, all six kinds,
+  totality) and `tests/test_lab_static.py` (each surface's Save note markup
+  and wiring present in the served HTML/JS).
+
+### Notebook view — `opportunityHelpers.js` + `views/notes.js`
+
+- **`noteRowModel(note)`** (extended from §22) now also carries `kind` and
+  `sourceExcerpt` through to the display model, and tolerates a note with no
+  `paper`/`section`/`relation` at all (an `ask` or `freeform` note) — those
+  fields simply normalize to `''`/`null` like any other missing field; the
+  relation badge falls back to a muted color with no icon.
+- **`notesGroupModel(notes, groupBy) -> [{key, label, rows}]`** is the new
+  grouping helper `views/notes.js` uses in place of §22's single
+  section-only grouping: `groupBy === 'paper'` groups by `paperTitle`
+  (`noteRowModel` applied internally), anything else groups by
+  `sectionTitle`; either way a blank key falls back to `'Unfiled'`, and the
+  `'Unfiled'` group — if present — is always moved to the end regardless of
+  when it was first encountered. Total: malformed/empty input returns `[]`
+  rather than throwing.
+- **`views/notes.js`** (`#/notes`) is now a notebook, not a flat list:
+  - **Group by** toggle — Section (default) / Paper — re-runs
+    `notesGroupModel` client-side (no refetch).
+  - **Kind filter chips** — Alignment / Opportunity / Reader / Ask / Paper /
+    Free-form / All — and **status chips** — Open (default) / Done /
+    Dismissed / All — both applied in `_filterNotes` *before* grouping, so
+    an empty group never renders.
+  - **New note** — a header button opens a small inline form (textarea +
+    optional draft-section and paper `<select>` pickers, lazy-fetched via
+    `api.getDraftAlignment()` and the in-memory paper list, both degrading
+    to "no picker" on failure) → `buildNoteRecord('freeform', {...})` →
+    `api.saveNote()` → refetch.
+  - **Export as Markdown** now calls `api.exportNotes(_groupBy)` →
+    `GET /api/notes/export?group_by=<_groupBy>`, so the exported file always
+    matches whichever grouping is currently on screen.
+  - A note's evidence-quote → open-in-reader button now renders only when
+    the note has **both** a `paperId` and a `quote` (an `ask`/`freeform`
+    note may carry a quote-less `sourceExcerpt`, or a paper-less quote makes
+    no sense to "open in source").
+- Tested in `tests/js/opportunityHelpers.test.mjs` (`notesGroupModel`
+  grouping/Unfiled-last/totality, `noteRowModel`'s kind/sourceExcerpt
+  passthrough) and `tests/test_lab_static.py` (notebook controls present:
+  group-by toggle, both chip rows, New note form, kind-aware export call).
