@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { opportunityModel, noteRowModel } = await import(
+const { opportunityModel, noteRowModel, notesGroupModel } = await import(
   pathToFileURL(path.join(
     repoRoot,
     'research_companion', 'lab', 'static', 'js', 'opportunityHelpers.js',
@@ -247,4 +247,116 @@ test('noteRowModel: malformed/empty input never throws, returns safe defaults', 
   assert.equal(row.comment, '');
   assert.equal(row.badgeColor, '#8b949e');
   assert.equal(row.badgeIcon, '');
+});
+
+test('noteRowModel: carries through kind and sourceExcerpt', () => {
+  const row = noteRowModel({ ...NOTE, kind: 'opportunity', source_excerpt: 'excerpt text' });
+  assert.equal(row.kind, 'opportunity');
+  assert.equal(row.sourceExcerpt, 'excerpt text');
+});
+
+test('noteRowModel: missing kind/source_excerpt default to empty strings', () => {
+  const row = noteRowModel({ id: 'n3' });
+  assert.equal(row.kind, '');
+  assert.equal(row.sourceExcerpt, '');
+});
+
+test('noteRowModel: an "ask" note with no paper/section/relation does not throw and carries kind:"ask"', () => {
+  const askNote = {
+    id: 'ask-1',
+    kind: 'ask',
+    source_excerpt: 'What does the literature say about X?',
+    created_at: '2026-07-02T00:00:00Z',
+    status: 'open',
+    comment: '',
+  };
+  assert.doesNotThrow(() => noteRowModel(askNote));
+  const row = noteRowModel(askNote);
+  assert.equal(row.kind, 'ask');
+  assert.equal(row.sourceExcerpt, 'What does the literature say about X?');
+  assert.equal(row.paperId, '');
+  assert.equal(row.sectionId, '');
+  assert.equal(row.relation, '');
+  assert.equal(row.badgeColor, '#8b949e');
+  assert.equal(row.badgeIcon, '');
+});
+
+// ---------------------------------------------------------------------------
+// notesGroupModel
+// ---------------------------------------------------------------------------
+
+const GROUP_NOTES = [
+  { id: 'n1', paper_id: 'p1', paper_title: 'Paper One', draft_section_id: 'sec-1', draft_section_title: 'Related Work' },
+  { id: 'n2', paper_id: 'p2', paper_title: 'Paper Two', draft_section_id: 'sec-1', draft_section_title: 'Related Work' },
+  { id: 'n3', paper_id: 'p1', paper_title: 'Paper One', draft_section_id: 'sec-2', draft_section_title: 'Methods' },
+  { id: 'n4', kind: 'ask', source_excerpt: 'unfiled note' }, // no paper/section
+];
+
+test('notesGroupModel: groups by section title when groupBy is not "paper"', () => {
+  const groups = notesGroupModel(GROUP_NOTES, 'section');
+  const keys = groups.map(g => g.key);
+  assert.ok(keys.includes('Related Work'));
+  assert.ok(keys.includes('Methods'));
+  const relatedWork = groups.find(g => g.key === 'Related Work');
+  assert.equal(relatedWork.rows.length, 2);
+  assert.deepEqual(relatedWork.rows.map(r => r.id), ['n1', 'n2']);
+});
+
+test('notesGroupModel: groups by paper title when groupBy is "paper"', () => {
+  const groups = notesGroupModel(GROUP_NOTES, 'paper');
+  const keys = groups.map(g => g.key);
+  assert.ok(keys.includes('Paper One'));
+  assert.ok(keys.includes('Paper Two'));
+  const paperOne = groups.find(g => g.key === 'Paper One');
+  assert.equal(paperOne.rows.length, 2);
+  assert.deepEqual(paperOne.rows.map(r => r.id), ['n1', 'n3']);
+});
+
+test('notesGroupModel: notes with no sectionTitle/paperTitle land in "Unfiled"', () => {
+  const groups = notesGroupModel(GROUP_NOTES, 'section');
+  const unfiled = groups.find(g => g.key === 'Unfiled');
+  assert.ok(unfiled);
+  assert.deepEqual(unfiled.rows.map(r => r.id), ['n4']);
+});
+
+test('notesGroupModel: "Unfiled" group is always sorted last', () => {
+  const bySection = notesGroupModel(GROUP_NOTES, 'section');
+  assert.equal(bySection[bySection.length - 1].key, 'Unfiled');
+
+  const byPaper = notesGroupModel(GROUP_NOTES, 'paper');
+  assert.equal(byPaper[byPaper.length - 1].key, 'Unfiled');
+});
+
+test('notesGroupModel: each group row is a full noteRowModel (has badgeColor etc.)', () => {
+  const groups = notesGroupModel(GROUP_NOTES, 'section');
+  const relatedWork = groups.find(g => g.key === 'Related Work');
+  for (const row of relatedWork.rows) {
+    assert.ok(Object.prototype.hasOwnProperty.call(row, 'badgeColor'));
+    assert.ok(Object.prototype.hasOwnProperty.call(row, 'kind'));
+    assert.ok(Object.prototype.hasOwnProperty.call(row, 'sourceExcerpt'));
+  }
+});
+
+test('notesGroupModel: empty array input returns []', () => {
+  assert.deepEqual(notesGroupModel([], 'section'), []);
+});
+
+test('notesGroupModel: null/undefined/non-array input returns [] and does not throw', () => {
+  assert.doesNotThrow(() => notesGroupModel(null, 'section'));
+  assert.doesNotThrow(() => notesGroupModel(undefined, 'section'));
+  assert.doesNotThrow(() => notesGroupModel('nope', 'section'));
+  assert.deepEqual(notesGroupModel(null, 'section'), []);
+  assert.deepEqual(notesGroupModel(undefined, 'section'), []);
+  assert.deepEqual(notesGroupModel('nope', 'section'), []);
+});
+
+test('notesGroupModel: malformed note entries in the array are tolerated', () => {
+  const malformed = [null, undefined, 'oops', 42, { id: 'ok', paper_id: 'p1', paper_title: 'Paper One' }];
+  assert.doesNotThrow(() => notesGroupModel(malformed, 'paper'));
+  const groups = notesGroupModel(malformed, 'paper');
+  const paperOne = groups.find(g => g.key === 'Paper One');
+  assert.ok(paperOne);
+  const unfiled = groups.find(g => g.key === 'Unfiled');
+  assert.ok(unfiled);
+  assert.equal(unfiled.rows.length, 4);
 });

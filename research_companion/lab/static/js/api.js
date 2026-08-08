@@ -387,5 +387,9 @@ export const updateNote = (id, patch) =>
 /** DELETE /api/notes/{id} — returns { deleted: id }. 404 unknown note. */
 export const deleteNote = (id) => del(`/api/notes/${encodeURIComponent(id)}`);
 
-/** GET /api/notes/export — returns { markdown } (Revision notes doc). */
-export const exportNotes = () => get('/api/notes/export');
+/**
+ * GET /api/notes/export?group_by=<paper|section> — returns { markdown }
+ * (Revision notes doc). Defaults to grouping by section.
+ */
+export const exportNotes = (groupBy = 'section') =>
+  get('/api/notes/export?group_by=' + encodeURIComponent(groupBy));
