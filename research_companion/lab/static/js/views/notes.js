@@ -13,7 +13,7 @@
  *
  * Features:
  *   - Group-by toggle: Section (default) / Paper.
- *   - Filter chips: kind (Alignment/Opportunity/Reader/Ask/Free-form/All)
+ *   - Filter chips: kind (Alignment/Opportunity/Reader/Ask/Paper/Free-form/All)
  *     and status (Open default/Done/Dismissed/All), mirroring the
  *     Suggestions panel's chip pattern (components/suggestionsPanel.js).
  *   - New note: a small inline form (textarea + optional draft-section and
@@ -49,13 +49,14 @@ const KIND_LABELS = {
   freeform: 'Free-form',
 };
 
-// Kind filter chips, in display order (brief-mandated set; 'paper' kind
-// notes are still visible under "All", they just don't get a dedicated chip).
+// Kind filter chips, in display order — one chip per first-class note kind
+// (js/noteRecord.js's KINDS), plus 'all' last.
 const KIND_CHIPS = [
   { value: 'alignment', label: 'Alignment' },
   { value: 'opportunity', label: 'Opportunity' },
   { value: 'reader', label: 'Reader' },
   { value: 'ask', label: 'Ask' },
+  { value: 'paper', label: 'Paper' },
   { value: 'freeform', label: 'Free-form' },
   { value: 'all', label: 'All' },
 ];

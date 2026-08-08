@@ -2494,8 +2494,13 @@ def test_notes_view_has_kind_and_status_filter_chips():
     assert "_statusFilter = 'open'" in js, "notes.js must default _statusFilter to 'open'"
     assert "filter-chips" in js, "notes.js must reuse the filter-chips class"
     assert "chip-active" in js, "notes.js must reuse the chip-active class"
-    for kind_label in ("Alignment", "Opportunity", "Reader", "Ask", "Free-form"):
+    for kind_label in ("Alignment", "Opportunity", "Reader", "Ask", "Paper", "Free-form"):
         assert kind_label in js, f"notes.js must render the '{kind_label}' kind chip"
+    # 'paper' is a first-class note kind (js/noteRecord.js's KINDS) — it must
+    # have its own dedicated kind chip, not just show up under "All".
+    assert "{ value: 'paper', label: 'Paper' }" in js, (
+        "notes.js KIND_CHIPS must include a dedicated {value:'paper', label:'Paper'} chip"
+    )
 
 
 def test_notes_view_has_new_note_button_and_uses_build_note_record():
