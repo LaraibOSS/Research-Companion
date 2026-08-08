@@ -14,7 +14,7 @@ from research_companion.store import papergraph_dir
 
 _FIELDS = ("draft_section_id", "draft_section_title", "paper_id", "paper_title",
            "relation", "relevance", "rationale", "evidence_quote",
-           "evidence_section_id", "comment")
+           "evidence_section_id", "comment", "kind", "source_excerpt")
 
 
 def _path():
@@ -46,7 +46,12 @@ def list_notes() -> list[dict]:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return []
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return []
+    for n in data:
+        if isinstance(n, dict):
+            n.setdefault("kind", "opportunity")
+    return data
 
 
 def _write(notes: list[dict]) -> None:
@@ -65,8 +70,12 @@ def save_note(record: dict) -> dict:
     notes = list_notes()
     clean = {k: record.get(k, "") for k in _FIELDS}
     clean["relevance"] = _as_float(record.get("relevance"))
+    # New saves always pass (or default) a kind; only on-disk legacy notes
+    # lack one, and those are backfilled to "opportunity" on read instead.
+    clean["kind"] = record.get("kind") or "freeform"
     for existing in notes:
         if (existing.get("status") == "open"
+                and clean["paper_id"] and clean["draft_section_id"]
                 and existing.get("paper_id") == clean["paper_id"]
                 and existing.get("draft_section_id") == clean["draft_section_id"]):
             merged = dict(clean)
@@ -112,18 +121,23 @@ def delete_note(note_id: str) -> bool:
     return True
 
 
-def notes_to_markdown(notes: list[dict]) -> str:
-    """Render notes as a "Revision notes" markdown doc, grouped by section.
+def notes_to_markdown(notes: list[dict], group_by: str = "section") -> str:
+    """Render notes as a "Revision notes" markdown doc, grouped by section
+    (or, when group_by="paper", by paper).
 
-    Dismissed notes are omitted. Within each section group, notes are
-    ordered by relevance descending. Done notes render as checked boxes.
+    Dismissed notes are omitted. Within each group, notes are ordered by
+    relevance descending. Done notes render as checked boxes.
     """
     visible = [n for n in notes if n.get("status") != "dismissed"]
     if not visible:
         return "# Revision notes\n\n_No notes yet._\n"
     groups: dict[str, list[dict]] = {}
     for n in visible:
-        groups.setdefault(n.get("draft_section_title", ""), []).append(n)
+        if group_by == "paper":
+            key = n.get("paper_title") or "Unfiled"
+        else:
+            key = n.get("draft_section_title") or "Unfiled"
+        groups.setdefault(key, []).append(n)
     lines = ["# Revision notes", ""]
     for title in sorted(groups):
         lines.append(f"## {title}")
