@@ -2217,3 +2217,127 @@ def test_lab_css_has_notes_view_styles():
     for needle in (".notes-view", ".notes-group", ".note-card", ".note-badge",
                    ".note-actions", ".note-comment"):
         assert needle in css, f"lab.css missing Task 4 style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/notes-everywhere (Task 3): Save-note wired into draft.js (alignment
+# cards + freeform section notes), reader.js, paperCard.js, ask.js; uncited
+# opportunities block expanded by default.
+# ---------------------------------------------------------------------------
+
+def test_draft_js_alignment_card_save_note_uses_build_note_record():
+    """draft.js's cited-alignment card Save-note button must call
+    buildNoteRecord('alignment', {...}) with paper/section/relation/
+    relevance/rationale/quote, then api.saveNote(...) + toast."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "draft.js must import buildNoteRecord from noteRecord.js"
+    assert "buildNoteRecord('alignment'" in js, (
+        "draft.js must call buildNoteRecord('alignment', ...) for the cited-alignment Save-note button"
+    )
+    assert "draft-align-save-btn" in js, "draft.js must render the .draft-align-save-btn button"
+    assert "_alignRegistry" in js, (
+        "draft.js must keep alignment note fields out-of-band in _alignRegistry (mirrors _evidenceQuotes/_oppRegistry)"
+    )
+
+
+def test_draft_js_alignment_save_note_data_keys_match_kind():
+    """The alignment Save-note record must carry paperId/paperTitle/sectionId/
+    sectionTitle/relation/relevance/rationale/quote — the fields buildNoteRecord
+    maps for kind 'alignment' — and nothing foreign to that surface (no
+    sourceExcerpt/comment, which belong to other kinds)."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    start = js.index("buildNoteRecord('alignment'")
+    call_src = js[start:js.index(")", js.index("}", start)) + 1]
+    for key in ("paperId:", "paperTitle:", "sectionId:", "sectionTitle:",
+                "relation:", "relevance:", "rationale:", "quote:"):
+        assert key in call_src, f"alignment buildNoteRecord call missing {key}"
+    for foreign_key in ("sourceExcerpt:", "comment:"):
+        assert foreign_key not in call_src, (
+            f"alignment buildNoteRecord call must not pass {foreign_key} (belongs to another kind)"
+        )
+
+
+def test_draft_js_freeform_section_note_uses_build_note_record():
+    """draft.js's per-section "+ note" affordance must call
+    buildNoteRecord('freeform', { sectionId, sectionTitle, comment })."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "draft-note-btn" in js, "draft.js must render the .draft-note-btn (+ note) button"
+    assert "draft-note-form" in js, "draft.js must render the inline .draft-note-form"
+    assert re.search(
+        r"buildNoteRecord\('freeform',\s*\{\s*sectionId,\s*sectionTitle,\s*comment\s*\}\)",
+        js,
+    ), "draft.js must call buildNoteRecord('freeform', { sectionId, sectionTitle, comment })"
+
+
+def test_draft_js_opportunities_expanded_by_default():
+    """The uncited-opportunities block must default to EXPANDED on first
+    render: draft.js must seed _oppExpandedSections (via .add(...)) from the
+    loaded opportunities BEFORE any user toggle, rather than starting fully
+    collapsed with no seeding at all."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "_oppExpandedInitialized" in js, (
+        "draft.js must track a one-time initialization flag so seeding only happens once"
+    )
+    render_start = js.index("async function _render(")
+    render_body = js[render_start:js.index("\nfunction _renderNoDraft(")]
+    assert "_oppExpandedSections.add(" in render_body, (
+        "draft.js must seed _oppExpandedSections with opportunity section ids inside _render "
+        "(expanded-by-default), not only inside the toggle click handler"
+    )
+
+
+def test_reader_js_save_note_uses_build_note_record():
+    """reader.js header 'Save note' button must call buildNoteRecord('reader',
+    {paperId, paperTitle, sourceExcerpt, quote}) then saveNote + toast."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "reader.js must import buildNoteRecord from noteRecord.js"
+    assert "reader-save-note-btn" in js, "reader.js must render the .reader-save-note-btn button"
+    assert "buildNoteRecord('reader'" in js, "reader.js must call buildNoteRecord('reader', ...)"
+    assert "saveNote(" in js, "reader.js must call (api|_apiRef).saveNote(...)"
+    assert "Saved to Notes" in js, "reader.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_reader_js_save_note_guards_selection_read():
+    """reader.js must read the selection inside a try/catch (getSelection can
+    throw/be unavailable in some embeds)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    save_note_start = js.index("function _bindSaveNote(")
+    save_note_body = js[save_note_start:js.index("\n// ---", save_note_start) if "\n// ---" in js[save_note_start:] else len(js)]
+    assert "getSelection" in save_note_body, "_bindSaveNote must read window.getSelection()"
+    assert "try {" in save_note_body and "catch" in save_note_body, (
+        "_bindSaveNote must guard the selection read with try/catch"
+    )
+
+
+def test_paper_card_js_save_note_uses_build_note_record():
+    """paperCard.js card-actions Save-note button must call
+    buildNoteRecord('paper', {paperId, paperTitle}) then saveNote + toast."""
+    js = (STATIC_DIR / "js" / "components" / "paperCard.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "paperCard.js must import buildNoteRecord from noteRecord.js"
+    assert "btn-save-note" in js, "paperCard.js must render the .btn-save-note button"
+    assert "buildNoteRecord('paper'" in js, "paperCard.js must call buildNoteRecord('paper', ...)"
+    assert "api.saveNote(" in js, "paperCard.js must call api.saveNote(...)"
+    assert "Saved to Notes" in js, "paperCard.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_ask_js_save_note_uses_build_note_record():
+    """ask.js rendered-answer Save-note button must call buildNoteRecord('ask',
+    {sourceExcerpt, paperId?, paperTitle?}), capping the excerpt at a sane
+    length (2000 chars)."""
+    js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "ask.js must import buildNoteRecord from noteRecord.js"
+    assert "ask-save-note-btn" in js, "ask.js must render the .ask-save-note-btn button"
+    assert "buildNoteRecord('ask'" in js, "ask.js must call buildNoteRecord('ask', ...)"
+    assert "api.saveNote(" in js, "ask.js must call api.saveNote(...)"
+    assert re.search(r"\.slice\(0,\s*(ASK_NOTE_EXCERPT_MAX|2000)\)", js), (
+        "ask.js must cap the answer excerpt to a sane length (2000 chars)"
+    )
+    assert "Saved to Notes" in js, "ask.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_lab_css_has_task3_notes_everywhere_styles():
+    """lab.css must include the styles for the four new Save-note surfaces."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".draft-note-btn", ".draft-note-form", ".draft-align-save-btn",
+                   ".reader-save-note-btn", ".btn-save-note", ".ask-save-note-btn"):
+        assert needle in css, f"lab.css missing Task 3 (notes-everywhere) style: {needle}"

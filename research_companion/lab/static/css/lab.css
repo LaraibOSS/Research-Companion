@@ -634,6 +634,8 @@ html, body {
   margin-top: 4px;
 }
 
+.btn-save-note { /* inherit btn + btn-sm */ }
+
 .btn-find-pdf[disabled],
 .btn-upload-pdf[disabled],
 .btn-retry[disabled] {
@@ -1378,6 +1380,65 @@ body:has(#no-key-banner.visible):has(#citations-banner.visible):has(#metadata-ba
 .draft-read-btn:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
+}
+
+/* Small "＋ note" button used in draft section rows — opens a tiny inline
+ * free-form note form beneath the row (see .draft-note-form below). */
+.draft-note-btn {
+  flex: none;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.draft-section-row:hover .draft-note-btn,
+.draft-note-btn:focus-visible {
+  opacity: 1;
+}
+.draft-note-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Tiny inline free-form note form, appended under a section row. */
+.draft-note-form {
+  margin-top: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.draft-note-input {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  color: var(--color-fg);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+.draft-note-form-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* Cited-alignment "Save note" button, beside each evidence blockquote. */
+.draft-align-save-btn {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 /* Clickable evidence blockquote -> open the cited source at the quote. */
@@ -2940,6 +3001,14 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 }
 
 .ask-save-subgraph-btn {
+  /* inherit btn + btn-secondary + btn-sm */
+}
+
+.ask-save-note {
+  margin-top: 6px;
+}
+
+.ask-save-note-btn {
   /* inherit btn + btn-secondary + btn-sm */
 }
 
@@ -5566,6 +5635,7 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   white-space: nowrap;
 }
 .reader-pdf-link:hover { text-decoration: underline; }
+.reader-save-note-btn { white-space: nowrap; }
 .reader-close {
   width: 28px;
   height: 28px;

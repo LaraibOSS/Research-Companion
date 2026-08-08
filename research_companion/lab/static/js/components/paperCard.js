@@ -6,6 +6,9 @@ import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js
 import { tip } from '../glossary.js';
 import { needsMetadata, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine } from '../oaLinkHelpers.js';
+import * as api from '../api.js';
+import { showToast } from './toast.js';
+import { buildNoteRecord } from '../noteRecord.js';
 
 /**
  * Render a paper card element.
@@ -108,11 +111,32 @@ export function renderPaperCard(paper) {
         ${findPdfState !== 'hidden'
           ? `<button class="btn btn-sm btn-find-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Find PDF</button>`
           : ''}
+        <button class="btn btn-sm btn-save-note" data-paper-id="${escapeHtml(paper.paper_id)}">Save note</button>
         <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
       </div>
       ${oaLinksHtml}
     </div>
   `;
+
+  // Save note -> POST /api/notes (kind 'paper'), then toast. Wired here
+  // (rather than in views/library.js, which wires the OTHER card-actions
+  // buttons) since this button needs no library-view state — just the
+  // paper this card was rendered for.
+  const saveNoteBtn = card.querySelector('.btn-save-note');
+  if (saveNoteBtn) {
+    saveNoteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await api.saveNote(buildNoteRecord('paper', {
+          paperId: paper.paper_id,
+          paperTitle: paper.title || paper.paper_id,
+        }));
+        showToast('Saved to Notes', 'info');
+      } catch (err) {
+        showToast(`Failed to save note: ${err.message}`, 'error');
+      }
+    });
+  }
 
   return card;
 }
