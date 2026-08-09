@@ -60,7 +60,10 @@ runs the full review pipeline with no network; `python examples/demo_lab_offline
 replays the Lab's event stream.
 
 This walkthrough plays out on the **Home** screen itself, which doubles as a
-short product tour until you have a draft or any papers in the library:
+short product tour for as long as you haven't set a draft — even once you've
+ingested a full library of other papers, Home still shows this intro (only
+its one-sentence value prop switches to acknowledging the papers you've
+added):
 
 - A brand line and one-sentence value prop under the ◆ mark.
 - The two calls to action from steps 2–3 above — **★ Add your draft** and
@@ -70,9 +73,9 @@ short product tour until you have a draft or any papers in the library:
   with citations**, and **Get submission-ready**.
 - A **quick-nav row** of six cards — **Library**, **Graph**, **Draft**,
   **Ask**, **Timeline**, **Citations** — so you can jump straight to any part
-  of the Lab even before you've added anything; Library shows your paper
-  count as soon as you have one, and Citations opens the citation-coverage
-  panel directly.
+  of the Lab even before you've added anything; Library always shows a live
+  paper count (0 until you add one), and Citations opens the
+  citation-coverage panel directly.
 
 Once you add a draft, Home switches to a compact view: your draft's title
 and version, open/related-papers/addressed counts, the same quick-nav row,

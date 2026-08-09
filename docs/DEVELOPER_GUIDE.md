@@ -1456,23 +1456,29 @@ returns a fixed, ordered array of six quick-nav entries:
 
 ### Empty/populated split — `views/home.js`
 
-`_render()` reads `draftId` off the store and branches:
+`_render()` reads `draftId` off the store — `const draft = draftId ?
+papers.get(draftId) : null;` — and branches on that alone:
 
-- **Populated** (a draft is set) — `_heroHtml()` renders the compact draft
+- **Populated** (`draftId` is set) — `_heroHtml()` renders the compact draft
   hero (title, version pill, last-activity, a severity donut, open count,
   related-paper count, addressed/total), then the quick-nav row is inserted
   via `_navRowHtml(state)` between the hero and the Next Steps (NBA) strip,
   followed by the top-3 open suggestions and the journey section.
-- **Empty** (no draft and no non-draft papers) — `_emptyHeroHtml()` renders
-  the product intro instead: the brand line (`emptyHeroModel(state)`'s
-  heading/subline), the `★ Add your draft` / `Ingest a folder` CTAs
-  (`#home-hero-draft` / `#home-hero-folder`, wired to `_addDraftWithNudge()`
-  and the folder-ingest modal), the ①②③④ step strip driven by
-  `onboardingStep()`, the three value pillars (`_PILLARS`, a static array —
-  no model needed since the copy doesn't depend on state), and — unlike the
-  populated branch — its **own** call to `_navRowHtml(state)` embedded
-  directly under the pillars, since there's no separate hero/nav-row
-  insertion point in this branch.
+- **Empty** (no `draftId` — regardless of how many non-draft papers are
+  already in the library) — `_emptyHeroHtml()` renders the product intro
+  instead: the brand line (`emptyHeroModel(state)`'s heading/subline), the
+  `★ Add your draft` / `Ingest a folder` CTAs (`#home-hero-draft` /
+  `#home-hero-folder`, wired to `_addDraftWithNudge()` and the folder-ingest
+  modal), the ①②③④ step strip driven by `onboardingStep()`, the three value
+  pillars (`_PILLARS`, a static array — no model needed since the copy
+  doesn't depend on state), and — unlike the populated branch — its **own**
+  call to `_navRowHtml(state)` embedded directly under the pillars, since
+  there's no separate hero/nav-row insertion point in this branch. A
+  non-empty library does not switch this branch to the populated hero — the
+  only thing that changes is `emptyHeroModel`'s subline text (it swaps from
+  the zero-papers copy to *"You've added N papers — add your draft to start
+  analyzing them"*); the CTAs, step strip, pillars, and nav-row are
+  unaffected by paper count.
 - Both branches call the same `_navRowHtml(state)` → `homeNavModel(state)`
   path, so the six quick-nav cards render identically either way; only their
   position in the page (and the surrounding hero) differs. Card clicks are
