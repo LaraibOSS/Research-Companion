@@ -21,6 +21,8 @@ from research_companion import store
 from research_companion.gaps import (
     _GAP_SECTION_RE,
     GapError,
+    _assemble_themes,
+    _collect_verified_gaps,
     _gap_id,
     _papers_sha,
     _relevance_score,
@@ -28,7 +30,9 @@ from research_companion.gaps import (
     extract_gaps,
     gaps_for_suggestions,
     gaps_overview,
+    rank_gap_themes,
     resolve_gaps,
+    synthesize_gaps,
 )
 
 # ---------------------------------------------------------------------------
@@ -1114,3 +1118,93 @@ class TestStoreGaps:
         loaded = store.load_gaps(pid)  # no sha check
         assert loaded is not None
         assert loaded["no_gap_sections"] is True
+
+
+# ---------------------------------------------------------------------------
+# Gap synthesis — themed cross-corpus bullets (gap-analysis-section)
+# ---------------------------------------------------------------------------
+
+def _overview_fixture() -> dict:
+    """A gaps_overview()-shaped dict with 2 papers, 3 gaps (1 unverified)."""
+    return {
+        "papers": [
+            {
+                "paper_id": "arxiv:2001.00001",
+                "title": "Paper A",
+                "year": 2020,
+                "gaps": [
+                    {
+                        "gap_id": "gap_aaaaaaaaaaaa",
+                        "statement": "Cannot scale to large datasets.",
+                        "kind": "limitation",
+                        "evidence": {"quote": "cannot scale", "verified": True, "match": "exact"},
+                        "resolution": {"status": "open"},
+                    },
+                    {
+                        "gap_id": "gap_bbbbbbbbbbbb",
+                        "statement": "Unverified gap should be dropped.",
+                        "kind": "limitation",
+                        "evidence": {"quote": "", "verified": False, "match": ""},
+                        "resolution": {"status": "open"},
+                    },
+                ],
+            },
+            {
+                "paper_id": "arxiv:2022.00002",
+                "title": "Paper B",
+                "year": 2022,
+                "gaps": [
+                    {
+                        "gap_id": "gap_cccccccccccc",
+                        "statement": "Efficiency improvements needed for scale.",
+                        "kind": "future_work",
+                        "evidence": {"quote": "efficiency improvements", "verified": True, "match": "exact"},
+                        "resolution": {"status": "partially"},
+                    },
+                ],
+            },
+        ],
+        "draft_addresses": [],
+        "stale": False,
+    }
+
+
+class TestCollectVerifiedGaps:
+    def test_drops_unverified_gaps(self):
+        verified = _collect_verified_gaps(_overview_fixture())
+        gap_ids = {g["gap_id"] for g in verified}
+        assert "gap_bbbbbbbbbbbb" not in gap_ids
+        assert gap_ids == {"gap_aaaaaaaaaaaa", "gap_cccccccccccc"}
+
+    def test_carries_status_from_resolution(self):
+        verified = _collect_verified_gaps(_overview_fixture())
+        by_id = {g["gap_id"]: g for g in verified}
+        assert by_id["gap_aaaaaaaaaaaa"]["status"] == "open"
+        assert by_id["gap_cccccccccccc"]["status"] == "partially"
+
+    def test_default_status_open_when_resolution_missing(self):
+        overview = {
+            "papers": [{
+                "paper_id": "p1", "title": "T", "year": 2020,
+                "gaps": [{
+                    "gap_id": "gap_x", "statement": "S", "kind": "limitation",
+                    "evidence": {"quote": "q", "verified": True, "match": "exact"},
+                    # no "resolution" key at all
+                }],
+            }],
+            "draft_addresses": [], "stale": False,
+        }
+        verified = _collect_verified_gaps(overview)
+        assert verified[0]["status"] == "open"
+
+    def test_empty_overview_yields_empty_list(self):
+        assert _collect_verified_gaps({"papers": [], "draft_addresses": [], "stale": True}) == []
+
+    def test_carries_paper_id_title_year(self):
+        verified = _collect_verified_gaps(_overview_fixture())
+        by_id = {g["gap_id"]: g for g in verified}
+        a = by_id["gap_aaaaaaaaaaaa"]
+        assert a["paper_id"] == "arxiv:2001.00001"
+        assert a["title"] == "Paper A"
+        assert a["year"] == 2020
+

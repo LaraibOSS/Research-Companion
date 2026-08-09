@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -648,3 +649,52 @@ def gaps_for_suggestions(
         })
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Gap synthesis — cluster verified gaps into cross-corpus themes
+# ---------------------------------------------------------------------------
+#
+# synthesize_gaps() pipeline:
+#   1. _collect_verified_gaps (pure)  -- flatten gaps_overview() to verified gaps
+#   2. one GAP_SYNTHESIS_PROMPT call  -- LLM groups near-duplicate gaps into themes
+#   3. _assemble_themes (pure)        -- attach citations/status/type, drop invented ids
+#   4. rank_gap_themes (pure)         -- deterministic score, stable sort desc
+#
+# Honesty: only verified gaps are ever offered to the LLM; any gap_id the LLM
+# returns that isn't in the collected verified set is dropped (never invented
+# into a citation); a theme left with zero valid members is dropped entirely.
+
+_FWS_TYPES = {"method", "resources", "evaluation", "application", "problem", "other"}
+_THEME_OPEN_WEIGHT = {"open": 2.0, "partial": 1.0, "addressed": 0.0}
+_THEME_RECENCY_BASE_YEAR = 2000
+
+
+def _collect_verified_gaps(overview: dict) -> list[dict]:
+    """Flatten gaps_overview() to VERIFIED gaps only.
+
+    Returns a list of {gap_id, statement, kind, paper_id, title, year, status}.
+    Unverified gaps (evidence.verified is False) are dropped — synthesis must
+    only ever see quote-verified gaps. status comes from the gap's resolution
+    (default "open" when no resolution record exists yet).
+    """
+    out: list[dict] = []
+    for paper in overview.get("papers", []):
+        pid = paper.get("paper_id")
+        title = paper.get("title", "")
+        year = paper.get("year")
+        for gap in paper.get("gaps", []):
+            evidence = gap.get("evidence") or {}
+            if not evidence.get("verified", False):
+                continue
+            resolution = gap.get("resolution") or {"status": "open"}
+            out.append({
+                "gap_id": gap["gap_id"],
+                "statement": gap["statement"],
+                "kind": gap.get("kind", "limitation"),
+                "paper_id": pid,
+                "title": title,
+                "year": year,
+                "status": resolution.get("status", "open"),
+            })
+    return out
