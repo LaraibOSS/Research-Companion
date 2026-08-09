@@ -431,6 +431,26 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
 # create_lab_app
 # ---------------------------------------------------------------------------
 
+class NoActiveWorkspaceError(Exception):
+    """Raised by require_active_workspace() when no research is active.
+
+    A dedicated exception (rather than HTTPException) so the registered
+    handler controls the exact response body — {"error": "no_active_workspace"}
+    at the top level, not nested under FastAPI's default {"detail": ...}.
+    """
+
+
+def require_active_workspace() -> None:
+    """FastAPI dependency: 409s mutating endpoints when no research is active.
+
+    Read endpoints must NEVER depend on this — they degrade to an empty
+    response instead (see store.py's None-tolerant read helpers, Task 1).
+    """
+    from research_companion import store
+    if store.active_workspace_id() is None:
+        raise NoActiveWorkspaceError()
+
+
 def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     """Create and return the Lab FastAPI application.
 
@@ -443,7 +463,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         A FastAPI application instance.
     """
     try:
-        from fastapi import FastAPI, HTTPException
+        from fastapi import Depends, FastAPI, HTTPException
         from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
@@ -471,6 +491,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 await drain_task
 
     app = FastAPI(title="Research Companion", lifespan=lifespan)
+
+    @app.exception_handler(NoActiveWorkspaceError)
+    async def _no_active_workspace_handler(request, exc):
+        return JSONResponse(status_code=409, content={"error": "no_active_workspace"})
 
     # DNS-rebinding defense: the Lab is a local-only server (binds 127.0.0.1), but
     # without a Host allowlist a remote page could rebind a hostname to 127.0.0.1
@@ -672,7 +696,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         asyncio.create_task(_run())
         return job_id
 
-    @app.post("/api/papers", status_code=202)
+    @app.post("/api/papers", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def add_paper(body: _AddPaperBody) -> dict:
         target = body.target.strip() if body.target else ""
         if not target:
@@ -684,7 +708,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Registered before the {paper_id:path} routes so "upload" is never
     # captured as a paper id.
     # -----------------------------------------------------------------
-    @app.post("/api/papers/upload", status_code=202)
+    @app.post("/api/papers/upload", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def upload_paper(request: Request, filename: str = "",
                            set_draft: bool = False) -> Any:
         from research_companion import fetch, store
@@ -777,7 +801,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/retry
     # -----------------------------------------------------------------
-    @app.post("/api/papers/{paper_id:path}/retry", status_code=202)
+    @app.post("/api/papers/{paper_id:path}/retry", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def retry_paper(paper_id: str) -> dict:
         from research_companion import store
 
@@ -889,7 +913,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # {paper_id:path} routes so "find-pdfs" is never captured as a paper id,
     # mirroring how POST /api/papers/upload is registered before them)
     # -----------------------------------------------------------------
-    @app.post("/api/papers/find-pdfs", status_code=202)
+    @app.post("/api/papers/find-pdfs", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def find_all_pdfs() -> Any:
         from research_companion import store
 
@@ -958,7 +982,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/find-pdf
     # -----------------------------------------------------------------
-    @app.post("/api/papers/{paper_id:path}/find-pdf", status_code=202)
+    @app.post("/api/papers/{paper_id:path}/find-pdf", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def find_pdf(paper_id: str) -> dict:
         from research_companion import store
 
@@ -1041,7 +1065,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # POST bytes to this endpoint without a CORS preflight this server never
     # answers.
     # -----------------------------------------------------------------
-    @app.post("/api/papers/{paper_id:path}/pdf", status_code=202)
+    @app.post("/api/papers/{paper_id:path}/pdf", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def upload_paper_pdf(paper_id: str, request: Request) -> dict:
         from research_companion import store
 
@@ -1128,7 +1152,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # DELETE /api/papers/{id}
     # -----------------------------------------------------------------
-    @app.delete("/api/papers/{paper_id:path}")
+    @app.delete("/api/papers/{paper_id:path}", dependencies=[Depends(require_active_workspace)])
     async def delete_paper(paper_id: str) -> dict:
         from research_companion import store
         from research_companion.graph import build_graph, save_graph
@@ -1156,7 +1180,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # PATCH /api/papers/{id}  (manual title/authors/year edit)
     # -----------------------------------------------------------------
-    @app.patch("/api/papers/{paper_id:path}")
+    @app.patch("/api/papers/{paper_id:path}", dependencies=[Depends(require_active_workspace)])
     async def patch_paper(paper_id: str, body: _PatchPaperBody) -> dict:
         from research_companion import store
         from research_companion.prompts import extraction_prompt_sha256
@@ -1422,7 +1446,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         _schedule_coverage_refresh()
 
-    @app.post("/api/draft")
+    @app.post("/api/draft", dependencies=[Depends(require_active_workspace)])
     async def set_draft(body: _DraftBody) -> dict:
         from research_companion import store
 
@@ -1543,7 +1567,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         asyncio.create_task(_run_resolve())
         return job_id
 
-    @app.post("/api/draft/citations/resolve", status_code=202)
+    @app.post("/api/draft/citations/resolve", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def resolve_draft_citations() -> dict:
         from research_companion import store
 
@@ -1557,7 +1581,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 detail="A citation resolve job is already running")
         return {"job_id": job_id}
 
-    @app.post("/api/draft/citations/link")
+    @app.post("/api/draft/citations/link", dependencies=[Depends(require_active_workspace)])
     async def link_draft_citation(body: _LinkCitationBody) -> dict:
         """Assert that cited reference `index` IS library paper `paper_id`.
 
@@ -1617,7 +1641,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         _schedule_coverage_refresh()
         return payload
 
-    @app.post("/api/draft/citations/unlink")
+    @app.post("/api/draft/citations/unlink", dependencies=[Depends(require_active_workspace)])
     async def unlink_draft_citation(body: _UnlinkCitationBody) -> dict:
         """Undo a manual link created by POST /api/draft/citations/link.
 
@@ -1770,7 +1794,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         from research_companion.notes_store import list_notes
         return {"notes": await asyncio.to_thread(list_notes)}
 
-    @app.post("/api/notes")
+    @app.post("/api/notes", dependencies=[Depends(require_active_workspace)])
     async def create_note_endpoint(body: dict) -> dict:
         from research_companion.notes_store import save_note
         kind = body.get("kind") or "freeform"
@@ -1790,7 +1814,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         notes = await asyncio.to_thread(list_notes)
         return {"markdown": notes_to_markdown(notes, group_by=group_by)}
 
-    @app.patch("/api/notes/{note_id}")
+    @app.patch("/api/notes/{note_id}", dependencies=[Depends(require_active_workspace)])
     async def patch_note_endpoint(note_id: str, body: dict) -> dict:
         from research_companion.notes_store import update_note
         status = body.get("status")
@@ -1802,7 +1826,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             raise HTTPException(status_code=404, detail="note not found")
         return note
 
-    @app.delete("/api/notes/{note_id}")
+    @app.delete("/api/notes/{note_id}", dependencies=[Depends(require_active_workspace)])
     async def delete_note_endpoint(note_id: str) -> dict:
         from research_companion.notes_store import delete_note
         ok = await asyncio.to_thread(delete_note, note_id)
@@ -1917,7 +1941,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/simplify — on-demand LLM "Simplify further" job
     # -----------------------------------------------------------------
-    @app.post("/api/papers/{paper_id:path}/simplify", status_code=202)
+    @app.post("/api/papers/{paper_id:path}/simplify", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def simplify_paper(paper_id: str) -> dict:
         from datetime import datetime, timezone
 
@@ -2016,7 +2040,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/ingest
     # -----------------------------------------------------------------
-    @app.post("/api/ingest", status_code=202)
+    @app.post("/api/ingest", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def ingest(body: _IngestBody) -> dict:
         from research_companion.lab import scan_pdfs
 
@@ -2085,7 +2109,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/ingest/scan — folder preview (no job started, no ingest)
     # -----------------------------------------------------------------
-    @app.post("/api/ingest/scan")
+    @app.post("/api/ingest/scan", dependencies=[Depends(require_active_workspace)])
     async def ingest_scan(body: _IngestBody) -> dict:
         from research_companion import store
         from research_companion.lab import scan_pdfs
@@ -2157,7 +2181,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/align
     # -----------------------------------------------------------------
-    @app.post("/api/align")
+    @app.post("/api/align", dependencies=[Depends(require_active_workspace)])
     async def align(body: _AlignBody) -> dict:
         from research_companion import store
         from research_companion.alignment import AlignmentError, align_papers
@@ -2245,7 +2269,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/ask
     # -----------------------------------------------------------------
-    @app.post("/api/ask")
+    @app.post("/api/ask", dependencies=[Depends(require_active_workspace)])
     async def ask(body: _AskBody) -> dict:
         from research_companion.qa import answer
 
@@ -2409,7 +2433,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/suggestions/regenerate
     # -----------------------------------------------------------------
-    @app.post("/api/suggestions/regenerate")
+    @app.post("/api/suggestions/regenerate", dependencies=[Depends(require_active_workspace)])
     async def regenerate_suggestions(body: _RegenerateBody) -> dict:
         from research_companion import store
         from research_companion.agents.events import SuggestionsUpdated
@@ -2470,7 +2494,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/suggestions/{sug_id}/dismiss
     # -----------------------------------------------------------------
-    @app.post("/api/suggestions/{sug_id}/dismiss")
+    @app.post("/api/suggestions/{sug_id}/dismiss", dependencies=[Depends(require_active_workspace)])
     async def dismiss_suggestion_endpoint(sug_id: str) -> dict:
         from research_companion import store
         from research_companion.agents.events import SuggestionsUpdated
@@ -2613,7 +2637,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/views
     # -----------------------------------------------------------------
-    @app.post("/api/views", status_code=201)
+    @app.post("/api/views", status_code=201, dependencies=[Depends(require_active_workspace)])
     async def create_view_endpoint(body: _CreateViewBody) -> dict:
         from research_companion.views import ViewError, save_view
 
@@ -2631,7 +2655,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # PATCH /api/views/{view_id}
     # -----------------------------------------------------------------
-    @app.patch("/api/views/{view_id}")
+    @app.patch("/api/views/{view_id}", dependencies=[Depends(require_active_workspace)])
     async def update_view_endpoint(view_id: str, body: _PatchViewBody) -> dict:
         from research_companion.views import ViewError, get_view, update_view
 
@@ -2660,7 +2684,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # DELETE /api/views/{view_id}
     # -----------------------------------------------------------------
-    @app.delete("/api/views/{view_id}")
+    @app.delete("/api/views/{view_id}", dependencies=[Depends(require_active_workspace)])
     async def delete_view_endpoint(view_id: str) -> dict:
         from research_companion.views import delete_view, get_view
 
@@ -2695,7 +2719,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/gaps/refresh  -> 202 {"job_id"}
     # -----------------------------------------------------------------
-    @app.post("/api/gaps/refresh", status_code=202)
+    @app.post("/api/gaps/refresh", status_code=202, dependencies=[Depends(require_active_workspace)])
     async def refresh_gaps() -> dict:
         from research_companion.agents.events import GapsUpdated
 
@@ -2802,7 +2826,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # POST /api/converse
     # -----------------------------------------------------------------
-    @app.post("/api/converse")
+    @app.post("/api/converse", dependencies=[Depends(require_active_workspace)])
     async def converse_endpoint(body: _ConverseBody) -> dict:
         from research_companion.converse import ConverseError, converse
 
@@ -2857,7 +2881,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # DELETE /api/conversations/{id}
     # -----------------------------------------------------------------
-    @app.delete("/api/conversations/{conversation_id}")
+    @app.delete("/api/conversations/{conversation_id}", dependencies=[Depends(require_active_workspace)])
     async def delete_conversation_endpoint(conversation_id: str) -> dict:
         from research_companion.converse import delete_conversation
 
