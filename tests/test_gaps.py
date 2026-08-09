@@ -1384,3 +1384,65 @@ class TestRankGapThemes:
     def test_empty_list(self):
         assert rank_gap_themes([]) == []
 
+
+class TestGapSynthesisPrompt:
+    def test_format_substitutes_gaps_block(self):
+        from research_companion.prompts import format_gap_synthesis_prompt
+        rendered = format_gap_synthesis_prompt(gaps_block="- [gap_x] (limitation, 2020, open): S")
+        assert "- [gap_x] (limitation, 2020, open): S" in rendered
+        assert "<<GAPS_BLOCK>>" not in rendered
+
+    def test_sha256_is_stable(self):
+        from research_companion.prompts import gap_synthesis_prompt_sha256
+        assert gap_synthesis_prompt_sha256() == gap_synthesis_prompt_sha256()
+        assert len(gap_synthesis_prompt_sha256()) == 64
+
+
+class TestSynthesizeGaps:
+    def test_empty_overview_yields_empty_themes_no_llm_call(self):
+        def _boom(prompt: str) -> str:
+            raise AssertionError("LLM must not be called for an empty overview")
+
+        result = synthesize_gaps({"papers": [], "draft_addresses": [], "stale": True}, llm=_boom)
+        assert result["themes"] == []
+        assert "generated_from_sha" in result
+
+    def test_stubbed_llm_returns_theme_shape(self):
+        def _stub_llm(prompt: str) -> str:
+            return json.dumps({"themes": [{
+                "title": "Scaling limitations",
+                "bullet": "Scaling to large datasets remains unaddressed.",
+                "fws_type": "method",
+                "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+            }]})
+
+        result = synthesize_gaps(_overview_fixture(), llm=_stub_llm)
+        assert len(result["themes"]) == 1
+        t = result["themes"][0]
+        for key in ("theme_id", "title", "bullet", "fws_type", "type", "citations",
+                    "status", "frequency", "recency", "score"):
+            assert key in t
+
+    def test_malformed_llm_json_degrades_to_empty_themes_no_crash(self):
+        def _garbage_llm(prompt: str) -> str:
+            return "not json at all"
+
+        result = synthesize_gaps(_overview_fixture(), llm=_garbage_llm)
+        assert result["themes"] == []
+
+    def test_llm_exception_degrades_to_empty_themes_no_crash(self):
+        def _raising_llm(prompt: str) -> str:
+            raise RuntimeError("boom")
+
+        result = synthesize_gaps(_overview_fixture(), llm=_raising_llm)
+        assert result["themes"] == []
+
+    def test_generated_from_sha_matches_prompt_sha(self):
+        from research_companion.prompts import gap_synthesis_prompt_sha256
+
+        def _stub_llm(prompt: str) -> str:
+            return json.dumps({"themes": []})
+
+        result = synthesize_gaps({"papers": [], "draft_addresses": [], "stale": False}, llm=_stub_llm)
+        assert result["generated_from_sha"] == gap_synthesis_prompt_sha256()
+

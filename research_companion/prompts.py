@@ -750,6 +750,52 @@ def gap_resolution_prompt_sha256() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Gap synthesis prompt (gaps.py). SHA-cached.
+# Groups near-duplicate VERIFIED gaps into cross-corpus themes for the
+# dedicated Gaps section. Honest: only groups the given gaps, never invents.
+# ---------------------------------------------------------------------------
+
+GAP_SYNTHESIS_PROMPT = """You are grouping research gaps into themes for a researcher scanning what is missing across a corpus.
+
+Below are VERIFIED research gaps (self-declared by paper authors), one per line, tagged [gap_id] (kind, year, status): statement.
+
+<<GAPS_BLOCK>>
+
+Group NEAR-DUPLICATE or closely related gaps into themes. Every gap_id you use MUST be copied EXACTLY from the list above — do NOT invent gap_ids, statements, or gaps not listed.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "themes": [
+    {
+      "title": "short theme name (a few words)",
+      "bullet": "one-line, actionable synthesis of what is missing across the grouped gaps",
+      "fws_type": "method|resources|evaluation|application|problem|other",
+      "gap_ids": ["gap_id copied exactly from the list above", "..."]
+    }
+  ]
+}
+
+Rules:
+- Group gaps that describe the SAME underlying missing piece of work, even if worded differently across papers.
+- A theme needs at least 1 gap_id; do not create a theme with no members.
+- fws_type is the Future-Work-Sentence taxonomy: method (a technique/algorithm is missing), resources (data/tools/benchmarks are missing), evaluation (missing evaluation/analysis), application (missing application/deployment), problem (an unsolved problem is named), other (anything else).
+- bullet is one sentence, actionable, grounded ONLY in the grouped gaps' statements — do not add facts not present in them.
+- Do NOT invent gaps, statements, or gap_ids. Only group what is given.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_gap_synthesis_prompt(*, gaps_block: str) -> str:
+    """Substitute placeholders in GAP_SYNTHESIS_PROMPT."""
+    return GAP_SYNTHESIS_PROMPT.replace("<<GAPS_BLOCK>>", gaps_block)
+
+
+def gap_synthesis_prompt_sha256() -> str:
+    return hashlib.sha256(GAP_SYNTHESIS_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Venue-fit prompt (agents/venuefit.py). SHA-cached.
 # Judges whether a paper matches a target venue's scope.
 # ---------------------------------------------------------------------------

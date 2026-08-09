@@ -787,3 +787,50 @@ def rank_gap_themes(themes: list[dict]) -> list[dict]:
         score = round(3.0 * (t.get("frequency") or 0) + recency_weight + open_weight, 4)
         scored.append({**t, "score": score})
     return sorted(scored, key=lambda t: -t["score"])
+
+
+def synthesize_gaps(overview: dict, *, llm: Callable[[str], str] | None = None) -> dict:
+    """Cluster verified gaps into cross-corpus themes.
+
+    Pipeline: pure collect -> one LLM cluster call -> pure assemble -> pure
+    rank. Never raises: an empty overview skips the LLM call entirely (no
+    verified gaps to synthesize); any LLM/parse failure degrades to an empty
+    themes list rather than propagating, so the caller (the
+    POST /api/gaps/refresh job) can still finish extraction/resolution and
+    cache what it has.
+
+    Returns {"themes": [...], "generated_from_sha": gap_synthesis_prompt_sha256()}.
+    """
+    from research_companion.prompts import (
+        format_gap_synthesis_prompt,
+        gap_synthesis_prompt_sha256,
+    )
+
+    sha = gap_synthesis_prompt_sha256()
+    verified = _collect_verified_gaps(overview)
+    if not verified:
+        return {"themes": [], "generated_from_sha": sha}
+
+    index = {g["gap_id"]: g for g in verified}
+
+    gaps_block = "\n".join(
+        f"- [{g['gap_id']}] ({g['kind']}, {g['year'] if g['year'] is not None else 'n.d.'}, "
+        f"{g['status']}): {g['statement']}"
+        for g in verified
+    )
+    prompt = format_gap_synthesis_prompt(gaps_block=gaps_block)
+
+    raw_themes: list = []
+    try:
+        raw = llm(prompt)
+        brace_idx = raw.find("{")
+        data = json.loads(raw[brace_idx:]) if brace_idx != -1 else {}
+        candidate = data.get("themes")
+        if isinstance(candidate, list):
+            raw_themes = candidate
+    except Exception:  # noqa: BLE001
+        raw_themes = []
+
+    themes = _assemble_themes({"themes": raw_themes}, index)
+    themes = rank_gap_themes(themes)
+    return {"themes": themes, "generated_from_sha": sha}
