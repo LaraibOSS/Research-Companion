@@ -6268,3 +6268,81 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   background: var(--color-fail);
   color: #fff;
 }
+
+/* ===== Home motion layer (tasteful, CSS-only, reduced-motion aware) ===== */
+
+/* One-time staggered entrance (class added once per mount by home.js) */
+.home-animate-in > * {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: home-rise 0.25s ease-out forwards;
+}
+.home-animate-in > *:nth-child(1) { animation-delay: 0ms; }
+.home-animate-in > *:nth-child(2) { animation-delay: 60ms; }
+.home-animate-in > *:nth-child(3) { animation-delay: 120ms; }
+.home-animate-in > *:nth-child(4) { animation-delay: 180ms; }
+.home-animate-in > *:nth-child(5) { animation-delay: 240ms; }
+@keyframes home-rise { to { opacity: 1; transform: none; } }
+
+/* Journey sparkline draws itself in (path uses pathLength="1") */
+.home-animate-in .home-sparkline path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: home-draw 0.6s ease-out 0.2s forwards;
+}
+@keyframes home-draw { to { stroke-dashoffset: 0; } }
+
+/* Quick-nav / next-step cards: soft hover-lift */
+.home-nav-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel);
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+.home-nav-card:hover,
+.home-nav-card:focus-visible {
+  box-shadow: var(--shadow-2);
+  border-color: var(--color-accent);
+  transform: translateY(-2px);
+  outline: none;
+}
+.home-nav-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+.home-nav-icon { color: var(--color-accent); display: inline-flex; }
+.home-nav-text { display: flex; flex-direction: column; min-width: 0; }
+.home-nav-label { font-weight: 600; display: flex; align-items: center; gap: var(--space-2); }
+.home-nav-desc { font-size: var(--text-sm); color: var(--color-fg-dim); }
+.home-nav-count {
+  font-size: var(--text-xs); background: var(--color-border);
+  border-radius: var(--radius-sm); padding: 0 var(--space-2); color: var(--color-fg-dim);
+}
+
+/* Product pillars (empty state) */
+.home-pillars {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.home-pillar-title { font-weight: 600; margin-bottom: var(--space-2); }
+.home-pillar-desc { font-size: var(--text-sm); color: var(--color-fg-dim); }
+
+/* Accessibility: motion fully off */
+@media (prefers-reduced-motion: reduce) {
+  .home-animate-in > *,
+  .home-animate-in .home-sparkline path,
+  .home-nav-card {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}

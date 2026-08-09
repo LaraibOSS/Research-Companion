@@ -365,6 +365,22 @@ def test_main_js_wires_draft_chip_navigation():
     assert "#/draft" in main_js, "main.js must navigate to #/draft on chip click"
 
 
+def test_home_motion_layer_respects_reduced_motion():
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    # entrance + sparkline draw-in keyframes exist and are gated on the one-time class
+    assert "@keyframes home-rise" in css
+    assert "@keyframes home-draw" in css
+    assert ".home-animate-in" in css
+    # a reduced-motion block that neutralizes Home motion
+    # (use rfind: lab.css already has earlier, unrelated reduced-motion
+    # blocks for .activity-spin/.reader-spin; the Home one is appended last)
+    idx = css.rfind("prefers-reduced-motion")
+    assert idx != -1, "must have a prefers-reduced-motion block"
+    tail = css[idx:idx + 600]
+    assert "home-animate-in" in tail or "home-nav-card" in tail
+    assert "animation: none" in tail and "transition: none" in tail
+
+
 def test_askcompare_node_test_file_exists():
     """tests/js/askcompare.test.mjs must exist (F4 pure-function tests)."""
     assert (REPO_ROOT / "tests" / "js" / "askcompare.test.mjs").exists(), \
