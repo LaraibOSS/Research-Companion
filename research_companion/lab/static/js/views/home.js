@@ -19,6 +19,7 @@ import { explainerBanner } from '../components/explainer.js';
 import { emptyHeroModel, homeNavModel } from '../homeHelpers.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { shouldSuggestNewResearch } from '../researchNudgeHelpers.js';
+import { ensureActiveResearch } from '../researchGuard.js';
 
 let _el = null;
 let _unsub = null;
@@ -141,10 +142,10 @@ function _render() {
   // Wire zone 1 welcome hero buttons if needed
   if (!draft) {
     _el.querySelector('#home-hero-draft')?.addEventListener('click', () => {
-      _addDraftWithNudge();
+      ensureActiveResearch(() => _addDraftWithNudge());
     });
     _el.querySelector('#home-hero-folder')?.addEventListener('click', () => {
-      openModal('folder');
+      ensureActiveResearch(() => openModal('folder'));
     });
   }
 

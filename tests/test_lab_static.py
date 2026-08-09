@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -99,6 +99,8 @@ REQUIRED_STATIC_FILES = [
     # feat/draft-opportunities (Task 3 + 4) additions
     "js/opportunityHelpers.js",
     "js/views/notes.js",
+    # feat/no-research-selected additions
+    "js/researchGuard.js",
 ]
 
 
@@ -2789,3 +2791,61 @@ def test_lab_css_nav_desc_popover_suppressed_on_mobile():
     assert "content: none;" in mobile, (
         "640px block must set content: none to suppress the [data-desc] popover"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat/no-research-selected: none-state affordance + guarded CTAs
+# ---------------------------------------------------------------------------
+
+def test_workspace_switcher_renders_research_none_label():
+    """workspaceSwitcher.js must render the visible 'Research: none' state."""
+    path = STATIC_DIR / "js" / "components" / "workspaceSwitcher.js"
+    text = path.read_text(encoding="utf-8")
+    assert "Research: none" in text, \
+        "workspaceSwitcher.js must render a visible 'Research: none' state"
+
+
+def test_home_ctas_route_through_ensure_active_research():
+    """home.js's empty-hero CTAs must be guarded by ensureActiveResearch."""
+    path = STATIC_DIR / "js" / "views" / "home.js"
+    text = path.read_text(encoding="utf-8")
+    assert "ensureActiveResearch" in text, \
+        "home.js must import/call ensureActiveResearch for its empty-hero CTAs"
+
+
+def test_topbar_add_routes_through_ensure_active_research():
+    """main.js's topbar '+ Add papers' button must be guarded by ensureActiveResearch."""
+    path = STATIC_DIR / "js" / "main.js"
+    text = path.read_text(encoding="utf-8")
+    assert "ensureActiveResearch" in text, \
+        "main.js must call ensureActiveResearch for the topbar add-papers button"
+
+
+def test_researchguard_test_file_exists():
+    """tests/js/researchGuard.test.mjs must exist (ensureActiveResearch node tests)."""
+    assert (REPO_ROOT / "tests" / "js" / "researchGuard.test.mjs").exists(), \
+        "Missing tests/js/researchGuard.test.mjs"
+
+
+def test_no_literal_main_fallback_remains_in_store_or_workspaces():
+    """store.py/workspaces.py must not silently reconstitute a 'main' fallback.
+
+    The only legitimate literal-"main" usages left are _DEFAULT_WORKSPACE
+    itself, the legacy pre-0.4 migration's explicit main record, and the
+    _migrating-guarded normalization check — none of those are a fallback
+    that reconstitutes an active/selected workspace out of thin air.
+    """
+    store_text = (REPO_ROOT / "research_companion" / "store.py").read_text(encoding="utf-8")
+    ws_text = (REPO_ROOT / "research_companion" / "workspaces.py").read_text(encoding="utf-8")
+    forbidden_patterns = [
+        'or _DEFAULT_WORKSPACE',
+        'or "main"',
+        "or 'main'",
+    ]
+    for pattern in forbidden_patterns:
+        assert pattern not in store_text, \
+            f"store.py must not contain the literal fallback pattern: {pattern!r}"
+        assert pattern not in ws_text, \
+            f"workspaces.py must not contain the literal fallback pattern: {pattern!r}"
+    assert 'any(w.get("id") == "main" for w in others)' not in ws_text, \
+        "workspaces.py must not special-case 'main' when picking the new active workspace"
