@@ -34,11 +34,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Laraib-Hasan-Future/Research-Companion"
-Repository = "https://github.com/Laraib-Hasan-Future/Research-Companion"
-Documentation = "https://github.com/Laraib-Hasan-Future/Research-Companion/blob/main/docs/DOCUMENTATION.md"
-Changelog = "https://github.com/Laraib-Hasan-Future/Research-Companion/blob/main/docs/RELEASE_0.7.md"
-Issues = "https://github.com/Laraib-Hasan-Future/Research-Companion/issues"
+Homepage = "https://github.com/LaraibOSS/Research-Companion"
+Repository = "https://github.com/LaraibOSS/Research-Companion"
+Documentation = "https://github.com/LaraibOSS/Research-Companion/blob/main/docs/DOCUMENTATION.md"
+Changelog = "https://github.com/LaraibOSS/Research-Companion/blob/main/docs/RELEASE_0.7.md"
+Issues = "https://github.com/LaraibOSS/Research-Companion/issues"
 
 [project.optional-dependencies]
 server = [

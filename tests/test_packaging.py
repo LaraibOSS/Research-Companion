@@ -244,7 +244,7 @@ def test_publish_workflow_has_upload_guard():
     publish_yml = REPO_ROOT / ".github" / "workflows" / "publish.yml"
     content = publish_yml.read_text(encoding="utf-8")
     assert "github.repository" in content, "publish.yml must guard upload with github.repository check"
-    assert "Laraib-Hasan-Future/Research-Companion" in content, \
+    assert "LaraibOSS/Research-Companion" in content, \
         "publish.yml must check for correct repository"
 
 

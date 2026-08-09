@@ -66,7 +66,7 @@ S2_API = "https://api.semanticscholar.org/graph/v1/paper/{s2_id}"
 
 PUBMED_URL_RE = re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d{4,9})")
 
-USER_AGENT = "research-companion (https://github.com/Laraib-Hasan-Future/Research-Companion)"
+USER_AGENT = "research-companion (https://github.com/LaraibOSS/Research-Companion)"
 
 
 class FetchError(RuntimeError):

@@ -13,7 +13,7 @@
 import { GLOSSARY } from '../glossary.js';
 
 const VERSION = 'v0.7.1';
-const GITHUB_URL = 'https://github.com/Laraib-Hasan-Future/Research-Companion';
+const GITHUB_URL = 'https://github.com/LaraibOSS/Research-Companion';
 const DOCS_PATH = 'docs/DOCUMENTATION.pdf';
 
 const CORE_FLOWS = [

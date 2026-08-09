@@ -69,7 +69,7 @@ jobs:
   publish:
     name: publish
     needs: [build]
-    if: github.repository == 'Laraib-Hasan-Future/Research-Companion'
+    if: github.repository == 'LaraibOSS/Research-Companion'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

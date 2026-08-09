@@ -16,7 +16,7 @@ import httpx
 from research_companion.refcheck import matching
 from research_companion.refcheck.validate import Reference
 
-USER_AGENT = "research-companion/0.1 (https://github.com/Laraib-Hasan-Future/Research-Companion)"
+USER_AGENT = "research-companion/0.1 (https://github.com/LaraibOSS/Research-Companion)"
 CROSSREF_SEARCH_API = "https://api.crossref.org/works"
 OPENALEX_SEARCH_API = "https://api.openalex.org/works"
 

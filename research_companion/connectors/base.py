@@ -13,7 +13,7 @@ from typing import Protocol, runtime_checkable
 from research_companion.discover import DiscoveredPaper
 from research_companion.refcheck.validate import Reference
 
-USER_AGENT = "research-companion/0.1 (https://github.com/Laraib-Hasan-Future/Research-Companion)"
+USER_AGENT = "research-companion/0.1 (https://github.com/LaraibOSS/Research-Companion)"
 
 # A record dict: {title, authors, year, doi, arxiv_id, pmid, pmcid}.
 Record = dict

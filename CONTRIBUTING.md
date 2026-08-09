@@ -7,7 +7,7 @@ change must pass, and the principles that keep the project coherent.
 ## Development setup
 
 ```bash
-git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git
+git clone https://github.com/LaraibOSS/Research-Companion.git
 cd Research-Companion
 pip install -e ".[dev]"
 ```

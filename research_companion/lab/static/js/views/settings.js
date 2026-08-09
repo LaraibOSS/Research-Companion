@@ -238,8 +238,8 @@ function _render(s) {
   <div class="settings-card" id="sc-about">
     <div class="settings-card-title">About / Help</div>
     <div style="display:flex;flex-direction:column;gap:var(--space-2)">
-      <a href="https://github.com/Laraib-Hasan-Future/Research-Companion/blob/main/docs/USER_MANUAL.md" target="_blank" rel="noopener" class="settings-label" style="color:var(--color-accent)">User Manual &#8599;</a>
-      <a href="https://github.com/Laraib-Hasan-Future/Research-Companion" target="_blank" rel="noopener" class="settings-label" style="color:var(--color-accent)">GitHub Repository &#8599;</a>
+      <a href="https://github.com/LaraibOSS/Research-Companion/blob/main/docs/USER_MANUAL.md" target="_blank" rel="noopener" class="settings-label" style="color:var(--color-accent)">User Manual &#8599;</a>
+      <a href="https://github.com/LaraibOSS/Research-Companion" target="_blank" rel="noopener" class="settings-label" style="color:var(--color-accent)">GitHub Repository &#8599;</a>
       <button class="btn btn-secondary btn-sm" id="replay-intro" style="align-self:flex-start;margin-top:var(--space-2)">Replay intro tour</button>
     </div>
   </div>

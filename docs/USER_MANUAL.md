@@ -1,6 +1,6 @@
 # Research Companion — User Manual
 
-**Version 0.7.1 · 2026-07-14 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.7.1 · 2026-07-14 · MIT License · https://github.com/LaraibOSS/Research-Companion**
 
 This manual explains everything Research Companion does, how to use it, and —
 just as important — how to read its outputs honestly. It assumes no prior

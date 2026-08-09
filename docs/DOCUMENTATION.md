@@ -1,6 +1,6 @@
 # Research Companion — Full Documentation
 
-**Version 0.7.1 · MIT License · https://github.com/Laraib-Hasan-Future/Research-Companion**
+**Version 0.7.1 · MIT License · https://github.com/LaraibOSS/Research-Companion**
 
 This is the single consolidated reference for Research Companion: what it is, how
 it is built, every feature it ships, and where it is going. For task-oriented

@@ -1,6 +1,6 @@
 # Research Companion
 
-[![CI](https://github.com/Laraib-Hasan-Future/Research-Companion/actions/workflows/ci.yml/badge.svg)](https://github.com/Laraib-Hasan-Future/Research-Companion/actions/workflows/ci.yml)
+[![CI](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml/badge.svg)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](pyproject.toml)
 
@@ -11,7 +11,7 @@ This repository is the canonical home of Research Companion. The source tree is 
 `pip install -e .` from source is ahead of PyPI.
 
 ```bash
-git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git && cd Research-Companion && pip install -e .
+git clone https://github.com/LaraibOSS/Research-Companion.git && cd Research-Companion && pip install -e .
 research-companion add https://arxiv.org/abs/2410.05779
 research-companion add https://arxiv.org/abs/2404.16130
 research-companion build
@@ -141,7 +141,7 @@ research-companion builds a *concept-level* knowledge graph (concepts, methods, 
 ## Install
 
 ```bash
-git clone https://github.com/Laraib-Hasan-Future/Research-Companion.git
+git clone https://github.com/LaraibOSS/Research-Companion.git
 cd Research-Companion
 pip install -e ".[server]"   # core + Research Lab server (fastapi, uvicorn)
 
