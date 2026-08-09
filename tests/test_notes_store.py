@@ -114,3 +114,45 @@ def test_markdown_group_by_paper_and_unfiled(isolated_papergraph_dir):
     assert "## Paper P" in by_paper and "## Unfiled" in by_paper
     by_sec = ns.notes_to_markdown(ns.list_notes(), group_by="section")
     assert "## Unfiled" in by_sec  # both notes are section-less
+
+
+def test_markdown_exports_source_excerpt_for_ask_and_reader_notes(isolated_papergraph_dir):
+    """ask/reader notes carry their whole captured body in source_excerpt
+    (no paper/relation/rationale), so notes_to_markdown must surface it —
+    otherwise those notes export as blank/contentless lines (final-review
+    finding 1)."""
+    ns.save_note({"kind": "ask", "source_excerpt": "The answer text from ask."})
+    ns.save_note({"kind": "reader", "source_excerpt": "A highlighted reader passage."})
+    md = ns.notes_to_markdown(ns.list_notes())
+    assert "The answer text from ask." in md
+    assert "A highlighted reader passage." in md
+
+
+def test_markdown_omits_source_excerpt_segment_when_empty(isolated_papergraph_dir):
+    """A note with no source_excerpt must render exactly as before — no new
+    dangling ' — ' separator introduced by the source_excerpt fix."""
+    ns.save_note(_rec(paper_title="P1", relation="strengthens", relevance=0.8, rationale="why"))
+    md = ns.notes_to_markdown(ns.list_notes())
+    line = next(ln for ln in md.splitlines() if "P1" in ln)
+    assert line == "- [ ] P1 — strengthens, relevance 0.8 — why"
+
+
+def test_dedupe_requires_matching_kind(isolated_papergraph_dir):
+    """A freeform save targeting the same (paper_id, draft_section_id) as an
+    existing OPEN alignment note must NOT update it in place — that would
+    reclassify its kind and wipe relation/relevance/rationale/evidence_quote
+    (final-review finding 3)."""
+    alignment = ns.save_note({"kind": "alignment", "paper_id": "P", "draft_section_id": "s1",
+                               "relation": "strengthens", "relevance": 0.9,
+                               "rationale": "why", "evidence_quote": "q"})
+    freeform = ns.save_note({"kind": "freeform", "paper_id": "P", "draft_section_id": "s1",
+                              "comment": "unrelated note"})
+    assert alignment["id"] != freeform["id"]
+    all_notes = ns.list_notes()
+    assert len(all_notes) == 2
+    kept = next(n for n in all_notes if n["id"] == alignment["id"])
+    assert kept["kind"] == "alignment"
+    assert kept["relation"] == "strengthens"
+    assert kept["relevance"] == 0.9
+    assert kept["rationale"] == "why"
+    assert kept["evidence_quote"] == "q"

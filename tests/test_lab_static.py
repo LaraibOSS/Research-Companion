@@ -2455,6 +2455,20 @@ def test_ask_js_save_note_guards_duplicate_clicks():
     assert "finally" in body, "ask.js Save-note handler must re-enable the button in a finally block"
 
 
+def test_draft_js_section_note_save_guards_duplicate_clicks():
+    """draft.js per-section freeform note Save handler (_toggleSectionNoteForm)
+    must disable the Save button for the duration of the async saveNote call
+    and re-enable it in a finally — a freeform note carries no paper_id, so
+    the server's (paper_id, draft_section_id) dedupe can't catch a rapid
+    double-click (final-review finding 4)."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "saveBtn.addEventListener('click'")
+    assert "saveBtn.disabled" in body, (
+        "draft.js section-note Save handler must guard against re-entrant clicks via saveBtn.disabled"
+    )
+    assert "finally" in body, "draft.js section-note Save handler must re-enable the button in a finally block"
+
+
 # ---------------------------------------------------------------------------
 # feat/notes-everywhere (Task 4): notebook view — group by section/paper,
 # kind & status filter chips, New note.

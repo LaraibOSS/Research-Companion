@@ -375,14 +375,22 @@ function _toggleSectionNoteForm(btn, sectionId, sectionTitle) {
 
   form.querySelector('.draft-note-cancel').addEventListener('click', () => form.remove());
 
-  form.querySelector('.draft-note-save').addEventListener('click', async () => {
+  const saveBtn = form.querySelector('.draft-note-save');
+  saveBtn.addEventListener('click', async () => {
     const comment = ((textarea && textarea.value) || '').trim();
     if (!comment) { form.remove(); return; }
+    // A freeform note carries no paper_id, so the server's (paper_id,
+    // draft_section_id) dedupe can't catch a rapid double-click here —
+    // guard it client-side instead (mirrors reader/paper/ask Save handlers).
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
     try {
       await api.saveNote(buildNoteRecord('freeform', { sectionId, sectionTitle, comment }));
       showToast('Saved to Notes', 'info');
     } catch (err) {
       showToast(`Failed to save note: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
     }
     form.remove();
   });

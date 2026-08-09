@@ -24,12 +24,14 @@ def _path():
 def _as_float(value, default: float = 0.0) -> float:
     """Coerce a value to float, falling back to default on anything invalid.
 
-    relevance is caller-supplied and only paper_id/draft_section_id are
-    validated at the API boundary, so a note can legitimately arrive (or
-    already exist on disk, from an older/buggy write) with a missing,
-    None, or non-numeric relevance. Both the writer (save_note) and the
-    reader (notes_to_markdown's sort key) must tolerate that without
-    raising, since a single bad record must not 500 the whole export.
+    relevance itself is not validated at the API boundary (which only
+    checks that `kind` is a known value and that the note isn't entirely
+    empty — see create_note_endpoint in lab_api.py), so a note can
+    legitimately arrive (or already exist on disk, from an older/buggy
+    write) with a missing, None, or non-numeric relevance. Both the writer
+    (save_note) and the reader (notes_to_markdown's sort key) must tolerate
+    that without raising, since a single bad record must not 500 the whole
+    export.
     """
     try:
         return float(value)
@@ -64,8 +66,11 @@ def save_note(record: dict) -> dict:
     """Create (or update-in-place, when deduping) a note and persist it.
 
     Assigns id/created_at/status="open" for a new note. If an OPEN note
-    already exists for the same (paper_id, draft_section_id), its fields are
-    updated in place and returned instead of appending a duplicate.
+    already exists for the same (paper_id, draft_section_id, kind), its
+    fields are updated in place and returned instead of appending a
+    duplicate. The kind check keeps e.g. a freeform note from clobbering
+    an existing alignment/opportunity note that happens to target the
+    same paper+section.
     """
     notes = list_notes()
     clean = {k: record.get(k, "") for k in _FIELDS}
@@ -77,7 +82,8 @@ def save_note(record: dict) -> dict:
         if (existing.get("status") == "open"
                 and clean["paper_id"] and clean["draft_section_id"]
                 and existing.get("paper_id") == clean["paper_id"]
-                and existing.get("draft_section_id") == clean["draft_section_id"]):
+                and existing.get("draft_section_id") == clean["draft_section_id"]
+                and existing.get("kind") == clean["kind"]):
             merged = dict(clean)
             if not merged["comment"]:
                 # Don't blank a user's existing comment just because a
@@ -145,6 +151,8 @@ def notes_to_markdown(notes: list[dict], group_by: str = "section") -> str:
             box = "x" if n.get("status") == "done" else " "
             line = (f"- [{box}] {n.get('paper_title', '')} — {n.get('relation', '')}, "
                     f"relevance {n.get('relevance', 0.0)} — {n.get('rationale', '')}")
+            if n.get("source_excerpt"):
+                line += f" — {n['source_excerpt']}"
             if n.get("comment"):
                 line += f" — note: {n['comment']}"
             lines.append(line)
