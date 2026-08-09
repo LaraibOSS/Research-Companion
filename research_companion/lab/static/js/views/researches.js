@@ -100,7 +100,7 @@ function _render() {
     <div class="researches-table-wrap">
       <table class="researches-table">
         <thead><tr>${_headerRowHtml()}</tr></thead>
-        <tbody>${rows.map(_rowHtml).join('')}</tbody>
+        <tbody>${rows.map(r => _rowHtml(r, false)).join('')}</tbody>
       </table>
     </div>`;
 

@@ -1672,6 +1672,19 @@ def test_lab_css_has_researches_table_styles():
         assert needle in css, f"lab.css missing Task 3 table style: {needle}"
 
 
+def test_researches_view_active_rows_pass_explicit_isarchived_boolean():
+    """Active-table rows must pass an explicit boolean isArchived to _rowHtml, not
+    rely on Array.map's implicit (element, index, array) callback signature.
+    `rows.map(_rowHtml)` would silently pass the array INDEX as isArchived —
+    falsy for row 0, truthy for every row after it — breaking Open/rename/row-open
+    on every active row past the first (regression found in Task 3 re-review)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "_rowHtml(r, false)" in js, \
+        "researches.js must pass an explicit `false` isArchived for active rows"
+    assert "rows.map(_rowHtml)" not in js, \
+        "researches.js must not pass _rowHtml directly to .map (index leaks into isArchived)"
+
+
 def test_researches_view_archived_rows_have_no_open_affordance():
     """Archived rows must not offer an Open button or the row-open click/keydown
     binding: api.activateWorkspace() 409s server-side for an archived workspace id
