@@ -1079,9 +1079,12 @@ failures-store accessors (`record_failure` / `list_failures` /
 
 - **Record shape** — `_FIELDS`: `draft_section_id`, `draft_section_title`,
   `paper_id`, `paper_title`, `relation`, `relevance`, `rationale`,
-  `evidence_quote`, `evidence_section_id`, `comment`; plus server-assigned
-  `id` (`uuid.uuid4().hex`), `created_at` (UTC ISO-8601, `Z` suffix), and
-  `status` (`"open"` / `"done"` / `"dismissed"`, starting `"open"`).
+  `evidence_quote`, `evidence_section_id`, `comment`, `kind`,
+  `source_excerpt`; plus server-assigned `id` (`uuid.uuid4().hex`),
+  `created_at` (UTC ISO-8601, `Z` suffix), and `status` (`"open"` /
+  `"done"` / `"dismissed"`, starting `"open"`). *(`kind` and
+  `source_excerpt` were added in §23, which generalized the record beyond
+  opportunity suggestions — see there for the current contract.)*
 - **`save_note(record) -> dict`** dedupes on **(`paper_id`,
   `draft_section_id`)**: if an **open** note already matches, its fields are
   updated in place (so re-saving a refreshed suggestion doesn't pile up
@@ -1090,8 +1093,8 @@ failures-store accessors (`record_failure` / `list_failures` /
   typed. `relevance` is coerced through `_as_float` (falls back to `0.0` on
   anything non-numeric/`None`) both on write and again wherever
   `notes_to_markdown` sorts by it, since `relevance` is caller-supplied and
-  only `paper_id`/`draft_section_id` are validated at the API boundary — one
-  bad record on disk must never 500 the whole list or export.
+  the API boundary validates only `kind` and overall non-emptiness (see
+  §23) — one bad record on disk must never 500 the whole list or export.
 - **`update_note(note_id, *, status=None, comment=None)`** patches whichever
   fields are passed and returns `None` for an unknown id.
   **`delete_note(note_id) -> bool`** removes by id.
@@ -1106,10 +1109,16 @@ failures-store accessors (`record_failure` / `list_failures` /
   all-dismissed/empty note list still renders a valid doc (`_No notes yet._`
   under the heading) rather than an empty string.
 - **Endpoints** (`lab_api.py`): `GET /api/notes` → `{"notes": [...]}`;
-  `POST /api/notes` → 400 unless both `paper_id` and `draft_section_id` are
-  present, otherwise `save_note(body)`; `PATCH /api/notes/{note_id}` → 400 on
-  an invalid `status` value, 404 unknown id; `DELETE /api/notes/{note_id}` →
-  404 unknown id; `GET /api/notes/export` → `{"markdown": notes_to_markdown(list_notes())}`.
+  `POST /api/notes` → `save_note(body)`, 400 only on an invalid `kind` or
+  when `comment`/`paper_id`/`source_excerpt`/`evidence_quote` are *all*
+  empty (relaxed in §23 — no longer requires `paper_id` +
+  `draft_section_id`); `PATCH /api/notes/{note_id}` → 400 on an invalid
+  `status` value, 404 unknown id; `DELETE /api/notes/{note_id}` → 404
+  unknown id; `GET /api/notes/export` → `{"markdown":
+  notes_to_markdown(list_notes(), group_by=...)}`, `group_by` an optional
+  `?group_by=section|paper` query param added in §23 (defaults to
+  `"section"`). *(§23 has the full rationale for the relaxed POST rule and
+  the group_by param — this is the current contract, kept in sync here.)*
   **Route order matters**: `/api/notes/export` is registered *before*
   `/api/notes/{note_id}`, the same fix already applied to
   `/api/papers/find-pdfs` vs. `/api/papers/{paper_id:path}` — otherwise
@@ -1146,13 +1155,15 @@ failures-store accessors (`record_failure` / `list_failures` /
   on the *uncited* paper at that quote, and a **Save note** button that
   `POST`s `/api/notes` — renders only for the currently-selected section, in
   the detail column, so it can't crowd out the narrow nav rows.
-- **`views/notes.js`** (route `#/notes`) lists every note grouped by
-  `draft_section_title`, each row built through `noteRowModel`. An editable
-  comment `<textarea>` PATCHes on blur (only when changed); Mark
-  done/Dismiss/Reopen call `PATCH {status}`; Delete calls
-  `DELETE /api/notes/{id}`; **Export as Markdown** fetches
+- **`views/notes.js`** (route `#/notes`) lists every note, each row built
+  through `noteRowModel`. An editable comment `<textarea>` PATCHes on blur
+  (only when changed); Mark done/Dismiss/Reopen call `PATCH {status}`;
+  Delete calls `DELETE /api/notes/{id}`; **Export as Markdown** fetches
   `GET /api/notes/export` and downloads the returned string client-side as
   `revision-notes.md` (no client-side formatting — see the DRY note above).
+  *(§23 generalized this view into a notebook — group-by Section/Paper,
+  kind + status filter chips, New note — see there for the current shape;
+  this paragraph describes only the pieces that haven't changed.)*
 - Both views' markup and wiring are smoke-tested via string assertions in
   `tests/test_lab_static.py` (the same convention §19/§21 use), alongside the
   node-test coverage of the pure helpers.
