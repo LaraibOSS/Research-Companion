@@ -6346,3 +6346,18 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
     stroke-dashoffset: 0 !important;
   }
 }
+
+/* Researches header: persistent "+ New research" action (home-redesign task 4) */
+.researches-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.researches-header-main { min-width: 0; }
+.researches-count {
+  font-size: var(--text-sm); color: var(--color-fg-dim);
+  background: var(--color-border); border-radius: var(--radius-sm);
+  padding: 0 var(--space-2); vertical-align: middle;
+}
+.ws-create-row[hidden] { display: none; }

@@ -1068,6 +1068,23 @@ def test_main_js_mounts_converse_panel():
     assert "mountConversePanel" in main_js, "main.js must call mountConversePanel"
 
 
+# ---------------------------------------------------------------------------
+# home-redesign task 4: Researches header persistent "+ New research" button
+# ---------------------------------------------------------------------------
+
+def test_researches_header_has_persistent_new_research_button():
+    """researches.js header must carry a persistent #ws-new-btn that reveals
+    the (now hidden-by-default) #ws-create-row create control (home-redesign
+    task 4)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "ws-new-btn" in js, "header must carry a persistent + New research button"
+    assert "New research" in js
+    # the create row is now hidden by default (revealed by the header button)
+    assert "ws-create-row" in js and "hidden" in js
+    # header shows a count of researches
+    assert "researches-header" in js
+
+
 def test_lab_css_has_converse_styles():
     """lab.css must include W3-F4 converse panel styles."""
     css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
