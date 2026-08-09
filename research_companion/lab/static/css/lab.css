@@ -5194,6 +5194,11 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 
 .researches-row--archived td {
   opacity: 0.7;
+  cursor: default;
+}
+
+.researches-row--archived:hover td {
+  background: transparent;
 }
 
 .researches-cell-name {

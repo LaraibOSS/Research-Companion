@@ -1672,6 +1672,20 @@ def test_lab_css_has_researches_table_styles():
         assert needle in css, f"lab.css missing Task 3 table style: {needle}"
 
 
+def test_researches_view_archived_rows_have_no_open_affordance():
+    """Archived rows must not offer an Open button or the row-open click/keydown
+    binding: api.activateWorkspace() 409s server-side for an archived workspace id
+    (workspaces.py activate_workspace), so any such click is a guaranteed error
+    toast (regression found in Task 3 review). The Open button and the
+    data-ws-row click-to-open attribute must both be gated on `!isArchived`,
+    mirroring how the rename button is already suppressed for archived rows."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "const openBtn = isArchived" in js, \
+        "researches.js must gate the Open button on isArchived"
+    assert "const rowAttrs = isArchived" in js, \
+        "researches.js must gate the data-ws-row click-to-open attribute on isArchived"
+
+
 def test_workspace_helpers_node_test_file_exists():
     """tests/js/workspaceHelpers.test.mjs must exist (W4-F1 node tests)."""
     assert (REPO_ROOT / "tests" / "js" / "workspaceHelpers.test.mjs").exists(), \

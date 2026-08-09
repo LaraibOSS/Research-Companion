@@ -239,9 +239,18 @@ function _rowHtml(r, isArchived) {
     ? ''
     : `<button class="ws-icon-btn" data-ws-rename="${id}" title="Rename" aria-label="Rename">&#9998;</button>`;
 
+  // Archived workspaces cannot be activated (activateWorkspace 409s on an
+  // archived id server-side) -> no Open button and no row-open affordance.
+  // Archived rows only expose Unarchive + Delete, same as the old cards.
+  const openBtn = isArchived
+    ? ''
+    : `<button class="btn" data-ws-open="${id}">${r.isActive ? 'Go to Home' : 'Open'}</button>`;
+  const rowAttrs = isArchived
+    ? ''
+    : `data-ws-row="${id}" tabindex="0" aria-label="Open research ${escapeHtml(r.name)}"`;
+
   return `
-    <tr class="${rowClass}" data-ws-row="${id}" tabindex="0"
-        aria-label="Open research ${escapeHtml(r.name)}">
+    <tr class="${rowClass}" ${rowAttrs}>
       <td class="researches-cell-name">
         <span class="researches-name" data-ws-name="${id}">${escapeHtml(r.name)}</span>
         ${r.isActive ? '<span class="researches-active-dot" title="Active">&#9679;</span>' : ''}
@@ -259,7 +268,7 @@ function _rowHtml(r, isArchived) {
       <td>${_relOrDash(r.lastActivityIso)}</td>
       <td>${escapeHtml(_dateStr(r.createdAtIso)) || '&mdash;'}</td>
       <td class="researches-cell-actions">
-        <button class="btn" data-ws-open="${id}">${r.isActive ? 'Go to Home' : 'Open'}</button>
+        ${openBtn}
         ${renameBtn}
         ${archiveBtn}
         <button class="ws-icon-btn ws-icon-btn-danger" data-ws-delete="${id}" title="Delete" aria-label="Delete">&#128465;</button>
