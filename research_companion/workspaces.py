@@ -164,7 +164,10 @@ def _read_json(path: Path) -> dict:
 def workspace_stats(ws_id: str) -> dict:
     ws = store.workspaces_root() / ws_id
     stats = {"papers": 0, "draft_title": None, "open_suggestions": 0,
-             "last_activity": None}
+             "last_activity": None,
+             "failed": 0, "draft_versions": 0, "draft_updated": None,
+             "coverage": None,
+             "strength": {"strong": 0, "moderate": 0, "weak": 0, "unscored": 0}}
 
     papers_root = ws / "papers"
     draft_id = _read_json(ws / "config.json").get("draft_paper_id")
@@ -198,6 +201,44 @@ def workspace_stats(ws_id: str) -> dict:
         stats["last_activity"] = (
             datetime.fromtimestamp(max(mtimes), tz=timezone.utc)
             .isoformat().replace("+00:00", "Z"))
+
+    # failed papers (failed.json is a dict keyed by paper/target)
+    failed = _read_json(ws / "failed.json")
+    if isinstance(failed, dict):
+        stats["failed"] = len(failed)
+
+    # draft versions + latest timestamp (from the journey)
+    journey = _read_json(ws / "journey.json")
+    versions = journey.get("draft_versions") if isinstance(journey, dict) else None
+    if isinstance(versions, list) and versions:
+        stats["draft_versions"] = len(versions)
+        last = versions[-1]
+        if isinstance(last, dict):
+            stats["draft_updated"] = last.get("added_at")
+
+    # citation coverage (cached payload only — never recompute)
+    cov = _read_json(ws / "citations_coverage.json")
+    counts = cov.get("counts") if isinstance(cov, dict) else None
+    if isinstance(counts, dict):
+        stats["coverage"] = {"in_library": int(counts.get("in_library", 0)),
+                             "total": int(counts.get("total", 0))}
+
+    # strength band tally over this workspace's papers
+    try:
+        if papers_root.is_dir():
+            tally = stats["strength"]
+            for d in papers_root.iterdir():
+                if not (d.is_dir() and (d / "metadata.json").exists()):
+                    continue
+                st = _read_json(d / "strength.json")
+                band = st.get("band") if isinstance(st, dict) else None
+                if band in tally:
+                    tally[band] += 1
+                else:
+                    tally["unscored"] += 1
+    except OSError:
+        pass
+
     return stats
 
 
