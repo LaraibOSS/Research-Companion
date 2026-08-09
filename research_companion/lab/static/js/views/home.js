@@ -285,9 +285,9 @@ const _STEP_CAPTIONS = [
 
 // Product value pillars shown under the welcome hero's steps (empty state only).
 const _PILLARS = [
-  { t: 'Build a concept graph', d: 'Turn your papers into a navigable map of concepts, methods and results.' },
-  { t: 'Ask, with citations', d: 'Every answer cites the exact paper and section it came from.' },
-  { t: 'Get submission-ready', d: 'Score your draft, verify claims, and catch integrity issues early.' },
+  { t: 'A living knowledge graph', d: 'Every paper you add becomes connected concepts, methods, and results you can explore.' },
+  { t: 'Answers you can trust', d: 'Ask in plain language — every claim is cited to the exact paper and section.' },
+  { t: 'Submission-ready', d: 'Align your draft, verify each reference, and catch integrity issues before reviewers do.' },
 ];
 
 function _emptyHeroHtml(state) {
@@ -305,7 +305,9 @@ function _emptyHeroHtml(state) {
 
   return `
     <div class="home-empty-hero">
-      <div class="home-empty-hero-brand"><span class="home-empty-hero-mark">◆</span> <span>${escapeHtml(model.heading)}</span></div>
+      <span class="home-eyebrow">Local-first research workspace</span>
+      <h1 class="home-empty-hero-brand"><span class="home-empty-hero-mark">◆</span><span class="home-empty-hero-word">${escapeHtml(model.heading)}</span></h1>
+      <p class="home-hero-tagline">Turn the literature into answers you can cite.</p>
       <p class="home-empty-hero-sub">${escapeHtml(model.subline)}</p>
       <div class="home-empty-hero-actions">
         <button class="btn btn-accent" id="home-hero-draft">★ Add your draft</button>
@@ -314,7 +316,10 @@ function _emptyHeroHtml(state) {
       <div class="home-empty-hero-steps">${stepsHtml}</div>
     </div>
     ${pillarsHtml}
-    ${_navRowHtml(state)}`;
+    <div class="home-nav-section">
+      <div class="home-section-eyebrow">Explore the workspace</div>
+      ${_navRowHtml(state)}
+    </div>`;
 }
 
 function _donutSvg(segs, size) {
