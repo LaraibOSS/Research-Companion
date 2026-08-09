@@ -1,6 +1,8 @@
 """Tests for research_companion.workspaces — CRUD, slugify, stats."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from research_companion import store, workspaces
@@ -217,6 +219,87 @@ class TestListAndStats:
         listing = workspaces.list_workspaces()  # must not raise
         rec = next(w for w in listing["workspaces"] if w["id"] == "corrupt")
         assert rec["stats"]["papers"] == 0
+
+
+class TestWorkspaceStatsNewMetrics:
+    def test_workspace_stats_new_metrics(self, isolated_root_dir):
+        workspaces.create_workspace("Metrics")
+        ws = store.workspaces_root() / "metrics"
+
+        # Two paper dirs (metadata.json), one with strength.json band=strong.
+        p1 = ws / "papers" / "arxiv__1111_1111"
+        p1.mkdir(parents=True)
+        (p1 / "metadata.json").write_text(
+            json.dumps({"paper_id": "arxiv:1111.1111", "title": "P1"}),
+            encoding="utf-8")
+        (p1 / "strength.json").write_text(
+            json.dumps({"band": "strong"}), encoding="utf-8")
+
+        p2 = ws / "papers" / "arxiv__2222_2222"
+        p2.mkdir(parents=True)
+        (p2 / "metadata.json").write_text(
+            json.dumps({"paper_id": "arxiv:2222.2222", "title": "P2"}),
+            encoding="utf-8")
+        # p2 has no strength.json -> unscored
+
+        # failed.json: dict keyed by target, 1 entry.
+        (ws / "failed.json").write_text(
+            json.dumps({"arxiv:9999.9999": {"error": "boom"}}), encoding="utf-8")
+
+        # journey.json: 2 draft_versions, latest timestamp via "added_at".
+        (ws / "journey.json").write_text(json.dumps({
+            "version": 1,
+            "draft_versions": [
+                {"version": 1, "paper_id": "arxiv:1111.1111",
+                 "added_at": "2026-01-01T00:00:00Z", "n_sections": 1, "n_claims": 1},
+                {"version": 2, "paper_id": "arxiv:2222.2222",
+                 "added_at": "2026-02-02T00:00:00Z", "n_sections": 2, "n_claims": 2},
+            ],
+            "events": [],
+        }), encoding="utf-8")
+
+        # citations_coverage.json: counts.in_library / counts.total.
+        (ws / "citations_coverage.json").write_text(json.dumps({
+            "counts": {"total": 8, "in_library": 3, "available": 0,
+                       "unchecked": 0, "unresolved": 0, "usable": 0},
+        }), encoding="utf-8")
+
+        s = workspaces.workspace_stats("metrics")
+        assert s["failed"] == 1
+        assert s["draft_versions"] == 2
+        assert s["draft_updated"] == "2026-02-02T00:00:00Z"
+        assert s["coverage"] == {"in_library": 3, "total": 8}
+        assert s["strength"]["strong"] == 1
+        assert s["strength"]["unscored"] >= 1
+
+    def test_coverage_counts_non_numeric_degrade_without_raising(self, isolated_root_dir):
+        # A valid-JSON citations_coverage.json whose counts are null/string/list
+        # must not crash workspace_stats (the int() cast used to raise here).
+        workspaces.create_workspace("Bad Coverage")
+        ws = store.workspaces_root() / "bad-coverage"
+        (ws / "citations_coverage.json").write_text(json.dumps({
+            "counts": {"in_library": None, "total": "eight"},
+        }), encoding="utf-8")
+
+        s = workspaces.workspace_stats("bad-coverage")  # must not raise
+        assert s["coverage"] == {"in_library": 0, "total": 0}
+        # and list_workspaces (the API path) stays healthy
+        listing = workspaces.list_workspaces()
+        rec = next(w for w in listing["workspaces"] if w["id"] == "bad-coverage")
+        assert rec["stats"]["coverage"] == {"in_library": 0, "total": 0}
+
+    def test_workspace_stats_empty_workspace_is_none_safe(self, isolated_root_dir):
+        workspaces.create_workspace("Empty Metrics")
+        s = workspaces.workspace_stats("empty-metrics")
+        assert s["failed"] == 0
+        assert s["draft_versions"] == 0
+        assert s["draft_updated"] is None
+        assert s["coverage"] is None
+        assert s["strength"] == {"strong": 0, "moderate": 0, "weak": 0, "unscored": 0}
+        # existing keys still present/unchanged in shape
+        assert s["papers"] == 0
+        assert s["draft_title"] is None
+        assert s["open_suggestions"] == 0
 
 
 class TestListActiveHonorsEnvOverride:

@@ -1,15 +1,20 @@
 /**
  * views/researches.js — Researches overview screen (route #/researches, W4-F1).
+ * Rebuilt as a sortable tracking table (feat/researches-tab, task 3).
  *
- * Card grid of all workspaces ("researches"):
+ * Sortable tracking table of all workspaces ("researches"):
  *   - inline create row at top (focused when the hash query has ?new=1)
- *   - active card accent-bordered with an "Active" chip
- *   - click card / Open -> activate workspace + full page reload
- *     (clicking the already-active card navigates #/home instead)
- *   - per-card pencil -> inline rename (Enter/blur commits via PATCH)
- *   - per-card Archive -> PATCH archived:true; archived cards live in a
+ *   - one <tr> per research: name/active/draft badges, papers, draft,
+ *     citation coverage, strength mini-bar, open items, draft-updated,
+ *     last-activity, created and action buttons
+ *   - clickable header cells toggle _sortCol/_sortDir and re-render
+ *     (default: lastActivity desc)
+ *   - click row / Open -> activate workspace + full page reload
+ *     (clicking the already-active row navigates #/home instead)
+ *   - per-row pencil -> inline rename (Enter/blur commits via PATCH)
+ *   - per-row Archive -> PATCH archived:true; archived rows live in a
  *     collapsed <details> section below with an Unarchive button
- *   - per-card trash -> confirmDialog() then DELETE /api/workspaces/{id};
+ *   - per-row trash -> confirmDialog() then DELETE /api/workspaces/{id};
  *     reload if the server switched the active research, else refresh
  *
  * All workspace names and draft titles are user/server input -> escapeHtml.
@@ -24,13 +29,19 @@ import {
   deleteConfirmMessage,
   splitWorkspaces,
   validateWorkspaceName,
-  workspaceCardModel,
+  researchRowModel,
+  sortResearchRows,
 } from '../workspaceHelpers.js';
 
 let _el = null;
 let _unsub = null;
 let _busy = false;       // guard: an activate/reload is already in flight
 let _editingId = null;   // workspace id currently in inline-rename mode
+let _sortCol = 'lastActivity';
+let _sortDir = 'desc';
+
+// Columns sortResearchRows understands; others render as plain (non-clickable) headers.
+const _SORTABLE_COLS = new Set(['name', 'papers', 'coverage', 'lastActivity', 'created', 'draftUpdated']);
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -76,22 +87,32 @@ function _render() {
   const prevValue = prevInput ? prevInput.value : '';
   const hadFocus = prevInput && document.activeElement === prevInput;
 
-  const models = active.map(w => workspaceCardModel(w, activeId));
-  const archivedModels = archived.map(w => workspaceCardModel(w, activeId));
+  const rows = sortResearchRows(active.map(w => researchRowModel(w, activeId)), _sortCol, _sortDir);
+  const archivedRows = sortResearchRows(archived.map(w => researchRowModel(w, activeId)), _sortCol, _sortDir);
 
-  // Empty state: just the initial workspace with no papers yet
-  const isEmpty = models.length === 1 && archivedModels.length === 0
-    && models[0].paperCount === 0;
+  const isEmpty = rows.length === 0 && archivedRows.length === 0;
 
   const emptyHtml = isEmpty
-    ? `<p class="ws-empty-hint muted">One research so far — everything you add
-         lives here. Create another to explore a second topic side by side.</p>`
+    ? `<p class="ws-empty-hint muted">No researches yet &mdash; create one to get started.</p>`
     : '';
 
-  const archivedHtml = archivedModels.length > 0
+  const tableHtml = isEmpty ? '' : `
+    <div class="researches-table-wrap">
+      <table class="researches-table">
+        <thead><tr>${_headerRowHtml()}</tr></thead>
+        <tbody>${rows.map(r => _rowHtml(r, false)).join('')}</tbody>
+      </table>
+    </div>`;
+
+  const archivedHtml = archivedRows.length > 0
     ? `<details class="ws-archived">
-         <summary>Archived (${archivedModels.length})</summary>
-         <div class="ws-grid">${archivedModels.map(_archivedCardHtml).join('')}</div>
+         <summary>Archived (${archivedRows.length})</summary>
+         <div class="researches-table-wrap">
+           <table class="researches-table researches-table--archived">
+             <thead><tr>${_headerRowHtml()}</tr></thead>
+             <tbody>${archivedRows.map(r => _rowHtml(r, true)).join('')}</tbody>
+           </table>
+         </div>
        </details>`
     : '';
 
@@ -107,7 +128,7 @@ function _render() {
         <button id="ws-create-btn" class="btn btn-accent">Create</button>
       </div>
       ${emptyHtml}
-      <div class="ws-grid">${models.map(_cardHtml).join('')}</div>
+      ${tableHtml}
       ${archivedHtml}
     </div>`;
 
@@ -120,54 +141,139 @@ function _render() {
   _bindEvents();
 }
 
-function _cardHtml(m) {
-  const id = escapeHtml(m.id);
-  const draftHtml = m.draftTitle
-    ? `<div class="ws-card-draft">&#9733; ${escapeHtml(m.draftTitle)}</div>`
-    : `<div class="ws-card-draft muted">No draft yet</div>`;
-  const activity = m.lastActivityIso ? timeAgo(m.lastActivityIso) : 'no activity yet';
+// ---------------------------------------------------------------------------
+// Header / sort
+// ---------------------------------------------------------------------------
 
-  return `
-    <div class="ws-card${m.isActive ? ' ws-card-active' : ''}"
-         data-ws-card="${id}" role="button" tabindex="0"
-         aria-label="Open research ${escapeHtml(m.name)}">
-      <div class="ws-card-top">
-        <span class="ws-card-name" data-ws-name="${id}">${escapeHtml(m.name)}</span>
-        ${m.isActive ? '<span class="ws-active-chip">Active</span>' : ''}
-      </div>
-      ${draftHtml}
-      <div class="ws-card-stats">
-        <span>${m.paperCount} paper${m.paperCount === 1 ? '' : 's'}</span>
-        <span>&middot;</span>
-        <span>${m.openSuggestions} open suggestion${m.openSuggestions === 1 ? '' : 's'}</span>
-        <span>&middot;</span>
-        <span>${escapeHtml(activity)}</span>
-      </div>
-      <div class="ws-card-actions">
-        <button class="btn" data-ws-open="${id}">${m.isActive ? 'Go to Home' : 'Open'}</button>
-        <span class="ws-card-actions-spacer"></span>
-        <button class="ws-icon-btn" data-ws-rename="${id}" title="Rename" aria-label="Rename">&#9998;</button>
-        ${m.isActive ? '' : `<button class="ws-icon-btn" data-ws-archive="${id}" title="Archive" aria-label="Archive">Archive</button>`}
-        <button class="ws-icon-btn ws-icon-btn-danger" data-ws-delete="${id}" title="Delete" aria-label="Delete">&#128465;</button>
-      </div>
+function _headerCell(col, label) {
+  if (!_SORTABLE_COLS.has(col)) return `<th>${label}</th>`;
+  const active = _sortCol === col;
+  const arrow = active ? (_sortDir === 'asc' ? ' &#9650;' : ' &#9660;') : '';
+  return `<th><button type="button" class="researches-sort-btn${active ? ' researches-sort-btn--active' : ''}"
+            data-sort-col="${col}">${label}${arrow}</button></th>`;
+}
+
+function _headerRowHtml() {
+  return [
+    _headerCell('name', 'Research'),
+    _headerCell('papers', 'Papers'),
+    _headerCell('draft', 'Draft'),
+    _headerCell('coverage', 'Citations'),
+    _headerCell('strength', 'Strength'),
+    _headerCell('openSuggestions', 'Open items'),
+    _headerCell('draftUpdated', 'Draft updated'),
+    _headerCell('lastActivity', 'Last activity'),
+    _headerCell('created', 'Created'),
+    _headerCell('actions', 'Actions'),
+  ].join('');
+}
+
+// ---------------------------------------------------------------------------
+// Row rendering
+// ---------------------------------------------------------------------------
+
+function _dateStr(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function _relOrDash(iso) {
+  if (!iso) return '&mdash;';
+  const rel = timeAgo(iso);
+  return rel ? escapeHtml(rel) : '&mdash;';
+}
+
+function _strengthBarHtml(r) {
+  const bands = r.strengthSegments || [];
+  const strong = (bands.find(s => s.band === 'strong') || {}).count || 0;
+  const moderate = (bands.find(s => s.band === 'moderate') || {}).count || 0;
+  const weak = (bands.find(s => s.band === 'weak') || {}).count || 0;
+  const scored = strong + moderate + weak;
+  const denom = Math.max(r.analyzed || 0, scored);
+  if (denom <= 0) return '<span class="muted">&mdash;</span>';
+  const unscored = Math.max(0, denom - scored);
+  const pct = n => Math.round((100 * n) / denom);
+  const titleParts = [`${strong} strong`, `${moderate} moderate`, `${weak} weak`];
+  if (unscored) titleParts.push(`${unscored} unscored`);
+  const title = escapeHtml(titleParts.join(' · '));
+
+  const seg = (band, count) => count
+    ? `<span class="research-strength-seg research-strength-seg--${band}" style="width:${pct(count)}%"></span>`
+    : '';
+
+  return `<div class="research-strength-bar" title="${title}">
+    ${seg('strong', strong)}${seg('moderate', moderate)}${seg('weak', weak)}${seg('unscored', unscored)}
+  </div>`;
+}
+
+function _coverageHtml(r) {
+  const label = escapeHtml(r.coverageLabel);
+  if (r.coveragePct == null) {
+    return `<div>${label}</div>`;
+  }
+  return `<div>${label}</div>
+    <div class="research-cov-bar" title="${r.coveragePct}%">
+      <div class="research-cov-bar-fill" style="width:${r.coveragePct}%"></div>
     </div>`;
 }
 
-function _archivedCardHtml(m) {
-  const id = escapeHtml(m.id);
+function _rowHtml(r, isArchived) {
+  const id = escapeHtml(r.id);
+  const rowClass = [
+    'researches-row',
+    r.isActive ? 'researches-row--active' : '',
+    isArchived ? 'researches-row--archived' : '',
+  ].filter(Boolean).join(' ');
+
+  const draftCell = r.draftTitle
+    ? `<div>${escapeHtml(r.draftTitle)}</div>${r.draftVersions > 0 ? `<div class="research-sub-count muted">v${r.draftVersions}</div>` : ''}`
+    : '<div class="muted">&mdash;</div>';
+
+  const archiveBtn = isArchived
+    ? `<button class="ws-icon-btn" data-ws-unarchive="${id}">Unarchive</button>`
+    : (r.isActive ? '' : `<button class="ws-icon-btn" data-ws-archive="${id}" title="Archive" aria-label="Archive">Archive</button>`);
+
+  const renameBtn = isArchived
+    ? ''
+    : `<button class="ws-icon-btn" data-ws-rename="${id}" title="Rename" aria-label="Rename">&#9998;</button>`;
+
+  // Archived workspaces cannot be activated (activateWorkspace 409s on an
+  // archived id server-side) -> no Open button and no row-open affordance.
+  // Archived rows only expose Unarchive + Delete, same as the old cards.
+  const openBtn = isArchived
+    ? ''
+    : `<button class="btn" data-ws-open="${id}">${r.isActive ? 'Go to Home' : 'Open'}</button>`;
+  const rowAttrs = isArchived
+    ? ''
+    : `data-ws-row="${id}" tabindex="0" aria-label="Open research ${escapeHtml(r.name)}"`;
+
   return `
-    <div class="ws-card ws-card-archived" data-ws-archived-card="${id}">
-      <div class="ws-card-top">
-        <span class="ws-card-name">${escapeHtml(m.name)}</span>
-      </div>
-      <div class="ws-card-stats">
-        <span>${m.paperCount} paper${m.paperCount === 1 ? '' : 's'}</span>
-      </div>
-      <div class="ws-card-actions">
-        <button class="btn" data-ws-unarchive="${id}">Unarchive</button>
+    <tr class="${rowClass}" ${rowAttrs}>
+      <td class="researches-cell-name">
+        <span class="researches-name" data-ws-name="${id}">${escapeHtml(r.name)}</span>
+        ${r.isActive ? '<span class="researches-active-dot" title="Active">&#9679;</span>' : ''}
+        ${r.hasDraft ? '<span class="researches-draft-star" title="Has a draft">&#9733;</span>' : ''}
+      </td>
+      <td>
+        <div>${r.papers}</div>
+        <div class="research-sub-count muted">${r.analyzed} analyzed &middot; ${r.failed} failed</div>
+      </td>
+      <td>${draftCell}</td>
+      <td>${_coverageHtml(r)}</td>
+      <td>${_strengthBarHtml(r)}</td>
+      <td>${r.openSuggestions}</td>
+      <td>${_relOrDash(r.draftUpdatedIso)}</td>
+      <td>${_relOrDash(r.lastActivityIso)}</td>
+      <td>${escapeHtml(_dateStr(r.createdAtIso)) || '&mdash;'}</td>
+      <td class="researches-cell-actions">
+        ${openBtn}
+        ${renameBtn}
+        ${archiveBtn}
         <button class="ws-icon-btn ws-icon-btn-danger" data-ws-delete="${id}" title="Delete" aria-label="Delete">&#128465;</button>
-      </div>
-    </div>`;
+      </td>
+    </tr>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,14 +290,19 @@ function _bindEvents() {
     });
   }
 
-  // Card click -> open (unless clicking an inner control)
-  _el.querySelectorAll('[data-ws-card]').forEach(card => {
-    card.addEventListener('click', (e) => {
+  // Sortable header buttons
+  _el.querySelectorAll('[data-sort-col]').forEach(btn => {
+    btn.addEventListener('click', () => _setSort(btn.dataset.sortCol));
+  });
+
+  // Row click -> open (unless clicking an inner control)
+  _el.querySelectorAll('[data-ws-row]').forEach(row => {
+    row.addEventListener('click', (e) => {
       if (e.target.closest('button') || e.target.closest('input')) return;
-      _openWorkspace(card.dataset.wsCard);
+      _openWorkspace(row.dataset.wsRow);
     });
-    card.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.target === card) _openWorkspace(card.dataset.wsCard);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target === row) _openWorkspace(row.dataset.wsRow);
     });
   });
 
@@ -214,6 +325,17 @@ function _bindEvents() {
   _el.querySelectorAll('[data-ws-delete]').forEach(btn => {
     btn.addEventListener('click', () => _delete(btn.dataset.wsDelete));
   });
+}
+
+function _setSort(col) {
+  if (!_SORTABLE_COLS.has(col)) return;
+  if (_sortCol === col) {
+    _sortDir = _sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _sortCol = col;
+    _sortDir = col === 'name' ? 'asc' : 'desc';
+  }
+  _render();
 }
 
 // ---------------------------------------------------------------------------

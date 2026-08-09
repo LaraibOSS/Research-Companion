@@ -1572,8 +1572,8 @@ def test_researches_view_escapes_names():
     """views/researches.js must escapeHtml all workspace names / draft titles (W4-F1)."""
     js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
     assert "escapeHtml" in js, "researches.js must use escapeHtml"
-    assert "escapeHtml(m.name)" in js, "researches.js must escapeHtml the workspace name"
-    assert "escapeHtml(m.draftTitle)" in js, "researches.js must escapeHtml the draft title"
+    assert "escapeHtml(r.name)" in js, "researches.js must escapeHtml the workspace name"
+    assert "escapeHtml(r.draftTitle)" in js, "researches.js must escapeHtml the draft title"
     assert "from '../format.js'" in js, \
         "researches.js must import escapeHtml from format.js (no local duplicate)"
 
@@ -1611,10 +1611,92 @@ def test_workspace_helpers_exports_three_functions():
 def test_lab_css_has_researches_styles():
     """lab.css must include the W4-F1 researches/switcher styles."""
     css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
-    for needle in (".ws-grid", ".ws-card", ".ws-switcher", ".ws-menu",
-                   ".researches-view", ".ws-card-active", ".ws-card-stats",
-                   ".ws-archived", ".ws-create-row"):
+    for needle in (".ws-switcher", ".ws-menu",
+                   ".researches-view", ".ws-archived", ".ws-create-row"):
         assert needle in css, f"lab.css missing W4-F1 style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/researches-tab (Task 3): sortable tracking table replaces the card grid
+# ---------------------------------------------------------------------------
+
+def test_researches_view_renders_table_not_cards():
+    """researches.js must render a sortable <table class="researches-table">,
+    not the old ws-card grid markup."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "<table" in js, "researches.js must render a <table>"
+    assert "researches-table" in js, "researches.js must use the researches-table class"
+    assert "ws-card" not in js, "researches.js must not contain leftover ws-card markup"
+
+
+def test_researches_view_imports_row_model_and_sort():
+    """researches.js must import researchRowModel and sortResearchRows from workspaceHelpers.js
+    (feat/researches-tab Task 3)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "researchRowModel" in js, "researches.js must import/use researchRowModel"
+    assert "sortResearchRows" in js, "researches.js must import/use sortResearchRows"
+    assert "from '../workspaceHelpers.js'" in js, \
+        "researches.js must import from workspaceHelpers.js"
+
+
+def test_researches_view_still_calls_crud_handlers():
+    """researches.js must still call the same workspace CRUD endpoints after the
+    card -> table rewrite (feat/researches-tab Task 3)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    for name in ("activateWorkspace", "createWorkspace", "patchWorkspace", "deleteWorkspace"):
+        assert f"api.{name}" in js, f"researches.js must still call api.{name}"
+
+
+def test_researches_view_has_active_row_class():
+    """researches.js must apply researches-row--active to the active research's row."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "researches-row--active" in js, \
+        "researches.js must apply the researches-row--active class"
+
+
+def test_researches_view_empty_state_text():
+    """researches.js must show the exact empty-state copy when there are no researches."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "No researches yet" in js and "create one to get started" in js, \
+        "researches.js must show the exact empty-state text"
+
+
+def test_lab_css_has_researches_table_styles():
+    """lab.css must include the Task 3 tracking-table styles: table container,
+    active row, strength mini-bar segments and citation coverage bar."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".researches-table", ".researches-table-wrap",
+                   ".researches-row--active", ".research-strength-bar",
+                   ".research-strength-seg", ".research-cov-bar",
+                   ".research-sub-count"):
+        assert needle in css, f"lab.css missing Task 3 table style: {needle}"
+
+
+def test_researches_view_active_rows_pass_explicit_isarchived_boolean():
+    """Active-table rows must pass an explicit boolean isArchived to _rowHtml, not
+    rely on Array.map's implicit (element, index, array) callback signature.
+    `rows.map(_rowHtml)` would silently pass the array INDEX as isArchived —
+    falsy for row 0, truthy for every row after it — breaking Open/rename/row-open
+    on every active row past the first (regression found in Task 3 re-review)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "_rowHtml(r, false)" in js, \
+        "researches.js must pass an explicit `false` isArchived for active rows"
+    assert "rows.map(_rowHtml)" not in js, \
+        "researches.js must not pass _rowHtml directly to .map (index leaks into isArchived)"
+
+
+def test_researches_view_archived_rows_have_no_open_affordance():
+    """Archived rows must not offer an Open button or the row-open click/keydown
+    binding: api.activateWorkspace() 409s server-side for an archived workspace id
+    (workspaces.py activate_workspace), so any such click is a guaranteed error
+    toast (regression found in Task 3 review). The Open button and the
+    data-ws-row click-to-open attribute must both be gated on `!isArchived`,
+    mirroring how the rename button is already suppressed for archived rows."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "const openBtn = isArchived" in js, \
+        "researches.js must gate the Open button on isArchived"
+    assert "const rowAttrs = isArchived" in js, \
+        "researches.js must gate the data-ws-row click-to-open attribute on isArchived"
 
 
 def test_workspace_helpers_node_test_file_exists():
@@ -2574,3 +2656,87 @@ def test_lab_css_has_task4_notebook_styles():
     for needle in (".notes-groupby-seg", ".notes-groupby-btn", ".note-kind-badge",
                    ".notes-new-note-form", ".notes-new-note-textarea"):
         assert needle in css, f"lab.css missing Task 4 notebook style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/researches-tab (Task 4): Researches sidebar entry + per-tab hover
+# descriptions
+# ---------------------------------------------------------------------------
+
+ALL_NAV_LABELS = ("Home", "Researches", "Library", "Graph", "Draft", "Timeline",
+                  "Ask", "Compare", "Citations", "Notes", "Help", "Settings")
+
+
+def test_index_html_has_researches_nav_button_positioned_correctly():
+    """index.html must have a Researches nav button with data-route="/researches"
+    and a labeled span, placed after Home and before .nav-spacer."""
+    html = _index_text()
+    assert 'data-route="/researches"' in html, (
+        'index.html missing Researches nav button data-route="/researches"'
+    )
+    assert '<span class="nav-label">Researches</span>' in html, (
+        'index.html missing Researches nav-label span'
+    )
+    home_pos = html.find('data-route="/home"')
+    researches_pos = html.find('data-route="/researches"')
+    spacer_pos = html.find('nav-spacer')
+    assert home_pos != -1 and researches_pos != -1 and spacer_pos != -1, (
+        "index.html missing one of Home button / Researches button / nav-spacer"
+    )
+    assert home_pos < researches_pos < spacer_pos, (
+        "Researches nav button must be positioned after Home and before .nav-spacer"
+    )
+
+
+def test_every_nav_button_has_a_data_desc():
+    """Every nav-btn (all 12, including Citations/Help which are id-wired
+    rather than data-route-wired) must carry a data-desc hover description."""
+    html = _index_text()
+    for label in ALL_NAV_LABELS:
+        label_pos = html.find(f'<span class="nav-label">{label}</span>')
+        assert label_pos != -1, f"index.html missing nav-label {label}"
+        btn_start = html.rfind('<button', 0, label_pos)
+        button_markup = html[btn_start:label_pos]
+        assert 'data-desc="' in button_markup, (
+            f"{label} nav button is missing a data-desc attribute"
+        )
+
+
+def test_researches_nav_button_has_exact_description_copy():
+    """The Researches nav button's data-desc must match the fixed brief copy."""
+    html = _index_text()
+    assert 'data-desc="track all your research projects at a glance"' in html, (
+        "Researches nav button data-desc must read "
+        "'track all your research projects at a glance'"
+    )
+
+
+def test_lab_css_has_nav_desc_popover_rule():
+    """lab.css must define a hover popover for [data-desc] using
+    attr(data-desc), distinct from the plain [title] tooltip."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert ".nav-btn[data-desc]::before" in css, (
+        "lab.css missing the .nav-btn[data-desc]::before popover rule"
+    )
+    assert "content: attr(data-desc);" in css, (
+        "lab.css [data-desc] popover must render content: attr(data-desc)"
+    )
+    assert ".nav-btn:hover[data-desc]::before" in css, (
+        "lab.css missing the :hover state that reveals the [data-desc] popover"
+    )
+
+
+def test_lab_css_nav_desc_popover_suppressed_on_mobile():
+    """The [data-desc] popover must be suppressed inside the existing
+    640px collapse (icon-only rail falls back to the [title] tooltip)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert css.count("@media (max-width: 640px)") == 1, (
+        "lab.css must keep a single 640px media query (do not add a second one)"
+    )
+    mobile = css[css.index("@media (max-width: 640px)"):]
+    assert ".nav-btn[data-desc]::before" in mobile, (
+        "640px block must reference .nav-btn[data-desc]::before to suppress it"
+    )
+    assert "content: none;" in mobile, (
+        "640px block must set content: none to suppress the [data-desc] popover"
+    )

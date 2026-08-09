@@ -76,14 +76,46 @@ replays the Lab's event stream.
 
 ## 4. Researches (workspaces)
 
-The top bar shows the active research as a dropdown (e.g. **"Main ▾"**).
+The top bar shows the active research as a dropdown (e.g. **"Main ▾"**), for
+a quick switch without leaving the screen you're on.
 
 - **Switch** — pick another research from the dropdown; the whole Lab reloads
   into it. Other open tabs reload automatically.
-- **All researches…** — a card-per-research overview screen (name, draft
-  title, paper count, open suggestions, last activity) with **create**,
-  **rename**, **archive**, and **delete** actions.
-- **Delete** — the trash icon on any card (archived ones included) deletes
+- **All researches…** (also reachable from the sidebar's **Researches** tab,
+  right under Home) — a sortable tracking table, one row per research, with
+  **create**, **rename**, **archive**, and **delete** actions.
+
+### The Researches table
+
+Each row tracks one research at a glance:
+
+- **Research** — its name; a filled dot marks the one you're currently in,
+  and a star marks a research that has a draft paper set.
+- **Papers** — total papers in the library, with a sub-line breaking that
+  down into **analyzed** (parsed and usable) and **failed** (ingestion
+  didn't produce usable text).
+- **Draft** — the draft paper's title (or `—` if none is set yet), with the
+  number of saved draft versions (`vN`) underneath.
+- **Citations** — how much of the draft's bibliography is covered by your
+  library, as `in_library/total` plus a fill bar; shows `—` until citation
+  coverage has been computed at least once for that research.
+- **Strength** — a mini segmented bar showing the mix of analyzed papers
+  scored **strong** / **moderate** / **weak** (hover it for the exact
+  counts); papers not yet scored don't add to any segment.
+- **Open items** — open suggestions still waiting on a decision.
+- **Draft updated** / **Last activity** — how long ago the draft last
+  gained a version, and how long ago anything last happened in that
+  research at all; `—` if it's never happened.
+- **Created** — the date the research was created.
+- **Actions** — **Open** (or **Go to Home** if it's already the active one),
+  rename (pencil), archive, and delete.
+
+Click any column header to sort by it; click again to reverse the order.
+Clicking anywhere on a row (other than a button) opens that research too.
+Archived researches sit in a collapsed **Archived** section below the main
+table, dimmed, with no Open button — just Unarchive and Delete.
+
+- **Delete** — the trash icon on any row (archived ones included) deletes
   that research and everything in it. The confirmation names the research
   and its paper count so you know exactly what you are removing. If you
   delete the research you are currently in, the Lab switches you to another
@@ -99,6 +131,13 @@ The top bar shows the active research as a dropdown (e.g. **"Main ▾"**).
 - **Upgrading from pre-0.4:** your existing store migrates automatically and
   losslessly into `workspaces/main/` on first run — atomic, resumable if
   interrupted, nothing re-ingested, `.env` untouched.
+
+### Sidebar tab descriptions
+
+Hover any sidebar tab and a short description of what it's for appears
+beside it (e.g. Researches: "track all your research projects at a glance").
+On narrow screens, where the sidebar collapses to icons only, this
+description is replaced by the tab's plain name instead.
 
 ## 5. Adding papers
 
