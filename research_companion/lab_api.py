@@ -2709,6 +2709,32 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except ViewError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    def _cached_gap_themes() -> list[dict]:
+        """Return the cached gap-theme synthesis' themes list, or [] when there is
+        no cache or it is stale against the current gap/resolution/papers/
+        synthesis-prompt shas. Additive: GET /api/gaps must never fail over this
+        — an empty/stale cache degrades to a clean [] rather than raising."""
+        from research_companion import store
+        from research_companion.gaps import _papers_sha
+        from research_companion.prompts import (
+            gap_prompt_sha256,
+            gap_resolution_prompt_sha256,
+            gap_synthesis_prompt_sha256,
+        )
+
+        cached = store.load_gap_synthesis()
+        if cached is None:
+            return []
+        all_papers = store.list_papers()
+        p_sha = _papers_sha([m.paper_id for m in all_papers])
+        fresh = (
+            cached.get("gap_prompt_sha256") == gap_prompt_sha256()
+            and cached.get("resolution_prompt_sha256") == gap_resolution_prompt_sha256()
+            and cached.get("papers_sha256") == p_sha
+            and cached.get("synthesis_prompt_sha256") == gap_synthesis_prompt_sha256()
+        )
+        return cached.get("themes", []) if fresh else []
+
     # -----------------------------------------------------------------
     # GET /api/gaps
     # -----------------------------------------------------------------
@@ -2716,7 +2742,9 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     async def get_gaps() -> dict:
         from research_companion.gaps import gaps_overview
 
-        return await asyncio.to_thread(gaps_overview)
+        overview = await asyncio.to_thread(gaps_overview)
+        overview["themes"] = await asyncio.to_thread(_cached_gap_themes)
+        return overview
 
     # -----------------------------------------------------------------
     # POST /api/gaps/refresh  -> 202 {"job_id"}

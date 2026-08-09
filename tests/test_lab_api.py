@@ -3370,6 +3370,61 @@ class TestGapsEndpoints:
         assert d["event"] == "gaps_updated"
         assert d["n_themes"] == 0
 
+    def test_get_gaps_themes_empty_when_no_cache(self, isolated_papergraph_dir):
+        """GET /api/gaps always includes 'themes'; [] when nothing cached yet."""
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.status_code == 200
+        assert resp.json()["themes"] == []
+
+    def test_get_gaps_returns_cached_fresh_themes(self, isolated_papergraph_dir):
+        """A gap_synthesis.json whose sha fields match current prompts is served as-is."""
+        from research_companion import store
+        from research_companion.gaps import _papers_sha
+        from research_companion.prompts import (
+            gap_prompt_sha256,
+            gap_resolution_prompt_sha256,
+            gap_synthesis_prompt_sha256,
+        )
+
+        _make_paper(isolated_papergraph_dir, "local:synth_fresh_001", "Synth Paper", year=2021)
+        all_papers = store.list_papers()
+        p_sha = _papers_sha([m.paper_id for m in all_papers])
+        store.save_gap_synthesis({
+            "gap_prompt_sha256": gap_prompt_sha256(),
+            "resolution_prompt_sha256": gap_resolution_prompt_sha256(),
+            "papers_sha256": p_sha,
+            "synthesis_prompt_sha256": gap_synthesis_prompt_sha256(),
+            "computed_at": "2024-01-01T00:00:00Z",
+            "themes": [{
+                "theme_id": "theme_abc", "title": "X", "bullet": "Y", "fws_type": "method",
+                "type": "limitation", "citations": [], "status": "open",
+                "frequency": 1, "recency": 2021, "score": 3.0, "gap_ids": [],
+            }],
+        })
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        data = resp.json()
+        assert len(data["themes"]) == 1
+        assert data["themes"][0]["theme_id"] == "theme_abc"
+
+    def test_get_gaps_ignores_stale_themes_cache(self, isolated_papergraph_dir):
+        """A gap_synthesis.json with mismatched sha fields (e.g. from before a
+        paper was re-extracted) is treated as absent, not served stale."""
+        from research_companion import store
+
+        store.save_gap_synthesis({
+            "gap_prompt_sha256": "stale_sha",
+            "resolution_prompt_sha256": "stale_sha",
+            "papers_sha256": "stale_sha",
+            "synthesis_prompt_sha256": "stale_sha",
+            "computed_at": "2024-01-01T00:00:00Z",
+            "themes": [{"theme_id": "theme_old", "title": "Old"}],
+        })
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.json()["themes"] == []
+
 
 class TestRegenerateWithoutReviewReport:
     """W3 wrap-up fix: alignment-only suggestions must work without a review report."""
