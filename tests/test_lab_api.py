@@ -3359,6 +3359,17 @@ class TestGapsEndpoints:
             job_data = c.get(f"/api/jobs/{job_id}").json()
             assert job_data["kind"] == "gaps"
 
+    def test_gaps_updated_default_n_themes_is_zero(self, isolated_papergraph_dir):
+        """GapsUpdated must default n_themes=0 so existing construction sites
+        (that don't know about themes yet) keep working (additive field)."""
+        from research_companion.agents.events import GapsUpdated, event_to_dict
+
+        evt = GapsUpdated(n_gaps=2, n_open=1)
+        assert evt.n_themes == 0
+        d = event_to_dict(evt)
+        assert d["event"] == "gaps_updated"
+        assert d["n_themes"] == 0
+
 
 class TestRegenerateWithoutReviewReport:
     """W3 wrap-up fix: alignment-only suggestions must work without a review report."""
