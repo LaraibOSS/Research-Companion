@@ -698,3 +698,73 @@ def _collect_verified_gaps(overview: dict) -> list[dict]:
                 "status": resolution.get("status", "open"),
             })
     return out
+
+
+def _assemble_themes(cluster_result: dict, index: dict[str, dict]) -> list[dict]:
+    """Turn raw LLM theme groups into citation-backed theme records (no score yet).
+
+    *cluster_result* is the parsed GAP_SYNTHESIS_PROMPT JSON:
+        {"themes": [{"title", "bullet", "fws_type", "gap_ids": [...]}]}
+    *index* maps gap_id -> the corresponding item from _collect_verified_gaps.
+
+    Any gap_id in a theme's gap_ids that is not a key of *index* is dropped
+    (honesty: the LLM groups gaps, it never invents one); a theme left with
+    zero valid members after that filter is dropped entirely. theme_id is
+    derived from the FINAL (filtered, sorted) member gap_ids, so it is
+    reproducible from the assembled membership alone.
+    """
+    themes_out: list[dict] = []
+    for raw in (cluster_result or {}).get("themes", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        gap_ids = [gid for gid in (raw.get("gap_ids") or []) if gid in index]
+        if not gap_ids:
+            continue
+
+        members = [index[gid] for gid in gap_ids]
+
+        citations: list[dict] = []
+        seen_papers: set[str] = set()
+        for m in members:
+            if m["paper_id"] in seen_papers:
+                continue
+            seen_papers.add(m["paper_id"])
+            citations.append({"paper_id": m["paper_id"], "title": m["title"], "year": m["year"]})
+
+        frequency = len(citations)
+        years = [c["year"] for c in citations if c["year"] is not None]
+        recency = max(years) if years else None
+
+        statuses = {m["status"] for m in members}
+        if "open" in statuses:
+            status = "open"
+        elif "partially" in statuses:
+            status = "partial"
+        else:
+            status = "addressed"
+
+        kind_counts = Counter(m["kind"] for m in members)
+        top_count = max(kind_counts.values())
+        tied = sorted(k for k, c in kind_counts.items() if c == top_count)
+        dominant_kind = "limitation" if "limitation" in tied else tied[0]
+
+        raw_fws = str(raw.get("fws_type", "other")).strip().lower()
+        fws_type = raw_fws if raw_fws in _FWS_TYPES else "other"
+
+        theme_id = "theme_" + hashlib.sha256(
+            "|".join(sorted(gap_ids)).encode("utf-8")
+        ).hexdigest()[:12]
+
+        themes_out.append({
+            "theme_id": theme_id,
+            "title": str(raw.get("title", "")).strip() or "Untitled theme",
+            "bullet": str(raw.get("bullet", "")).strip(),
+            "fws_type": fws_type,
+            "type": dominant_kind,
+            "citations": citations,
+            "status": status,
+            "frequency": frequency,
+            "recency": recency,
+            "gap_ids": gap_ids,
+        })
+    return themes_out

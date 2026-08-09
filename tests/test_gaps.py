@@ -1208,3 +1208,124 @@ class TestCollectVerifiedGaps:
         assert a["title"] == "Paper A"
         assert a["year"] == 2020
 
+
+class TestAssembleThemes:
+    def _index(self):
+        return {g["gap_id"]: g for g in _collect_verified_gaps(_overview_fixture())}
+
+    def test_maps_gap_ids_to_deduped_citations(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling",
+            "bullet": "Scaling to large datasets remains unaddressed.",
+            "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert len(themes) == 1
+        t = themes[0]
+        paper_ids = {c["paper_id"] for c in t["citations"]}
+        assert paper_ids == {"arxiv:2001.00001", "arxiv:2022.00002"}
+        assert t["frequency"] == 2
+
+    def test_dedupes_citations_from_same_paper(self):
+        index = self._index()
+        # Add a second gap from the SAME paper as gap_aaaaaaaaaaaa
+        index["gap_dddddddddddd"] = {
+            "gap_id": "gap_dddddddddddd", "statement": "Another gap same paper.",
+            "kind": "limitation", "paper_id": "arxiv:2001.00001",
+            "title": "Paper A", "year": 2020, "status": "open",
+        }
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_dddddddddddd"],
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["frequency"] == 1
+        assert len(themes[0]["citations"]) == 1
+
+    def test_rolls_up_status_open_wins(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],  # open + partially
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["status"] == "open"
+
+    def test_rolls_up_status_partial_when_no_open(self):
+        index = self._index()
+        index["gap_aaaaaaaaaaaa"] = {**index["gap_aaaaaaaaaaaa"], "status": "addressed"}
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],  # addressed + partially
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["status"] == "partial"
+
+    def test_rolls_up_status_addressed_when_all_addressed(self):
+        index = self._index()
+        index["gap_aaaaaaaaaaaa"] = {**index["gap_aaaaaaaaaaaa"], "status": "addressed"}
+        index["gap_cccccccccccc"] = {**index["gap_cccccccccccc"], "status": "addressed"}
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["status"] == "addressed"
+
+    def test_drops_gap_ids_the_llm_invented(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_NOT_IN_INDEX"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["gap_ids"] == ["gap_aaaaaaaaaaaa"]
+        assert themes[0]["frequency"] == 1
+
+    def test_drops_theme_with_zero_valid_members(self):
+        cluster_result = {"themes": [{
+            "title": "Ghost", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_totally_invented"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes == []
+
+    def test_dominant_kind_becomes_type(self):
+        index = self._index()
+        # gap_aaaaaaaaaaaa is "limitation", gap_cccccccccccc is "future_work" -> tie -> "limitation" wins
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["type"] == "limitation"
+
+    def test_invalid_fws_type_defaults_to_other(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "not_a_real_type",
+            "gap_ids": ["gap_aaaaaaaaaaaa"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["fws_type"] == "other"
+
+    def test_recency_is_max_year_among_citations(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],  # years 2020, 2022
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["recency"] == 2022
+
+    def test_theme_id_is_deterministic_from_member_gap_ids(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        t1 = _assemble_themes(cluster_result, self._index())[0]
+        t2 = _assemble_themes(cluster_result, self._index())[0]
+        assert t1["theme_id"] == t2["theme_id"]
+        assert t1["theme_id"].startswith("theme_")
+
+    def test_empty_cluster_result_yields_empty_themes(self):
+        assert _assemble_themes({"themes": []}, self._index()) == []
+        assert _assemble_themes({}, self._index()) == []
+
