@@ -59,6 +59,26 @@ Zero-key demos (from a source checkout): `python examples/demo_offline.py`
 runs the full review pipeline with no network; `python examples/demo_lab_offline.py`
 replays the Lab's event stream.
 
+This walkthrough plays out on the **Home** screen itself, which doubles as a
+short product tour until you have a draft or any papers in the library:
+
+- A brand line and one-sentence value prop under the ◆ mark.
+- The two calls to action from steps 2–3 above — **★ Add your draft** and
+  **Ingest a folder** — right where you land.
+- The ①②③④ step strip, highlighting whichever onboarding step you're on.
+- Three value pillars in plain language: **Build a concept graph**, **Ask,
+  with citations**, and **Get submission-ready**.
+- A **quick-nav row** of six cards — **Library**, **Graph**, **Draft**,
+  **Ask**, **Timeline**, **Citations** — so you can jump straight to any part
+  of the Lab even before you've added anything; Library shows your paper
+  count as soon as you have one, and Citations opens the citation-coverage
+  panel directly.
+
+Once you add a draft, Home switches to a compact view: your draft's title
+and version, open/related-papers/addressed counts, the same quick-nav row,
+and — below it — the Next Steps strip, your top open suggestions, and the
+research-journey timeline (see section 13).
+
 ## 3. Core concepts
 
 - **Research (workspace)** — one isolated project: its own papers, graph,
@@ -83,7 +103,9 @@ a quick switch without leaving the screen you're on.
   into it. Other open tabs reload automatically.
 - **All researches…** (also reachable from the sidebar's **Researches** tab,
   right under Home) — a sortable tracking table, one row per research, with
-  **create**, **rename**, **archive**, and **delete** actions.
+  **rename**, **archive**, and **delete** actions per row, plus a persistent
+  **+ New research** button in the page header that reveals the create-name
+  row.
 
 ### The Researches table
 
@@ -520,7 +542,8 @@ panel with Dismiss / Discuss actions.
 conservative matchers detect what you incorporated and flip those suggestions
 to **addressed** automatically. Dismissals are sticky. The **Home** view
 shows your journey: version pills, open/addressed counts, a severity donut,
-and a "Do this next" card driven by simple rules.
+a sparkline over time, and a Next Steps strip — its lead "Do this next" card
+driven by simple rules.
 
 ## 14. Ask & search
 
