@@ -272,6 +272,22 @@ class TestWorkspaceStatsNewMetrics:
         assert s["strength"]["strong"] == 1
         assert s["strength"]["unscored"] >= 1
 
+    def test_coverage_counts_non_numeric_degrade_without_raising(self, isolated_root_dir):
+        # A valid-JSON citations_coverage.json whose counts are null/string/list
+        # must not crash workspace_stats (the int() cast used to raise here).
+        workspaces.create_workspace("Bad Coverage")
+        ws = store.workspaces_root() / "bad-coverage"
+        (ws / "citations_coverage.json").write_text(json.dumps({
+            "counts": {"in_library": None, "total": "eight"},
+        }), encoding="utf-8")
+
+        s = workspaces.workspace_stats("bad-coverage")  # must not raise
+        assert s["coverage"] == {"in_library": 0, "total": 0}
+        # and list_workspaces (the API path) stays healthy
+        listing = workspaces.list_workspaces()
+        rec = next(w for w in listing["workspaces"] if w["id"] == "bad-coverage")
+        assert rec["stats"]["coverage"] == {"in_library": 0, "total": 0}
+
     def test_workspace_stats_empty_workspace_is_none_safe(self, isolated_root_dir):
         workspaces.create_workspace("Empty Metrics")
         s = workspaces.workspace_stats("empty-metrics")

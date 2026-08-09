@@ -220,8 +220,12 @@ def workspace_stats(ws_id: str) -> dict:
     cov = _read_json(ws / "citations_coverage.json")
     counts = cov.get("counts") if isinstance(cov, dict) else None
     if isinstance(counts, dict):
-        stats["coverage"] = {"in_library": int(counts.get("in_library", 0)),
-                             "total": int(counts.get("total", 0))}
+        in_lib = counts.get("in_library", 0)
+        total = counts.get("total", 0)
+        stats["coverage"] = {
+            "in_library": int(in_lib) if isinstance(in_lib, (int, float)) else 0,
+            "total": int(total) if isinstance(total, (int, float)) else 0,
+        }
 
     # strength band tally over this workspace's papers
     try:
