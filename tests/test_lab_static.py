@@ -2656,3 +2656,87 @@ def test_lab_css_has_task4_notebook_styles():
     for needle in (".notes-groupby-seg", ".notes-groupby-btn", ".note-kind-badge",
                    ".notes-new-note-form", ".notes-new-note-textarea"):
         assert needle in css, f"lab.css missing Task 4 notebook style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/researches-tab (Task 4): Researches sidebar entry + per-tab hover
+# descriptions
+# ---------------------------------------------------------------------------
+
+ALL_NAV_LABELS = ("Home", "Researches", "Library", "Graph", "Draft", "Timeline",
+                  "Ask", "Compare", "Citations", "Notes", "Help", "Settings")
+
+
+def test_index_html_has_researches_nav_button_positioned_correctly():
+    """index.html must have a Researches nav button with data-route="/researches"
+    and a labeled span, placed after Home and before .nav-spacer."""
+    html = _index_text()
+    assert 'data-route="/researches"' in html, (
+        'index.html missing Researches nav button data-route="/researches"'
+    )
+    assert '<span class="nav-label">Researches</span>' in html, (
+        'index.html missing Researches nav-label span'
+    )
+    home_pos = html.find('data-route="/home"')
+    researches_pos = html.find('data-route="/researches"')
+    spacer_pos = html.find('nav-spacer')
+    assert home_pos != -1 and researches_pos != -1 and spacer_pos != -1, (
+        "index.html missing one of Home button / Researches button / nav-spacer"
+    )
+    assert home_pos < researches_pos < spacer_pos, (
+        "Researches nav button must be positioned after Home and before .nav-spacer"
+    )
+
+
+def test_every_nav_button_has_a_data_desc():
+    """Every nav-btn (all 12, including Citations/Help which are id-wired
+    rather than data-route-wired) must carry a data-desc hover description."""
+    html = _index_text()
+    for label in ALL_NAV_LABELS:
+        label_pos = html.find(f'<span class="nav-label">{label}</span>')
+        assert label_pos != -1, f"index.html missing nav-label {label}"
+        btn_start = html.rfind('<button', 0, label_pos)
+        button_markup = html[btn_start:label_pos]
+        assert 'data-desc="' in button_markup, (
+            f"{label} nav button is missing a data-desc attribute"
+        )
+
+
+def test_researches_nav_button_has_exact_description_copy():
+    """The Researches nav button's data-desc must match the fixed brief copy."""
+    html = _index_text()
+    assert 'data-desc="track all your research projects at a glance"' in html, (
+        "Researches nav button data-desc must read "
+        "'track all your research projects at a glance'"
+    )
+
+
+def test_lab_css_has_nav_desc_popover_rule():
+    """lab.css must define a hover popover for [data-desc] using
+    attr(data-desc), distinct from the plain [title] tooltip."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert ".nav-btn[data-desc]::before" in css, (
+        "lab.css missing the .nav-btn[data-desc]::before popover rule"
+    )
+    assert "content: attr(data-desc);" in css, (
+        "lab.css [data-desc] popover must render content: attr(data-desc)"
+    )
+    assert ".nav-btn:hover[data-desc]::before" in css, (
+        "lab.css missing the :hover state that reveals the [data-desc] popover"
+    )
+
+
+def test_lab_css_nav_desc_popover_suppressed_on_mobile():
+    """The [data-desc] popover must be suppressed inside the existing
+    640px collapse (icon-only rail falls back to the [title] tooltip)."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert css.count("@media (max-width: 640px)") == 1, (
+        "lab.css must keep a single 640px media query (do not add a second one)"
+    )
+    mobile = css[css.index("@media (max-width: 640px)"):]
+    assert ".nav-btn[data-desc]::before" in mobile, (
+        "640px block must reference .nav-btn[data-desc]::before to suppress it"
+    )
+    assert "content: none;" in mobile, (
+        "640px block must set content: none to suppress the [data-desc] popover"
+    )

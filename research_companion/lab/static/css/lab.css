@@ -258,6 +258,40 @@ html, body {
   content: none;
 }
 
+/* Per-tab hover description — a richer popover (what/why) distinct from the
+ * plain label tooltip above: a left accent stripe, elevated shadow, and
+ * wrapping body copy rather than a single-line label echo. Expanded rail
+ * only; suppressed under the 640px collapse (see media query below), where
+ * the icon-only rail falls back to the `title` tooltip instead. */
+.nav-btn[data-desc]::before {
+  content: attr(data-desc);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  color: var(--color-fg-dim);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s;
+  z-index: 210;
+}
+
+.nav-btn:hover[data-desc]::before {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
 /* ---------------------------------------------------------------------------
  * Top Bar
  * --------------------------------------------------------------------------- */
@@ -6184,6 +6218,13 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   .nav-label { display: none; }
   .nav-btn[title]::after { content: attr(title); }
   .nav-btn:hover[title]::after { content: attr(title); opacity: 1; }
+
+  /* Icon-only rail: suppress the richer hover-description popover and fall
+   * back to the plain `title` tooltip re-armed just above. */
+  .nav-btn[data-desc]::before,
+  .nav-btn:hover[data-desc]::before {
+    content: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------
