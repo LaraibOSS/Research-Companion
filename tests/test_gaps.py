@@ -1329,3 +1329,58 @@ class TestAssembleThemes:
         assert _assemble_themes({"themes": []}, self._index()) == []
         assert _assemble_themes({}, self._index()) == []
 
+
+class TestRankGapThemes:
+    def _theme(self, **overrides) -> dict:
+        base = {
+            "theme_id": "theme_x", "title": "T", "bullet": "B", "fws_type": "other",
+            "type": "limitation", "citations": [], "status": "open",
+            "frequency": 1, "recency": 2020, "gap_ids": ["gap_x"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_higher_frequency_ranks_first(self):
+        low = self._theme(theme_id="low", frequency=1, recency=2020, status="open")
+        high = self._theme(theme_id="high", frequency=3, recency=2020, status="open")
+        ranked = rank_gap_themes([low, high])
+        assert [t["theme_id"] for t in ranked] == ["high", "low"]
+
+    def test_more_recent_ranks_first_at_equal_frequency(self):
+        old = self._theme(theme_id="old", frequency=1, recency=2015, status="open")
+        new = self._theme(theme_id="new", frequency=1, recency=2023, status="open")
+        ranked = rank_gap_themes([old, new])
+        assert [t["theme_id"] for t in ranked] == ["new", "old"]
+
+    def test_open_ranks_above_partial_ranks_above_addressed(self):
+        addressed = self._theme(theme_id="addressed", frequency=1, recency=2020, status="addressed")
+        partial = self._theme(theme_id="partial", frequency=1, recency=2020, status="partial")
+        open_ = self._theme(theme_id="open", frequency=1, recency=2020, status="open")
+        ranked = rank_gap_themes([addressed, partial, open_])
+        assert [t["theme_id"] for t in ranked] == ["open", "partial", "addressed"]
+
+    def test_missing_recency_treated_as_zero_weight_not_a_crash(self):
+        no_recency = self._theme(theme_id="no_recency", frequency=1, recency=None, status="open")
+        ranked = rank_gap_themes([no_recency])
+        assert ranked[0]["score"] is not None
+
+    def test_stable_for_equal_scores(self):
+        a = self._theme(theme_id="a", frequency=1, recency=2020, status="open")
+        b = self._theme(theme_id="b", frequency=1, recency=2020, status="open")
+        c = self._theme(theme_id="c", frequency=1, recency=2020, status="open")
+        ranked = rank_gap_themes([a, b, c])
+        assert [t["theme_id"] for t in ranked] == ["a", "b", "c"]
+
+    def test_attaches_score_field(self):
+        t = self._theme()
+        ranked = rank_gap_themes([t])
+        assert isinstance(ranked[0]["score"], float)
+
+    def test_does_not_mutate_input(self):
+        t = self._theme()
+        rank_gap_themes([t])
+        assert "score" not in t
+
+    def test_empty_list(self):
+        assert rank_gap_themes([]) == []
+

@@ -768,3 +768,22 @@ def _assemble_themes(cluster_result: dict, index: dict[str, dict]) -> list[dict]
             "gap_ids": gap_ids,
         })
     return themes_out
+
+
+def rank_gap_themes(themes: list[dict]) -> list[dict]:
+    """Attach a deterministic `score` to each theme and sort descending, stable.
+
+    score = 3.0*frequency + 0.1*(recency - 2000) [0 if recency is None] + open_weight
+    where open_weight is 2.0 for status=="open", 1.0 for "partial", 0.0 for
+    "addressed"/anything else. Does not mutate the input dicts (returns new
+    dicts with `score` added). Python's sort is stable, so themes with an
+    identical score keep their original relative order.
+    """
+    scored: list[dict] = []
+    for t in themes:
+        recency = t.get("recency")
+        recency_weight = 0.1 * (recency - _THEME_RECENCY_BASE_YEAR) if recency is not None else 0.0
+        open_weight = _THEME_OPEN_WEIGHT.get(t.get("status"), 0.0)
+        score = round(3.0 * (t.get("frequency") or 0) + recency_weight + open_weight, 4)
+        scored.append({**t, "score": score})
+    return sorted(scored, key=lambda t: -t["score"])
