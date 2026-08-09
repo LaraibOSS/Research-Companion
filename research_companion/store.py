@@ -1108,15 +1108,17 @@ def gap_synthesis_path() -> Path | None:
     return workspace_path("gap_synthesis.json")
 
 
-def save_gap_synthesis(payload: dict) -> Path:
+def save_gap_synthesis(payload: dict) -> Path | None:
     """Save store-level gap-theme synthesis to gap_synthesis.json.
 
     Mirrors save_gap_resolution: the caller embeds whatever staleness-key sha
     fields it wants (gap_prompt_sha256, resolution_prompt_sha256,
     papers_sha256, synthesis_prompt_sha256) in *payload*; this function writes
-    it as-is.
+    it as-is. Returns None if no active workspace.
     """
     p = gap_synthesis_path()
+    if p is None:
+        return None
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return p

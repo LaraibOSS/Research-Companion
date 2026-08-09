@@ -360,3 +360,9 @@ class TestGapSynthesisCache:
         store.save_gap_synthesis({"themes": [{"theme_id": "new"}]})
         loaded = store.load_gap_synthesis()
         assert loaded["themes"] == [{"theme_id": "new"}]
+
+    def test_save_returns_none_when_no_active_workspace(self, isolated_papergraph_dir, monkeypatch):
+        """save_gap_synthesis returns None and writes nothing when no active workspace."""
+        monkeypatch.setattr(store, "gap_synthesis_path", lambda: None)
+        result = store.save_gap_synthesis({"themes": []})
+        assert result is None
