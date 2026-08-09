@@ -102,11 +102,12 @@ def isolated_papergraph_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     reg = store.load_registry()
     if not any(w.get("id") == "main" for w in reg["workspaces"]):
         workspaces.create_workspace("Main")
-    # activate_workspace() calls store.load_registry(), which idempotently
-    # relabels a still-default-named "Main" -> "My research" (see
-    # store.load_registry()'s normalization) — so after this call the seeded
-    # workspace's `name` field is "My research" even though it was created
-    # as "Main"; its `id` stays "main".
+    # activate_workspace() calls store.load_registry(), but the registry this
+    # process just wrote (via create_workspace -> save_registry) is already
+    # version 2 — store.load_registry()'s one-time main-normalization only
+    # runs against version < 2 registries (see its docstring), so this fresh,
+    # empty, still-default-named "Main" is left alone: `id` stays "main",
+    # `name` stays "Main" (not relabeled/removed).
     workspaces.activate_workspace("main")
     store._reset_workspace_caches()
     ws = store.papergraph_dir()

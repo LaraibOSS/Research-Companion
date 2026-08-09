@@ -170,9 +170,14 @@ class TestRegistryPrimitives:
         assert reg["workspaces"] == []
 
     def test_save_registry_roundtrip(self, fresh_root):
+        # name "Original" (not "Main"): this is a plain persistence roundtrip
+        # check, not a normalization test — an empty still-default-named
+        # "main" (id == "main" AND name == "Main" exactly) would otherwise be
+        # DROPPED by load_registry() (see store.load_registry()), leaving
+        # workspaces empty and making the index below fail.
         reg = {
             "version": 1, "active": "main",
-            "workspaces": [{"id": "main", "name": "Main",
+            "workspaces": [{"id": "main", "name": "Original",
                             "created_at": "2026-01-01T00:00:00Z", "archived": False}],
         }
         store.save_registry(reg)
