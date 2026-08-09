@@ -32,3 +32,29 @@ export function emptyHeroModel(state) {
     paperCount,
   };
 }
+
+/**
+ * Pure model for the Home quick-nav card row: a fixed, ordered set of the
+ * most important tabs. Each entry carries EITHER `route` (hash string) or
+ * `action` (event key handled by home.js), never both. Node-testable.
+ * @param {object} state — store state ({ draftId, papers (Map), ... })
+ * @returns {Array<{key,label,desc,count,route?,action?}>}
+ */
+export function homeNavModel(state) {
+  const papers = (state && state.papers instanceof Map) ? state.papers : new Map();
+  const draftId = state ? state.draftId : null;
+
+  let paperCount = 0;
+  for (const [id, p] of papers) {
+    if (id !== draftId && p && !p.is_draft) paperCount++;
+  }
+
+  return [
+    { key: 'library',   label: 'Library',  desc: 'Your ingested papers and their status',        count: paperCount, route: '#/library' },
+    { key: 'graph',     label: 'Graph',    desc: 'The concept knowledge graph of your papers',   count: null,       route: '#/graph' },
+    { key: 'draft',     label: draftId ? 'Draft' : 'Set a draft', desc: 'How each paper aligns with what you\'re writing', count: null, route: '#/draft' },
+    { key: 'ask',       label: 'Ask',      desc: 'Grounded Q&A with citations to your papers',   count: null,       route: '#/ask' },
+    { key: 'timeline',  label: 'Timeline', desc: 'Concepts and methods over time',               count: null,       route: '#/timeline' },
+    { key: 'citations', label: 'Citations',desc: 'Which cited references are in your library',   count: null,       action: 'open-citations' },
+  ];
+}

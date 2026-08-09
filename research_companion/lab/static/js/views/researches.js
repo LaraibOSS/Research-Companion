@@ -60,8 +60,10 @@ export function mount(el) {
 
   _render();
 
-  // ?new=1 -> focus the create input
+  // ?new=1 -> reveal + focus the create input
   if (/[?&]new=1(&|$)/.test(window.location.hash)) {
+    const row = _el.querySelector('#ws-create-row');
+    if (row) row.hidden = false;
     const input = _el.querySelector('#ws-create-input');
     if (input) input.focus();
   }
@@ -119,10 +121,13 @@ function _render() {
   _el.innerHTML = `
     <div class="researches-view">
       <div class="researches-header">
-        <h2>Researches</h2>
-        <p class="muted">Each research is a separate workspace — its own papers, draft and graph.</p>
+        <div class="researches-header-main">
+          <h2>Researches <span class="researches-count">${rows.length}</span></h2>
+          <p class="muted">Each research is a separate workspace — its own papers, draft and graph.</p>
+        </div>
+        <button id="ws-new-btn" class="btn btn-accent">+ New research</button>
       </div>
-      <div class="ws-create-row">
+      <div class="ws-create-row" id="ws-create-row" hidden>
         <input id="ws-create-input" type="text" maxlength="120"
                placeholder="Name a new research&hellip;" aria-label="New research name">
         <button id="ws-create-btn" class="btn btn-accent">Create</button>
@@ -135,7 +140,13 @@ function _render() {
   const input = _el.querySelector('#ws-create-input');
   if (input) {
     input.value = prevValue;
-    if (hadFocus) input.focus();
+    if (hadFocus) {
+      // The create row had focus before this re-render (e.g. mid-typing) ->
+      // keep it revealed rather than silently hiding the row the user is using.
+      const row = _el.querySelector('#ws-create-row');
+      if (row) row.hidden = false;
+      input.focus();
+    }
   }
 
   _bindEvents();
@@ -281,6 +292,15 @@ function _rowHtml(r, isArchived) {
 // ---------------------------------------------------------------------------
 
 function _bindEvents() {
+  const newBtn = _el.querySelector('#ws-new-btn');
+  const createRow = _el.querySelector('#ws-create-row');
+  if (newBtn && createRow) {
+    newBtn.addEventListener('click', () => {
+      createRow.hidden = !createRow.hidden;
+      if (!createRow.hidden) _el.querySelector('#ws-create-input')?.focus();
+    });
+  }
+
   const createBtn = _el.querySelector('#ws-create-btn');
   const createInput = _el.querySelector('#ws-create-input');
   if (createBtn && createInput) {

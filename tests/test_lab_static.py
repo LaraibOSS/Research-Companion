@@ -365,6 +365,22 @@ def test_main_js_wires_draft_chip_navigation():
     assert "#/draft" in main_js, "main.js must navigate to #/draft on chip click"
 
 
+def test_home_motion_layer_respects_reduced_motion():
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    # entrance + sparkline draw-in keyframes exist and are gated on the one-time class
+    assert "@keyframes home-rise" in css
+    assert "@keyframes home-draw" in css
+    assert ".home-animate-in" in css
+    # a reduced-motion block that neutralizes Home motion
+    # (use rfind: lab.css already has earlier, unrelated reduced-motion
+    # blocks for .activity-spin/.reader-spin; the Home one is appended last)
+    idx = css.rfind("prefers-reduced-motion")
+    assert idx != -1, "must have a prefers-reduced-motion block"
+    tail = css[idx:idx + 600]
+    assert "home-animate-in" in tail or "home-nav-card" in tail
+    assert "animation: none" in tail and "transition: none" in tail
+
+
 def test_askcompare_node_test_file_exists():
     """tests/js/askcompare.test.mjs must exist (F4 pure-function tests)."""
     assert (REPO_ROOT / "tests" / "js" / "askcompare.test.mjs").exists(), \
@@ -935,6 +951,22 @@ def test_home_js_suggestion_source_label_has_no_section_glyph():
     )
 
 
+def test_home_view_has_quicknav_and_product_pillars():
+    """home.js must render the quick-nav row (from homeNavModel) and the
+    empty-state product pillars, plus the one-time entrance class and a
+    normalized sparkline path (home-redesign Task 2)."""
+    js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    # quick-nav driven by the pure model
+    assert "homeNavModel" in js, "home must render the quick-nav model"
+    assert "home-nav-row" in js and "home-nav-card" in js
+    # empty-state product pillars + real CTAs
+    assert "home-pillars" in js, "empty state must show product value pillars"
+    assert "home-hero-draft" in js and "home-hero-folder" in js
+    # one-time entrance class + sparkline normalized for the draw-in animation
+    assert "home-animate-in" in js
+    assert 'pathLength="1"' in js
+
+
 def test_next_action_js_exports_select_next_actions():
     """nextAction.js must export selectNextActions."""
     js = (STATIC_DIR / "js" / "nextAction.js").read_text(encoding="utf-8")
@@ -1034,6 +1066,23 @@ def test_main_js_mounts_converse_panel():
     main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
     assert "conversePanel" in main_js, "main.js must reference conversePanel"
     assert "mountConversePanel" in main_js, "main.js must call mountConversePanel"
+
+
+# ---------------------------------------------------------------------------
+# home-redesign task 4: Researches header persistent "+ New research" button
+# ---------------------------------------------------------------------------
+
+def test_researches_header_has_persistent_new_research_button():
+    """researches.js header must carry a persistent #ws-new-btn that reveals
+    the (now hidden-by-default) #ws-create-row create control (home-redesign
+    task 4)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "ws-new-btn" in js, "header must carry a persistent + New research button"
+    assert "New research" in js
+    # the create row is now hidden by default (revealed by the header button)
+    assert "ws-create-row" in js and "hidden" in js
+    # header shows a count of researches
+    assert "researches-header" in js
 
 
 def test_lab_css_has_converse_styles():

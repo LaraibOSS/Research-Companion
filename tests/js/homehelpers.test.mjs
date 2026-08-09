@@ -23,7 +23,7 @@ globalThis.localStorage = {
   removeItem: (k) => mockLocalStorage.delete(k),
 };
 
-const { emptyHeroModel } = await import(
+const { emptyHeroModel, homeNavModel } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'homeHelpers.js')).href
 );
 
@@ -136,4 +136,35 @@ test('emptyHeroModel: key set + no draft -> activeStep add_draft', () => {
   const model = emptyHeroModel(state);
   assert.equal(model.activeStep, 'add_draft');
   assert.equal(model.activeStep, onboardingStep(state));
+});
+
+// -----------------------------------------------------------------------
+// homeNavModel tests
+// -----------------------------------------------------------------------
+
+test('homeNavModel returns the curated tab set in order', () => {
+  const state = { draftId: 'd1', papers: new Map([
+    ['d1', { is_draft: true }],
+    ['p1', { is_draft: false }],
+    ['p2', { is_draft: false }],
+  ]) };
+  const model = homeNavModel(state);
+  assert.deepEqual(model.map(m => m.key),
+    ['library', 'graph', 'draft', 'ask', 'timeline', 'citations']);
+  // library shows the non-draft paper count
+  assert.equal(model.find(m => m.key === 'library').count, 2);
+  // routed vs action entries
+  assert.equal(model.find(m => m.key === 'library').route, '#/library');
+  assert.equal(model.find(m => m.key === 'citations').action, 'open-citations');
+  assert.equal(model.find(m => m.key === 'citations').route, undefined);
+});
+
+test('homeNavModel draft label switches on whether a draft exists', () => {
+  const withDraft = homeNavModel({ draftId: 'd1', papers: new Map([['d1', { is_draft: true }]]) });
+  assert.equal(withDraft.find(m => m.key === 'draft').label, 'Draft');
+  const noDraft = homeNavModel({ draftId: null, papers: new Map() });
+  assert.equal(noDraft.find(m => m.key === 'draft').label, 'Set a draft');
+  // never throws on missing/empty state
+  assert.doesNotThrow(() => homeNavModel({}));
+  assert.equal(homeNavModel({}).find(m => m.key === 'library').count, 0);
 });

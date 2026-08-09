@@ -1419,3 +1419,95 @@ would just echo them) — the `data-desc` popover is the only hover affordance
 there. Under the pre-existing 640px icon-only collapse, `data-desc::before`
 is explicitly nulled back out and the plain `title` tooltip is re-armed
 instead, so the collapsed rail's behavior is unchanged by this feature.
+
+## 25. Home dashboard — quick-nav model, empty/populated split, motion layer
+
+The Home view (`#/home`, `views/home.js`) renders one of two layouts from the
+same store subscription, chosen by whether a draft is set — no separate
+route or component tree, just a branch in `_render()`.
+
+### `homeNavModel(state)` — `homeHelpers.js`
+
+A pure, dependency-light function (no DOM access, `node --test`-able) that
+returns a fixed, ordered array of six quick-nav entries:
+
+```js
+{ key, label, desc, count, route? , action? }
+```
+
+- **Curated tab set, fixed order:** `library`, `graph`, `draft`, `ask`,
+  `timeline`, `citations` — every entry every time, regardless of state.
+- **`route` XOR `action`, never both:** `library`/`graph`/`draft`/`ask`/
+  `timeline` carry a `route` (e.g. `'#/library'`) that the caller turns into
+  a hash navigation; `citations` carries `action: 'open-citations'` instead —
+  there's no dedicated `#/citations` route, so it reuses the existing
+  `rc:toggle-citations` event the citation-coverage panel already listens
+  for, rather than inventing a new one.
+- **`count`:** only `library` carries a real number — the count of papers
+  that are neither the draft nor flagged `is_draft` (mirrors the same
+  non-draft-paper count `emptyHeroModel` computes). Every other entry's
+  `count` is `null`; the renderer only emits a `home-nav-count` badge when
+  `count` is not `null`/`undefined`.
+- **`draft` label toggles on state:** `'Draft'` once a draft is set, else
+  `'Set a draft'` — the one entry whose *label*, not just its badge, reflects
+  state.
+- Tested in `tests/js/homehelpers.test.mjs`: entry order/shape, the
+  `library` count derivation, and the draft-label toggle.
+
+### Empty/populated split — `views/home.js`
+
+`_render()` reads `draftId` off the store — `const draft = draftId ?
+papers.get(draftId) : null;` — and branches on that alone:
+
+- **Populated** (`draftId` is set) — `_heroHtml()` renders the compact draft
+  hero (title, version pill, last-activity, a severity donut, open count,
+  related-paper count, addressed/total), then the quick-nav row is inserted
+  via `_navRowHtml(state)` between the hero and the Next Steps (NBA) strip,
+  followed by the top-3 open suggestions and the journey section.
+- **Empty** (no `draftId` — regardless of how many non-draft papers are
+  already in the library) — `_emptyHeroHtml()` renders the product intro
+  instead: the brand line (`emptyHeroModel(state)`'s heading/subline), the
+  `★ Add your draft` / `Ingest a folder` CTAs (`#home-hero-draft` /
+  `#home-hero-folder`, wired to `_addDraftWithNudge()` and the folder-ingest
+  modal), the ①②③④ step strip driven by `onboardingStep()`, the three value
+  pillars (`_PILLARS`, a static array — no model needed since the copy
+  doesn't depend on state), and — unlike the populated branch — its **own**
+  call to `_navRowHtml(state)` embedded directly under the pillars, since
+  there's no separate hero/nav-row insertion point in this branch. A
+  non-empty library does not switch this branch to the populated hero — the
+  only thing that changes is `emptyHeroModel`'s subline text (it swaps from
+  the zero-papers copy to *"You've added N papers — add your draft to start
+  analyzing them"*); the CTAs, step strip, pillars, and nav-row are
+  unaffected by paper count.
+- Both branches call the same `_navRowHtml(state)` → `homeNavModel(state)`
+  path, so the six quick-nav cards render identically either way; only their
+  position in the page (and the surrounding hero) differs. Card clicks are
+  wired generically via `[data-nav-route]` / `[data-nav-action]` regardless
+  of which branch rendered them.
+
+### Motion layer contract — `lab.css` (`Home motion layer` block)
+
+A CSS-only, additive layer gated entirely on one class:
+
+- **`.home-animate-in`** is added to the `.home-view` wrapper only on the
+  *first* `_render()` after `mount()` (a module-level `_animatedIn` flag,
+  reset in `mount()`); navigating away and back re-triggers it once. Its
+  direct children get a staggered `home-rise` entrance (fade + `translateY`,
+  60ms stagger, first five children only via `:nth-child(1..5)`).
+- **Sparkline draw-in:** `_journeyHtml()` renders the `<path>` with
+  `pathLength="1"` — a normalized path length independent of the actual
+  pixel length — so `lab.css` can animate a generic `stroke-dasharray: 1;
+  stroke-dashoffset: 1` to `0` (`home-draw`, 0.6s, only under
+  `.home-animate-in`) without computing the path's real length in JS.
+- **Quick-nav hover-lift:** `.home-nav-card` gets a small `translateY(-2px)`
+  + shadow on `:hover`/`:focus-visible`, independent of `.home-animate-in`
+  (a permanent affordance, not part of the one-time entrance).
+- **`@media (prefers-reduced-motion: reduce)`** forces every animated
+  property on `.home-animate-in > *`, `.home-animate-in .home-sparkline
+  path`, and `.home-nav-card` back to its resting state — `animation: none`,
+  `transition: none`, `opacity: 1`, `transform: none`,
+  `stroke-dashoffset: 0` — all `!important`. This is the binding contract:
+  **nothing in the Home view depends on the animation actually running to
+  be visible or usable** — the reduced-motion path renders the exact same
+  final DOM and CSS classes, just with every transition/keyframe short-
+  circuited to its end state instantly.
