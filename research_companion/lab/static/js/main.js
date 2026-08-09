@@ -27,6 +27,7 @@ import * as settingsView from './views/settings.js';
 import { initGraph, setMapping } from './graph/graphview.js';
 import { nodeToVis, edgeToVis } from './graph/mapping.js';
 import { openModal } from './components/ingestModal.js';
+import { ensureActiveResearch } from './researchGuard.js';
 import { mountDock } from './components/progressDock.js';
 import { mountSuggestionsPanel } from './components/suggestionsPanel.js';
 import { mountConversePanel } from './components/conversePanel.js';
@@ -171,7 +172,7 @@ async function boot() {
   // Wire "+ Add papers" button in top bar -> ingest modal
   const addBtn = document.getElementById('topbar-add');
   if (addBtn) {
-    addBtn.addEventListener('click', () => openModal('upload'));
+    addBtn.addEventListener('click', () => ensureActiveResearch(() => openModal('upload')));
   }
 
   // Mount the persistent progress dock

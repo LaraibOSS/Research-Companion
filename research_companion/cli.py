@@ -733,7 +733,16 @@ def _cmd_review(args: argparse.Namespace) -> int:
     from research_companion.agents.venuefit import VenueFitAgent
     from research_companion.store import _id_to_dirname, papergraph_dir
 
-    runs_dir = papergraph_dir() / "runs"
+    pg = papergraph_dir()
+    if pg is None:
+        print(
+            "research-companion: no active research. Create one first: "
+            "research-companion workspace create <name>",
+            file=sys.stderr,
+        )
+        return 1
+
+    runs_dir = pg / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     # Critical 1: use _id_to_dirname to handle DOI ids that contain '/' chars,
     # and time_ns() to avoid same-second collisions.
@@ -1888,9 +1897,17 @@ def _cmd_lab_ingest(args: argparse.Namespace) -> int:
     from research_companion.agents.events import EventLog
     from research_companion.store import papergraph_dir
 
+    pg = papergraph_dir()
+    if pg is None:
+        print(
+            "research-companion: no active research. Create one first: "
+            "research-companion workspace create <name>",
+            file=sys.stderr,
+        )
+        return 1
+
     folder = Path(args.folder)
-    log_path = papergraph_dir() / "lab_events.jsonl"
-    bus = Bus(log=EventLog(log_path))
+    bus = Bus(log=EventLog(pg / "lab_events.jsonl"))
 
     # Allow tests to inject ingest_folder via LAB_INGEST_OVERRIDES
     ingest_fn = LAB_INGEST_OVERRIDES.get("ingest_folder")

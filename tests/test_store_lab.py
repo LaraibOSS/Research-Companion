@@ -391,12 +391,23 @@ def test_save_config_and_record_failure_create_root_dir(tmp_path, monkeypatch):
 
     This tests the case where RESEARCH_COMPANION_DIR points to a non-existent path
     (e.g., on fresh install). Both functions must ensure the parent directory exists.
+
+    A fresh root now starts with NO active workspace (0.5: nullable resolver),
+    so this test seeds+activates one explicitly — same pattern as conftest's
+    isolated_papergraph_dir fixture — before exercising the write helpers,
+    which are unaffected by (and out of scope for) the none-active read
+    degradation this module otherwise covers.
     """
+    from research_companion import workspaces
+
     # Point to a fresh, non-existent subdirectory
     fresh_root = tmp_path / "fresh-research-dir"
     assert not fresh_root.exists()
 
     monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(fresh_root))
+    store._reset_workspace_caches()
+    workspaces.create_workspace("Main")
+    workspaces.activate_workspace("main")
     store._reset_workspace_caches()
 
     # save_config should succeed despite root not existing
@@ -413,6 +424,9 @@ def test_save_config_and_record_failure_create_root_dir(tmp_path, monkeypatch):
     assert not fresh_root.exists()
 
     # record_failure should also succeed and create root
+    store._reset_workspace_caches()
+    workspaces.create_workspace("Main")
+    workspaces.activate_workspace("main")
     store._reset_workspace_caches()
     store.record_failure("k", {"stage": "add", "error": "x"})
     assert fresh_root.exists()

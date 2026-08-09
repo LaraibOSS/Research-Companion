@@ -217,3 +217,16 @@ export function sortResearchRows(rows, col, dir) {
 
   return indexed.map(x => x.row);
 }
+
+/**
+ * Pure decision for ensureActiveResearch(): given the workspaces slice of
+ * store state, decide whether a guarded action can run immediately or must
+ * first prompt the user to name a research. Never throws.
+ *
+ * @param {{activeId?: string|null}|null|undefined} workspacesState
+ * @returns {{decision: 'passthrough'|'prompt'}}
+ */
+export function decideResearchGuard(workspacesState) {
+  const activeId = workspacesState && workspacesState.activeId;
+  return { decision: activeId ? 'passthrough' : 'prompt' };
+}

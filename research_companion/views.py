@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from research_companion.store import papergraph_dir
+from research_companion.store import workspace_path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -45,18 +45,18 @@ class ViewError(ValueError):
 # ---------------------------------------------------------------------------
 
 
-def _views_path() -> Path:
-    return papergraph_dir() / "saved_views.json"
+def _views_path() -> Path | None:
+    return workspace_path("saved_views.json")
 
 
 def _load_all() -> list[dict]:
     """Load all views from saved_views.json.
 
-    Returns an empty list if the file is missing, corrupt, or structurally invalid.
-    Never raises.
+    Returns an empty list if the file is missing, corrupt, structurally
+    invalid, or no research is active. Never raises.
     """
     p = _views_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return []
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

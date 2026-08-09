@@ -5100,6 +5100,11 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   text-overflow: ellipsis;
 }
 
+.ws-switcher-name.ws-switcher-none {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
 .ws-switcher-chevron {
   color: var(--color-muted);
   font-size: 10px;

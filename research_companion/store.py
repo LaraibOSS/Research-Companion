@@ -76,13 +76,8 @@ def registry_path() -> Path:
 def _default_registry() -> dict:
     return {
         "version": 1,
-        "active": _DEFAULT_WORKSPACE,
-        "workspaces": [{
-            "id": _DEFAULT_WORKSPACE,
-            "name": "Main",
-            "created_at": "",
-            "archived": False,
-        }],
+        "active": None,
+        "workspaces": [],
     }
 
 
@@ -92,11 +87,18 @@ _migrating = False
 
 
 def load_registry() -> dict:
-    """Load the workspace registry; synthesize the default when missing/corrupt.
+    """Load the workspace registry; synthesize the empty default when missing/corrupt.
 
     Ensures legacy migration has run FIRST: writing the registry before a
     pre-0.4 store migrates would make _needs_migration() False forever and
     orphan the library (final-review Critical).
+
+    Also runs a one-time, idempotent normalization: a still-default-named
+    "main" record (name == "Main", untouched by the user) is relabeled to
+    "My research" now that main is an ordinary workspace, not the special
+    default. No directory moves; the id and its data stay exactly where they
+    are. Guarded by name-equality so it is a no-op once renamed (or once the
+    user has picked their own name) — no separate marker needed.
     """
     if not _migrating:
         _ensure_root_ready(root_dir())
@@ -108,10 +110,18 @@ def load_registry() -> dict:
         if not isinstance(data, dict) or not isinstance(data.get("workspaces"), list):
             return _default_registry()
         data.setdefault("version", 1)
-        data.setdefault("active", _DEFAULT_WORKSPACE)
-        return data
+        data.setdefault("active", None)
     except (json.JSONDecodeError, OSError):
         return _default_registry()
+
+    renamed = False
+    for rec in data["workspaces"]:
+        if rec.get("id") == _DEFAULT_WORKSPACE and rec.get("name") == "Main":
+            rec["name"] = "My research"
+            renamed = True
+    if renamed and not _migrating:
+        save_registry(data)
+    return data
 
 
 def save_registry(reg: dict) -> None:
@@ -135,26 +145,27 @@ def _slugify_workspace(name: str) -> str:
     return slug[:64]
 
 
-def active_workspace_id() -> str:
-    """$RESEARCH_COMPANION_WORKSPACE > registry active > "main".
+def active_workspace_id() -> str | None:
+    """$RESEARCH_COMPANION_WORKSPACE > registry active > None.
 
     Registry reads are cached keyed on the file's mtime_ns so external
     `workspace use` invocations are picked up by long-lived processes.
     """
     env_ws = os.environ.get("RESEARCH_COMPANION_WORKSPACE", "").strip()
     if env_ws:
-        return _slugify_workspace(env_ws) or _DEFAULT_WORKSPACE
+        return _slugify_workspace(env_ws) or None
 
     root_key = str(root_dir())
     p = registry_path()
     try:
         mtime = p.stat().st_mtime_ns
     except OSError:
-        return _DEFAULT_WORKSPACE
+        return None
     cached = _active_cache.get(root_key)
     if cached is not None and cached[0] == mtime:
         return cached[1]
-    active = str(load_registry().get("active") or _DEFAULT_WORKSPACE)
+    active = load_registry().get("active")
+    active = str(active) if active else None
     _active_cache[root_key] = (mtime, active)
     return active
 
@@ -216,9 +227,16 @@ def _migrate_legacy_store(root: Path) -> None:
         os.rename(src, dst)
 
     from datetime import datetime, timezone
-    reg = _default_registry()
-    reg["workspaces"][0]["created_at"] = (
-        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    reg = {
+        "version": 1,
+        "active": _DEFAULT_WORKSPACE,
+        "workspaces": [{
+            "id": _DEFAULT_WORKSPACE,
+            "name": "Main",
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "archived": False,
+        }],
+    }
     save_registry(reg)
 
 
@@ -236,11 +254,31 @@ def _ensure_root_ready(root: Path) -> None:
     _verified_roots.add(key)
 
 
-def papergraph_dir() -> Path:
-    """Directory of the ACTIVE workspace — all research state lives here."""
+def papergraph_dir() -> Path | None:
+    """Directory of the ACTIVE workspace, or None when none is active.
+
+    All research state lives here when it is not None.
+    """
     root = root_dir()
     _ensure_root_ready(root)
-    return workspaces_root() / active_workspace_id()
+    ws = active_workspace_id()
+    if ws is None:
+        return None
+    return workspaces_root() / ws
+
+
+def workspace_path(*parts: str) -> Path | None:
+    """Join *parts onto the active workspace's directory, or None when none
+    is active.
+
+    The single guarded join point every per-workspace path helper (in this
+    module and in journey.py, notes_store.py, views.py, converse.py) routes
+    through instead of calling papergraph_dir() directly, so "no active
+    workspace" degrades to "this path does not exist" instead of crashing on
+    `None / "x"`.
+    """
+    base = papergraph_dir()
+    return None if base is None else base.joinpath(*parts)
 
 
 # ---------------------------------------------------------------------------
@@ -270,18 +308,20 @@ def save_root_settings(settings: dict) -> None:
     os.replace(tmp, p)
 
 
-def papers_dir() -> Path:
-    d = papergraph_dir() / "papers"
+def papers_dir() -> Path | None:
+    d = workspace_path("papers")
+    if d is None:
+        return None
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def graph_json_path() -> Path:
-    return papergraph_dir() / "graph.json"
+def graph_json_path() -> Path | None:
+    return workspace_path("graph.json")
 
 
-def graph_html_path() -> Path:
-    return papergraph_dir() / "graph.html"
+def graph_html_path() -> Path | None:
+    return workspace_path("graph.html")
 
 
 def _id_to_dirname(paper_id: str) -> str:
@@ -293,8 +333,11 @@ def _id_to_dirname(paper_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "_", paper_id.replace(":", "__"))
 
 
-def paper_dir(paper_id: str) -> Path:
-    d = papers_dir() / _id_to_dirname(paper_id)
+def paper_dir(paper_id: str) -> Path | None:
+    base = papers_dir()
+    if base is None:
+        return None
+    d = base / _id_to_dirname(paper_id)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -405,7 +448,10 @@ class PaperMetadata:
 
     @classmethod
     def load(cls, paper_id: str) -> PaperMetadata | None:
-        p = paper_dir(paper_id) / "metadata.json"
+        d = paper_dir(paper_id)
+        if d is None:
+            return None
+        p = d / "metadata.json"
         if not p.exists():
             return None
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -463,7 +509,10 @@ def save_pdf(paper_id: str, pdf_bytes: bytes) -> Path:
 
 
 def pdf_path(paper_id: str) -> Path | None:
-    p = paper_dir(paper_id) / "paper.pdf"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "paper.pdf"
     return p if p.exists() else None
 
 
@@ -492,7 +541,10 @@ def save_text(paper_id: str, text: str) -> Path:
 
 
 def load_text(paper_id: str) -> str | None:
-    p = paper_dir(paper_id) / "text.txt"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "text.txt"
     return p.read_text(encoding="utf-8") if p.exists() else None
 
 
@@ -506,7 +558,10 @@ def save_extraction(paper_id: str, extraction: dict[str, Any], *, prompt_sha: st
 
 def load_extraction(paper_id: str, *, prompt_sha: str) -> dict[str, Any] | None:
     """Return cached extraction iff the saved prompt SHA matches the current one."""
-    p = paper_dir(paper_id) / "extraction.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "extraction.json"
     if not p.exists():
         return None
     try:
@@ -532,7 +587,10 @@ def save_simplified(paper_id: str, payload: dict) -> Path:
 
 
 def load_simplified(paper_id: str) -> dict | None:
-    p = paper_dir(paper_id) / "simplified.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "simplified.json"
     if not p.exists():
         return None
     try:
@@ -551,12 +609,15 @@ def save_citation_polarity(paper_id: str, mapping: dict[str, Any]) -> Path:
 
 
 def load_citation_polarity(paper_id: str) -> dict[str, Any]:
-    """Return the polarity mapping for a paper, or {} when absent/corrupt.
-
-    Must never raise: build_graph iterates every paper, and one bad sidecar
-    must not fail an unrelated paper's ingest (same discipline as load_extraction).
+    """Return the polarity mapping for a paper, or {} when absent/corrupt/no
+    active workspace. Must never raise: build_graph iterates every paper, and
+    one bad sidecar must not fail an unrelated paper's ingest (same
+    discipline as load_extraction).
     """
-    p = paper_dir(paper_id) / "citation_polarity.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return {}
+    p = d / "citation_polarity.json"
     if not p.exists():
         return {}
     try:
@@ -567,12 +628,18 @@ def load_citation_polarity(paper_id: str) -> dict[str, Any]:
 
 
 def list_papers() -> list[PaperMetadata]:
-    """All papers currently in the local store, sorted by added_at desc."""
+    """All papers currently in the local store, sorted by added_at desc.
+
+    Returns [] when no research is active — never raises.
+    """
+    d = papers_dir()
+    if d is None:
+        return []
     out: list[PaperMetadata] = []
-    for d in papers_dir().iterdir():
-        if not d.is_dir():
+    for entry in d.iterdir():
+        if not entry.is_dir():
             continue
-        meta_path = d / "metadata.json"
+        meta_path = entry / "metadata.json"
         if not meta_path.exists():
             continue
         try:
@@ -620,15 +687,15 @@ def remove_paper(paper_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def config_path() -> Path:
-    """Return papergraph_dir()/config.json."""
-    return papergraph_dir() / "config.json"
+def config_path() -> Path | None:
+    """Return papergraph_dir()/config.json, or None when none is active."""
+    return workspace_path("config.json")
 
 
 def load_config() -> dict:
-    """Load config.json. Returns {} if missing or unparseable."""
+    """Load config.json. Returns {} if missing, unparseable, or no active workspace."""
     p = config_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return {}
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -673,7 +740,10 @@ def load_sections(paper_id: str, *, text_sha: str | None = None) -> dict | None:
     Returns None if file missing, JSON unparseable, or if text_sha given and
     payload["text_sha256"] does not match (stale cache).
     """
-    p = paper_dir(paper_id) / "sections.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "sections.json"
     if not p.exists():
         return None
     try:
@@ -699,8 +769,12 @@ def save_structure(paper_id: str, payload: dict) -> Path:
 
 
 def load_structure(paper_id: str) -> dict | None:
-    """Load papers/<dir>/structure.json. Returns None if missing or unparseable."""
-    p = paper_dir(paper_id) / "structure.json"
+    """Load papers/<dir>/structure.json. Returns None if missing, unparseable,
+    or no active workspace."""
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "structure.json"
     if not p.exists():
         return None
     try:
@@ -723,7 +797,10 @@ def load_alignment(paper_id: str, *, draft_paper_id: str | None = None) -> dict 
     Returns None if file missing, JSON unparseable, or if draft_paper_id given and
     payload["draft_paper_id"] does not match (stale cache).
     """
-    p = paper_dir(paper_id) / "alignment.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "alignment.json"
     if not p.exists():
         return None
     try:
@@ -749,7 +826,10 @@ def load_strength(paper_id: str) -> dict | None:
 
     Returns None if file missing or JSON unparseable.
     """
-    p = paper_dir(paper_id) / "strength.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "strength.json"
     if not p.exists():
         return None
     try:
@@ -796,7 +876,10 @@ def load_embeddings(paper_id: str, *, embed_model: str | None = None) -> dict | 
     * The file is missing or unparseable.
     * *embed_model* is given and ``payload["embed_model"]`` does not match.
     """
-    p = paper_dir(paper_id) / "embeddings.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "embeddings.json"
     if not p.exists():
         return None
     try:
@@ -810,9 +893,9 @@ def load_embeddings(paper_id: str, *, embed_model: str | None = None) -> dict | 
     return payload
 
 
-def failed_json_path() -> Path:
-    """Return papergraph_dir()/failed.json."""
-    return papergraph_dir() / "failed.json"
+def failed_json_path() -> Path | None:
+    """Return papergraph_dir()/failed.json, or None when none is active."""
+    return workspace_path("failed.json")
 
 
 def record_failure(key: str, info: dict) -> None:
@@ -856,9 +939,10 @@ def clear_failure(key: str, *, paper_id: str | None = None) -> None:
 
 
 def list_failures() -> dict[str, dict]:
-    """Load and return all failures. Returns {} if file missing or unparseable."""
+    """Load and return all failures. Returns {} if file missing, unparseable,
+    or no active workspace."""
     p = failed_json_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return {}
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -872,10 +956,11 @@ def list_failures() -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 
-def review_report_path(paper_id: str) -> Path:
-    """Return papergraph_dir()/reviews/<dirname>/report.json."""
+def review_report_path(paper_id: str) -> Path | None:
+    """Return papergraph_dir()/reviews/<dirname>/report.json, or None when
+    none is active."""
     dirname = _id_to_dirname(paper_id)
-    return papergraph_dir() / "reviews" / dirname / "report.json"
+    return workspace_path("reviews", dirname, "report.json")
 
 
 def save_review_report(paper_id: str, report: dict) -> Path:
@@ -887,9 +972,10 @@ def save_review_report(paper_id: str, report: dict) -> Path:
 
 
 def load_review_report(paper_id: str) -> dict | None:
-    """Load a saved review report. Returns None if missing or corrupt."""
+    """Load a saved review report. Returns None if missing, corrupt, or no
+    active workspace."""
     p = review_report_path(paper_id)
-    if not p.exists():
+    if p is None or not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -923,7 +1009,10 @@ def load_gaps(paper_id: str, *, prompt_sha: str | None = None) -> dict | None:
     Returns None if file missing, JSON unparseable, or if prompt_sha given and
     payload["prompt_sha256"] does not match (stale cache).
     """
-    p = paper_dir(paper_id) / "gaps.json"
+    d = paper_dir(paper_id)
+    if d is None:
+        return None
+    p = d / "gaps.json"
     if not p.exists():
         return None
     try:
@@ -940,9 +1029,9 @@ def load_gaps(paper_id: str, *, prompt_sha: str | None = None) -> dict | None:
     return payload
 
 
-def gap_resolution_path() -> Path:
-    """Return papergraph_dir()/gap_resolution.json."""
-    return papergraph_dir() / "gap_resolution.json"
+def gap_resolution_path() -> Path | None:
+    """Return papergraph_dir()/gap_resolution.json, or None when none is active."""
+    return workspace_path("gap_resolution.json")
 
 
 def save_gap_resolution(payload: dict) -> Path:
@@ -954,9 +1043,10 @@ def save_gap_resolution(payload: dict) -> Path:
 
 
 def load_gap_resolution() -> dict | None:
-    """Load gap_resolution.json. Returns None if missing or unparseable."""
+    """Load gap_resolution.json. Returns None if missing, unparseable, or no
+    active workspace."""
     p = gap_resolution_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

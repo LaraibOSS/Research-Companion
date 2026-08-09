@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  decideResearchGuard,
   deleteConfirmMessage,
   researchRowModel,
   sortResearchRows,
@@ -99,6 +100,29 @@ test('splitWorkspaces: does not mutate the input list', () => {
   const list = [ws('b'), ws('a')];
   splitWorkspaces(list, 'a');
   assert.deepEqual(list.map(w => w.id), ['b', 'a']);
+});
+
+// ---------------------------------------------------------------------------
+// decideResearchGuard
+// ---------------------------------------------------------------------------
+
+test('decideResearchGuard: passthrough when activeId is set', () => {
+  assert.deepEqual(decideResearchGuard({ activeId: 'main' }), { decision: 'passthrough' });
+});
+
+test('decideResearchGuard: prompt when activeId is null', () => {
+  assert.deepEqual(decideResearchGuard({ activeId: null }), { decision: 'prompt' });
+});
+
+test('decideResearchGuard: prompt when activeId is undefined', () => {
+  assert.deepEqual(decideResearchGuard({ activeId: undefined }), { decision: 'prompt' });
+});
+
+test('decideResearchGuard: prompt for null/undefined state, never throws', () => {
+  assert.doesNotThrow(() => decideResearchGuard(null));
+  assert.doesNotThrow(() => decideResearchGuard(undefined));
+  assert.deepEqual(decideResearchGuard(null), { decision: 'prompt' });
+  assert.deepEqual(decideResearchGuard(undefined), { decision: 'prompt' });
 });
 
 // ---------------------------------------------------------------------------

@@ -41,7 +41,7 @@ from research_companion.store import (
     make_doi_id,
     make_pmcid_id,
     make_pmid_id,
-    papergraph_dir,
+    workspace_path,
 )
 
 # ---------------------------------------------------------------------------
@@ -444,13 +444,16 @@ def find_library_duplicate(
 # 5. Persistence
 # ---------------------------------------------------------------------------
 
-def coverage_path() -> Path:
-    return papergraph_dir() / "citations_coverage.json"
+def coverage_path() -> Path | None:
+    """Return papergraph_dir()/citations_coverage.json, or None when none is active."""
+    return workspace_path("citations_coverage.json")
 
 
 def load_coverage() -> dict | None:
+    """Load the saved coverage report. Returns None if missing, corrupt, or
+    no active workspace."""
     p = coverage_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

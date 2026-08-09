@@ -366,6 +366,16 @@ def test_strength_for_paper_unknown_paper(tmp_path):
 def test_strength_for_paper_persists(tmp_path):
     """Test strength_for_paper persists result via store.save_strength."""
     with patch.dict("os.environ", {"RESEARCH_COMPANION_DIR": str(tmp_path)}):
+        # A fresh root now starts with no active workspace (0.5: nullable
+        # resolver) — seed and activate one so the write helpers below
+        # (meta.save(), save_extraction) have somewhere to persist to.
+        from research_companion import workspaces
+
+        store._reset_workspace_caches()
+        workspaces.create_workspace("Main")
+        workspaces.activate_workspace("main")
+        store._reset_workspace_caches()
+
         paper_id = "arxiv:2410.05779"
         meta = store.PaperMetadata(
             paper_id=paper_id,

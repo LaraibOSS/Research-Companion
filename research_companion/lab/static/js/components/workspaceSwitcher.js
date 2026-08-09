@@ -2,8 +2,9 @@
  * components/workspaceSwitcher.js — Topbar workspace ("research") switcher (W4-F1).
  *
  * Mounted ONCE from main.js onto the pre-existing #workspace-switcher button.
- * The button stays hidden until the workspaces snapshot loads (boot fetch is
- * non-fatal), then shows the active research name + a chevron.
+ * Shows the active research name + a chevron, or a muted "Research: none"
+ * when nothing is active yet (boot fetch is non-fatal) — clicking it still
+ * opens the New research / All researches menu either way.
  *
  * The dropdown menu lists non-archived workspaces (active one checkmarked;
  * clicking another activates it and reloads the page), then a divider,
@@ -62,13 +63,19 @@ function _renderButton() {
   if (!_btn) return;
   const { workspaces } = _storeRef.getState();
   const { list, activeId } = workspaces;
-  if (!Array.isArray(list) || list.length === 0) {
-    _btn.style.display = 'none';
+  const active = Array.isArray(list) ? list.find(w => w.id === activeId) : null;
+
+  if (!active) {
+    _btn.innerHTML = `<span class="ws-switcher-name ws-switcher-none">Research: none</span>`
+      + `<span class="ws-switcher-chevron" aria-hidden="true">&#9662;</span>`;
+    _btn.setAttribute('aria-haspopup', 'menu');
+    _btn.setAttribute('aria-expanded', _open ? 'true' : 'false');
+    _btn.title = 'Choose or create a research';
+    _btn.style.display = '';
     return;
   }
-  const active = list.find(w => w.id === activeId);
-  const name = active ? (active.name || active.id) : (activeId || 'main');
-  _btn.innerHTML = `<span class="ws-switcher-name">${escapeHtml(name)}</span>`
+
+  _btn.innerHTML = `<span class="ws-switcher-name">${escapeHtml(active.name || active.id)}</span>`
     + `<span class="ws-switcher-chevron" aria-hidden="true">&#9662;</span>`;
   _btn.setAttribute('aria-haspopup', 'menu');
   _btn.setAttribute('aria-expanded', _open ? 'true' : 'false');

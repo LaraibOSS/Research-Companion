@@ -151,17 +151,17 @@ class TestDelete:
             assert store.papergraph_dir().name == "main"
             assert not (store.workspaces_root() / "proj-d").exists()
 
-    def test_delete_only_workspace_synthesizes_fresh_main(
+    def test_delete_only_workspace_leaves_none_active(
             self, isolated_papergraph_dir):
         _app, _bus, c = _make_client()
         with c:
             resp = c.delete("/api/workspaces/main")
             assert resp.status_code == 200
             assert resp.json() == {
-                "removed": True, "active": "main", "switched": True}
+                "removed": True, "active": None, "switched": True}
             data = c.get("/api/workspaces").json()
-            assert data["active"] == "main"
-            assert [w["id"] for w in data["workspaces"]] == ["main"]
+            assert data["active"] is None
+            assert data["workspaces"] == []
 
     def test_delete_main_while_not_active_allowed(self, isolated_papergraph_dir):
         _app, _bus, c = _make_client()
@@ -190,10 +190,12 @@ class TestDelete:
         bus = Bus(log=EventLog(store.papergraph_dir() / "lab_events.jsonl"))
         app = create_lab_app(bus)
         with TestClient(app) as c:
+            c.post("/api/workspaces", json={"name": "Other"})
             resp = c.delete("/api/workspaces/main")
             assert resp.status_code == 200
             assert resp.json()["switched"] is True
-            assert (store.workspaces_root() / "main" / "lab_events.jsonl").exists()
+            assert resp.json()["active"] == "other"
+            assert (store.workspaces_root() / "other" / "lab_events.jsonl").exists()
 
     def test_delete_blocked_while_job_running(self, isolated_papergraph_dir):
         app, _bus, c = _make_client()

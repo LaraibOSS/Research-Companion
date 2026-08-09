@@ -1511,3 +1511,66 @@ A CSS-only, additive layer gated entirely on one class:
   be visible or usable** — the reduced-motion path renders the exact same
   final DOM and CSS classes, just with every transition/keyframe short-
   circuited to its end state instantly.
+
+## 26. No-research-selected: nullable active-workspace resolution + `main` normalization
+
+Fresh installs and libraries emptied down to zero workspaces used to be
+impossible to express — `active_workspace_id()` always fell back to the
+hardcoded `"main"`. It is now honestly nullable end to end: no workspace
+selected is a real, representable state, not an implicit default.
+
+### Active-research resolution (nullable) — `store.py`
+
+`active_workspace_id() -> str | None` resolves, in order:
+
+1. `$RESEARCH_COMPANION_WORKSPACE` (slugified) — always wins when set.
+2. The registry's `active` field (`workspaces.json`) — may be `null`.
+3. `None` — no more implicit `"main"` fallback.
+
+`papergraph_dir() -> Path | None` is `None` whenever the resolver above
+returns `None`. Every per-workspace read helper in `store.py` and its
+sibling modules (`graph.py`, `journey.py`, `notes_store.py`, `views.py`,
+`converse.py`) routes through `workspace_path(*parts)`, which returns
+`None` under the same condition — so a read degrades to an empty/`None`
+result instead of raising on `None / "x"`.
+
+### The write-guard contract — `require_active_workspace()` in `lab_api.py`
+
+Write-only helpers are not individually guarded; instead every mutating
+endpoint (add/upload a paper, ingest, set-draft, notes, views, `/api/ask`,
+`/api/converse`, and friends) declares
+`dependencies=[Depends(require_active_workspace)]`. That dependency raises
+`NoActiveWorkspaceError` when `store.active_workspace_id()` is `None`; a
+dedicated `app.exception_handler(NoActiveWorkspaceError)` turns it into a
+`409` with the exact body `{"error": "no_active_workspace"}` (not FastAPI's
+default `{"detail": ...}` shape). The net effect: **reads degrade to an
+empty `200`, writes 409** — nothing 500s just because no research is
+active.
+
+### Deleting down to none, and `main`'s normalization
+
+`delete_workspace()` (`workspaces.py`) can now remove the last remaining
+workspace, leaving the registry at `{"active": null, "workspaces": []}` —
+there is no synthesized fallback. `main` is no longer special: it is an
+ordinary registry record like any other, deletable and renamable.
+
+`load_registry()` runs a one-time, idempotent normalization on every load: a
+`main` record whose name is still the untouched default `"Main"` is
+relabeled to `"My research"` (no directory move — the id and its data stay
+put). It is guarded by name-equality, so it is a no-op once the record has
+been renamed (by the user or by a previous run) — existing users upgrading
+keep their data and their active selection; only the name changes, once.
+
+### Frontend affordance — `workspaceSwitcher.js` + `researchGuard.js`
+
+The topbar switcher (`components/workspaceSwitcher.js`) renders a visible
+muted **"Research: none"** in place of a name when `activeId` doesn't
+resolve to a workspace, instead of silently picking one. `researchGuard.js`
+exports `ensureActiveResearch(action, deps)`: when no research is active it
+shows a "Name your research" prompt, validates the name, creates +
+activates the new workspace, refreshes the workspaces snapshot, and only
+then runs the originally-requested `action` — resolving to `null` (never
+throwing) on a cancelled prompt or a failed create/activate. It gates the
+first Add draft / Ingest folder / + Add papers action from `home.js` /
+`main.js` so a user never hits a write against no active workspace through
+the normal UI flow.

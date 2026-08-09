@@ -124,6 +124,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 
 ### 🧪 Research Lab (browser)
 - **Live‑growing graph** over SSE, section‑wise subgraphs that keep retrieval focused, a built‑in reader (Text + original‑PDF tabs), a **Simplified** plain‑English reader, **Notes** you can capture anywhere and export as a revision checklist, an adaptive **Home** dashboard (a first‑run product intro with quick‑nav to every tab, then a compact journey view with next‑steps and a timeline once you have a draft), and a **Researches** tab: a sortable table tracking every research — papers/analyzed/failed, draft + version count, citation coverage, strength mix, open items, and draft‑updated / last‑activity / created — with a persistent **+ New research** button plus rename / archive / delete.
+- **Honest "no research selected" state** — fresh installs and fully‑emptied libraries show a plain **Research: none** in the top bar instead of a hidden default workspace; `main` is now an ordinary, renamable research like any other.
 
 <sub>📄 Full version history lives in the release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)</sub>
 

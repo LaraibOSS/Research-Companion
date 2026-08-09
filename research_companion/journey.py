@@ -21,14 +21,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from research_companion.store import papergraph_dir
+from research_companion.store import workspace_path
 
 # ---------------------------------------------------------------------------
 # Persistence helpers
 # ---------------------------------------------------------------------------
 
-def _journey_path() -> Path:
-    return papergraph_dir() / "journey.json"
+def _journey_path() -> Path | None:
+    return workspace_path("journey.json")
 
 
 def _default_journey() -> dict:
@@ -36,9 +36,9 @@ def _default_journey() -> dict:
 
 
 def load_journey() -> dict:
-    """Load journey.json; return default if missing or corrupt."""
+    """Load journey.json; return default if missing, corrupt, or no active workspace."""
     p = _journey_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return _default_journey()
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

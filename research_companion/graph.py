@@ -456,7 +456,7 @@ def save_graph(G: nx.Graph, path=None) -> None:
 
 def load_graph(path=None) -> nx.Graph:
     p = path or graph_json_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return nx.Graph()
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
