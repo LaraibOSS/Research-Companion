@@ -3219,8 +3219,8 @@ def serve_lab(port: int = 8765, *, open_browser: bool = True) -> None:
     from research_companion.agents.events import EventLog
     from research_companion.store import papergraph_dir
 
-    log_path = papergraph_dir() / "lab_events.jsonl"
-    bus = Bus(log=EventLog(log_path))
+    pg = papergraph_dir()
+    bus = Bus(log=EventLog(pg / "lab_events.jsonl") if pg is not None else None)
     app = create_lab_app(bus)
 
     if open_browser:
