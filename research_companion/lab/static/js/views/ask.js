@@ -17,6 +17,10 @@ import { canSave } from '../viewsHelpers.js';
 import { attachCiteHandlers } from '../components/citeMiniCard.js';
 import { explainerBanner } from '../components/explainer.js';
 import { tip } from '../glossary.js';
+import { buildNoteRecord } from '../noteRecord.js';
+
+// Answers can run long; cap the note's source excerpt to a sane length.
+const ASK_NOTE_EXCERPT_MAX = 2000;
 
 // ---------------------------------------------------------------------------
 // Pure: renderAnswerHtml (exported for node --test)
@@ -108,9 +112,11 @@ function _render() {
     input.style.height = Math.min(input.scrollHeight, 240) + 'px';
   });
 
-  // "Save this subgraph" button click (delegated — citeMiniCard handles cite clicks)
+  // "Save this subgraph" / "Save note" button clicks (delegated — citeMiniCard
+  // handles cite clicks separately).
   const hist = _el.querySelector('#ask-history');
   hist.addEventListener('click', _onSaveSubgraphClick);
+  hist.addEventListener('click', _onSaveNoteClick);
 
   _renderHistory();
   _setPending(_pending);
@@ -240,6 +246,11 @@ function _renderHistory() {
         <button class="btn btn-secondary btn-sm ask-save-subgraph-btn"
                 data-entry="${idx}">Save this subgraph</button>
       </div>` : '';
+    const saveNoteHtml = `
+      <div class="ask-save-note">
+        <button class="btn btn-secondary btn-sm ask-save-note-btn"
+                data-entry="${idx}">Save note</button>
+      </div>`;
 
     const unverifiedHtml = unverified.length > 0 ? `
       <div class="ask-unverified">
@@ -267,6 +278,7 @@ function _renderHistory() {
           <div class="ask-answer-body">${renderAnswerHtml(res.answer, citations)}</div>
           ${groundingHtml}
           ${saveSubgraphHtml}
+          ${saveNoteHtml}
           ${unverifiedHtml}
         </div>
       </div>
@@ -301,5 +313,41 @@ function _onSaveSubgraphClick(e) {
       question: entry.question,
       nodeIds,
     });
+  }
+}
+
+/**
+ * "Save note" button click -> POST /api/notes (kind 'ask'). Source excerpt is
+ * the answer text, trimmed and capped at ASK_NOTE_EXCERPT_MAX chars;
+ * paper_id/paper_title come from the answer's top citation, if any.
+ */
+async function _onSaveNoteClick(e) {
+  const btn = e.target.closest('.ask-save-note-btn');
+  if (!btn) return;
+  const entryIdx = Number(btn.dataset.entry);
+  const entry = _history[entryIdx];
+  if (!entry) return;
+
+  // Ask notes carry no draft_section_id, so the server's (paper_id,
+  // draft_section_id) dedupe never catches a rapid double-click here —
+  // guard it client-side instead.
+  if (btn.disabled) return;
+  btn.disabled = true;
+
+  const answerText = String((entry.res && entry.res.answer) || '').trim().slice(0, ASK_NOTE_EXCERPT_MAX);
+  const citations = (entry.res && entry.res.citations) || [];
+  const topCitation = citations[0] || null;
+
+  try {
+    await api.saveNote(buildNoteRecord('ask', {
+      sourceExcerpt: answerText,
+      paperId: topCitation ? (topCitation.paper_id || '') : '',
+      paperTitle: topCitation ? (topCitation.title || '') : '',
+    }));
+    showToast('Saved to Notes', 'info');
+  } catch (err) {
+    showToast(`Failed to save note: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
   }
 }

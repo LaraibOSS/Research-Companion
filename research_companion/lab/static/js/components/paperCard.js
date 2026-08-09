@@ -6,6 +6,9 @@ import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js
 import { tip } from '../glossary.js';
 import { needsMetadata, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine } from '../oaLinkHelpers.js';
+import * as api from '../api.js';
+import { showToast } from './toast.js';
+import { buildNoteRecord } from '../noteRecord.js';
 
 /**
  * Render a paper card element.
@@ -108,11 +111,39 @@ export function renderPaperCard(paper) {
         ${findPdfState !== 'hidden'
           ? `<button class="btn btn-sm btn-find-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Find PDF</button>`
           : ''}
+        <button class="btn btn-sm btn-save-note" data-paper-id="${escapeHtml(paper.paper_id)}">Save note</button>
         <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>
       </div>
       ${oaLinksHtml}
     </div>
   `;
+
+  // Save note -> POST /api/notes (kind 'paper'), then toast. Wired here
+  // (rather than in views/library.js, which wires the OTHER card-actions
+  // buttons) since this button needs no library-view state — just the
+  // paper this card was rendered for.
+  const saveNoteBtn = card.querySelector('.btn-save-note');
+  if (saveNoteBtn) {
+    saveNoteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      // Paper notes carry no draft_section_id, so the server's (paper_id,
+      // draft_section_id) dedupe never catches a rapid double-click here —
+      // guard it client-side instead.
+      if (saveNoteBtn.disabled) return;
+      saveNoteBtn.disabled = true;
+      try {
+        await api.saveNote(buildNoteRecord('paper', {
+          paperId: paper.paper_id,
+          paperTitle: paper.title || paper.paper_id,
+        }));
+        showToast('Saved to Notes', 'info');
+      } catch (err) {
+        showToast(`Failed to save note: ${err.message}`, 'error');
+      } finally {
+        saveNoteBtn.disabled = false;
+      }
+    });
+  }
 
   return card;
 }

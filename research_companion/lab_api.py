@@ -1773,15 +1773,22 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     @app.post("/api/notes")
     async def create_note_endpoint(body: dict) -> dict:
         from research_companion.notes_store import save_note
-        if not body.get("paper_id") or not body.get("draft_section_id"):
-            raise HTTPException(status_code=400, detail="paper_id and draft_section_id required")
+        kind = body.get("kind") or "freeform"
+        if kind not in ("opportunity", "alignment", "reader", "paper", "ask", "freeform"):
+            raise HTTPException(status_code=400, detail="invalid note kind")
+        if not (body.get("comment") or body.get("paper_id")
+                or body.get("source_excerpt") or body.get("evidence_quote")):
+            raise HTTPException(status_code=400, detail="note is empty")
+        body["kind"] = kind
         return await asyncio.to_thread(save_note, body)
 
     @app.get("/api/notes/export")
-    async def export_notes_endpoint() -> dict:
+    async def export_notes_endpoint(group_by: str = "section") -> dict:
         from research_companion.notes_store import list_notes, notes_to_markdown
+        if group_by not in ("section", "paper"):
+            group_by = "section"
         notes = await asyncio.to_thread(list_notes)
-        return {"markdown": notes_to_markdown(notes)}
+        return {"markdown": notes_to_markdown(notes, group_by=group_by)}
 
     @app.patch("/api/notes/{note_id}")
     async def patch_note_endpoint(note_id: str, body: dict) -> dict:

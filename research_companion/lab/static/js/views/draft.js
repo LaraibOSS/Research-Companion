@@ -17,6 +17,7 @@ import { stanceIcon, strengthColor, escapeHtml, authorsLine } from '../format.js
 import { explainerBanner } from '../components/explainer.js';
 import { tip } from '../glossary.js';
 import { opportunityModel } from '../opportunityHelpers.js';
+import { buildNoteRecord } from '../noteRecord.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
@@ -31,10 +32,20 @@ let _evidenceQuotes = [];
 // re-normalized via opportunityModel() on every section-list render.
 let _opportunities = null;         // { draft_id, sections: [...] } | null
 let _oppExpandedSections = new Set(); // section_ids whose opportunity block is expanded
+// Seeds _oppExpandedSections with every section that has opportunities the
+// FIRST time they load, so the block defaults to expanded rather than
+// collapsed; a user's own toggle (add/delete on _oppExpandedSections) is
+// never overwritten again after that (see _render()).
+let _oppExpandedInitialized = false;
 // Suggestion+context lookup for opportunity row buttons (quote / Save note),
 // indexed by data-opp-idx. Kept out of HTML attributes for the same reason
 // as _evidenceQuotes above (quotes/titles may contain quotes/newlines).
 let _oppRegistry = [];
+// Cited-alignment evidence lookup for the per-quote Save-note button,
+// indexed by data-align-idx. Kept out of HTML attributes for the same reason
+// as _evidenceQuotes/_oppRegistry above (quotes/titles may contain quotes/
+// newlines unsafe for HTML attributes).
+let _alignRegistry = [];
 
 // ---------------------------------------------------------------------------
 // Stance ordering
@@ -78,7 +89,9 @@ export function unmount() {
   _selectedSectionId = null;
   _opportunities = null;
   _oppExpandedSections = new Set();
+  _oppExpandedInitialized = false;
   _oppRegistry = [];
+  _alignRegistry = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +142,28 @@ async function _render() {
     _opportunities = await api.getOpportunities();
   } catch {
     _opportunities = { draft_id: null, sections: [] };
+  }
+
+  // Seed the expand-state set ONCE, so every section that has opportunities
+  // defaults to expanded rather than collapsed. Gated on _oppExpandedInitialized
+  // staying false until a load has ACTUALLY seeded >=1 section — a naive
+  // "flip true on the first _render() no matter what" would wrongly latch
+  // the seed as done on an early render where opportunities are still empty
+  // (e.g. the very first paint, before the backend has anything to offer),
+  // permanently skipping the seed once they populate on a later re-render.
+  // Once at least one section IS seeded, the flag stays true so a later
+  // re-render (a fresh 'papers'/'alignment' notify) never re-adds a section
+  // the user has since collapsed.
+  if (!_oppExpandedInitialized) {
+    const oppSectionsSeed = opportunityModel((_opportunities && _opportunities.sections) || []);
+    let seededAny = false;
+    for (const o of oppSectionsSeed) {
+      if (o.count > 0) {
+        _oppExpandedSections.add(o.sectionId);
+        seededAny = true;
+      }
+    }
+    if (seededAny) _oppExpandedInitialized = true;
   }
 
   if (!_el) return;
@@ -263,6 +298,7 @@ function _renderSectionList(sections) {
           <span class="draft-section-num">${idx + 1}.</span>
           <span class="draft-section-name">${escapeHtml(sec.title || sec.section_id)}</span>
           ${oppBadgeHtml}
+          <button class="draft-note-btn" type="button" data-section-id="${escapeHtml(sec.section_id)}" title="Add a note to this section" aria-label="Add note to section">&#65291; note</button>
           <button class="draft-read-btn" data-section-id="${escapeHtml(sec.section_id)}" title="Read this section" aria-label="Read section">Read</button>
         </div>
         <div class="draft-chip-strip">${chipHtml}</div>
@@ -287,6 +323,76 @@ function _renderSectionList(sections) {
         detail: { paperId: draftId, sectionId: btn.dataset.sectionId, title: draftTitle },
       }));
     });
+  });
+
+  // "+ note" button on each section row -> tiny inline free-form note form.
+  listEl.querySelectorAll('.draft-note-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();  // don't trigger the row's select-and-repaint
+      const sectionId = btn.dataset.sectionId;
+      const sec = sections.find(s => s.section_id === sectionId);
+      _toggleSectionNoteForm(btn, sectionId, sec ? (sec.title || sectionId) : sectionId);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Section-row free-form note — tiny inline form, no modal.
+// ---------------------------------------------------------------------------
+
+/**
+ * Toggle a tiny inline free-form note form beneath a section row. Save posts
+ * buildNoteRecord('freeform', { sectionId, sectionTitle, comment }); Cancel
+ * (or an empty comment) just discards the form.
+ * @param {HTMLElement} btn - the "+ note" button that was clicked
+ * @param {string} sectionId
+ * @param {string} sectionTitle
+ */
+function _toggleSectionNoteForm(btn, sectionId, sectionTitle) {
+  const row = btn.closest('.draft-section-row');
+  if (!row) return;
+
+  const existing = row.querySelector('.draft-note-form');
+  if (existing) { existing.remove(); return; } // toggle off
+
+  const form = document.createElement('div');
+  form.className = 'draft-note-form';
+  form.innerHTML = `
+    <textarea class="draft-note-input" rows="2" placeholder="Add a note…" aria-label="Note text"></textarea>
+    <div class="draft-note-form-actions">
+      <button type="button" class="btn btn-sm btn-accent draft-note-save">Save note</button>
+      <button type="button" class="btn btn-sm btn-secondary draft-note-cancel">Cancel</button>
+    </div>
+  `;
+  row.appendChild(form);
+
+  // Stop clicks/keys inside the form from bubbling up to the row's
+  // select-and-repaint handler.
+  form.addEventListener('click', (e) => e.stopPropagation());
+
+  const textarea = form.querySelector('.draft-note-input');
+  if (textarea) textarea.focus();
+
+  form.querySelector('.draft-note-cancel').addEventListener('click', () => form.remove());
+
+  const saveBtn = form.querySelector('.draft-note-save');
+  saveBtn.addEventListener('click', async () => {
+    const comment = ((textarea && textarea.value) || '').trim();
+    if (!comment) { form.remove(); return; }
+    // A freeform note carries no paper_id, so the server's (paper_id,
+    // draft_section_id) dedupe can't catch a rapid double-click here —
+    // guard it client-side instead (mirrors reader/paper/ask Save handlers).
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
+    try {
+      await api.saveNote(buildNoteRecord('freeform', { sectionId, sectionTitle, comment }));
+      showToast('Saved to Notes', 'info');
+    } catch (err) {
+      showToast(`Failed to save note: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+    form.remove();
   });
 }
 
@@ -388,29 +494,35 @@ function _wireOpportunityBlock(detailEl, sections) {
     btn.addEventListener('click', (e) => { e.stopPropagation(); openSource(); });
   });
 
-  // Save note -> POST /api/notes, then toast.
+  // Save note -> POST /api/notes, then toast. Routed through
+  // buildNoteRecord('opportunity', ...) (not a hand-built object) so the
+  // saved note carries kind:"opportunity" — without this it silently
+  // defaulted to kind:"freeform" server-side, which broke the Notes view's
+  // Opportunity kind-filter (fix round, see task-3-report.md).
   detailEl.querySelectorAll('.draft-opp-save-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const idx = Number(btn.dataset.oppIdx);
       const rec = _oppRegistry[idx];
-      if (!rec) return;
+      if (!rec || btn.disabled) return;
+      btn.disabled = true;
       try {
-        await api.saveNote({
-          draft_section_id: rec.sectionId,
-          draft_section_title: rec.sectionTitle,
-          paper_id: rec.paperId,
-          paper_title: rec.title,
+        await api.saveNote(buildNoteRecord('opportunity', {
+          paperId: rec.paperId,
+          paperTitle: rec.title,
+          sectionId: rec.sectionId,
+          sectionTitle: rec.sectionTitle,
           relation: rec.relation,
           relevance: rec.relevance,
           rationale: rec.rationale,
-          evidence_quote: rec.quote,
-          evidence_section_id: rec.quoteSectionId,
-          comment: '',
-        });
+          quote: rec.quote,
+          quoteSectionId: rec.quoteSectionId,
+        }));
         showToast('Saved to Notes', 'info');
       } catch (err) {
         showToast(`Failed to save note: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
       }
     });
   });
@@ -474,13 +586,15 @@ function _renderDetail(sections) {
     alternative: alignments.filter(a => a.relation === 'alternative'),
   };
 
-  // Reset the evidence-quote registry for this render; _renderAlignCard fills it.
+  // Reset the evidence-quote / align-note registries for this render;
+  // _renderAlignCard fills both.
   _evidenceQuotes = [];
+  _alignRegistry = [];
 
   const groupHtml = STANCE_ORDER.map(relation => {
     const items = groups[relation];
     if (!items || items.length === 0) return '';
-    return items.map(a => _renderAlignCard(a, relation, sec.section_id)).join('');
+    return items.map(a => _renderAlignCard(a, relation, sec.section_id, sec.title)).join('');
   }).join('');
 
   detailEl.innerHTML = `
@@ -527,6 +641,31 @@ function _renderDetail(sections) {
     });
   });
 
+  // Wire the cited-alignment "Save note" buttons (beside each evidence quote).
+  detailEl.querySelectorAll('.draft-align-save-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.alignIdx);
+      const rec = _alignRegistry[idx];
+      if (!rec) return;
+      try {
+        await api.saveNote(buildNoteRecord('alignment', {
+          paperId: rec.paperId,
+          paperTitle: rec.paperTitle,
+          sectionId: rec.sectionId,
+          sectionTitle: rec.sectionTitle,
+          relation: rec.relation,
+          relevance: rec.relevance,
+          rationale: rec.rationale,
+          quote: rec.quote,
+        }));
+        showToast('Saved to Notes', 'info');
+      } catch (err) {
+        showToast(`Failed to save note: ${err.message}`, 'error');
+      }
+    });
+  });
+
   _wireOpportunityBlock(detailEl, sections);
 }
 
@@ -534,7 +673,7 @@ function _renderDetail(sections) {
 // Alignment card
 // ---------------------------------------------------------------------------
 
-function _renderAlignCard(a, relation, sectionId) {
+function _renderAlignCard(a, relation, sectionId, sectionTitle) {
   const color = STANCE_COLORS[relation] || '#8b949e';
   const icon  = stanceIcon(relation);
   const relevancePct = a.relevance != null ? Math.round(a.relevance * 100) : 0;
@@ -546,6 +685,20 @@ function _renderAlignCard(a, relation, sectionId) {
     // Store the quote text out-of-band and reference it by index; clicking opens
     // the CITED paper in the reader at this quote.
     const quoteIdx = _evidenceQuotes.push(ev.quote || '') - 1;
+    // Register the full alignment + this evidence quote out-of-band (mirrors
+    // _oppRegistry: quotes/titles may contain characters unsafe for HTML
+    // attributes); the beside-the-blockquote Save-note button references it
+    // by index.
+    const alignIdx = _alignRegistry.push({
+      paperId: a.paper_id,
+      paperTitle: a.paper_title,
+      sectionId,
+      sectionTitle,
+      relation,
+      relevance: a.relevance,
+      rationale: a.rationale,
+      quote: ev.quote || '',
+    }) - 1;
     return `
       <blockquote class="evidence-quote draft-evidence evidence-clickable"
                   role="button" tabindex="0"
@@ -554,6 +707,7 @@ function _renderAlignCard(a, relation, sectionId) {
         <p>${escapeHtml(ev.quote || '')}</p>
         <footer>${verifiedBadge}<span class="ev-open-hint muted">&#8599; open in source</span></footer>
       </blockquote>
+      <button class="draft-align-save-btn btn btn-sm btn-secondary" type="button" data-align-idx="${alignIdx}">Save note</button>
     `;
   }).join('');
 

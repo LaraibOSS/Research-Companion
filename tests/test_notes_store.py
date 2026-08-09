@@ -80,3 +80,79 @@ def test_dedupe_preserves_existing_comment_when_resave_omits_it(isolated_papergr
     assert again["id"] == n["id"]
     assert again["comment"] == "keep me"
     assert ns.list_notes()[0]["comment"] == "keep me"
+
+
+def test_kind_and_source_excerpt_persist(isolated_papergraph_dir):
+    n = ns.save_note({"kind": "ask", "source_excerpt": "the answer", "comment": "mine"})
+    assert n["kind"] == "ask" and n["source_excerpt"] == "the answer"
+    assert n["paper_id"] == "" and n["draft_section_id"] == ""
+
+
+def test_legacy_note_without_kind_defaults_to_opportunity(isolated_papergraph_dir):
+    import json
+    p = ns._path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps([{"id": "x", "status": "open", "paper_id": "P",
+                              "draft_section_id": "s1", "comment": "old"}]), encoding="utf-8")
+    got = ns.list_notes()[0]
+    assert got.get("kind", "opportunity") == "opportunity"  # read-time default; see Step 3
+
+
+def test_dedupe_only_when_both_anchors_present(isolated_papergraph_dir):
+    a = ns.save_note({"kind": "freeform", "comment": "one"})
+    b = ns.save_note({"kind": "freeform", "comment": "two"})
+    assert len({a["id"], b["id"]}) == 2  # no anchors -> never dedupe
+    c = ns.save_note({"kind": "alignment", "paper_id": "P", "draft_section_id": "s1", "comment": "x"})
+    d = ns.save_note({"kind": "alignment", "paper_id": "P", "draft_section_id": "s1", "comment": "y"})
+    assert c["id"] == d["id"]  # both anchors -> dedupe/update
+
+
+def test_markdown_group_by_paper_and_unfiled(isolated_papergraph_dir):
+    ns.save_note({"kind": "paper", "paper_id": "P", "paper_title": "Paper P", "comment": "a"})
+    ns.save_note({"kind": "freeform", "comment": "loose"})  # no paper, no section
+    by_paper = ns.notes_to_markdown(ns.list_notes(), group_by="paper")
+    assert "## Paper P" in by_paper and "## Unfiled" in by_paper
+    by_sec = ns.notes_to_markdown(ns.list_notes(), group_by="section")
+    assert "## Unfiled" in by_sec  # both notes are section-less
+
+
+def test_markdown_exports_source_excerpt_for_ask_and_reader_notes(isolated_papergraph_dir):
+    """ask/reader notes carry their whole captured body in source_excerpt
+    (no paper/relation/rationale), so notes_to_markdown must surface it —
+    otherwise those notes export as blank/contentless lines (final-review
+    finding 1)."""
+    ns.save_note({"kind": "ask", "source_excerpt": "The answer text from ask."})
+    ns.save_note({"kind": "reader", "source_excerpt": "A highlighted reader passage."})
+    md = ns.notes_to_markdown(ns.list_notes())
+    assert "The answer text from ask." in md
+    assert "A highlighted reader passage." in md
+
+
+def test_markdown_omits_source_excerpt_segment_when_empty(isolated_papergraph_dir):
+    """A note with no source_excerpt must render exactly as before — no new
+    dangling ' — ' separator introduced by the source_excerpt fix."""
+    ns.save_note(_rec(paper_title="P1", relation="strengthens", relevance=0.8, rationale="why"))
+    md = ns.notes_to_markdown(ns.list_notes())
+    line = next(ln for ln in md.splitlines() if "P1" in ln)
+    assert line == "- [ ] P1 — strengthens, relevance 0.8 — why"
+
+
+def test_dedupe_requires_matching_kind(isolated_papergraph_dir):
+    """A freeform save targeting the same (paper_id, draft_section_id) as an
+    existing OPEN alignment note must NOT update it in place — that would
+    reclassify its kind and wipe relation/relevance/rationale/evidence_quote
+    (final-review finding 3)."""
+    alignment = ns.save_note({"kind": "alignment", "paper_id": "P", "draft_section_id": "s1",
+                               "relation": "strengthens", "relevance": 0.9,
+                               "rationale": "why", "evidence_quote": "q"})
+    freeform = ns.save_note({"kind": "freeform", "paper_id": "P", "draft_section_id": "s1",
+                              "comment": "unrelated note"})
+    assert alignment["id"] != freeform["id"]
+    all_notes = ns.list_notes()
+    assert len(all_notes) == 2
+    kept = next(n for n in all_notes if n["id"] == alignment["id"])
+    assert kept["kind"] == "alignment"
+    assert kept["relation"] == "strengthens"
+    assert kept["relevance"] == 0.9
+    assert kept["rationale"] == "why"
+    assert kept["evidence_quote"] == "q"

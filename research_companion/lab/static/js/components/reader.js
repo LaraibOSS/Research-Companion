@@ -17,6 +17,7 @@ import * as store from '../store.js';
 import * as api from '../api.js';
 import { showToast } from './toast.js';
 import { escapeHtml } from '../format.js';
+import { buildNoteRecord } from '../noteRecord.js';
 import {
   buildReaderModel,
   sectionNav,
@@ -356,10 +357,12 @@ async function _renderContent(payload, detail, gen) {
   const pdfLink = model.hasPdf
     ? `<a class="reader-pdf-link" href="${escapeHtml(_apiRef.paperPdfUrl(detail.paperId))}" target="_blank" rel="noopener">View original PDF ↗</a>`
     : '';
+  const saveNoteBtn = `<button class="reader-save-note-btn btn btn-sm btn-secondary" type="button" title="Save a note about this paper" aria-label="Save note">Save note</button>`;
   const headerHtml = `
     <div class="reader-header">
       <span class="reader-title">${escapeHtml(headerTitle)}</span>
       <div class="reader-header-actions">
+        ${saveNoteBtn}
         ${pdfLink}
         ${_closeButtonHtml()}
       </div>
@@ -433,6 +436,7 @@ async function _renderContent(payload, detail, gen) {
   _panel.innerHTML = headerHtml + tabsHtml + navHtml + pdfPaneHtml + simplifiedPaneHtml + bodyHtml;
   _bindClose();
   _bindNav();
+  _bindSaveNote(detail, headerTitle);
   if (hasTabs) {
     _bindTabs(detail);
     // Activate the default tab now — this is what lazily creates the PDF
@@ -443,6 +447,54 @@ async function _renderContent(payload, detail, gen) {
 
   // Scroll the active section (or its mark) into view.
   _scrollToActive(activeId);
+}
+
+// ---------------------------------------------------------------------------
+// Save note (header action)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire the header "Save note" button: read the current text selection
+ * (guarded — window.getSelection can throw/be absent in odd embeds) and post
+ * a 'reader' note. The selection only becomes the note's `quote` when the
+ * Text tab is the one actually on screen (the only tab whose selection maps
+ * onto extracted-text char offsets the rest of the app understands);
+ * otherwise it's still captured as `sourceExcerpt` for context.
+ * @param {object} detail - the rc:open-reader event detail ({ paperId, ... })
+ * @param {string} headerTitle - the title shown in the reader header
+ */
+function _bindSaveNote(detail, headerTitle) {
+  const btn = _panel.querySelector('.reader-save-note-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    // Reader notes carry no draft_section_id, so the server's (paper_id,
+    // draft_section_id) dedupe never catches a rapid double-click here —
+    // guard it client-side instead.
+    if (btn.disabled) return;
+    btn.disabled = true;
+    let selection = '';
+    try {
+      const sel = window.getSelection && window.getSelection();
+      selection = sel ? String(sel.toString() || '').trim() : '';
+    } catch {
+      selection = '';
+    }
+    const textTab = _panel.querySelector('.reader-tab[data-tab="text"]');
+    const onTextTab = !textTab || textTab.classList.contains('reader-tab--active');
+    try {
+      await _apiRef.saveNote(buildNoteRecord('reader', {
+        paperId: detail.paperId,
+        paperTitle: headerTitle,
+        sourceExcerpt: selection,
+        quote: (onTextTab && selection) ? selection : '',
+      }));
+      showToast('Saved to Notes', 'info');
+    } catch (err) {
+      showToast(`Failed to save note: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

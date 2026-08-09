@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -2217,3 +2217,360 @@ def test_lab_css_has_notes_view_styles():
     for needle in (".notes-view", ".notes-group", ".note-card", ".note-badge",
                    ".note-actions", ".note-comment"):
         assert needle in css, f"lab.css missing Task 4 style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/notes-everywhere (Task 3): Save-note wired into draft.js (alignment
+# cards + freeform section notes), reader.js, paperCard.js, ask.js; uncited
+# opportunities block expanded by default.
+# ---------------------------------------------------------------------------
+
+def test_draft_js_alignment_card_save_note_uses_build_note_record():
+    """draft.js's cited-alignment card Save-note button must call
+    buildNoteRecord('alignment', {...}) with paper/section/relation/
+    relevance/rationale/quote, then api.saveNote(...) + toast."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "draft.js must import buildNoteRecord from noteRecord.js"
+    assert "buildNoteRecord('alignment'" in js, (
+        "draft.js must call buildNoteRecord('alignment', ...) for the cited-alignment Save-note button"
+    )
+    assert "draft-align-save-btn" in js, "draft.js must render the .draft-align-save-btn button"
+    assert "_alignRegistry" in js, (
+        "draft.js must keep alignment note fields out-of-band in _alignRegistry (mirrors _evidenceQuotes/_oppRegistry)"
+    )
+
+
+def test_draft_js_alignment_save_note_data_keys_match_kind():
+    """The alignment Save-note record must carry paperId/paperTitle/sectionId/
+    sectionTitle/relation/relevance/rationale/quote — the fields buildNoteRecord
+    maps for kind 'alignment' — and nothing foreign to that surface (no
+    sourceExcerpt/comment, which belong to other kinds)."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    start = js.index("buildNoteRecord('alignment'")
+    call_src = js[start:js.index(")", js.index("}", start)) + 1]
+    for key in ("paperId:", "paperTitle:", "sectionId:", "sectionTitle:",
+                "relation:", "relevance:", "rationale:", "quote:"):
+        assert key in call_src, f"alignment buildNoteRecord call missing {key}"
+    for foreign_key in ("sourceExcerpt:", "comment:"):
+        assert foreign_key not in call_src, (
+            f"alignment buildNoteRecord call must not pass {foreign_key} (belongs to another kind)"
+        )
+
+
+def test_draft_js_freeform_section_note_uses_build_note_record():
+    """draft.js's per-section "+ note" affordance must call
+    buildNoteRecord('freeform', { sectionId, sectionTitle, comment })."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "draft-note-btn" in js, "draft.js must render the .draft-note-btn (+ note) button"
+    assert "draft-note-form" in js, "draft.js must render the inline .draft-note-form"
+    assert re.search(
+        r"buildNoteRecord\('freeform',\s*\{\s*sectionId,\s*sectionTitle,\s*comment\s*\}\)",
+        js,
+    ), "draft.js must call buildNoteRecord('freeform', { sectionId, sectionTitle, comment })"
+
+
+def test_draft_js_opportunities_expanded_by_default():
+    """The uncited-opportunities block must default to EXPANDED on first
+    render: draft.js must seed _oppExpandedSections (via .add(...)) from the
+    loaded opportunities BEFORE any user toggle, rather than starting fully
+    collapsed with no seeding at all."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "_oppExpandedInitialized" in js, (
+        "draft.js must track a one-time initialization flag so seeding only happens once"
+    )
+    render_start = js.index("async function _render(")
+    render_body = js[render_start:js.index("\nfunction _renderNoDraft(")]
+    assert "_oppExpandedSections.add(" in render_body, (
+        "draft.js must seed _oppExpandedSections with opportunity section ids inside _render "
+        "(expanded-by-default), not only inside the toggle click handler"
+    )
+
+
+def test_draft_js_opportunities_expand_seed_gated_on_nonempty():
+    """Regression (fix round): _oppExpandedInitialized must NOT flip true
+    unconditionally on the first _render() — an early render with zero
+    opportunities (not yet loaded) must not permanently skip seeding once
+    opportunities populate on a later re-render. The flag may only be set
+    AFTER confirming at least one section was actually seeded."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    render_start = js.index("async function _render(")
+    render_body = js[render_start:js.index("\nfunction _renderNoDraft(")]
+
+    # The buggy pattern: setting the flag true BEFORE (or regardless of)
+    # whether the seed loop found anything to add.
+    assert not re.search(
+        r"if\s*\(!_oppExpandedInitialized\)\s*\{\s*_oppExpandedInitialized\s*=\s*true;",
+        render_body,
+    ), (
+        "_oppExpandedInitialized must not be set unconditionally at the top of the "
+        "seeding block — it must only be set once a section was actually seeded"
+    )
+    # The fix: the flag assignment must appear AFTER the seeding loop, gated
+    # on having found at least one opportunity section.
+    add_idx = render_body.index("_oppExpandedSections.add(")
+    initialized_idx = render_body.index("_oppExpandedInitialized = true", add_idx)
+    assert initialized_idx > add_idx, (
+        "_oppExpandedInitialized = true must be set AFTER the seed loop that calls "
+        "_oppExpandedSections.add(...), not before it"
+    )
+
+
+def test_draft_js_opportunity_save_note_uses_build_note_record():
+    """Regression (fix round): the PRE-EXISTING uncited-opportunity Save-note
+    handler must route through buildNoteRecord('opportunity', {...}) so the
+    saved note carries kind:'opportunity' — previously it posted a raw,
+    kind-less object that the server silently defaulted to kind:'freeform',
+    which would have made Task 4's Opportunity kind-filter never show these
+    notes."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    assert "buildNoteRecord('opportunity'" in js, (
+        "draft.js must call buildNoteRecord('opportunity', ...) for the uncited-opportunity "
+        "Save-note handler (kind must not silently default to freeform)"
+    )
+    start = js.index("buildNoteRecord('opportunity'")
+    call_src = js[start:js.index(")", js.index("}", start)) + 1]
+    for key in ("paperId:", "paperTitle:", "sectionId:", "sectionTitle:",
+                "relation:", "relevance:", "rationale:", "quote:", "quoteSectionId:"):
+        assert key in call_src, f"opportunity buildNoteRecord call missing {key}"
+
+    # The old hand-built, kind-less record shape must be gone from the
+    # opportunity Save handler specifically (draft_section_id was the
+    # server-field-named key of the pre-fix raw object).
+    opp_handler_start = js.index("detailEl.querySelectorAll('.draft-opp-save-btn')")
+    opp_handler_body = js[opp_handler_start:js.index("\n  });\n}", opp_handler_start)]
+    assert "draft_section_id: rec.sectionId" not in opp_handler_body, (
+        "the opportunity Save handler must no longer post the old hand-built, kind-less record"
+    )
+
+
+def test_reader_js_save_note_uses_build_note_record():
+    """reader.js header 'Save note' button must call buildNoteRecord('reader',
+    {paperId, paperTitle, sourceExcerpt, quote}) then saveNote + toast."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "reader.js must import buildNoteRecord from noteRecord.js"
+    assert "reader-save-note-btn" in js, "reader.js must render the .reader-save-note-btn button"
+    assert "buildNoteRecord('reader'" in js, "reader.js must call buildNoteRecord('reader', ...)"
+    assert "saveNote(" in js, "reader.js must call (api|_apiRef).saveNote(...)"
+    assert "Saved to Notes" in js, "reader.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_reader_js_save_note_guards_selection_read():
+    """reader.js must read the selection inside a try/catch (getSelection can
+    throw/be unavailable in some embeds)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    save_note_start = js.index("function _bindSaveNote(")
+    save_note_body = js[save_note_start:js.index("\n// ---", save_note_start) if "\n// ---" in js[save_note_start:] else len(js)]
+    assert "getSelection" in save_note_body, "_bindSaveNote must read window.getSelection()"
+    assert "try {" in save_note_body and "catch" in save_note_body, (
+        "_bindSaveNote must guard the selection read with try/catch"
+    )
+
+
+def test_paper_card_js_save_note_uses_build_note_record():
+    """paperCard.js card-actions Save-note button must call
+    buildNoteRecord('paper', {paperId, paperTitle}) then saveNote + toast."""
+    js = (STATIC_DIR / "js" / "components" / "paperCard.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "paperCard.js must import buildNoteRecord from noteRecord.js"
+    assert "btn-save-note" in js, "paperCard.js must render the .btn-save-note button"
+    assert "buildNoteRecord('paper'" in js, "paperCard.js must call buildNoteRecord('paper', ...)"
+    assert "api.saveNote(" in js, "paperCard.js must call api.saveNote(...)"
+    assert "Saved to Notes" in js, "paperCard.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_ask_js_save_note_uses_build_note_record():
+    """ask.js rendered-answer Save-note button must call buildNoteRecord('ask',
+    {sourceExcerpt, paperId?, paperTitle?}), capping the excerpt at a sane
+    length (2000 chars)."""
+    js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert "from '../noteRecord.js'" in js, "ask.js must import buildNoteRecord from noteRecord.js"
+    assert "ask-save-note-btn" in js, "ask.js must render the .ask-save-note-btn button"
+    assert "buildNoteRecord('ask'" in js, "ask.js must call buildNoteRecord('ask', ...)"
+    assert "api.saveNote(" in js, "ask.js must call api.saveNote(...)"
+    assert re.search(r"\.slice\(0,\s*(ASK_NOTE_EXCERPT_MAX|2000)\)", js), (
+        "ask.js must cap the answer excerpt to a sane length (2000 chars)"
+    )
+    assert "Saved to Notes" in js, "ask.js must toast 'Saved to Notes' after a successful save"
+
+
+def test_lab_css_has_task3_notes_everywhere_styles():
+    """lab.css must include the styles for the four new Save-note surfaces."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".draft-note-btn", ".draft-note-form", ".draft-align-save-btn",
+                   ".reader-save-note-btn", ".btn-save-note", ".ask-save-note-btn"):
+        assert needle in css, f"lab.css missing Task 3 (notes-everywhere) style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/notes-everywhere (Task 3, fix round): in-flight guard against
+# duplicate notes from a rapid double-click on the three kinds (reader/paper/
+# ask) whose records carry no draft_section_id, so the server's
+# (paper_id, draft_section_id) dedupe can never catch the duplicate.
+# ---------------------------------------------------------------------------
+
+def _handler_body(js: str, fn_signature: str) -> str:
+    """Slice out a function body by its declaration text, up to the next
+    top-level function/section-comment boundary (best-effort, good enough for
+    these small single-purpose handlers)."""
+    start = js.index(fn_signature)
+    rest = js[start:]
+    end_markers = ["\n// ---", "\nfunction ", "\nasync function "]
+    end_offset = len(rest)
+    for marker in end_markers:
+        idx = rest.find(marker, 1)  # skip offset 0 (the signature itself may match "\nfunction ")
+        if idx != -1:
+            end_offset = min(end_offset, idx)
+    return rest[:end_offset]
+
+
+def test_reader_js_save_note_guards_duplicate_clicks():
+    """reader.js Save-note handler must disable the button for the duration
+    of the async saveNote call and re-enable it in a finally (reader notes
+    carry no draft_section_id, so the server can't dedupe a double-click)."""
+    js = (STATIC_DIR / "js" / "components" / "reader.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "function _bindSaveNote(")
+    assert "btn.disabled" in body, "reader.js Save-note handler must guard against re-entrant clicks via btn.disabled"
+    assert "finally" in body, "reader.js Save-note handler must re-enable the button in a finally block"
+
+
+def test_paper_card_js_save_note_guards_duplicate_clicks():
+    """paperCard.js Save-note handler must disable the button for the
+    duration of the async saveNote call and re-enable it in a finally (paper
+    notes carry no draft_section_id, so the server can't dedupe a
+    double-click)."""
+    js = (STATIC_DIR / "js" / "components" / "paperCard.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "saveNoteBtn.addEventListener('click'")
+    assert "saveNoteBtn.disabled" in body, (
+        "paperCard.js Save-note handler must guard against re-entrant clicks via saveNoteBtn.disabled"
+    )
+    assert "finally" in body, "paperCard.js Save-note handler must re-enable the button in a finally block"
+
+
+def test_ask_js_save_note_guards_duplicate_clicks():
+    """ask.js Save-note handler must disable the button for the duration of
+    the async saveNote call and re-enable it in a finally (ask notes carry no
+    draft_section_id, so the server can't dedupe a double-click)."""
+    js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "async function _onSaveNoteClick(")
+    assert "btn.disabled" in body, "ask.js Save-note handler must guard against re-entrant clicks via btn.disabled"
+    assert "finally" in body, "ask.js Save-note handler must re-enable the button in a finally block"
+
+
+def test_draft_js_section_note_save_guards_duplicate_clicks():
+    """draft.js per-section freeform note Save handler (_toggleSectionNoteForm)
+    must disable the Save button for the duration of the async saveNote call
+    and re-enable it in a finally — a freeform note carries no paper_id, so
+    the server's (paper_id, draft_section_id) dedupe can't catch a rapid
+    double-click (final-review finding 4)."""
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    body = _handler_body(js, "saveBtn.addEventListener('click'")
+    assert "saveBtn.disabled" in body, (
+        "draft.js section-note Save handler must guard against re-entrant clicks via saveBtn.disabled"
+    )
+    assert "finally" in body, "draft.js section-note Save handler must re-enable the button in a finally block"
+
+
+# ---------------------------------------------------------------------------
+# feat/notes-everywhere (Task 4): notebook view — group by section/paper,
+# kind & status filter chips, New note.
+# ---------------------------------------------------------------------------
+
+def test_notes_view_uses_notes_group_model():
+    """notes.js must group notes via notesGroupModel(filteredNotes, _groupBy)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "notesGroupModel" in js, "notes.js must reference notesGroupModel"
+    assert "notesGroupModel(" in js, "notes.js must call notesGroupModel(...)"
+    # It must be called with a variable, not the raw unfiltered _notes array —
+    # the kind/status chips must filter BEFORE grouping.
+    assert not re.search(r"notesGroupModel\(\s*_notes\s*,", js), (
+        "notesGroupModel must be called with the FILTERED notes list, not raw _notes"
+    )
+
+
+def test_notes_view_has_group_by_toggle():
+    """notes.js must render a Section/Paper group-by toggle, defaulting to
+    'section'."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "_groupBy" in js, "notes.js must track _groupBy state"
+    assert "_groupBy = 'section'" in js, "notes.js must default _groupBy to 'section'"
+    assert "data-groupby" in js, "notes.js must render a group-by control with data-groupby"
+    assert "'section', 'Section'" in js and "'paper', 'Paper'" in js, (
+        "notes.js must render 'Section' and 'Paper' group-by options"
+    )
+
+
+def test_notes_view_has_kind_and_status_filter_chips():
+    """notes.js must render kind and status filter chips, mirroring the
+    Suggestions panel's chip pattern (filter-chips / chip / chip-active)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "_kindFilter" in js, "notes.js must track _kindFilter state"
+    assert "_statusFilter" in js, "notes.js must track _statusFilter state"
+    assert "_kindFilter = 'all'" in js, "notes.js must default _kindFilter to 'all'"
+    assert "_statusFilter = 'open'" in js, "notes.js must default _statusFilter to 'open'"
+    assert "filter-chips" in js, "notes.js must reuse the filter-chips class"
+    assert "chip-active" in js, "notes.js must reuse the chip-active class"
+    for kind_label in ("Alignment", "Opportunity", "Reader", "Ask", "Paper", "Free-form"):
+        assert kind_label in js, f"notes.js must render the '{kind_label}' kind chip"
+    # 'paper' is a first-class note kind (js/noteRecord.js's KINDS) — it must
+    # have its own dedicated kind chip, not just show up under "All".
+    assert "{ value: 'paper', label: 'Paper' }" in js, (
+        "notes.js KIND_CHIPS must include a dedicated {value:'paper', label:'Paper'} chip"
+    )
+
+
+def test_notes_view_has_new_note_button_and_uses_build_note_record():
+    """notes.js must render a 'New note' button and save via
+    buildNoteRecord('freeform', {...}) -> api.saveNote(...)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "New note" in js, "notes.js must render a 'New note' button"
+    assert "from '../noteRecord.js'" in js, "notes.js must import buildNoteRecord from noteRecord.js"
+    assert "buildNoteRecord('freeform'" in js, (
+        "notes.js's New-note form must call buildNoteRecord('freeform', ...)"
+    )
+    assert "api.saveNote(" in js, "notes.js must call api.saveNote(...) to save the new note"
+
+
+def test_notes_view_new_note_uses_store_papers_for_paper_picker():
+    """notes.js's optional paper <select> must be sourced from
+    store.getState().papers."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "from '../store.js'" in js, "notes.js must import store.js"
+    assert "store.getState()" in js, "notes.js must call store.getState()"
+    assert ".papers" in js, "notes.js must reference store.getState().papers for the paper picker"
+
+
+def test_notes_view_export_passes_group_by_arg():
+    """notes.js's Export button must call api.exportNotes(_groupBy), not the
+    no-arg form, so the exported markdown grouping matches the on-screen
+    group-by toggle."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert re.search(r"exportNotes\(\s*_groupBy\s*\)", js), (
+        "notes.js Export button must call api.exportNotes(_groupBy)"
+    )
+
+
+def test_notes_view_kind_badge_and_source_excerpt_rendered():
+    """notes.js note cards must show a kind badge and escaped source_excerpt
+    (via row.sourceExcerpt) when present."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert "note-kind-badge" in js, "notes.js must render a .note-kind-badge element"
+    assert "sourceExcerpt" in js, "notes.js must reference row.sourceExcerpt"
+    assert "escapeHtml(m.sourceExcerpt)" in js, "notes.js must escapeHtml the source excerpt"
+
+
+def test_notes_view_quote_link_requires_paper_and_quote():
+    """notes.js's evidence-quote link must only render when the note has BOTH
+    a paper and a quote (an ask/freeform note without a paper must not show a
+    dangling 'open in source' link)."""
+    js = (STATIC_DIR / "js" / "views" / "notes.js").read_text(encoding="utf-8")
+    assert re.search(r"m\.quote\s*&&\s*m\.paperId", js), (
+        "notes.js quote-link condition must require both m.quote and m.paperId"
+    )
+
+
+def test_lab_css_has_task4_notebook_styles():
+    """lab.css must include the Task 4 notebook-view additions: group-by
+    toggle, kind badge, and the New-note form."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".notes-groupby-seg", ".notes-groupby-btn", ".note-kind-badge",
+                   ".notes-new-note-form", ".notes-new-note-textarea"):
+        assert needle in css, f"lab.css missing Task 4 notebook style: {needle}"

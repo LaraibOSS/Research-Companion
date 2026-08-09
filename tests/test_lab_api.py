@@ -644,9 +644,28 @@ class TestNotes:
 
     def test_post_missing_required_fields_400(self, isolated_papergraph_dir):
         c = _make_client()
+        # paper_id alone is now enough "content" to accept the note.
         resp = c.post("/api/notes", json={"paper_id": "B"})
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        # draft_section_id alone isn't one of the checked content fields.
         resp = c.post("/api/notes", json={"draft_section_id": "s5"})
+        assert resp.status_code == 400
+
+    def test_post_freeform_kind_only_comment_200(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json={"kind": "freeform", "comment": "hi"})
+        assert resp.status_code == 200
+        note = resp.json()
+        assert note["kind"] == "freeform" and note["comment"] == "hi"
+
+    def test_post_all_empty_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json={})
+        assert resp.status_code == 400
+
+    def test_post_invalid_kind_400(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/notes", json={"kind": "bogus", "comment": "x"})
         assert resp.status_code == 400
 
     def test_patch_status_and_comment(self, isolated_papergraph_dir):
@@ -714,6 +733,21 @@ class TestNotes:
         resp = c.get("/api/notes/export")
         assert resp.status_code == 200
         assert "markdown" in resp.json()
+
+    def test_export_group_by_paper(self, isolated_papergraph_dir):
+        c = _make_client()
+        c.post("/api/notes", json=self._rec())
+        resp = c.get("/api/notes/export", params={"group_by": "paper"})
+        assert resp.status_code == 200
+        md = resp.json()["markdown"]
+        assert "## Paper B" in md
+
+    def test_export_group_by_invalid_defaults_to_section(self, isolated_papergraph_dir):
+        c = _make_client()
+        c.post("/api/notes", json=self._rec())
+        resp = c.get("/api/notes/export", params={"group_by": "bogus"})
+        assert resp.status_code == 200
+        assert "## Related Work" in resp.json()["markdown"]
 
 
 # ---------------------------------------------------------------------------

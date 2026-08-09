@@ -717,10 +717,23 @@ Only the cost cap (`mcp_cost_cap_usd`) re-read on every call and applies live wi
 - **Switching research reloads other tabs** — intentional; a tab must never
   show one research's data against another's store.
 
-## 23. Uncited-paper opportunities & revision notes
+## 23. Notes — capture anything, from anywhere
 
-The Draft view can also tell you about papers already in your library that
-you **haven't cited yet** but that could genuinely help a section — because
+Notes started as a way to save one specific kind of suggestion (an uncited
+paper that could help a section — see below). They've since grown into a
+general-purpose capture tool: a running scratchpad of things worth
+remembering as you work through your library, your draft, and your
+questions, all in one place you can filter, group, and export.
+
+**A note is always one of two things: your own words, or something the tool
+already told you, saved verbatim.** Notes never add a new claim, never run
+an LLM, and are never fed back into Ask, Draft alignment, strength, or
+citation coverage — they're for you, not for the analysis.
+
+### The Draft view's uncited-paper opportunities
+
+The Draft view can tell you about papers already in your library that you
+**haven't cited yet** but that could genuinely help a section — because
 they'd strengthen it, challenge a claim in it, or offer an alternative
 approach. This is not a new AI look at your draft: it is strictly assembled
 from analysis you already ran (the same alignment and strength scores behind
@@ -728,39 +741,72 @@ the stance chips in section 10), just filtered down to the papers your
 bibliography doesn't currently cite. If you haven't set a draft yet, or
 nothing qualifies, you simply see nothing here.
 
-**Where to find it:** open a section in the Draft view. If any uncited
-library papers are relevant to it, you'll see a small **"+n"** badge next to
-that section in the list, and below the section's own alignment cards, a
-collapsible **"Uncited papers that could help here (n)"** block. Expand it
-to see, for each suggested paper: whether it strengthens, challenges, or
-offers an alternative (with the same icon/colour as elsewhere), a relevance
-percentage, a short rationale, and — when available — an evidence quote from
-that paper. Click the quote to open the paper in the reader with that exact
-passage highlighted, so you can judge it for yourself before acting on it.
+Open a section in the Draft view. If any uncited library papers are
+relevant to it, you'll see a small **"+n"** badge next to that section in
+the list, and below the section's own alignment cards, an **already-expanded**
+**"Uncited papers that could help here (n)"** block (you can collapse it if
+you want it out of the way). For each suggested paper it shows whether it
+strengthens, challenges, or offers an alternative, a relevance percentage, a
+short rationale, and — when available — an evidence quote you can click to
+open the paper in the reader with that exact passage highlighted.
 
-**Save note:** click **Save note** on any suggestion to add it to your
-running list of revision notes. Saving the same paper's suggestion for the
-same section again just updates the existing note rather than creating a
-duplicate — so it's safe to click more than once.
+### The five ways to add a note
 
-**The Notes view:** open **Notes** from the sidebar to see everything you've
-saved, grouped by the draft section it applies to. Each note shows the same
-relation badge, relevance, rationale, and evidence quote (still clickable),
-plus a **Comment** box where you can jot down your own plan for it. Mark a
-note **done** once you've acted on it, **Dismiss** it if you decide it
-doesn't apply (dismissed notes stay out of your way but aren't deleted), or
-**Reopen** either one. **Delete** removes a note for good.
+A **Save note** button now shows up wherever there's something worth
+capturing:
 
-**Export as Markdown** turns your current notes into a ready-to-use revision
-checklist — one file, grouped by section, with a checked box `[x]` for
-anything marked done and your comments included; dismissed notes are left
-out. It's a plain `.md` file you can drop straight into your revision to-do
-list or hand to a co-author.
+1. **A cited paper's alignment card** (Draft view) — save the evidence quote
+   and relation (strengthens/challenges/alternative) already shown there.
+2. **An uncited-paper suggestion** (Draft view, above) — save it to track as
+   a revision to-do.
+3. **The Reader** — select any text while reading a paper, then click **Save
+   note** in the reader's header; the selection itself is saved as your
+   note's source excerpt (nothing is summarized or reworded).
+4. **Any paper card** in your library — a quick "remember this paper" note,
+   no need to be reading it or aligning it to a section.
+5. **An Ask answer** — click **Save note** under any answer to keep the
+   answer text (and its top source, if any) for later; the tool's own
+   already-verified answer, saved as-is.
 
-Like the Simplified reader tab, this whole feature is a **display-only aid**:
-nothing you see or save here is ever fed back into Ask, Draft alignment, or
-citation coverage — it's for planning your revision, not for the analysis
-itself.
+And if none of those fit, you can always **write your own**: a small
+**"+ note"** link under any section in the Draft view, or the **New note**
+button in the Notes view itself, opens a plain textarea where you type
+whatever you want and optionally attach it to a section and/or a paper.
+
+Saving the same paper's suggestion for the same section again just updates
+the existing note rather than creating a duplicate — so it's safe to click
+Save note more than once on the same alignment card or opportunity.
+
+### The Notes view — your notebook
+
+Open **Notes** from the sidebar to see everything you've saved. It works
+like a simple notebook:
+
+- **Group by Section or Paper** — a toggle at the top switches how notes are
+  bucketed; notes with neither a section nor a paper attached land in an
+  **Unfiled** group at the end.
+- **Filter by type** — chips let you show only Alignment, Opportunity,
+  Reader, Ask, Paper, or Free-form notes (or All).
+- **Filter by status** — Open (the default view), Done, Dismissed, or All.
+- Each note shows its type, its relation badge and relevance when it has
+  one, its rationale or source excerpt, and a clickable evidence quote when
+  available (only shown when the note actually has both a paper and a
+  quote to open).
+- A **Comment** box lets you jot down your own plan for any note. Mark a
+  note **done** once you've acted on it, **Dismiss** it if it doesn't apply
+  (dismissed notes stay out of your way but aren't deleted), or **Reopen**
+  either one. **Delete** removes a note for good.
+
+**Export as Markdown** turns your *currently visible* notes into a
+ready-to-use checklist — one file, grouped however you currently have the
+view set (by section or by paper), with a checked box `[x]` for anything
+marked done and your comments included; dismissed notes are left out. It's
+a plain `.md` file you can drop straight into your revision to-do list or
+hand to a co-author.
+
+Like the Simplified reader tab, notes are a **display-only aid**: nothing
+you save here is ever fed back into Ask, Draft alignment, or citation
+coverage — it's for planning your work, not for the analysis itself.
 
 ---
 
