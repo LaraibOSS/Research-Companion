@@ -239,7 +239,7 @@ function _rowHtml(r, isArchived) {
   ].filter(Boolean).join(' ');
 
   const draftCell = r.draftTitle
-    ? `<div>${escapeHtml(r.draftTitle)}</div>${r.draftVersions > 0 ? `<div class="research-sub-count muted">v${r.draftVersions}</div>` : ''}`
+    ? `<div class="research-draft-title" title="${escapeHtml(r.draftTitle)}">${escapeHtml(r.draftTitle)}</div>${r.draftVersions > 0 ? `<div class="research-sub-count muted">v${r.draftVersions}</div>` : ''}`
     : '<div class="muted">&mdash;</div>';
 
   const archiveBtn = isArchived
@@ -263,15 +263,17 @@ function _rowHtml(r, isArchived) {
   return `
     <tr class="${rowClass}" ${rowAttrs}>
       <td class="researches-cell-name">
-        <span class="researches-name" data-ws-name="${id}">${escapeHtml(r.name)}</span>
-        ${r.isActive ? '<span class="researches-active-dot" title="Active">&#9679;</span>' : ''}
-        ${r.hasDraft ? '<span class="researches-draft-star" title="Has a draft">&#9733;</span>' : ''}
+        <div class="researches-name-inner">
+          <span class="researches-name" data-ws-name="${id}">${escapeHtml(r.name)}</span>
+          ${r.isActive ? '<span class="researches-active-dot" title="Active">&#9679;</span>' : ''}
+          ${r.hasDraft ? '<span class="researches-draft-star" title="Has a draft">&#9733;</span>' : ''}
+        </div>
       </td>
       <td>
         <div>${r.papers}</div>
         <div class="research-sub-count muted">${r.analyzed} analyzed &middot; ${r.failed} failed</div>
       </td>
-      <td>${draftCell}</td>
+      <td class="researches-cell-draft">${draftCell}</td>
       <td>${_coverageHtml(r)}</td>
       <td>${_strengthBarHtml(r)}</td>
       <td>${r.openSuggestions}</td>
