@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from research_companion.store import _id_to_dirname, papergraph_dir
+from research_companion.store import _id_to_dirname, papergraph_dir, workspace_path
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -449,9 +449,11 @@ def _merge(fresh: list[dict], previous: list[dict], now_str: str) -> list[dict]:
 # Persistence
 # ---------------------------------------------------------------------------
 
-def _suggestions_path(draft_id: str) -> Path:
+def _suggestions_path(draft_id: str) -> Path | None:
+    """Return papergraph_dir()/suggestions/<dirname>/suggestions.json, or None
+    when none is active."""
     dirname = _id_to_dirname(draft_id)
-    return papergraph_dir() / "suggestions" / dirname / "suggestions.json"
+    return workspace_path("suggestions", dirname, "suggestions.json")
 
 
 def save_suggestions(draft_id: str, payload: dict) -> Path:
@@ -462,8 +464,10 @@ def save_suggestions(draft_id: str, payload: dict) -> Path:
 
 
 def load_suggestions(draft_id: str) -> dict | None:
+    """Load the saved suggestions payload for a draft. Returns None if
+    missing, corrupt, or no active workspace."""
     p = _suggestions_path(draft_id)
-    if not p.exists():
+    if p is None or not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

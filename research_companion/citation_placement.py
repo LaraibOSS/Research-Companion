@@ -41,7 +41,7 @@ from pathlib import Path
 
 from research_companion.refcheck.matching import _last_name
 from research_companion.sections import Section, section_for_offset
-from research_companion.store import papergraph_dir
+from research_companion.store import workspace_path
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -176,13 +176,16 @@ def _refs_char_start(sections_payload: dict | None) -> int | None:
 # Persistence (mirrors citations_coverage)
 # ---------------------------------------------------------------------------
 
-def placement_path() -> Path:
-    return papergraph_dir() / "citation_placement.json"
+def placement_path() -> Path | None:
+    """Return papergraph_dir()/citation_placement.json, or None when none is active."""
+    return workspace_path("citation_placement.json")
 
 
 def load_placement() -> dict | None:
+    """Load the saved placement report. Returns None if missing, corrupt, or
+    no active workspace."""
     p = placement_path()
-    if not p.exists():
+    if p is None or not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

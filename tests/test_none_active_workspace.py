@@ -137,3 +137,15 @@ class TestSiblingModulesDegrade:
     def test_delete_conversation_false(self, no_active_workspace):
         from research_companion.converse import delete_conversation
         assert delete_conversation("conv_doesnotexist") is False
+
+    def test_load_placement_none(self, no_active_workspace):
+        from research_companion.citation_placement import load_placement
+        assert load_placement() is None
+
+    def test_load_coverage_none(self, no_active_workspace):
+        from research_companion.citations_coverage import load_coverage
+        assert load_coverage() is None
+
+    def test_load_suggestions_none(self, no_active_workspace):
+        from research_companion.suggestions import load_suggestions
+        assert load_suggestions("arxiv:none-active") is None
