@@ -52,13 +52,12 @@ def _build_legacy_store(root: Path) -> None:
 
 class TestFreshStore:
     def test_fresh_root_resolution_writes_nothing(self, fresh_root):
-        ws = store.papergraph_dir()
-        assert ws == fresh_root / "workspaces" / "main"
+        assert store.papergraph_dir() is None
         # No eager registry, no workspace dir creation for a fresh store
         assert not (fresh_root / "workspaces.json").exists()
 
-    def test_active_defaults_to_main(self, fresh_root):
-        assert store.active_workspace_id() == "main"
+    def test_active_defaults_to_none(self, fresh_root):
+        assert store.active_workspace_id() is None
 
 
 class TestLegacyMigration:
@@ -148,7 +147,7 @@ class TestActiveWorkspaceResolution:
         # External `workspace use` writes the registry; a long-lived process
         # must notice (mtime-keyed cache).
         reg = store.load_registry()
-        assert store.active_workspace_id() == "main"
+        assert store.active_workspace_id() is None
         reg["workspaces"].append(
             {"id": "w2", "name": "W2", "created_at": "2026-01-01T00:00:00Z", "archived": False})
         reg["active"] = "w2"
@@ -159,20 +158,27 @@ class TestActiveWorkspaceResolution:
 class TestRegistryPrimitives:
     def test_load_registry_synthesizes_default(self, fresh_root):
         reg = store.load_registry()
-        assert reg["active"] == "main"
-        assert reg["workspaces"][0]["id"] == "main"
+        assert reg["active"] is None
+        assert reg["workspaces"] == []
         # Synthesized, not written
         assert not (fresh_root / "workspaces.json").exists()
 
     def test_load_registry_tolerates_corrupt_file(self, fresh_root):
         (fresh_root / "workspaces.json").write_text("{not json", encoding="utf-8")
         reg = store.load_registry()
-        assert reg["active"] == "main"
+        assert reg["active"] is None
+        assert reg["workspaces"] == []
 
     def test_save_registry_roundtrip(self, fresh_root):
-        reg = store.load_registry()
-        reg["workspaces"][0]["name"] = "Renamed"
+        reg = {
+            "version": 1, "active": "main",
+            "workspaces": [{"id": "main", "name": "Main",
+                            "created_at": "2026-01-01T00:00:00Z", "archived": False}],
+        }
         store.save_registry(reg)
+        loaded = store.load_registry()
+        loaded["workspaces"][0]["name"] = "Renamed"
+        store.save_registry(loaded)
         assert store.load_registry()["workspaces"][0]["name"] == "Renamed"
 
 

@@ -100,7 +100,15 @@ def delete_workspace(ws_id: str) -> dict:
 
     if not others:
         # Deleting the last workspace: fall back to a fresh default main.
-        others = list(store._default_registry()["workspaces"])
+        # store._default_registry() is the EMPTY (no-research-selected)
+        # default as of 0.5 — it no longer carries a synthesized "main"
+        # record, so build the fallback record explicitly here instead.
+        others = [{
+            "id": "main",
+            "name": "Main",
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "archived": False,
+        }]
         # The phase-1 save below must already list the synthesized entries —
         # `active` has to point at a listed workspace even if a crash lands
         # in the rmtree window (the deletee stays listed until phase 2).

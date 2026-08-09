@@ -325,16 +325,19 @@ def _build_context_block(context: dict) -> tuple[str, list[str]]:
 # Conversation persistence
 # ---------------------------------------------------------------------------
 
-def _conversations_dir() -> Path:
-    d = store.papergraph_dir() / "conversations"
+def _conversations_dir() -> Path | None:
+    d = store.workspace_path("conversations")
+    if d is None:
+        return None
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _conv_path(conversation_id: str) -> Path:
+def _conv_path(conversation_id: str) -> Path | None:
     # Sanitise: keep only alphanumerics + underscore + hyphen
     safe = re.sub(r"[^A-Za-z0-9_\-]", "_", conversation_id)
-    return _conversations_dir() / f"{safe}.jsonl"
+    d = _conversations_dir()
+    return None if d is None else d / f"{safe}.jsonl"
 
 
 def _new_conversation_id(now_iso: str, message: str) -> str:
@@ -447,7 +450,7 @@ def _persist_conversation(
 def delete_conversation(conversation_id: str) -> bool:
     """Delete a conversation's JSONL file. Returns True if a file was removed."""
     path = _conv_path(conversation_id)
-    if not path.exists():
+    if path is None or not path.exists():
         return False
     path.unlink()
     return True
@@ -456,7 +459,7 @@ def delete_conversation(conversation_id: str) -> bool:
 def load_conversation(conversation_id: str) -> dict | None:
     """Load a conversation from JSONL. Returns {"meta": {...}, "turns": [...]} or None."""
     path = _conv_path(conversation_id)
-    if not path.exists():
+    if path is None or not path.exists():
         return None
 
     meta: dict | None = None

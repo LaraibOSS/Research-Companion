@@ -9,16 +9,17 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
-from research_companion.store import papergraph_dir
+from research_companion.store import workspace_path
 
 _FIELDS = ("draft_section_id", "draft_section_title", "paper_id", "paper_title",
            "relation", "relevance", "rationale", "evidence_quote",
            "evidence_section_id", "comment", "kind", "source_excerpt")
 
 
-def _path():
-    return papergraph_dir() / "notes.json"
+def _path() -> Path | None:
+    return workspace_path("notes.json")
 
 
 def _as_float(value, default: float = 0.0) -> float:
@@ -40,9 +41,10 @@ def _as_float(value, default: float = 0.0) -> float:
 
 
 def list_notes() -> list[dict]:
-    """Load and return all notes. Returns [] if file missing or unparseable."""
+    """Load and return all notes. Returns [] if file missing, unparseable, or
+    no active workspace."""
     p = _path()
-    if not p.exists():
+    if p is None or not p.exists():
         return []
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

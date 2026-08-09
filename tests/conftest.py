@@ -83,13 +83,26 @@ def isolated_papergraph_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     (root/workspaces/main) — the place papers/, graph.json, config.json etc.
     live — so the ~400 existing usages keep working unchanged after the
     0.4 workspaces feature.
+
+    A fresh root now starts with NO active workspace (active: null,
+    workspaces: []) — see store._default_registry(). The ~400 existing
+    tests assume an active "main" research, so this fixture seeds and
+    activates one explicitly instead of relying on the removed implicit
+    default. Tests that specifically exercise the none/fresh-install state
+    use the `no_active_workspace` fixture (tests/test_none_active_workspace.py)
+    or `store.save_registry({...active: None...})` directly.
     """
-    from research_companion import store
+    from research_companion import store, workspaces
 
     root = tmp_path / "research-companion"
     root.mkdir()
     monkeypatch.setenv("RESEARCH_COMPANION_DIR", str(root))
     monkeypatch.delenv("RESEARCH_COMPANION_WORKSPACE", raising=False)
+    store._reset_workspace_caches()
+    reg = store.load_registry()
+    if not any(w.get("id") == "main" for w in reg["workspaces"]):
+        workspaces.create_workspace("Main")
+    workspaces.activate_workspace("main")
     store._reset_workspace_caches()
     ws = store.papergraph_dir()
     ws.mkdir(parents=True, exist_ok=True)
