@@ -935,6 +935,22 @@ def test_home_js_suggestion_source_label_has_no_section_glyph():
     )
 
 
+def test_home_view_has_quicknav_and_product_pillars():
+    """home.js must render the quick-nav row (from homeNavModel) and the
+    empty-state product pillars, plus the one-time entrance class and a
+    normalized sparkline path (home-redesign Task 2)."""
+    js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    # quick-nav driven by the pure model
+    assert "homeNavModel" in js, "home must render the quick-nav model"
+    assert "home-nav-row" in js and "home-nav-card" in js
+    # empty-state product pillars + real CTAs
+    assert "home-pillars" in js, "empty state must show product value pillars"
+    assert "home-hero-draft" in js and "home-hero-folder" in js
+    # one-time entrance class + sparkline normalized for the draw-in animation
+    assert "home-animate-in" in js
+    assert 'pathLength="1"' in js
+
+
 def test_next_action_js_exports_select_next_actions():
     """nextAction.js must export selectNextActions."""
     js = (STATIC_DIR / "js" / "nextAction.js").read_text(encoding="utf-8")

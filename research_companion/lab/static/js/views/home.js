@@ -16,12 +16,13 @@ import { mergeJourney, sparklinePath, severityDonut } from '../journeyHelpers.js
 import { openModal } from '../components/ingestModal.js';
 import { escapeHtml, timeAgo } from '../format.js';
 import { explainerBanner } from '../components/explainer.js';
-import { emptyHeroModel } from '../homeHelpers.js';
+import { emptyHeroModel, homeNavModel } from '../homeHelpers.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { shouldSuggestNewResearch } from '../researchNudgeHelpers.js';
 
 let _el = null;
 let _unsub = null;
+let _animatedIn = false;
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -29,6 +30,7 @@ let _unsub = null;
 
 export function mount(el) {
   _el = el;
+  _animatedIn = false;
   _unsub = store.subscribe(['suggestions', 'journey', 'papers', 'draft', 'settings', 'citations'], _render);
   api.getJourney()
     .then(data => store.setJourney(data))
@@ -117,9 +119,20 @@ function _render() {
   // Zone 4 — journey
   const zone4Html = _journeyHtml(journey);
 
+  // Quick-nav row: the empty-state hero already embeds its own nav row
+  // (below the product pillars); the populated (draft) hero does not, so
+  // it's inserted here between the hero and the NBA strip.
+  const navRow = draft ? _navRowHtml(state) : '';
+
+  // One-time entrance animation class — applied only on the first render
+  // after mount() (navigating away and back re-triggers it).
+  const animate = _animatedIn ? '' : ' home-animate-in';
+  _animatedIn = true;
+
   _el.innerHTML = `
-    <div class="home-view">
+    <div class="home-view${animate}">
       ${zone1Html}
+      ${navRow}
       ${zone2Html}
       ${zone3Html}
       ${zone4Html}
@@ -167,6 +180,26 @@ function _render() {
         e.preventDefault();
         activate();
       }
+    });
+  });
+
+  // Wire quick-nav card clicks (and keyboard activation — Enter/Space)
+  _el.querySelectorAll('[data-nav-route]').forEach(card => {
+    const go = () => { window.location.hash = card.dataset.navRoute; };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+    });
+  });
+  _el.querySelectorAll('[data-nav-action]').forEach(card => {
+    const go = () => {
+      if (card.dataset.navAction === 'open-citations') {
+        window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
+      }
+    };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
     });
   });
 }
@@ -250,6 +283,13 @@ const _STEP_CAPTIONS = [
   { key: 'meet_suggestions', label: '④ Review' },
 ];
 
+// Product value pillars shown under the welcome hero's steps (empty state only).
+const _PILLARS = [
+  { t: 'Build a concept graph', d: 'Turn your papers into a navigable map of concepts, methods and results.' },
+  { t: 'Ask, with citations', d: 'Every answer cites the exact paper and section it came from.' },
+  { t: 'Get submission-ready', d: 'Score your draft, verify claims, and catch integrity issues early.' },
+];
+
 function _emptyHeroHtml(state) {
   const model = emptyHeroModel(state);
   // meet_suggestions and done both map onto the "Review" caption.
@@ -258,6 +298,10 @@ function _emptyHeroHtml(state) {
   const stepsHtml = _STEP_CAPTIONS
     .map(s => `<span class="${s.key === activeCaptionKey ? 'is-active' : ''}">${s.label}</span>`)
     .join(' · ');
+
+  const pillarsHtml = `<div class="home-pillars">${_PILLARS.map(p =>
+    `<div class="home-pillar"><div class="home-pillar-title">${escapeHtml(p.t)}</div>`
+    + `<div class="home-pillar-desc">${escapeHtml(p.d)}</div></div>`).join('')}</div>`;
 
   return `
     <div class="home-empty-hero">
@@ -268,7 +312,9 @@ function _emptyHeroHtml(state) {
         <button class="btn" id="home-hero-folder">Ingest a folder</button>
       </div>
       <div class="home-empty-hero-steps">${stepsHtml}</div>
-    </div>`;
+    </div>
+    ${pillarsHtml}
+    ${_navRowHtml(state)}`;
 }
 
 function _donutSvg(segs, size) {
@@ -297,6 +343,39 @@ function _donutSvg(segs, size) {
   }
 
   return `<svg class="home-donut" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}</svg>`;
+}
+
+// ---------------------------------------------------------------------------
+// Quick-nav row
+// ---------------------------------------------------------------------------
+
+// Inline stroked SVGs copied verbatim from index.html's nav rail (same icon set).
+const _NAV_ICONS = {
+  library:  `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="4" height="12" rx="1"/><rect x="7" y="3" width="4" height="12" rx="1"/><rect x="12" y="3" width="4" height="12" rx="1"/></svg>`,
+  graph:    `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="2"/><circle cx="3" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="15" cy="13" r="1.5"/><line x1="7.3" y1="7.7" x2="4.2" y2="6.2"/><line x1="10.7" y1="7.7" x2="13.8" y2="6.2"/><line x1="7.3" y1="10.3" x2="4.2" y2="11.8"/><line x1="10.7" y1="10.3" x2="13.8" y2="11.8"/></svg>`,
+  draft:    `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6l-3-4z"/><path d="M11 2v4h3"/><path d="M7 10l1.5 1.5L12 8"/></svg>`,
+  ask:      `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3l3 3 3-3h3a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1z"/></svg>`,
+  timeline: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><polyline points="9,5 9,9 12,11"/></svg>`,
+  citations:`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5c-2.9 0-5.2 2.3-5.2 5.2 0 3.6 5.2 9.3 5.2 9.3s5.2-5.7 5.2-9.3c0-2.9-2.3-5.2-5.2-5.2z"/><circle cx="9" cy="6.7" r="2"/></svg>`,
+};
+
+function _navRowHtml(state) {
+  const cards = homeNavModel(state).map(n => {
+    const attr = n.route
+      ? `data-nav-route="${escapeHtml(n.route)}"`
+      : `data-nav-action="${escapeHtml(n.action || '')}"`;
+    const count = (n.count !== null && n.count !== undefined)
+      ? `<span class="home-nav-count">${n.count}</span>` : '';
+    return `
+      <div class="home-nav-card" ${attr} role="button" tabindex="0">
+        <span class="home-nav-icon">${_NAV_ICONS[n.key] || ''}</span>
+        <span class="home-nav-text">
+          <span class="home-nav-label">${escapeHtml(n.label)}${count}</span>
+          <span class="home-nav-desc">${escapeHtml(n.desc)}</span>
+        </span>
+      </div>`;
+  }).join('');
+  return `<div class="home-nav-row">${cards}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +469,7 @@ function _journeyHtml(journey) {
   const pathStr = sparklinePath(countsOverTime, 920, 48);
   const sparklineHtml = pathStr
     ? `<svg class="home-sparkline" viewBox="0 0 920 48" preserveAspectRatio="none">
-        <path d="${escapeHtml(pathStr)}"/>
+        <path pathLength="1" d="${escapeHtml(pathStr)}"/>
       </svg>`
     : '';
 
