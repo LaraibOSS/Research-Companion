@@ -1572,8 +1572,8 @@ def test_researches_view_escapes_names():
     """views/researches.js must escapeHtml all workspace names / draft titles (W4-F1)."""
     js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
     assert "escapeHtml" in js, "researches.js must use escapeHtml"
-    assert "escapeHtml(m.name)" in js, "researches.js must escapeHtml the workspace name"
-    assert "escapeHtml(m.draftTitle)" in js, "researches.js must escapeHtml the draft title"
+    assert "escapeHtml(r.name)" in js, "researches.js must escapeHtml the workspace name"
+    assert "escapeHtml(r.draftTitle)" in js, "researches.js must escapeHtml the draft title"
     assert "from '../format.js'" in js, \
         "researches.js must import escapeHtml from format.js (no local duplicate)"
 
@@ -1611,10 +1611,65 @@ def test_workspace_helpers_exports_three_functions():
 def test_lab_css_has_researches_styles():
     """lab.css must include the W4-F1 researches/switcher styles."""
     css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
-    for needle in (".ws-grid", ".ws-card", ".ws-switcher", ".ws-menu",
-                   ".researches-view", ".ws-card-active", ".ws-card-stats",
-                   ".ws-archived", ".ws-create-row"):
+    for needle in (".ws-switcher", ".ws-menu",
+                   ".researches-view", ".ws-archived", ".ws-create-row"):
         assert needle in css, f"lab.css missing W4-F1 style: {needle}"
+
+
+# ---------------------------------------------------------------------------
+# feat/researches-tab (Task 3): sortable tracking table replaces the card grid
+# ---------------------------------------------------------------------------
+
+def test_researches_view_renders_table_not_cards():
+    """researches.js must render a sortable <table class="researches-table">,
+    not the old ws-card grid markup."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "<table" in js, "researches.js must render a <table>"
+    assert "researches-table" in js, "researches.js must use the researches-table class"
+    assert "ws-card" not in js, "researches.js must not contain leftover ws-card markup"
+
+
+def test_researches_view_imports_row_model_and_sort():
+    """researches.js must import researchRowModel and sortResearchRows from workspaceHelpers.js
+    (feat/researches-tab Task 3)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "researchRowModel" in js, "researches.js must import/use researchRowModel"
+    assert "sortResearchRows" in js, "researches.js must import/use sortResearchRows"
+    assert "from '../workspaceHelpers.js'" in js, \
+        "researches.js must import from workspaceHelpers.js"
+
+
+def test_researches_view_still_calls_crud_handlers():
+    """researches.js must still call the same workspace CRUD endpoints after the
+    card -> table rewrite (feat/researches-tab Task 3)."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    for name in ("activateWorkspace", "createWorkspace", "patchWorkspace", "deleteWorkspace"):
+        assert f"api.{name}" in js, f"researches.js must still call api.{name}"
+
+
+def test_researches_view_has_active_row_class():
+    """researches.js must apply researches-row--active to the active research's row."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "researches-row--active" in js, \
+        "researches.js must apply the researches-row--active class"
+
+
+def test_researches_view_empty_state_text():
+    """researches.js must show the exact empty-state copy when there are no researches."""
+    js = (STATIC_DIR / "js" / "views" / "researches.js").read_text(encoding="utf-8")
+    assert "No researches yet" in js and "create one to get started" in js, \
+        "researches.js must show the exact empty-state text"
+
+
+def test_lab_css_has_researches_table_styles():
+    """lab.css must include the Task 3 tracking-table styles: table container,
+    active row, strength mini-bar segments and citation coverage bar."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".researches-table", ".researches-table-wrap",
+                   ".researches-row--active", ".research-strength-bar",
+                   ".research-strength-seg", ".research-cov-bar",
+                   ".research-sub-count"):
+        assert needle in css, f"lab.css missing Task 3 table style: {needle}"
 
 
 def test_workspace_helpers_node_test_file_exists():
