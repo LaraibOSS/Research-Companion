@@ -67,7 +67,7 @@ function _renderButton() {
     return;
   }
   const active = list.find(w => w.id === activeId);
-  const name = active ? (active.name || active.id) : (activeId || 'main');
+  const name = active ? (active.name || active.id) : activeId;
   _btn.innerHTML = `<span class="ws-switcher-name">${escapeHtml(name)}</span>`
     + `<span class="ws-switcher-chevron" aria-hidden="true">&#9662;</span>`;
   _btn.setAttribute('aria-haspopup', 'menu');

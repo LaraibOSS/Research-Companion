@@ -188,7 +188,7 @@ class EmbeddingsReady:
 
 @dataclass
 class WorkspaceChanged:
-    workspace_id: str
+    workspace_id: str | None
 
 
 @dataclass

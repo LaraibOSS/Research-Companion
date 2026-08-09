@@ -2615,9 +2615,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             raise _ws_http(exc) from exc
 
         if result["switched"]:
-            # Repoint the persistent event log (skip for test buses without one)
+            # Repoint the persistent event log (skip for test buses without one).
+            # None active (last workspace just deleted) detaches the log entirely.
             if bus._log is not None:
-                bus.set_log(EventLog(store.papergraph_dir() / "lab_events.jsonl"))
+                new_dir = store.papergraph_dir()
+                bus.set_log(EventLog(new_dir / "lab_events.jsonl") if new_dir is not None else None)
             # The SSE stream must not replay the previous workspace's events
             bus.history.clear()
             app.state.recorder.reset()

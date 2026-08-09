@@ -127,13 +127,12 @@ class TestDelete:
         result = workspaces.delete_workspace("main")
         assert result == {"removed": True, "active": "arch", "switched": True}
 
-    def test_delete_only_workspace_resynthesizes_main(self, isolated_root_dir):
+    def test_delete_only_workspace_leaves_none(self, isolated_root_dir):
         result = workspaces.delete_workspace("main")
-        assert result == {"removed": True, "active": "main", "switched": True}
+        assert result == {"removed": True, "active": None, "switched": True}
         reg = store.load_registry()
-        assert reg["active"] == "main"
-        assert [w["id"] for w in reg["workspaces"]] == ["main"]
-        assert reg["workspaces"][0]["archived"] is False
+        assert reg["active"] is None
+        assert reg["workspaces"] == []
 
     def test_delete_main_when_not_active(self, isolated_root_dir):
         workspaces.create_workspace("Other")
@@ -147,11 +146,10 @@ class TestDelete:
             workspaces.delete_workspace("nope")
         assert e.value.status == 404
 
-    def test_delete_only_workspace_creates_main_dir(self, isolated_root_dir):
-        # The resynthesized main must exist on disk — the API repoints the
-        # event log there right after the switch.
+    def test_delete_only_workspace_creates_no_new_dir(self, isolated_root_dir):
+        # No workspace remains active -> nothing to mkdir for.
         workspaces.delete_workspace("main")
-        assert (store.workspaces_root() / "main").exists()
+        assert store.active_workspace_id() is None
 
     def test_delete_active_creates_new_active_dir(self, isolated_root_dir):
         workspaces.create_workspace("Other")
@@ -165,9 +163,10 @@ class TestDelete:
 
     def test_crash_in_rmtree_window_keeps_active_listed(
             self, isolated_root_dir, monkeypatch):
-        # Only workspace is "solo": the phase-1 save must already list the
-        # resynthesized main, so a crash before phase 2 never leaves `active`
-        # pointing at an entry that is not in the registry.
+        # Only workspace is "solo": deleting it leaves none active, so the
+        # phase-1 save already set `active` to None before the crash — a
+        # crash before phase 2 never leaves `active` pointing at an entry
+        # that is not (or no longer) in the registry.
         workspaces.create_workspace("Solo")
         workspaces.activate_workspace("solo")
         workspaces.delete_workspace("main")
@@ -178,7 +177,8 @@ class TestDelete:
         with pytest.raises(OSError):
             workspaces.delete_workspace("solo")
         reg = store.load_registry()
-        assert reg["active"] in [w.get("id") for w in reg["workspaces"]]
+        listed_ids = [w.get("id") for w in reg["workspaces"]]
+        assert reg["active"] is None or reg["active"] in listed_ids
 
 
 class TestListAndStats:

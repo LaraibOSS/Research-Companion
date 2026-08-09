@@ -92,49 +92,33 @@ def delete_workspace(ws_id: str) -> dict:
     registry pointing at a removed workspace, and never orphans a directory
     behind a removed entry — a re-created research with the same slug would
     inherit the old papers.
+
+    Deleting the LAST workspace leaves {"active": None, "workspaces": []} —
+    there is no special "main" to fall back to; main is an ordinary workspace
+    like any other. The caller (the UI) is expected to prompt for a new
+    research name before the next mutating action (see ensureActiveResearch).
     """
     reg = store.load_registry()
     _find(reg, ws_id)
     others = [w for w in reg["workspaces"] if w.get("id") != ws_id]
     switched = reg.get("active") == ws_id
 
-    if not others:
-        # Deleting the last workspace: fall back to a fresh default main.
-        # store._default_registry() is the EMPTY (no-research-selected)
-        # default as of 0.5 — it no longer carries a synthesized "main"
-        # record, so build the fallback record explicitly here instead.
-        others = [{
-            "id": "main",
-            "name": "Main",
-            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "archived": False,
-        }]
-        # The phase-1 save below must already list the synthesized entries —
-        # `active` has to point at a listed workspace even if a crash lands
-        # in the rmtree window (the deletee stays listed until phase 2).
-        known = {w.get("id") for w in reg["workspaces"]}
-        reg["workspaces"] = reg["workspaces"] + [
-            w for w in others if w["id"] not in known]
-
     if switched:
-        if any(w.get("id") == "main" for w in others):
-            new_active = "main"
-        else:
-            open_ws = [w for w in others if not w.get("archived")]
-            new_active = (open_ws or others)[0]["id"]
+        open_ws = [w for w in others if not w.get("archived")]
+        new_active = (open_ws or others)[0]["id"] if others else None
         reg["active"] = new_active
         store.save_registry(reg)
     else:
-        new_active = reg.get("active") or "main"
+        new_active = reg.get("active")
 
     ws_dir = store.workspaces_root() / ws_id
     if ws_dir.exists():
         store._rmtree_retry(ws_dir)
 
-    if switched:
+    if switched and new_active is not None:
         # Mirror activate_workspace: the new active's directory must exist —
         # the API repoints the persistent event log there right after the
-        # switch. After the rmtree, so a self-replacing main is not undone.
+        # switch. After the rmtree, so a self-replacing workspace is not undone.
         (store.workspaces_root() / new_active).mkdir(parents=True, exist_ok=True)
 
     reg["workspaces"] = others
