@@ -75,7 +75,7 @@ def registry_path() -> Path:
 
 def _default_registry() -> dict:
     return {
-        "version": 1,
+        "version": 2,
         "active": None,
         "workspaces": [],
     }
@@ -86,6 +86,29 @@ def _default_registry() -> dict:
 _migrating = False
 
 
+def _default_main_is_empty() -> bool:
+    """True when the legacy default 'main' workspace has no papers and no draft.
+
+    Direct filesystem checks only (no import of workspaces.py — that module
+    imports store, so importing it back here would be circular).
+    """
+    base = workspaces_root() / _DEFAULT_WORKSPACE
+    papers = base / "papers"
+    try:
+        has_paper = papers.is_dir() and any(
+            d.is_dir() and (d / "metadata.json").exists() for d in papers.iterdir())
+    except OSError:
+        has_paper = False
+    if has_paper:
+        return False
+    cfg = base / "config.json"
+    try:
+        c = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
+        return not (isinstance(c, dict) and c.get("draft_paper_id"))
+    except (json.JSONDecodeError, OSError):
+        return True
+
+
 def load_registry() -> dict:
     """Load the workspace registry; synthesize the empty default when missing/corrupt.
 
@@ -93,12 +116,30 @@ def load_registry() -> dict:
     pre-0.4 store migrates would make _needs_migration() False forever and
     orphan the library (final-review Critical).
 
-    Also runs a one-time, idempotent normalization: a still-default-named
-    "main" record (name == "Main", untouched by the user) is relabeled to
-    "My research" now that main is an ordinary workspace, not the special
-    default. No directory moves; the id and its data stay exactly where they
-    are. Guarded by name-equality so it is a no-op once renamed (or once the
-    user has picked their own name) — no separate marker needed.
+    Also runs a TRUE one-time migration, gated on registry version (< 2),
+    that normalizes a still-default-named "main" record (name == "Main")
+    left over from a pre-0.4 store now that main is an ordinary workspace,
+    not the special default:
+
+      * EMPTY (no papers, no draft) -> the record is DROPPED from the
+        registry (an upgrader with nothing in their default workspace lands
+        on "Research: none", same as a fresh install). If it was active,
+        `active` is set to None. No directory is deleted — only the
+        registry entry goes.
+      * Has data -> relabeled to "My research" (no data loss, no directory
+        moves).
+
+    This must NOT key on name-equality alone forever: a user who creates a
+    brand-new workspace and happens to name it "Main" post-upgrade must
+    never have it silently removed just because it is momentarily empty.
+    The version gate is what prevents that — a registry written by this
+    (or any later) code is already version 2, so the migration block never
+    runs against it again, full stop, regardless of what workspaces it
+    contains. Only a genuinely old (version < 2, including version-less)
+    registry — i.e. one this code has not yet touched — gets the one-time
+    pass. After running it (even when it is a no-op, e.g. no legacy "main"
+    present), `version` is bumped to 2 and saved so it can never run again
+    on that registry.
     """
     if not _migrating:
         _ensure_root_ready(root_dir())
@@ -114,13 +155,20 @@ def load_registry() -> dict:
     except (json.JSONDecodeError, OSError):
         return _default_registry()
 
-    renamed = False
-    for rec in data["workspaces"]:
-        if rec.get("id") == _DEFAULT_WORKSPACE and rec.get("name") == "Main":
-            rec["name"] = "My research"
-            renamed = True
-    if renamed and not _migrating:
-        save_registry(data)
+    if data.get("version", 1) < 2:
+        kept: list[dict] = []
+        for rec in data["workspaces"]:
+            if rec.get("id") == _DEFAULT_WORKSPACE and rec.get("name") == "Main":
+                if _default_main_is_empty():
+                    if data.get("active") == _DEFAULT_WORKSPACE:
+                        data["active"] = None
+                    continue  # drop: do not keep this record
+                rec["name"] = "My research"
+            kept.append(rec)
+        data["workspaces"] = kept
+        data["version"] = 2
+        if not _migrating:
+            save_registry(data)
     return data
 
 

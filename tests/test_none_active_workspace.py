@@ -34,8 +34,11 @@ class TestResolverIsNullable:
 
 class TestDefaultRegistryIsEmpty:
     def test_default_registry_shape(self):
+        # version 2: a brand-new registry has never had a legacy "main" to
+        # migrate, so it is synthesized already past the one-time
+        # main-normalization gate in store.load_registry() (see there).
         assert store._default_registry() == {
-            "version": 1, "active": None, "workspaces": [],
+            "version": 2, "active": None, "workspaces": [],
         }
 
 
