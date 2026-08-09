@@ -99,8 +99,9 @@ research-journey timeline (see section 13).
 
 ## 4. Researches (workspaces)
 
-The top bar shows the active research as a dropdown (e.g. **"Main ▾"**), for
-a quick switch without leaving the screen you're on.
+The top bar shows the active research as a dropdown (e.g. **"My research
+▾"**), for a quick switch without leaving the screen you're on. If nothing is
+active it reads **"Research: none"** instead (see "Starting fresh" below).
 
 - **Switch** — pick another research from the dropdown; the whole Lab reloads
   into it. Other open tabs reload automatically.
@@ -144,9 +145,11 @@ table, dimmed, with no Open button — just Unarchive and Delete.
   that research and everything in it. The confirmation names the research
   and its paper count so you know exactly what you are removing. If you
   delete the research you are currently in, the Lab switches you to another
-  one automatically (Main preferred) and reloads. Deletion is blocked with
-  a clear message while a background job is running. **Archive** remains the
-  non-destructive option — it hides a research without deleting anything.
+  open one automatically and reloads — or, if that was your last research,
+  to the no-research-selected state (see "Starting fresh" below). Deletion
+  is blocked with a clear message while a background job is running.
+  **Archive** remains the non-destructive option — it hides a research
+  without deleting anything.
 - **CLI:** `research-companion workspace list|create <name>|use <id-or-name>`;
   a single invocation can also be redirected with the
   `RESEARCH_COMPANION_WORKSPACE` environment variable.
@@ -156,6 +159,21 @@ table, dimmed, with no Open button — just Unarchive and Delete.
 - **Upgrading from pre-0.4:** your existing store migrates automatically and
   losslessly into `workspaces/main/` on first run — atomic, resumable if
   interrupted, nothing re-ingested, `.env` untouched.
+
+### Starting fresh: "no research selected"
+
+A brand-new install — or a library you've emptied out entirely by deleting
+every research — lands on a plain welcome screen with the top bar reading
+**Research: none**. Nothing is silently selected for you. Click **Add your
+draft** or **Ingest a folder** (or **+ Add papers** in the top bar) and
+you'll be asked to name your research before anything is added; from then on
+that research is active, exactly like any other.
+
+Everyone's first research used to be a special, undeletable workspace called
+`main`. It's now an ordinary one — the app just renames it once, the first
+time you open it after upgrading, from "Main" to "My research" (your papers,
+draft, and history are untouched). You can rename or delete it from the
+Researches screen the same way as any other research you create.
 
 ### Sidebar tab descriptions
 
