@@ -66,6 +66,7 @@ Research Companion grew from "help me read papers" into "help me get a paper sub
 - **Simplified reader tab** — free, offline, plain-English bullets built from a paper's existing analysis, with an optional one-call "Simplify further" AI rewrite (cached, same provider as Ask) — display-only, it never feeds Ask, Draft, or citations.
 - **Uncited-paper opportunities & revision notes** — the Draft view now surfaces library papers you haven't cited that could strengthen, challenge, or offer an alternative to a section, assembled strictly from stored analysis (no LLM, no network); save one as a note and track it to done in the new **Notes** view, with a Markdown export as a ready-to-use revision checklist.
 - **Notes everywhere** — save a note from a cited-alignment card, the Reader (captures your text selection), any paper card, an Ask answer, or write your own free-form; the **Notes** notebook groups by section or paper, filters by type and status, and exports whichever grouping is on screen — still display-only, never fed back into Ask/Draft/citations.
+- **Researches tracking tab** — a sortable table of every research (papers/analyzed/failed, draft + version count, citation coverage, strength mix, open items, draft-updated/last-activity/created), with create/rename/archive/delete, now in the sidebar.
 
 Everything above is deterministic at the core, opt-in wherever it costs money or sends data anywhere, and designed to leave the tool byte-identical when a feature is off. See the [Roadmap](docs/ROADMAP.md).
 

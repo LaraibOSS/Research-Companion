@@ -1315,3 +1315,107 @@ citation coverage.
   grouping/Unfiled-last/totality, `noteRowModel`'s kind/sourceExcerpt
   passthrough) and `tests/test_lab_static.py` (notebook controls present:
   group-by toggle, both chip rows, New note form, kind-aware export call).
+
+## 24. Researches tracking table + sidebar tab descriptions
+
+The Researches screen (`#/researches`) went from a card-per-workspace summary
+to a sortable tracking table, backed by an extended, additive
+`workspace_stats()`. Every new stat is read from an already-on-disk,
+per-workspace artifact — **never** `compute_coverage`, an LLM call, or a
+network request — and every read is none-safe: a missing or corrupt file
+degrades to `0`/`null`, it never raises and never breaks the list.
+
+### `workspace_stats(ws_id)` — `research_companion/workspaces.py`
+
+All reads go through `_read_json(path)`, which returns `{}` on `OSError` or
+`json.JSONDecodeError` — every stat below is derived from that empty-dict
+fallback when the file is missing/corrupt, so nothing here can 500 the
+Researches list:
+
+| Key | Source | Notes |
+|---|---|---|
+| `papers` | `papers/<dir>/metadata.json` presence | count of paper dirs with a metadata file |
+| `draft_title` | `config.json` → `draft_paper_id` → that paper's `metadata.json` | falls back to the draft id if no title |
+| `open_suggestions` | `suggestions/<draft-dir>/suggestions.json` | count of entries with `status == "open"` |
+| `last_activity` | `mtime` of `config.json`, `journey.json`, `graph.json`, `lab_events.jsonl` | max of whichever of those exist, ISO/UTC |
+| `failed` | `failed.json` | dict keyed by paper/target — `len()` of it |
+| `draft_versions` | `journey.json` → `draft_versions` (list) | `len()` of the list |
+| `draft_updated` | `journey.json` → `draft_versions[-1].added_at` | timestamp of the most recent version |
+| `coverage` | `citations_coverage.json` → `counts` | `{in_library, total}`, or `null` if the cache doesn't exist yet — **cached payload only, never recomputed** for a list |
+| `strength` | each paper's `strength.json` → `band` | tally of `{strong, moderate, weak, unscored}`; a paper with no `strength.json` or an unrecognized band counts as `unscored` |
+
+`created_at` is **not** part of `workspace_stats()` — it lives on the
+workspace record itself (set once in `create_workspace()`), so the frontend
+row model reads it off `ws.created_at`, not `ws.stats`.
+
+Tested in `tests/test_workspaces.py`: `test_workspace_stats_new_metrics` (each
+new key populates correctly from its cached file) and
+`test_workspace_stats_empty_workspace_is_none_safe` (every key degrades
+cleanly with no on-disk artifacts at all).
+
+### Row model + sort — `workspaceHelpers.js`
+
+- **`researchRowModel(ws, activeId)`** flattens a `GET /api/workspaces`
+  record + its `stats` into the table's display model. It derives fields the
+  raw stats don't carry directly: `analyzed = max(0, papers - failed)`,
+  `coveragePct` (rounded `100 * in_library / total`, or `null` when there's
+  no cached coverage or `total` is `0`), `coverageLabel` (`"in_library/total"`
+  or `"—"`), and `strengthSegments` (an ordered `[{band, count}]` for
+  `strong`/`moderate`/`weak` — `unscored` is folded in by the renderer, not
+  carried as a segment). Every numeric field defaults through `Number(x) ||
+  0`, so a missing/malformed stat never becomes `NaN` or `undefined` on
+  screen.
+- **`sortResearchRows(rows, col, dir)`** sorts by one of six columns —
+  `name`, `papers`, `coverage` (via `coveragePct`), `lastActivity`,
+  `created`, `draftUpdated` — via a small accessor table
+  (`_SORT_ACCESSORS`). Nulls always sort last regardless of `dir`; ties and
+  null-groups keep their original relative order (stable); the input array
+  is never mutated. An unrecognized `col` falls back to the `name`
+  accessor.
+- Tested in `tests/js/workspaceHelpers.test.mjs`: row-model derivation
+  (analyzed, coveragePct/Label including the no-coverage and zero-total
+  cases, strength segments, `createdAtIso` from `ws.created_at`) and
+  `sortResearchRows` (each column, both directions, null-last, stability,
+  non-mutation, unknown-column fallback).
+
+### Table view — `views/researches.js`
+
+`#/researches` renders one `<table class="researches-table">`: an inline
+create row, then one `<tr>` per active workspace via `_rowHtml`, built from
+`researchRowModel` output sorted by `sortResearchRows`. Columns, in order:
+**Research** (name, an active-dot, and a draft star when `hasDraft`),
+**Papers** (total, with an "N analyzed · N failed" sub-line), **Draft**
+(title or `—`, plus a `vN` sub-line from `draftVersions`), **Citations**
+(`coverageLabel` plus a fill bar sized to `coveragePct`), **Strength** (a
+mini segmented bar over `strengthSegments`, title-attribute tooltip spelling
+out the counts), **Open items**, **Draft updated** / **Last activity**
+(relative time via `timeAgo`, `—` when absent), **Created** (absolute date),
+and **Actions** (Open/Go to Home, rename, archive, delete). Header cells for
+the six sortable columns are buttons (`data-sort-col`) that toggle
+`_sortCol`/`_sortDir` and re-render; non-sortable columns (`draft`,
+`strength`, `openSuggestions`, `actions`) render as plain `<th>`s.
+
+Archived workspaces render in a second, collapsed `<details class="ws-archived">`
+section using the same row renderer with `isArchived: true` — no Open button
+and no row-click-to-open affordance (an archived workspace 409s on
+activate), just Unarchive + Delete. All user/server-supplied text (names,
+draft titles) goes through `escapeHtml` before being interpolated into the
+row markup. The top-bar workspace switcher (`components/workspaceSwitcher.js`)
+is kept as-is for a quick switch without leaving the current screen; its
+"All researches…" and "New research" links still route to `#/researches`
+and `#/researches?new=1`.
+
+### Sidebar — nav entry + per-tab hover descriptions
+
+`index.html`'s nav rail gained a **Researches** entry (`data-route
+="/researches"`, right after Home) using the pre-existing `.nav-btn` markup.
+Every nav button also now carries a `data-desc` attribute — a short
+plain-language sentence (e.g. Researches: "track all your research projects
+at a glance") rendered as a `::before` popover on hover via
+`.nav-btn[data-desc]::before` in `lab.css`: left accent stripe, elevated
+shadow, wraps to `max-width: 220px`. On the expanded rail the plain
+single-line `title` tooltip is already nulled out (labels are visible, so it
+would just echo them) — the `data-desc` popover is the only hover affordance
+there. Under the pre-existing 640px icon-only collapse, `data-desc::before`
+is explicitly nulled back out and the plain `title` tooltip is re-armed
+instead, so the collapsed rail's behavior is unchanged by this feature.
