@@ -17,6 +17,14 @@ def test_add_cmd_prefers_pmid():
     assert _dp("T", pmid="30449619").add_cmd == "research-companion add pmid:30449619"
 
 
+def test_to_dict_includes_s2_id_for_s2_only_results():
+    # The Brainstorm Add flow uses the bare s2_id as its add target; if to_dict
+    # drops it, an S2-only hit falls through to its unparseable landing URL.
+    d = _dp("T", s2_id="0123456789abcdef0123456789abcdef01234567",
+            url="https://www.semanticscholar.org/paper/0123456789abcdef0123456789abcdef01234567").to_dict()
+    assert d["s2_id"] == "0123456789abcdef0123456789abcdef01234567"
+
+
 def test_fallback_merges_connector_results_deduped(monkeypatch):
     base = [_dp("Base paper", doi="10.1/a")]
     conn_paper = _dp("Bio paper", pmid="123")

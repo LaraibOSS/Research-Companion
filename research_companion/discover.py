@@ -63,6 +63,7 @@ class DiscoveredPaper:
             "citation_count": self.citation_count,
             "arxiv_id": self.arxiv_id,
             "doi": self.doi,
+            "s2_id": self.s2_id,
             "pmid": self.pmid,
             "pmcid": self.pmcid,
             "url": self.url,
