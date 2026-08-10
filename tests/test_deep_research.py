@@ -37,3 +37,47 @@ def test_format_report_questions_prompt_substitutes_all_placeholders():
     assert "<<TOPIC>>" not in rendered
     assert "<<GROUNDING_BLOCK>>" not in rendered
     assert "<<MAX_QUESTIONS>>" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# _report_grounding_block
+# ---------------------------------------------------------------------------
+
+class _FakeGraph:
+    """Minimal stand-in for a networkx graph -- only .nodes(data=True) is used
+    by directions._underexplored_concepts."""
+    def __init__(self, nodes):
+        self._nodes = nodes
+
+    def nodes(self, data=False):
+        return self._nodes
+
+
+def test_report_grounding_block_lists_papers_and_underexplored_concepts():
+    from research_companion.deep_research import _report_grounding_block
+
+    library_papers = [
+        {"title": "GraphRAG for code retrieval", "year": 2023},
+        {"title": "Untitled paper", "year": None},
+    ]
+    graph = _FakeGraph([
+        ("c1", {"kind": "concept", "label": "sparse retrieval", "paper_count": 1}),
+        ("c2", {"kind": "concept", "label": "dense retrieval", "paper_count": 20}),
+    ])
+
+    block = _report_grounding_block(library_papers, graph)
+    assert "- Paper: GraphRAG for code retrieval (2023)." in block
+    assert "- Paper: Untitled paper (n.d.)." in block
+    assert "Underexplored concept: sparse retrieval" in block
+    assert "dense retrieval" not in block  # not in the bottom third by paper_count
+
+
+def test_report_grounding_block_empty_when_no_papers_and_no_graph():
+    from research_companion.deep_research import _report_grounding_block
+    assert _report_grounding_block([], None) == ""
+
+
+def test_report_grounding_block_skips_empty_titles_and_non_dicts():
+    from research_companion.deep_research import _report_grounding_block
+    block = _report_grounding_block([{"title": ""}, "not a dict", {"title": "Real"}], None)
+    assert block == "- Paper: Real (n.d.)."
