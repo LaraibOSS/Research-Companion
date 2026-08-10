@@ -147,3 +147,26 @@ export function reportCoverageModel(rawReport) {
     ? Math.max(0, Math.min(100, Math.round(raw.median_pct))) : base.pct;
   return { ...base, medianPct };
 }
+
+
+/**
+ * Map the raw GET /api/report `plan` field ({topic, questions, status} |
+ * null) to a safe display model for the Editable Research Plan (2e-4), or
+ * null when there is no plan. Never throws. The returned `questions` are
+ * ALREADY HTML-escaped (for read-only display, e.g. a "Plan: N questions"
+ * summary line) -- the LIVE editable textarea state in views/report.js
+ * uses the RAW `plan.questions` array directly (a textarea .value never
+ * needs escaping), never this model's escaped copy.
+ *
+ * @param {object|null} rawPlan -- the report's raw `plan` field
+ * @returns {{status:('draft'|'answered'), questions:string[]}|null}
+ */
+export function reportPlanModel(rawPlan) {
+  if (!rawPlan || typeof rawPlan !== 'object' || Array.isArray(rawPlan)) return null;
+  const status = (rawPlan.status === 'draft' || rawPlan.status === 'answered') ? rawPlan.status : null;
+  if (!status) return null;
+  const questions = Array.isArray(rawPlan.questions)
+    ? rawPlan.questions.filter(q => typeof q === 'string' && q.trim().length > 0).map(q => escapeHtml(q))
+    : [];
+  return { status, questions };
+}

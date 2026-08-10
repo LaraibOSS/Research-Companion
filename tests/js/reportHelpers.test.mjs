@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reportSectionModel, reportCoverageModel } from '../../research_companion/lab/static/js/reportHelpers.js';
+import { reportSectionModel, reportCoverageModel, reportPlanModel } from '../../research_companion/lab/static/js/reportHelpers.js';
 
 test('reportSectionModel: happy path escapes question/answer and builds citation chips', () => {
   const m = reportSectionModel({
@@ -212,4 +212,44 @@ test('reportCoverageModel returns null when the report has no coverage field', (
   assert.equal(reportCoverageModel({}), null);
   assert.equal(reportCoverageModel(null), null);
   assert.equal(reportCoverageModel(42), null);
+});
+
+
+// ---------------------------------------------------------------------------
+// reportPlanModel (Editable Research Plan, 2e-4)
+// ---------------------------------------------------------------------------
+
+test('reportPlanModel: draft status maps questions and filters blanks', () => {
+  const m = reportPlanModel({
+    topic: 't', status: 'draft',
+    questions: ['What methods are used?', '  ', 'What datasets are used?', 42],
+  });
+  assert.deepEqual(m, { status: 'draft', questions: ['What methods are used?', 'What datasets are used?'] });
+});
+
+test('reportPlanModel: answered status escapes question text', () => {
+  const m = reportPlanModel({ topic: 't', status: 'answered', questions: ['<b>Q1</b>?'] });
+  assert.deepEqual(m, { status: 'answered', questions: ['&lt;b&gt;Q1&lt;/b&gt;?'] });
+});
+
+test('reportPlanModel: null/garbage plan returns null', () => {
+  assert.equal(reportPlanModel(null), null);
+  assert.equal(reportPlanModel(undefined), null);
+  assert.equal(reportPlanModel(42), null);
+  assert.equal(reportPlanModel('a string'), null);
+  assert.equal(reportPlanModel([1, 2, 3]), null);
+});
+
+test('reportPlanModel: unknown status returns null', () => {
+  assert.equal(reportPlanModel({ status: 'bogus', questions: ['Q?'] }), null);
+  assert.equal(reportPlanModel({ questions: ['Q?'] }), null);
+});
+
+test('reportPlanModel: non-array questions defaults to empty array', () => {
+  const m = reportPlanModel({ status: 'draft', questions: 'not an array' });
+  assert.deepEqual(m, { status: 'draft', questions: [] });
+});
+
+test('reportPlanModel: never throws with garbage question entries', () => {
+  assert.doesNotThrow(() => reportPlanModel({ status: 'draft', questions: [null, 42, {}, ['x']] }));
 });

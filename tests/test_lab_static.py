@@ -3246,3 +3246,21 @@ def test_report_view_coverage_honesty_caption_present():
 def test_report_view_section_coverage_wired_into_section_html():
     text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
     assert "_coverageBarHtml(m.coverage)" in text
+
+
+# ---------------------------------------------------------------------------
+# feat/report-editable-plan: api.js clients (2e-4)
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_report_plan_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/report/plan" in api_js
+    assert "export function reportPlan" in api_js
+
+
+def test_api_js_refresh_report_supports_optional_questions():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    start = api_js.index("export function refreshReport")
+    end = api_js.index("\n\n", start)
+    body = api_js[start:end]
+    assert "questions" in body
