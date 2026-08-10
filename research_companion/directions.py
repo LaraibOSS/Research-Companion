@@ -341,3 +341,64 @@ def rank_directions(directions: list[dict]) -> list[dict]:
         )
         scored.append({**d, "score": score})
     return sorted(scored, key=lambda d: -d["score"])
+
+
+# ---------------------------------------------------------------------------
+# synthesize_directions
+# ---------------------------------------------------------------------------
+
+def synthesize_directions(
+    topic: str,
+    seeds: list[dict],
+    *,
+    library_papers: list[dict] = (),
+    graph: Any = None,
+    gap_synthesis: dict | None = None,
+    llm: Callable[[str], str] | None = None,
+) -> dict:
+    """Turn a topic + the papers in view (library ∪ 2a discovery seeds) + the
+    concept graph + open gaps into a ranked list of grounded, citation-backed
+    research directions.
+
+    Pipeline: pure collect -> one LLM call -> pure assemble -> pure rank.
+    Never raises: when there is truly nothing to ground on (no topic text
+    AND an empty grounding index), the LLM call is skipped entirely -- a
+    topic alone (even with an empty index) still triggers one LLM call,
+    since the researcher gave *something* to work from. Any LLM/parse
+    failure (including `llm=None`) degrades to an empty directions list
+    rather than propagating.
+
+    Returns {"directions": [...], "generated_from_sha":
+    directions_prompt_sha256(), "topic": <stripped topic>}.
+    """
+    from research_companion.extract import _strip_code_fences
+    from research_companion.prompts import (
+        directions_prompt_sha256,
+        format_directions_prompt,
+    )
+
+    sha = directions_prompt_sha256()
+    topic_str = str(topic or "").strip()
+    grounding_block, index = _collect_grounding(
+        topic_str, list(seeds or []),
+        library_papers=list(library_papers or []), graph=graph, gap_synthesis=gap_synthesis,
+    )
+
+    if not topic_str and not index:
+        return {"directions": [], "generated_from_sha": sha, "topic": topic_str}
+
+    prompt = format_directions_prompt(topic=topic_str, grounding_block=grounding_block)
+
+    raw_directions: list = []
+    try:
+        raw = llm(prompt)
+        data = json.loads(_strip_code_fences(raw)) if isinstance(raw, str) else raw
+        candidate = data.get("directions") if isinstance(data, dict) else None
+        if isinstance(candidate, list):
+            raw_directions = candidate
+    except Exception:
+        raw_directions = []
+
+    assembled = _assemble_directions({"directions": raw_directions}, index)
+    ranked = rank_directions(assembled)
+    return {"directions": ranked, "generated_from_sha": sha, "topic": topic_str}

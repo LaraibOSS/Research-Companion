@@ -366,3 +366,117 @@ def test_rank_directions_empty_list_returns_empty():
     assert rank_directions([]) == []
 
 
+# ---------------------------------------------------------------------------
+# synthesize_directions
+# ---------------------------------------------------------------------------
+
+def test_synthesize_directions_empty_topic_empty_grounding_no_llm_call():
+    from research_companion.directions import synthesize_directions
+
+    def exploding_llm(prompt: str) -> str:
+        raise AssertionError("llm must not be called when grounding is fully empty")
+
+    out = synthesize_directions("", [], library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=exploding_llm)
+    assert out["directions"] == []
+    assert out["topic"] == ""
+    assert "generated_from_sha" in out
+
+
+def test_synthesize_directions_topic_only_no_grounding_still_calls_llm():
+    from research_companion.directions import synthesize_directions
+    calls = []
+
+    def fake_llm(prompt: str) -> str:
+        calls.append(prompt)
+        return json.dumps({"directions": []})
+
+    out = synthesize_directions("some topic", [], library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=fake_llm)
+    assert len(calls) == 1
+    assert "some topic" in calls[0]
+    assert out["directions"] == []
+
+
+def test_synthesize_directions_happy_path_with_stub_llm():
+    from research_companion.directions import synthesize_directions
+    lib = [{"paper_id": "arxiv:2401.00001", "title": "GraphRAG", "year": 2024,
+            "abstract": "Graph-based retrieval.", "concepts": ["Graph Retrieval"]}]
+
+    def fake_llm(prompt: str) -> str:
+        assert "p:arxiv:2401.00001" in prompt
+        return json.dumps({"directions": [{
+            "title": "Extend GraphRAG to code",
+            "rationale": "Apply graph retrieval to source-code search.",
+            "direction_type": "new_application",
+            "grounded_in": ["p:arxiv:2401.00001"],
+        }]})
+
+    out = synthesize_directions("graph retrieval", [], library_papers=lib, graph=None,
+                                 gap_synthesis=None, llm=fake_llm)
+    assert out["topic"] == "graph retrieval"
+    assert len(out["directions"]) == 1
+    d = out["directions"][0]
+    assert d["title"] == "Extend GraphRAG to code"
+    assert d["grounding_count"] == 1
+    assert d["score"] > 0
+
+
+def test_synthesize_directions_malformed_json_returns_empty_list_no_raise():
+    from research_companion.directions import synthesize_directions
+
+    def bad_llm(prompt: str) -> str:
+        return "not json at all"
+
+    out = synthesize_directions("topic", [], library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=bad_llm)
+    assert out["directions"] == []
+
+
+def test_synthesize_directions_llm_exception_returns_empty_list_no_raise():
+    from research_companion.directions import synthesize_directions
+
+    def raising_llm(prompt: str) -> str:
+        raise RuntimeError("provider unreachable")
+
+    out = synthesize_directions("topic", [], library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=raising_llm)
+    assert out["directions"] == []
+
+
+def test_synthesize_directions_strips_markdown_code_fences():
+    from research_companion.directions import synthesize_directions
+
+    def fenced_llm(prompt: str) -> str:
+        return "```json\n" + json.dumps({"directions": [{
+            "title": "Fenced", "rationale": "r", "direction_type": "other", "grounded_in": [],
+        }]}) + "\n```"
+
+    out = synthesize_directions("topic", [], library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=fenced_llm)
+    assert [d["title"] for d in out["directions"]] == ["Fenced"]
+
+
+def test_synthesize_directions_none_llm_degrades_to_empty_list():
+    from research_companion.directions import synthesize_directions
+    out = synthesize_directions("topic", [], library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=None)
+    assert out["directions"] == []
+
+
+def test_synthesize_directions_seeds_only_no_library_still_grounds():
+    from research_companion.directions import synthesize_directions
+    seeds = [{"title": "Seed Paper", "year": 2023, "abstract": "", "doi": "10.1/xyz",
+              "arxiv_id": None, "s2_id": None, "pmid": None, "pmcid": None}]
+
+    def fake_llm(prompt: str) -> str:
+        assert "p:doi:10.1/xyz" in prompt
+        return json.dumps({"directions": [{
+            "title": "From seed", "rationale": "r", "direction_type": "other",
+            "grounded_in": ["p:doi:10.1/xyz"],
+        }]})
+
+    out = synthesize_directions("", seeds, library_papers=[], graph=None,
+                                 gap_synthesis=None, llm=fake_llm)
+    assert len(out["directions"]) == 1
+    assert out["directions"][0]["citations"][0]["paper_id"] is None  # not in the library
