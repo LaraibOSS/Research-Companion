@@ -4681,3 +4681,23 @@ class TestDiscoverEndpoint:
         c = _make_client()
         resp = c.get("/api/discover", params={"q": "q", "limit": 500})
         assert resp.status_code == 200
+
+    def test_get_discover_dedup_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        """A malformed search result (or any other post-search failure) that
+        makes _dedup_discovered/_library_identity_ids/the result-building
+        loop raise must still be caught -- these run AFTER the search/expand
+        calls but must stay inside the same never-500 guard."""
+        def fake_search(query, **kw):
+            return [self._dp("Some Paper", arxiv_id="2401.44444")]
+
+        def raising_dedup(papers):
+            raise RuntimeError("malformed record")
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        monkeypatch.setattr("research_companion.lab_api._dedup_discovered", raising_dedup)
+        c = _make_client()
+        resp = c.get("/api/discover", params={"q": "q"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["results"] == []
+        assert "error" in data and data["error"]

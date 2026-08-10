@@ -733,14 +733,15 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if not query:
             return {"results": [], "queries_used": [], "expanded": expand_requested}
 
+        # `queries` is seeded before the try so the except handler can report
+        # queries_used even if a failure happens before/during expansion.
+        queries = [query]
         try:
             if expand_requested:
                 resolved_llm = app.state.llm
                 if resolved_llm is None:
                     resolved_llm = _resolve_llm(json_mode=True)
                 queries = await asyncio.to_thread(discover.expand_query, query, llm=resolved_llm)
-            else:
-                queries = [query]
 
             all_results: list = []
             for one_query in queries:
@@ -749,22 +750,27 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     one_query, limit=limit, year_min=year_min, year_max=year_max,
                 )
                 all_results.extend(found)
+
+            # Dedup, the in-library check, and result-building all touch
+            # fields (title/doi/arxiv_id/paper_id/...) coming straight from
+            # third-party search results or on-disk metadata that was never
+            # type-checked -- keep them inside the same never-500 guard as
+            # the search/expand calls above.
+            deduped = _dedup_discovered(all_results)
+            library_ids = await asyncio.to_thread(_library_identity_ids)
+
+            results = []
+            for p in deduped[:limit]:
+                rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
+                ids = alt_ids(rec)
+                item = p.to_dict()
+                item["in_library"] = bool(ids & library_ids)
+                results.append(item)
         except Exception as exc:
             return {
-                "results": [], "queries_used": [query], "expanded": expand_requested,
+                "results": [], "queries_used": queries, "expanded": expand_requested,
                 "error": f"Discovery search failed: {exc}",
             }
-
-        deduped = _dedup_discovered(all_results)
-        library_ids = await asyncio.to_thread(_library_identity_ids)
-
-        results = []
-        for p in deduped[:limit]:
-            rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
-            ids = alt_ids(rec)
-            item = p.to_dict()
-            item["in_library"] = bool(ids & library_ids)
-            results.append(item)
 
         return {"results": results, "queries_used": queries, "expanded": expand_requested}
 
