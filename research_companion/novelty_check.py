@@ -88,3 +88,117 @@ def _prior_block(papers: list) -> str:
         abstract = getattr(p, "abstract", "") or ""
         lines.append(f"[{i}] {title} ({year_str}) - {abstract[:300]}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# _prior_work_dict / _clamp01 (small private assembly helpers)
+# ---------------------------------------------------------------------------
+
+def _prior_work_dict(p) -> dict:
+    """The curated, real (clickable) subset of a DiscoveredPaper attached to
+    check_novelty's output -- title/year/url/doi/arxiv_id/s2_id/pmid/
+    citation_count (NOT the full DiscoveredPaper.to_dict())."""
+    return {
+        "title": getattr(p, "title", "") or "",
+        "year": getattr(p, "year", None),
+        "url": getattr(p, "url", "") or "",
+        "doi": getattr(p, "doi", None),
+        "arxiv_id": getattr(p, "arxiv_id", None),
+        "s2_id": getattr(p, "s2_id", None),
+        "pmid": getattr(p, "pmid", None),
+        "citation_count": getattr(p, "citation_count", 0) or 0,
+    }
+
+
+def _clamp01(value: object) -> float:
+    """Coerce *value* to a finite float in [0.0, 1.0] (mirrors
+    agents/novelty.py's _clamp_confidence)."""
+    try:
+        v = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(v):
+        return 0.0
+    return max(0.0, min(1.0, v))
+
+
+# ---------------------------------------------------------------------------
+# check_novelty
+# ---------------------------------------------------------------------------
+
+def check_novelty(
+    title: str,
+    rationale: str,
+    *,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    limit: int = 15,
+    top_n: int = 5,
+    search: Callable[..., list] | None = None,
+    llm: Callable[[str], str] | None = None,
+) -> dict:
+    """Check the novelty of ONE research direction (title + rationale)
+    against real, freshly-searched prior work. Never raises.
+
+    Pipeline: pure query -> real search -> pure rank -> (zero results: an
+    honest low-confidence "novel", no LLM) OR one format_comparison_prompt
+    LLM call -> _strip_code_fences + tolerant json.loads -> pure normalize.
+
+    Returns {"verdict": one of "novel"/"incremental"/"overlaps"/
+    "anticipated"/None, "confidence": float in [0,1], "rationale": str,
+    "closest_prior": list[str], "prior_works": list[dict] (see
+    _prior_work_dict), "query": str, "llm_error": str|None}. `llm_error` is
+    a short message when the LLM call or its JSON parse failed (a
+    retryable failure the caller can surface, verdict stays None); it is
+    None for every other outcome, including "zero prior works found" and
+    the empty-title shell.
+    """
+    query = _novelty_query(title)
+    if not query:
+        return {
+            "verdict": None, "confidence": 0.0, "rationale": "",
+            "closest_prior": [], "prior_works": [], "query": "", "llm_error": None,
+        }
+
+    search_fn = search or discover.search_topic_with_fallback
+    papers = search_fn(query, limit=limit, year_min=year_min, year_max=year_max)
+
+    direction_text = f"{title} {rationale}".strip()
+    top = _rank_prior_works(direction_text, papers, top_n=top_n)
+
+    if not top:
+        return {
+            "verdict": "novel", "confidence": 0.3,
+            "rationale": "No prior work found for this direction in the searched sources.",
+            "closest_prior": [], "prior_works": [], "query": query, "llm_error": None,
+        }
+
+    prior_works = [_prior_work_dict(p) for p in top]
+    claim = f"{title}. {rationale}".strip()
+    prior_art = _prior_block(top)
+
+    try:
+        raw = llm(format_comparison_prompt(claim=claim, prior_art=prior_art))
+        parsed = json.loads(_strip_code_fences(raw)) if isinstance(raw, str) else raw
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM returned non-object JSON")
+    except Exception as exc:
+        return {
+            "verdict": None, "confidence": 0.0, "rationale": "",
+            "closest_prior": [], "prior_works": [], "query": query,
+            "llm_error": str(exc) or exc.__class__.__name__,
+        }
+
+    verdict = parsed.get("verdict")
+    if verdict not in _VERDICTS:
+        verdict = "novel"
+    confidence = _clamp01(parsed.get("confidence", 0.0))
+    out_rationale = str(parsed.get("rationale") or "")
+    raw_closest = parsed.get("closest_prior")
+    closest_prior = [str(x) for x in raw_closest] if isinstance(raw_closest, list) else []
+
+    return {
+        "verdict": verdict, "confidence": confidence, "rationale": out_rationale,
+        "closest_prior": closest_prior, "prior_works": prior_works, "query": query,
+        "llm_error": None,
+    }
