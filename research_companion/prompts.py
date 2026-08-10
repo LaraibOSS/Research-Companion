@@ -1045,3 +1045,50 @@ def format_scaffold_outline_prompt(
 
 def scaffold_outline_prompt_sha256() -> str:
     return hashlib.sha256(SCAFFOLD_OUTLINE_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Deep-Research Report questions prompt (deep_research.py
+# generate_questions). SHA-cached. Turns a topic + a grounding block of
+# real library papers/underexplored concepts into 4-max_questions distinct
+# investigation sub-questions (STORM-style perspectives). Honest: grounded
+# ONLY in the listed library items; must NOT invent papers or concepts.
+# ---------------------------------------------------------------------------
+
+REPORT_QUESTIONS_PROMPT = """You are a research assistant helping a researcher produce a structured literature-review report over their own paper library.
+
+Topic: <<TOPIC>>
+
+Below is a grounding block of real papers already in the researcher's library and underexplored concepts from their knowledge graph, if any:
+<<GROUNDING_BLOCK>>
+
+Break the topic down into 4 to <<MAX_QUESTIONS>> distinct investigation sub-questions -- different perspectives/angles on the topic (for example: definitions, methods, evidence, limitations, comparisons, applications -- adapted to what this topic actually needs), grounded in the library items listed above where relevant. Each question must be a standalone question a researcher could answer just by reading their own library -- do not reference "the papers above" or "this list" inside the question text itself.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "questions": [
+    "standalone investigation question"
+  ]
+}
+
+Rules:
+- 4 to <<MAX_QUESTIONS>> questions, each a distinct perspective on the topic.
+- Every question must be answerable on its own, without seeing this prompt or the grounding block.
+- Do NOT invent papers, concepts, or facts not given above -- ground the ANGLE of each question in the listed items, but the question itself must not assert anything as already true.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_report_questions_prompt(*, topic: str, grounding_block: str, max_questions: int) -> str:
+    """Substitute placeholders in REPORT_QUESTIONS_PROMPT."""
+    return (
+        REPORT_QUESTIONS_PROMPT
+        .replace("<<TOPIC>>", topic)
+        .replace("<<GROUNDING_BLOCK>>", grounding_block)
+        .replace("<<MAX_QUESTIONS>>", str(max_questions))
+    )
+
+
+def report_questions_prompt_sha256() -> str:
+    return hashlib.sha256(REPORT_QUESTIONS_PROMPT.encode("utf-8")).hexdigest()
