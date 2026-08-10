@@ -51,6 +51,25 @@ def test_relevant_units_empty_units_returns_empty_set():
     assert result == set()
 
 
+def test_relevant_units_ranks_all_units_not_top_k():
+    # Honesty guard: the denominator must be the true above-threshold count,
+    # so rank_fn MUST be called with k == len(units) (not rank_units's k=6
+    # default, which would silently cap the denominator and inflate coverage).
+    from research_companion.coverage import _relevant_units
+
+    seen = {}
+    units = [{"paper_id": f"p{i}", "section_id": "s1", "chunk_index": 0} for i in range(9)]
+
+    def spy_rank(question, q_tokens, u, *, k=6):
+        seen["k"] = k
+        seen["n_units"] = len(u)
+        return []
+
+    _relevant_units("Q?", units, rank_fn=spy_rank, threshold=0.35)
+    assert seen["k"] == len(units) == 9, "rank_fn must rank ALL units, not a top-k slice"
+    assert seen["n_units"] == 9
+
+
 def test_relevant_units_rank_fn_raising_returns_empty_set_no_raise():
     from research_companion.coverage import _relevant_units
 
