@@ -2374,7 +2374,7 @@ The 2e-4 change is **purely additive** — a plain `refresh({topic})` call (with
    - Filters out blanks, non-strings, truncates to `max_questions`, and normalizes whitespace — the exact same sanitization as the one-shot path.
 
 4. **`GET /api/report` additive passthrough**:
-   - The `report["plan"]` sub-object (if present) or `None` is added to all three of the endpoint's return points (top-level report, each section in the `sections` array, and the coverage sub-object), mirroring how `coverage`/`coverage_generated_from` were added in 2e-3.
+   - A top-level `plan` field (the cached `report["plan"]` sub-object if present, else `None`) is added to the endpoint's response at all three of its `return` points (the cache-empty return, the happy-path return, and the exception-fallback return), mirroring how `coverage`/`coverage_generated_from` were added in 2e-3. It is a single top-level field — not nested per-section or inside `coverage`; the frontend reads it as `_report.plan`.
    - Non-breaking: if a report from an older slice is retrieved, `plan` is absent and read as `None` by the frontend.
 
 ### The frontend (`research_companion/lab_static/js/`, specifically `views/report.js` and `reportHelpers.js`)
