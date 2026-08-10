@@ -29,6 +29,8 @@ import {
 } from '../discoverHelpers.js';
 import { directionResultModel, sortDirections } from '../directionsHelpers.js';
 import { noveltyResultModel } from '../noveltyHelpers.js';
+import { scaffoldPanelModel } from '../scaffoldHelpers.js';
+import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -51,6 +53,7 @@ let _directionsHasGenerated = false;
 let _directionsSortCol = 'score';
 let _directionsSortDir = 'desc';
 let _noveltyByDirectionId = new Map(); // directionId -> {loading, error, result} — survives full _render()
+let _scaffoldByDirectionId = new Map(); // directionId -> {loading, error, result} — survives full _render()
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -74,6 +77,7 @@ export function mount(el) {
   _directionsSortCol = 'score';
   _directionsSortDir = 'desc';
   _noveltyByDirectionId = new Map();
+  _scaffoldByDirectionId = new Map();
   _render();
 }
 
@@ -339,6 +343,7 @@ function _directionsBodyHtml() {
 function _directionCardHtml(m) {
   const chips = m.citations.map(_citationChipHtml).join('');
   const noveltyState = _noveltyByDirectionId.get(m.directionId) || null;
+  const scaffoldState = _scaffoldByDirectionId.get(m.directionId) || null;
   return `
     <div class="brainstorm-direction-card" data-direction-id="${escapeHtml(m.directionId)}">
       <div class="brainstorm-direction-top">
@@ -349,6 +354,7 @@ function _directionCardHtml(m) {
       <div class="brainstorm-direction-rationale muted">${m.rationale}</div>
       <div class="brainstorm-direction-citations">${chips}</div>
       <div class="brainstorm-direction-novelty">${_noveltyPanelHtml(m.directionId, noveltyState)}</div>
+      <div class="brainstorm-direction-scaffold">${_scaffoldPanelHtml(m.directionId, scaffoldState)}</div>
     </div>`;
 }
 
@@ -418,6 +424,77 @@ function _bindNoveltyPanelEvents(panel, directionId) {
   if (retryBtn) retryBtn.addEventListener('click', () => _checkNovelty(directionId));
 }
 
+function _scaffoldPanelHtml(directionId, state) {
+  const model = scaffoldPanelModel(state);
+  if (model.status === 'loading') {
+    return '<span class="muted brainstorm-scaffold-loading">Creating draft&hellip;</span>';
+  }
+  if (model.status === 'error') {
+    return `<div class="brainstorm-scaffold-error">
+      <span>${model.errorMessage}</span>
+      <button class="btn btn-sm brainstorm-scaffold-retry-btn" data-direction-id="${escapeHtml(directionId)}">Retry</button>
+    </div>`;
+  }
+  if (model.status === 'success') {
+    return `
+      <div class="brainstorm-scaffold-result">
+        <span class="brainstorm-scaffold-success muted">${model.successMessage}</span>
+        <a class="btn btn-sm brainstorm-scaffold-open-btn" href="${escapeHtml(model.openDraftRoute || '#/draft')}">Open draft</a>
+      </div>`;
+  }
+  return `<button class="btn btn-sm brainstorm-scaffold-btn" data-direction-id="${escapeHtml(directionId)}">Draft this direction</button>`;
+}
+
+async function _scaffoldDraft(directionId) {
+  if (!_el || !directionId) return;
+  const raw = _rawDirections.find(d => d.direction_id === directionId);
+  if (!raw) return;
+
+  await ensureActiveResearch(async () => {
+    const card = _el.querySelector(`.brainstorm-direction-card[data-direction-id="${CSS.escape(directionId)}"]`);
+    const panel = card ? card.querySelector('.brainstorm-direction-scaffold') : null;
+
+    _scaffoldByDirectionId.set(directionId, { loading: true, error: null, result: null });
+    if (panel) panel.innerHTML = _scaffoldPanelHtml(directionId, _scaffoldByDirectionId.get(directionId));
+
+    try {
+      const data = await api.scaffoldDraft({
+        title: raw.title || '',
+        rationale: raw.rationale || '',
+        directionType: raw.direction_type || '',
+        citations: Array.isArray(raw.citations) ? raw.citations : [],
+      });
+      if (data.ok === false) {
+        _scaffoldByDirectionId.set(directionId, {
+          loading: false, error: data.error || 'Failed to draft this direction.', result: null,
+        });
+      } else {
+        _scaffoldByDirectionId.set(directionId, {
+          loading: false, error: null,
+          result: { section_count: data.section_count, replaced_draft: !!data.replaced_draft },
+        });
+        store.setDraft(data.paper_id);
+        showToast(data.replaced_draft ? 'Replaced your previous draft' : 'Draft created', 'info');
+      }
+    } catch (err) {
+      _scaffoldByDirectionId.set(directionId, {
+        loading: false, error: err.message || 'Failed to draft this direction.', result: null,
+      });
+    }
+
+    if (panel) {
+      panel.innerHTML = _scaffoldPanelHtml(directionId, _scaffoldByDirectionId.get(directionId));
+      _bindScaffoldPanelEvents(panel, directionId);
+    }
+  });
+}
+
+function _bindScaffoldPanelEvents(panel, directionId) {
+  if (!panel) return;
+  const retryBtn = panel.querySelector('.brainstorm-scaffold-retry-btn');
+  if (retryBtn) retryBtn.addEventListener('click', () => _scaffoldDraft(directionId));
+}
+
 function _citationChipHtml(c) {
   if (c.kind === 'paper' && c.paperId) {
     return `<button class="chip brainstorm-direction-citation-paper" data-paper-id="${escapeHtml(c.paperId)}" title="${escapeHtml(c.title)}">${c.label}</button>`;
@@ -474,5 +551,9 @@ function _bindEvents() {
 
   _el.querySelectorAll('.brainstorm-novelty-btn, .brainstorm-novelty-retry-btn').forEach(btn => {
     btn.addEventListener('click', () => _checkNovelty(btn.dataset.directionId));
+  });
+
+  _el.querySelectorAll('.brainstorm-scaffold-btn, .brainstorm-scaffold-retry-btn').forEach(btn => {
+    btn.addEventListener('click', () => _scaffoldDraft(btn.dataset.directionId));
   });
 }

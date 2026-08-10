@@ -473,3 +473,30 @@ export function checkNovelty(params = {}) {
   };
   return post('/api/novelty', body);
 }
+
+// ---------------------------------------------------------------------------
+// Draft scaffolding endpoint (feat/brainstorm-scaffold, Brainstorm 2d)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/directions/draft { title, rationale?, direction_type?, citations? }
+ * "Draft this direction" (Brainstorm 2d) -- MUTATING: creates a real draft
+ * in the active research from one chosen direction's outline. Guarded
+ * (409 with no active workspace, unlike discover/directions/novelty) and
+ * atomic-on-success server-side: a failure returns 200 {ok:false, error}
+ * and creates nothing. Returns { ok, paper_id?, draft_paper_id?,
+ * section_count?, replaced_draft?, error? }.
+ *
+ * @param {{title?:string, rationale?:string, directionType?:string,
+ *   citations?:object[]}} direction
+ */
+export function scaffoldDraft(direction = {}) {
+  const { title, rationale, directionType, citations } = direction;
+  const body = {
+    title: title || '',
+    rationale: rationale || '',
+    direction_type: directionType || '',
+    citations: Array.isArray(citations) ? citations : [],
+  };
+  return post('/api/directions/draft', body);
+}

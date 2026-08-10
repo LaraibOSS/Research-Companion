@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -3055,3 +3055,48 @@ def test_brainstorm_view_has_novelty_map_and_retry_state():
     text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
     assert "_noveltyByDirectionId" in text
     assert "brainstorm-novelty-retry-btn" in text
+
+
+# ---------------------------------------------------------------------------
+# feat/brainstorm-scaffold: "Draft this direction" (Brainstorm 2d)
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_scaffold_draft_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/directions/draft" in api_js
+    assert "export function scaffoldDraft(" in api_js or "export const scaffoldDraft" in api_js
+
+
+def test_brainstorm_view_has_draft_this_direction_button_and_calls_api():
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert "brainstorm-scaffold-btn" in text
+    assert "Draft this direction" in text
+    assert "api.scaffoldDraft(" in text
+    assert "scaffoldPanelModel" in text
+
+
+def test_brainstorm_view_scaffold_draft_calls_api_inside_ensure_active_research():
+    """The mutating scaffold call MUST be wrapped in ensureActiveResearch,
+    mirroring _addOne/_addAll -- unlike the read-only _checkNovelty."""
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    start = text.index("async function _scaffoldDraft")
+    end = text.index("\n\nfunction _bindScaffoldPanelEvents", start)
+    body = text[start:end]
+    assert "ensureActiveResearch(async () => {" in body
+    assert "api.scaffoldDraft(" in body
+
+
+def test_brainstorm_view_has_scaffold_map_and_retry_state():
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert "_scaffoldByDirectionId" in text
+    assert "brainstorm-scaffold-retry-btn" in text
+
+
+def test_brainstorm_view_has_open_draft_link():
+    view = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    helpers = (STATIC_DIR / "js" / "scaffoldHelpers.js").read_text(encoding="utf-8")
+    # The draft route is a single source-of-truth constant in the pure helper;
+    # the view renders it (via the openDraftRoute model field) as the "Open draft" link.
+    assert "#/draft" in helpers
+    assert "openDraftRoute" in view
+    assert "Open draft" in view
