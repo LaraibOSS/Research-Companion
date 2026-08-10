@@ -369,7 +369,12 @@ def synthesize_directions(
     rather than propagating.
 
     Returns {"directions": [...], "generated_from_sha":
-    directions_prompt_sha256(), "topic": <stripped topic>}.
+    directions_prompt_sha256(), "topic": <stripped topic>, "llm_error":
+    <str|None>}. `llm_error` is a short message when the LLM call or its JSON
+    parse failed (a retryable failure the caller can surface); it stays None
+    for a successful call, including one that legitimately yields zero
+    directions -- so the caller can tell "the model failed" from "nothing to
+    suggest".
     """
     from research_companion.extract import _strip_code_fences
     from research_companion.prompts import (
@@ -385,20 +390,31 @@ def synthesize_directions(
     )
 
     if not topic_str and not index:
-        return {"directions": [], "generated_from_sha": sha, "topic": topic_str}
+        return {"directions": [], "generated_from_sha": sha, "topic": topic_str, "llm_error": None}
 
     prompt = format_directions_prompt(topic=topic_str, grounding_block=grounding_block)
 
     raw_directions: list = []
+    llm_error: str | None = None
     try:
         raw = llm(prompt)
         data = json.loads(_strip_code_fences(raw)) if isinstance(raw, str) else raw
         candidate = data.get("directions") if isinstance(data, dict) else None
         if isinstance(candidate, list):
             raw_directions = candidate
-    except Exception:
+    except Exception as exc:
+        # Never raise: a valid JSON response with zero directions is a
+        # genuine empty result (llm_error stays None); a call/parse failure
+        # is a retryable error the caller surfaces to the user. Both keep
+        # directions == [].
         raw_directions = []
+        llm_error = str(exc) or exc.__class__.__name__
 
     assembled = _assemble_directions({"directions": raw_directions}, index)
     ranked = rank_directions(assembled)
-    return {"directions": ranked, "generated_from_sha": sha, "topic": topic_str}
+    return {
+        "directions": ranked,
+        "generated_from_sha": sha,
+        "topic": topic_str,
+        "llm_error": llm_error,
+    }

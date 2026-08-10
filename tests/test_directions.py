@@ -381,6 +381,7 @@ def test_synthesize_directions_empty_topic_empty_grounding_no_llm_call():
     assert out["directions"] == []
     assert out["topic"] == ""
     assert "generated_from_sha" in out
+    assert out["llm_error"] is None
 
 
 def test_synthesize_directions_topic_only_no_grounding_still_calls_llm():
@@ -396,6 +397,10 @@ def test_synthesize_directions_topic_only_no_grounding_still_calls_llm():
     assert len(calls) == 1
     assert "some topic" in calls[0]
     assert out["directions"] == []
+    # A successful call that legitimately yields zero directions is NOT an
+    # error -- llm_error must stay None so the caller shows the empty state,
+    # not a retry banner.
+    assert out["llm_error"] is None
 
 
 def test_synthesize_directions_happy_path_with_stub_llm():
@@ -431,6 +436,8 @@ def test_synthesize_directions_malformed_json_returns_empty_list_no_raise():
     out = synthesize_directions("topic", [], library_papers=[], graph=None,
                                  gap_synthesis=None, llm=bad_llm)
     assert out["directions"] == []
+    # A parse failure is a retryable failure -> surfaced via llm_error.
+    assert out["llm_error"]
 
 
 def test_synthesize_directions_llm_exception_returns_empty_list_no_raise():
@@ -442,6 +449,9 @@ def test_synthesize_directions_llm_exception_returns_empty_list_no_raise():
     out = synthesize_directions("topic", [], library_papers=[], graph=None,
                                  gap_synthesis=None, llm=raising_llm)
     assert out["directions"] == []
+    # The call failure is surfaced (not swallowed silently) so the endpoint
+    # can show a retry banner instead of a false empty result.
+    assert out["llm_error"] and "provider unreachable" in out["llm_error"]
 
 
 def test_synthesize_directions_strips_markdown_code_fences():

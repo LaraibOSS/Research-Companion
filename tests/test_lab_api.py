@@ -4765,12 +4765,12 @@ class TestDirectionsEndpoint:
         assert data["directions"][0]["citations"][0]["paper_id"] is None
 
     def test_post_directions_llm_failure_never_500s(self, isolated_papergraph_dir):
-        """synthesize_directions (Task 2) already swallows an LLM/parse
-        failure internally and degrades to an empty directions list rather
-        than propagating (see its docstring) -- so the handler's own
-        try/except never sees this exception and the response carries no
-        top-level "error" key. This still exercises the never-500 contract
-        end-to-end through the real (non-monkeypatched) synthesize_directions."""
+        """An LLM call failure never 500s AND is surfaced as a retryable
+        error (spec 2.2/4). synthesize_directions swallows the exception
+        internally (never raises) but reports it via the additive `llm_error`
+        key, which the handler maps to the same never-500 `error` shape as a
+        handler-level failure -- so a transient provider outage shows a retry
+        banner instead of masquerading as a legitimate empty result."""
         def raising_llm(prompt: str) -> str:
             raise RuntimeError("provider down")
 
@@ -4779,7 +4779,7 @@ class TestDirectionsEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["directions"] == []
-        assert "error" not in data
+        assert "error" in data and "provider down" in data["error"]
 
     def test_post_directions_store_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
         from research_companion import store

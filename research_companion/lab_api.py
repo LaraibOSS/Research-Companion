@@ -832,6 +832,14 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except Exception as exc:
             return {"directions": [], "topic": topic, "error": f"Directions generation failed: {exc}"}
 
+        # An LLM call/parse failure is swallowed inside synthesize_directions
+        # (it never raises); surface it here as the same never-500 error shape
+        # so a transient outage shows a retry banner, not a false "no ideas".
+        llm_error = result.get("llm_error")
+        if llm_error:
+            return {"directions": [], "topic": result.get("topic", topic),
+                    "error": f"Directions generation failed: {llm_error}"}
+
         return {"directions": result.get("directions", []), "topic": result.get("topic", topic)}
 
     # -----------------------------------------------------------------
