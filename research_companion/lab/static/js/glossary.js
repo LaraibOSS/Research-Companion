@@ -24,6 +24,7 @@ export const GLOSSARY = {
   bm25:        'BM25: keyword-frequency ranking algorithm used in the hybrid retrieval stage.',
   rcs_relevance: 'How relevant this cited passage is to the question — an AI judgment, not independently verified.',
   rcs_stance:    'Whether this cited passage supports, contradicts, or is neutral toward the answer — an AI judgment, not independently verified.',
+  coverage:      'Share of the library passages our own search judged relevant to this question that are reflected in its citations — a BM25 heuristic, not ground truth.',
 };
 
 /**

@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reportSectionModel } from '../../research_companion/lab/static/js/reportHelpers.js';
+import { reportSectionModel, reportCoverageModel } from '../../research_companion/lab/static/js/reportHelpers.js';
 
 test('reportSectionModel: happy path escapes question/answer and builds citation chips', () => {
   const m = reportSectionModel({
@@ -156,4 +156,60 @@ test('reportSectionModel never throws with garbage rcs values', () => {
   assert.doesNotThrow(() => reportSectionModel({
     citations: [{ rcs: 'not an object' }, { rcs: 42 }, { rcs: [] }],
   }));
+});
+
+
+// ---------------------------------------------------------------------------
+// Report Coverage / Saturation section + report-level model (2e-3)
+// ---------------------------------------------------------------------------
+
+test('section coverage present builds a numeric display model', () => {
+  const m = reportSectionModel({
+    question: 'Q?', answer: 'A [S1].', citations: [],
+    coverage: { pct: 62, cited: 5, relevant_available: 8 },
+  });
+  assert.deepEqual(m.coverage, { pct: 62, cited: 5, relevantAvailable: 8, tip: 'coverage' });
+});
+
+test('section coverage absent means null, no crash', () => {
+  const m = reportSectionModel({ question: 'Q', answer: 'A', citations: [] });
+  assert.equal(m.coverage, null);
+});
+
+test('section coverage malformed (array/string/number) means null, never throws', () => {
+  assert.doesNotThrow(() => {
+    assert.equal(reportSectionModel({ coverage: [] }).coverage, null);
+    assert.equal(reportSectionModel({ coverage: 'nope' }).coverage, null);
+    assert.equal(reportSectionModel({ coverage: 42 }).coverage, null);
+  });
+});
+
+test('section coverage pct is clamped to [0,100] and rounded', () => {
+  const m = reportSectionModel({
+    question: 'Q', answer: 'A', citations: [],
+    coverage: { pct: 142.6, cited: 3, relevant_available: 3 },
+  });
+  assert.equal(m.coverage.pct, 100);
+});
+
+test('section coverage negative/non-numeric counts default to 0', () => {
+  const m = reportSectionModel({
+    question: 'Q', answer: 'A', citations: [],
+    coverage: { pct: 0, cited: -5, relevant_available: 'nope' },
+  });
+  assert.equal(m.coverage.cited, 0);
+  assert.equal(m.coverage.relevantAvailable, 0);
+});
+
+test('reportCoverageModel maps the top-level report coverage field with medianPct', () => {
+  const m = reportCoverageModel({
+    coverage: { pct: 55, cited: 11, relevant_available: 20, median_pct: 60 },
+  });
+  assert.deepEqual(m, { pct: 55, cited: 11, relevantAvailable: 20, tip: 'coverage', medianPct: 60 });
+});
+
+test('reportCoverageModel returns null when the report has no coverage field', () => {
+  assert.equal(reportCoverageModel({}), null);
+  assert.equal(reportCoverageModel(null), null);
+  assert.equal(reportCoverageModel(42), null);
 });
