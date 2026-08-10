@@ -321,3 +321,111 @@ def test_score_section_strips_markdown_code_fences():
 
     results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=fenced_llm)
     assert results == [{"relevance": 0.4, "stance": "contradicts", "rationale": "ok"}]
+
+
+# ---------------------------------------------------------------------------
+# score_report
+# ---------------------------------------------------------------------------
+
+def test_score_report_attaches_rcs_and_stamps_prompt_sha():
+    from research_companion.prompts import rcs_prompt_sha256
+    from research_companion.rcs import score_report
+
+    report = {
+        "topic": "graph retrieval",
+        "sections": [{
+            "question": "Q1?", "answer": "A1 [S1].",
+            "citations": [{"paper_id": "p1", "paper_title": "P1", "char_start": 0, "char_end": 5}],
+            "unverified_quotes": [],
+        }],
+        "generated_from": {}, "question_count": 1,
+    }
+    load_text_fn = _stub_load_text({"p1": "Hello world"})
+
+    def fake_llm(prompt):
+        return json.dumps({"scores": [
+            {"ref": 0, "relevance": 0.7, "stance": "supports", "rationale": "ok"},
+        ]})
+
+    scored = score_report(report, load_text_fn=load_text_fn, llm=fake_llm)
+    assert scored["sections"][0]["citations"][0]["rcs"] == {
+        "relevance": 0.7, "stance": "supports", "rationale": "ok",
+    }
+    assert scored["rcs_generated_from"] == rcs_prompt_sha256()
+    # score_report returns a NEW report -- the input is never mutated
+    assert "rcs" not in report["sections"][0]["citations"][0]
+
+
+def test_score_report_invokes_progress_callback_per_section():
+    from research_companion.rcs import score_report
+
+    report = {
+        "topic": "t",
+        "sections": [
+            {"question": "Q1?", "answer": "A1", "citations": [], "unverified_quotes": []},
+            {"question": "Q2?", "answer": "A2", "citations": [], "unverified_quotes": []},
+        ],
+        "generated_from": {}, "question_count": 2,
+    }
+    calls = []
+    score_report(report, load_text_fn=lambda p: None, llm=lambda p: "{}",
+                 progress=lambda j, m: calls.append((j, m)))
+    assert calls == [(1, 2), (2, 2)]
+
+
+def test_score_report_per_section_failure_isolation():
+    """When the LLM raises for one section's score_section call, that
+    section's citations stay unscored -- the rest of the report still
+    scores (score_section itself never raises, so the whole job still
+    completes; a section's evidence-scoring failure never aborts the
+    report)."""
+    from research_companion.rcs import score_report
+
+    report = {
+        "topic": "t",
+        "sections": [
+            {"question": "Bad?", "answer": "A", "citations": [
+                {"paper_id": "p1", "paper_title": "P1", "char_start": 0, "char_end": 5}],
+             "unverified_quotes": []},
+            {"question": "Good?", "answer": "A", "citations": [
+                {"paper_id": "p2", "paper_title": "P2", "char_start": 0, "char_end": 5}],
+             "unverified_quotes": []},
+        ],
+        "generated_from": {}, "question_count": 2,
+    }
+    load_text_fn = _stub_load_text({"p1": "Hello world", "p2": "Goodbye now"})
+
+    calls = {"n": 0}
+
+    def flaky_llm(prompt):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("down")
+        return json.dumps({"scores": [{"ref": 0, "relevance": 0.6, "stance": "supports", "rationale": "ok"}]})
+
+    scored = score_report(report, load_text_fn=load_text_fn, llm=flaky_llm)
+    assert scored["sections"][0]["citations"][0].get("rcs") is None
+    assert scored["sections"][1]["citations"][0]["rcs"]["stance"] == "supports"
+
+
+def test_score_report_never_raises_on_malformed_report():
+    from research_companion.rcs import score_report
+    assert score_report(None, llm=lambda p: "{}") is None
+    assert score_report("not a dict", llm=lambda p: "{}") == "not a dict"
+    assert score_report({"sections": "not a list"}, llm=lambda p: "{}")["sections"] == []
+
+
+def test_score_report_additive_no_rcs_when_no_scorable_citations():
+    from research_companion.rcs import score_report
+
+    report = {
+        "topic": "t",
+        "sections": [{
+            "question": "Q?", "answer": "A",
+            "citations": [{"paper_id": "missing", "paper_title": "M", "char_start": 0, "char_end": 5}],
+            "unverified_quotes": [],
+        }],
+        "generated_from": {}, "question_count": 1,
+    }
+    scored = score_report(report, load_text_fn=lambda p: None, llm=lambda p: "{}")
+    assert "rcs" not in scored["sections"][0]["citations"][0]

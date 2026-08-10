@@ -23,6 +23,7 @@ See docs/superpowers/specs/2026-08-10-report-rcs-scoring-design.md.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable
 from typing import Any
@@ -193,3 +194,82 @@ def score_section(
         if ref in scores_by_ref:
             results[idx] = scores_by_ref[ref]
     return results
+
+
+# ---------------------------------------------------------------------------
+# score_report
+# ---------------------------------------------------------------------------
+
+def score_report(
+    report: dict,
+    *,
+    load_text_fn: Callable[[str], str | None] = store.load_text,
+    llm: Callable[[str], str] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict:
+    """Pure orchestration: walk report["sections"], score_section each
+    (progress(j, m) is invoked, 1-based, before scoring the j-th of m
+    sections -- drives "Scoring evidence j/m"), and attach the resulting
+    rcs dict onto each citation (a citation with no score keeps no "rcs"
+    key at all -- rcs is a purely ADDITIVE field, so a report with nothing
+    scorable renders exactly like a 2e-1 report). Stamps
+    report["rcs_generated_from"] = rcs_prompt_sha256(). Returns a NEW
+    report dict -- the input *report* (and its nested sections/citations)
+    is never mutated. A single section's scoring failure (score_section
+    itself never raises, but this wraps the call defensively too) leaves
+    that section's citations unscored -- the rest of the report is still
+    scored. A malformed *report* (not a dict, or with a non-list
+    "sections") degrades gracefully rather than raising. Never raises.
+    """
+    from research_companion.prompts import rcs_prompt_sha256
+
+    if not isinstance(report, dict):
+        return report
+
+    try:
+        sections = report.get("sections")
+        sections = sections if isinstance(sections, list) else []
+        m = len(sections)
+
+        new_sections = []
+        for j, section in enumerate(sections, start=1):
+            if progress is not None:
+                with contextlib.suppress(Exception):
+                    progress(j, m)
+
+            if not isinstance(section, dict):
+                new_sections.append(section)
+                continue
+
+            citations = section.get("citations")
+            citations = citations if isinstance(citations, list) else []
+
+            try:
+                scores = score_section(
+                    section.get("question", ""), section.get("answer", ""),
+                    citations, load_text_fn=load_text_fn, llm=llm,
+                )
+            except Exception:
+                scores = [None] * len(citations)
+
+            new_citations = []
+            for i, citation in enumerate(citations):
+                if not isinstance(citation, dict):
+                    new_citations.append(citation)
+                    continue
+                new_citation = dict(citation)
+                rcs_score = scores[i] if i < len(scores) else None
+                if rcs_score is not None:
+                    new_citation["rcs"] = rcs_score
+                new_citations.append(new_citation)
+
+            new_section = dict(section)
+            new_section["citations"] = new_citations
+            new_sections.append(new_section)
+
+        new_report = dict(report)
+        new_report["sections"] = new_sections
+        new_report["rcs_generated_from"] = rcs_prompt_sha256()
+        return new_report
+    except Exception:
+        return dict(report)
