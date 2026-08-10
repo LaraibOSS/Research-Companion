@@ -95,6 +95,26 @@ def _normalize_questions(raw_questions: list, *, max_questions: int) -> list[str
 
 
 # ---------------------------------------------------------------------------
+# _normalize_plan_questions (Editable Research Plan, 2e-4)
+# ---------------------------------------------------------------------------
+
+def _normalize_plan_questions(raw_questions: list, *, max_questions: int = 12) -> list[str]:
+    """Pure post-processing for the editable plan: trims, drops non-string/
+    empty items, dedupes case-insensitively (first occurrence wins --
+    mirrors _normalize_questions exactly), caps at max_questions (default
+    12 -- a sane ceiling on how many questions a report will ever answer,
+    whether LLM-generated or user-edited/added). Never raises. Reused by
+    the plan endpoint (POST /api/report/plan, on freshly generated
+    questions) and by the extended refresh (POST /api/report/refresh, on
+    the user's edited/reordered/added question list) so both accept
+    exactly the same normalization.
+    """
+    if not isinstance(raw_questions, list):
+        return []
+    return _normalize_questions(raw_questions, max_questions=max_questions)
+
+
+# ---------------------------------------------------------------------------
 # generate_questions
 # ---------------------------------------------------------------------------
 
