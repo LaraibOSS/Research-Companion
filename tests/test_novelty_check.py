@@ -36,3 +36,42 @@ def test_novelty_query_empty_or_whitespace_returns_empty_sentinel():
     assert _novelty_query("") == ""
     assert _novelty_query("   ") == ""
     assert _novelty_query(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# _rank_prior_works
+# ---------------------------------------------------------------------------
+
+def test_rank_prior_works_orders_by_token_overlap_desc():
+    from research_companion.novelty_check import _rank_prior_works
+    low = _paper(title="Completely unrelated topic", abstract="Something else entirely.")
+    high = _paper(title="Graph retrieval augmented generation for code search", abstract="")
+    out = _rank_prior_works("graph retrieval for code search", [low, high], top_n=5)
+    assert out == [high, low]
+
+
+def test_rank_prior_works_ties_broken_by_original_order():
+    from research_companion.novelty_check import _rank_prior_works
+    a = _paper(title="Graph retrieval", year=2020)
+    b = _paper(title="Graph retrieval", year=2021)
+    out = _rank_prior_works("graph retrieval", [a, b], top_n=5)
+    assert out == [a, b]
+
+
+def test_rank_prior_works_caps_at_top_n():
+    from research_companion.novelty_check import _rank_prior_works
+    papers = [_paper(title=f"Graph retrieval paper {i}") for i in range(10)]
+    out = _rank_prior_works("graph retrieval", papers, top_n=3)
+    assert len(out) == 3
+
+
+def test_rank_prior_works_empty_papers_returns_empty():
+    from research_companion.novelty_check import _rank_prior_works
+    assert _rank_prior_works("graph retrieval", [], top_n=5) == []
+
+
+def test_rank_prior_works_missing_title_and_abstract_safe():
+    from research_companion.novelty_check import _rank_prior_works
+    p = _paper(title="", abstract="")
+    out = _rank_prior_works("graph retrieval", [p], top_n=5)
+    assert out == [p]

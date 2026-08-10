@@ -40,3 +40,32 @@ def _novelty_query(title: str) -> str:
     whitespace-only input returns "" -- the sentinel `check_novelty` treats
     as "no query" (skip search and LLM entirely; nothing to check)."""
     return str(title or "").strip()
+
+
+# ---------------------------------------------------------------------------
+# _rank_prior_works
+# ---------------------------------------------------------------------------
+
+def _rank_prior_works(direction_text: str, papers: list, top_n: int = 5) -> list:
+    """Score each DiscoveredPaper by token overlap between *direction_text*
+    and the paper's title+abstract, using the same rank.tokenize primitive
+    gaps.resolve_gaps uses. Score = size of the set intersection of tokens
+    (deterministic, no semantic-similarity primitive exists). Sorted
+    descending by score; ties keep the papers' original (already
+    citation-sorted by discover.search_topic_with_fallback) order -- a
+    stable sort key of (-score, original_index). Capped at *top_n*. Empty
+    or partial input (missing title/abstract) is safe -- never raises.
+    """
+    if not papers:
+        return []
+    direction_tokens = set(tokenize(direction_text))
+    scored = []
+    for idx, p in enumerate(papers):
+        title = getattr(p, "title", "") or ""
+        abstract = getattr(p, "abstract", "") or ""
+        paper_tokens = set(tokenize(f"{title} {abstract}"))
+        score = len(direction_tokens & paper_tokens)
+        scored.append((score, idx, p))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    cap = max(0, top_n)
+    return [p for _score, _idx, p in scored[:cap]]
