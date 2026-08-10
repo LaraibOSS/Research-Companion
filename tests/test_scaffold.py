@@ -311,3 +311,79 @@ def test_scaffold_sections_payload_missing_title_defaults_to_untitled():
     text, payload = scaffold_sections_payload(outline, title="T")
     assert payload["sections"][0]["title"] == "Untitled"
     assert "Untitled" in text
+
+
+# ---------------------------------------------------------------------------
+# create_draft_from_direction
+# ---------------------------------------------------------------------------
+
+def test_create_draft_from_direction_writes_metadata_text_and_sections(isolated_papergraph_dir):
+    from research_companion import store
+    from research_companion.scaffold import create_draft_from_direction
+
+    direction = {
+        "title": "Graph retrieval for code search",
+        "rationale": "Apply graph-based retrieval to code.",
+        "direction_type": "extend_method",
+        "citations": [],
+    }
+    outline = _sample_outline()
+
+    paper_id = create_draft_from_direction(direction, outline)
+
+    assert paper_id.startswith("scaffold:")
+    meta = store.PaperMetadata.load(paper_id)
+    assert meta is not None
+    assert meta.title == "Graph retrieval for code search"
+    assert meta.authors == []
+    assert meta.year is None
+    assert meta.abstract == "Apply graph-based retrieval to code."
+    assert meta.parse_source == "scaffold"
+    assert meta.full_text_available is True
+
+    text = store.load_text(paper_id)
+    assert text == (
+        "# Introduction\n\nIntro desc.\n\n"
+        "# Method\n\nMethod desc.\n\n"
+        "## Setup\n\nSetup desc.\n\n"
+    )
+    sections = store.load_sections(paper_id)
+    assert sections is not None
+    assert sections["method"] == "scaffold"
+    assert len(sections["sections"]) == 3
+
+
+def test_create_draft_from_direction_deterministic_paper_id(isolated_papergraph_dir):
+    from research_companion.scaffold import create_draft_from_direction
+
+    direction = {"title": "Same direction", "rationale": "Same rationale.", "citations": []}
+    outline = _sample_outline()
+
+    pid1 = create_draft_from_direction(direction, outline)
+    pid2 = create_draft_from_direction(direction, outline)
+    assert pid1 == pid2
+
+
+def test_create_draft_from_direction_rescaffold_overwrites_same_paper(isolated_papergraph_dir):
+    from research_companion import store
+    from research_companion.scaffold import create_draft_from_direction
+
+    direction = {"title": "Same direction", "rationale": "Same rationale.", "citations": []}
+
+    pid1 = create_draft_from_direction(direction, _sample_outline())
+    other_outline = {"sections": [{"title": "Only Section", "level": 1, "description": "d"}]}
+    pid2 = create_draft_from_direction(direction, other_outline)
+
+    assert pid1 == pid2  # same paper_id -- overwrite, not a new paper
+    sections = store.load_sections(pid1)
+    assert len(sections["sections"]) == 1  # the second scaffold's content won
+
+
+def test_create_draft_from_direction_different_direction_different_paper_id(isolated_papergraph_dir):
+    from research_companion.scaffold import create_draft_from_direction
+
+    pid1 = create_draft_from_direction(
+        {"title": "Direction A", "rationale": "Rationale A.", "citations": []}, _sample_outline())
+    pid2 = create_draft_from_direction(
+        {"title": "Direction B", "rationale": "Rationale B.", "citations": []}, _sample_outline())
+    assert pid1 != pid2

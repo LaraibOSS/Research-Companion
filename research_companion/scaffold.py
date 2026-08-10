@@ -35,9 +35,13 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any
 
+from research_companion import store
 from research_companion.extract import _strip_code_fences
 from research_companion.prompts import format_scaffold_outline_prompt
+from research_companion.rebuttal.verify import _norm
 
 _MAX_SECTIONS = 12
 
@@ -217,3 +221,63 @@ def scaffold_sections_payload(outline: dict, *, title: str) -> tuple[str, dict]:
         "sections": sections_payload,
     }
     return text, payload
+
+
+# ---------------------------------------------------------------------------
+# create_draft_from_direction
+# ---------------------------------------------------------------------------
+
+def _scaffold_paper_id(title: str, rationale: str) -> str:
+    """Deterministic paper_id for a scaffolded draft -- a content hash of
+    the direction's (title, rationale), so re-scaffolding the SAME
+    direction overwrites the same draft paper rather than piling up
+    duplicates (mirrors directions._assemble_directions's direction_id
+    hashing convention: the same rebuttal.verify._norm helper, sha256,
+    truncated to 12 hex chars)."""
+    key = f"{_norm(title)}|{_norm(rationale)}"
+    return "scaffold:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def create_draft_from_direction(direction: dict, outline: dict, *, store_mod: Any = store) -> str:
+    """Materialize a successful outline as a draft paper. MUTATING -- call
+    ONLY after `generate_outline` succeeds (llm_error is None and sections
+    is non-empty); the caller (lab_api.py) is responsible for that
+    atomic-on-success check.
+
+    Mints a deterministic `paper_id` (see `_scaffold_paper_id`), builds a
+    `PaperMetadata` record (title = the direction's title, authors=[],
+    year=None, abstract = the direction's rationale, parse_source=
+    "scaffold" -- a clearly-labeled scaffold, not a real paper --
+    full_text_available=True), `.save()`s it, then writes the synthetic
+    body (`store_mod.save_text`) and the tiling sections
+    (`store_mod.save_sections`) from `scaffold_sections_payload`.
+
+    Does NOT set the draft pointer, record a journey version, or fire
+    events -- the caller reuses the existing `_apply_draft` for that so the
+    wiring is never duplicated. `store_mod` is the injectable seam for
+    tests (defaults to the real `research_companion.store`).
+
+    Returns the minted `paper_id`.
+    """
+    d = direction if isinstance(direction, dict) else {}
+    title = str(d.get("title") or "").strip() or "Untitled direction"
+    rationale = str(d.get("rationale") or "").strip()
+
+    paper_id = _scaffold_paper_id(title, rationale)
+    text, sections_payload = scaffold_sections_payload(outline, title=title)
+
+    meta = store_mod.PaperMetadata(
+        paper_id=paper_id,
+        title=title,
+        authors=[],
+        year=None,
+        abstract=rationale,
+        source_url="",
+        added_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        parse_source="scaffold",
+        full_text_available=True,
+    )
+    meta.save()
+    store_mod.save_text(paper_id, text)
+    store_mod.save_sections(paper_id, sections_payload)
+    return paper_id
