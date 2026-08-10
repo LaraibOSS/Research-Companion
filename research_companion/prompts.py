@@ -935,3 +935,57 @@ def format_discover_expand_prompt(title: str) -> str:
 
 def discover_expand_prompt_sha256() -> str:
     return hashlib.sha256(DISCOVER_EXPAND_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Research Directions prompt (directions.py synthesize_directions). SHA-cached.
+# Turns a topic + a grounding block of real papers/underexplored concepts/
+# open gaps into over-generated, citation-backed candidate directions.
+# Honest: every suggestion must cite a key copied EXACTLY from the block;
+# inventing a key is forbidden (assembly drops any key not in the index).
+# ---------------------------------------------------------------------------
+
+DIRECTIONS_PROMPT = """You are a research ideation assistant helping a researcher find their next research direction.
+
+Topic: <<TOPIC>>
+
+Below is a list of items you may ground suggestions in: real papers from the researcher's library and topic search, underexplored concepts from their knowledge graph, and open research gaps. Each item is tagged with a stable key in brackets ([p:...] for a paper, [c:...] for a concept, [g:...] for a gap).
+
+<<GROUNDING_BLOCK>>
+
+Suggest 8 to 12 candidate research directions. Every direction MUST be grounded ONLY in the items listed above — cite them by copying their keys EXACTLY. Do NOT invent a key, a paper, a concept, or a gap not listed above.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "directions": [
+    {
+      "title": "short, actionable direction title",
+      "rationale": "one-line, actionable rationale grounded ONLY in the cited items",
+      "direction_type": "extend_method|new_application|underexplored_concept|open_gap|cross_pollination|other",
+      "grounded_in": ["key copied exactly from the list above", "..."]
+    }
+  ]
+}
+
+Rules:
+- Over-generate: aim for 8-12 directions, more than a researcher would act on, so ranking can surface the best.
+- Every grounded_in key MUST be copied EXACTLY from the list above (a [p:...]/[c:...]/[g:...] key). Inventing a key is forbidden.
+- rationale is exactly one sentence, actionable, and grounded ONLY in the cited items' content — do not add facts not present in them.
+- direction_type must be exactly one of: extend_method, new_application, underexplored_concept, open_gap, cross_pollination, other.
+- Do NOT invent papers, concepts, gaps, or keys not given above.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_directions_prompt(*, topic: str, grounding_block: str) -> str:
+    """Substitute placeholders in DIRECTIONS_PROMPT."""
+    return (
+        DIRECTIONS_PROMPT
+        .replace("<<TOPIC>>", topic)
+        .replace("<<GROUNDING_BLOCK>>", grounding_block)
+    )
+
+
+def directions_prompt_sha256() -> str:
+    return hashlib.sha256(DIRECTIONS_PROMPT.encode("utf-8")).hexdigest()

@@ -27,6 +27,7 @@ import {
   dedupeDiscoverResults,
   sortDiscoverResults,
 } from '../discoverHelpers.js';
+import { directionResultModel, sortDirections } from '../directionsHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -42,6 +43,12 @@ let _libraryIds = new Set(); // "prefix:id" ids known-added this session
 let _sortCol = 'relevance';
 let _sortDir = 'desc';
 let _hasSearched = false;
+let _directionsLoading = false;
+let _directionsError = null;
+let _rawDirections = [];        // last raw POST /api/directions directions[]
+let _directionsHasGenerated = false;
+let _directionsSortCol = 'score';
+let _directionsSortDir = 'desc';
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -58,6 +65,12 @@ export function mount(el) {
   _sortCol = 'relevance';
   _sortDir = 'desc';
   _hasSearched = false;
+  _directionsLoading = false;
+  _directionsError = null;
+  _rawDirections = [];
+  _directionsHasGenerated = false;
+  _directionsSortCol = 'score';
+  _directionsSortDir = 'desc';
   _render();
 }
 
@@ -160,6 +173,43 @@ async function _addAll() {
   });
 }
 
+function _directionModels() {
+  return sortDirections(_rawDirections.map(directionResultModel), _directionsSortCol, _directionsSortDir);
+}
+
+/** Enabled once there is something to ground on: a typed topic, or at least
+ * one paper already in view from a 2a search (the actual library is always
+ * additionally consulted server-side regardless of this button's state). */
+function _directionsButtonEnabled() {
+  if (!_el) return false;
+  const topic = ((_el.querySelector('#brainstorm-search-input') || {}).value || '').trim();
+  return topic.length > 0 || _rawResults.length > 0;
+}
+
+async function _generateDirections() {
+  if (!_el) return;
+  const topic = ((_el.querySelector('#brainstorm-search-input') || {}).value || '').trim();
+  const yearMin = (_el.querySelector('#brainstorm-year-min') || {}).value || '';
+  const yearMax = (_el.querySelector('#brainstorm-year-max') || {}).value || '';
+
+  _directionsLoading = true;
+  _directionsError = null;
+  _directionsHasGenerated = true;
+  _render();
+
+  try {
+    const data = await api.directions({ topic, yearMin, yearMax, seeds: _rawResults });
+    _rawDirections = Array.isArray(data.directions) ? data.directions : [];
+    _directionsError = data.error || null;
+  } catch (err) {
+    _rawDirections = [];
+    _directionsError = err.message || 'Failed to generate directions.';
+  } finally {
+    _directionsLoading = false;
+    _render();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -199,6 +249,7 @@ function _render() {
             Add all${notInLibraryCount > 0 ? ` (${notInLibraryCount})` : ''}
           </button>
         </div>` : ''}
+      ${_directionsSectionHtml()}
     </div>`;
 
   _bindEvents();
@@ -248,6 +299,62 @@ function _rowHtml(m) {
     </div>`;
 }
 
+function _directionsSectionHtml() {
+  const enabled = _directionsButtonEnabled();
+  return `
+    <div class="brainstorm-directions-section">
+      <div class="brainstorm-directions-header">
+        <h3>Research Directions</h3>
+        <button id="brainstorm-directions-btn" class="btn btn-accent"${enabled ? '' : ' disabled'}>Generate directions</button>
+      </div>
+      <div class="brainstorm-directions-body">
+        ${_directionsBodyHtml()}
+      </div>
+    </div>`;
+}
+
+function _directionsBodyHtml() {
+  if (_directionsLoading) {
+    return '<div class="brainstorm-directions-loading muted">Generating directions&hellip;</div>';
+  }
+  if (_directionsError) {
+    return `<div class="brainstorm-directions-error">
+      <span>${escapeHtml(_directionsError)}</span>
+      <button id="brainstorm-directions-retry-btn" class="btn btn-sm">Retry</button>
+    </div>`;
+  }
+  if (!_directionsHasGenerated) {
+    return '<div class="brainstorm-directions-empty muted">Search a topic or add papers, then generate directions.</div>';
+  }
+  const models = _directionModels();
+  if (models.length === 0) {
+    return '<div class="brainstorm-directions-empty muted">No grounded directions yet &mdash; try a broader topic or add more papers.</div>';
+  }
+  return models.map(_directionCardHtml).join('');
+}
+
+function _directionCardHtml(m) {
+  const chips = m.citations.map(_citationChipHtml).join('');
+  return `
+    <div class="brainstorm-direction-card" data-direction-id="${escapeHtml(m.directionId)}">
+      <div class="brainstorm-direction-top">
+        <span class="chip brainstorm-direction-type-chip brainstorm-direction-type-${escapeHtml(m.typeBadge.slug)}">${m.typeBadge.label}</span>
+        <span class="brainstorm-direction-score muted">score ${escapeHtml(String(m.score))} &middot; ${escapeHtml(String(m.groundingCount))} cited</span>
+      </div>
+      <div class="brainstorm-direction-title">${m.title}</div>
+      <div class="brainstorm-direction-rationale muted">${m.rationale}</div>
+      <div class="brainstorm-direction-citations">${chips}</div>
+    </div>`;
+}
+
+function _citationChipHtml(c) {
+  if (c.kind === 'paper' && c.paperId) {
+    return `<button class="chip brainstorm-direction-citation-paper" data-paper-id="${escapeHtml(c.paperId)}" title="${escapeHtml(c.title)}">${c.label}</button>`;
+  }
+  const kindClass = c.kind === 'gap' ? 'brainstorm-direction-citation-gap' : 'brainstorm-direction-citation-concept';
+  return `<span class="chip ${kindClass}" title="${escapeHtml(c.kind)}">${c.label}</span>`;
+}
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -275,6 +382,22 @@ function _bindEvents() {
     btn.addEventListener('click', () => {
       const model = _models().find(m => m.addTarget === btn.dataset.addTarget);
       if (model) _addOne(model);
+    });
+  });
+
+  const directionsBtn = _el.querySelector('#brainstorm-directions-btn');
+  if (directionsBtn) directionsBtn.addEventListener('click', () => _generateDirections());
+
+  const directionsRetryBtn = _el.querySelector('#brainstorm-directions-retry-btn');
+  if (directionsRetryBtn) directionsRetryBtn.addEventListener('click', () => _generateDirections());
+
+  _el.querySelectorAll('.brainstorm-direction-citation-paper').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const paperId = btn.dataset.paperId;
+      if (!paperId) return;
+      window.__rcPendingPaper = paperId;
+      window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
+      window.location.hash = '#/library';
     });
   });
 }

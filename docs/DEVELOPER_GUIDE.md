@@ -1743,3 +1743,100 @@ guard every other add-flow in the Lab uses, so a brand-new user is
 prompted to name a research before the first paper lands. Loading / empty
 / error states mirror `views/gaps.js`; an `.error` payload from the server
 renders as a retry banner instead of an exception.
+
+## 29. Research Directions — `POST /api/directions`, `directions.py`, and the frontend helpers
+
+The Brainstorm tab's Research Directions section (2b of the ideation arc)
+mirrors `gaps.py`'s collect -> one-LLM-call -> assemble -> rank shape, but is
+deliberately **synchronous and ephemeral** like `GET /api/discover` (2a) —
+NOT a disk-cached background job like Gaps. Directions are a function of a
+free-text topic + transient 2a discovery seeds, both of which change every
+search, so there is no corpus-SHA disk cache that could stay valid.
+
+### `research_companion/directions.py`
+
+`synthesize_directions(topic, seeds, *, library_papers=(), graph=None, gap_synthesis=None, llm=None) -> dict`
+is the orchestrator:
+
+1. **`_collect_grounding`** (pure) builds a stable-keyed index of everything
+   the LLM is allowed to cite:
+   - **Papers** — the union of `library_papers` (assembled by the endpoint:
+     `store.list_papers()` paired with each paper's cached
+     `store.load_extraction(...)` for its concept names) and `seeds` (the
+     2a `GET /api/discover` results the client already fetched), deduped by
+     identity (`connectors.identity.alt_ids`, same DOI>PMID>PMCID>arXiv>title
+     precedence as 2a's `_dedup_discovered`). Each survivor gets a stable
+     `p:<connectors.identity.canonical_id(...)>` key.
+   - **Underexplored concepts** (`_underexplored_concepts`) — concept nodes
+     from the knowledge graph (`graph.py`'s `load_graph()`) with the lowest
+     `paper_count` (the only existing per-concept frequency signal; no
+     centrality/sparse-region computation exists), bottom third, capped at
+     15, each a `c:<normalized-name>` key.
+   - **Open gaps** — themes from `store.load_gap_synthesis()` with
+     `status in ("open", "partial")`, each a `g:<theme_id>` key.
+   - When there is no topic text AND this index is empty, `synthesize_directions`
+     returns `{"directions": [], "generated_from_sha": ..., "topic": ""}`
+     with **no LLM call** — there is truly nothing to ground a suggestion in.
+     A topic alone (even with an empty index) still triggers one call.
+2. **One SHA-cached LLM call** — `prompts.format_directions_prompt(topic=...,
+   grounding_block=...)` -> `llm(prompt)`. `DIRECTIONS_PROMPT` instructs the
+   model to over-generate 8-12 directions, cite ONLY the given keys, and
+   return strict JSON. `_strip_code_fences` + a tolerant `json.loads`; any
+   parse/LLM failure (including `llm=None`) degrades to `[]`, never raises.
+3. **`_assemble_directions`** (pure) maps each `grounded_in` key back to its
+   real citation and **drops any key not in the index** — the same honesty
+   guard as `gaps._assemble_themes` dropping invented `gap_id`s. A direction
+   whose citations all drop is kept (not hidden) with `grounding_count: 0`
+   so ranking sends it to the bottom. `direction_id = "dir_" +
+   sha256(_norm(title))[:12]` (same `_norm` as `gaps._gap_id`).
+4. **`rank_directions`** (pure) computes `score = 3.0*grounding_count +
+   0.1*(recency-2000) + type_weight` (`open_gap`=2.0,
+   `underexplored_concept`=1.5, `cross_pollination`=1.0, others=0.0;
+   `recency` = the max cited paper year, 0 if none) and stable-sorts
+   descending — ties keep the LLM's original order.
+
+### `POST /api/directions`
+
+`research_companion/lab_api.py`, registered right after `GET /api/discover`.
+Body: `{topic, year_min?, year_max?, seeds?}` (`year_min`/`year_max` are
+accepted for parity with 2a but not yet used to filter). The handler
+resolves the LLM (`app.state.llm or _resolve_llm(json_mode=True)`), builds
+`library_papers` from the store, loads the graph and gap synthesis, and
+calls `directions.synthesize_directions(...)` inside `asyncio.to_thread`.
+
+**Deliberately NOT behind `require_active_workspace`** — a cold brainstormer
+with no research yet can still generate directions from a topic and 2a
+seeds alone; `store.list_papers()` degrades to `[]` with no active
+workspace, so nothing from the library grounds the result in that case, but
+nothing 409s or 500s either.
+
+**Never 500s.** The entire body (LLM resolution, store reads, graph load,
+`synthesize_directions`) is wrapped in one `try/except Exception` that
+degrades to a 200 `{"directions": [], "topic": topic, "error": "<msg>"}` —
+the same shape the frontend already renders as a retry banner.
+
+### Frontend — `directionsHelpers.js` + the Research Directions section
+
+`research_companion/lab/static/js/directionsHelpers.js` is the pure,
+DOM-free, node-tested layer (`tests/js/directionsHelpers.test.mjs`):
+`directionResultModel(raw)` maps one raw direction to a display row with
+pre-escaped `title`/`rationale`/`typeBadge.label`/citation `label`s and raw
+`directionId`/citation `paperId`/`themeId`/`name` (the caller escapes these
+before writing into a DOM attribute — same contract as
+`discoverHelpers.js`); `sortDirections(list, col, dir)` sorts by `'score'`
+(default) or `'recency'`, nulls last, stable, unknown column = no-op copy.
+
+`views/brainstorm.js` appends the section below the existing discovery
+results: a **Generate directions** button (enabled once there is a typed
+topic or at least one 2a search result in view) calls
+`api.directions({topic, yearMin, yearMax, seeds: _rawResults})` — reusing
+2a's already-fetched `_rawResults` as `seeds`, so the surface never
+re-runs a search server-side. Direction cards show the title, rationale,
+type badge, citation chips, and a grounding/score indicator. A citation
+chip for a paper already in the library dispatches the same
+`rc:open-paper` CustomEvent + `#/library` hash navigation `views/gaps.js`
+uses for its citation chips; a concept/gap chip, or a paper citation
+grounded only in a not-yet-added 2a seed (no `paper_id`, and the pinned
+citation shape carries no URL), is informational only. Loading / empty /
+error(retry) states mirror the rest of the tab; there is no SSE
+subscription — the endpoint is synchronous, exactly like 2a's search.
