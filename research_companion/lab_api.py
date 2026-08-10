@@ -3270,6 +3270,63 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         return {"job_id": job_id}
 
     # -----------------------------------------------------------------
+    # POST /api/report/score-evidence -> 202 {"job_id"}
+    # (Report Evidence Scoring / RCS, 2e-2 -- opt-in, guarded, never-crash)
+    # -----------------------------------------------------------------
+    @app.post("/api/report/score-evidence", status_code=202,
+              dependencies=[Depends(require_active_workspace)])
+    async def score_evidence() -> dict:
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        score_label = "Scoring evidence…"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "report_rcs",
+                                  "label": score_label, "target": ""}
+
+        async def _run_score_evidence():
+            await _announce_start(job_id, "report_rcs", score_label)
+            try:
+                from research_companion import rcs, store
+                from research_companion.agents.events import ReportUpdated
+
+                report = await asyncio.to_thread(store.load_report)
+                sections = report.get("sections") if isinstance(report, dict) else None
+                if not isinstance(sections, list) or not sections:
+                    app.state.jobs[job_id] = {
+                        "status": "failed", "detail": "Generate a report first.",
+                        "kind": "report_rcs", "label": score_label, "target": "",
+                    }
+                    return
+
+                resolved_llm = app.state.llm
+                if resolved_llm is None:
+                    resolved_llm = _resolve_llm(json_mode=True)
+
+                def _progress(j: int, m: int) -> None:
+                    app.state.jobs[job_id]["detail"] = f"Scoring evidence {j}/{m}"
+
+                scored = await asyncio.to_thread(
+                    rcs.score_report, report, llm=resolved_llm, progress=_progress,
+                )
+                await asyncio.to_thread(store.save_report, scored)
+
+                await bus.publish(ReportUpdated(
+                    question_count=scored.get("question_count", 0) or 0,
+                    topic=scored.get("topic", "") or "",
+                ))
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "report_rcs",
+                                          "label": score_label, "target": ""}
+            except Exception as exc:  # noqa: BLE001 — this job must never crash the server
+                app.state.jobs[job_id] = {
+                    "status": "failed", "detail": str(exc), "kind": "report_rcs",
+                    "label": score_label, "target": "",
+                }
+            finally:
+                await _announce_finish(job_id, "report_rcs")
+
+        asyncio.create_task(_run_score_evidence())
+        return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
     # GET /api/temporal
     # -----------------------------------------------------------------
     @app.get("/api/temporal")
