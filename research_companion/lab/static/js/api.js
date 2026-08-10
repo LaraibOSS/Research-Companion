@@ -287,18 +287,41 @@ export const refreshGaps = () => post('/api/gaps/refresh');
 // ---------------------------------------------------------------------------
 
 /**
- * GET /api/report — returns { topic, sections, question_count, stale }
+ * GET /api/report — returns { topic, sections, question_count, stale, plan }
  */
 export const getReport = () => get('/api/report');
 
 /**
- * POST /api/report/refresh { topic } — triggers report-generation job.
- * MUTATING + guarded (409 with no active workspace, like
- * POST /api/directions/draft). Returns { job_id }.
+ * POST /api/report/plan { topic } — Editable Research Plan (2e-4).
+ * MUTATING (saves a draft plan) + guarded (409 with no active workspace,
+ * like refreshReport) but SYNCHRONOUS -- one LLM call, like
+ * POST /api/directions -- returns the result directly, no job_id/poll. A
+ * generation failure comes back as 200 {ok:false, error} rather than an
+ * HTTP error (never 500), so callers must check `data.ok` in addition to
+ * catching network rejections. Returns { ok, plan?: {topic, questions,
+ * status}, error? }.
+ */
+export function reportPlan(params = {}) {
+  const { topic } = params;
+  return post('/api/report/plan', { topic: topic || '' });
+}
+
+/**
+ * POST /api/report/refresh { topic, questions? } — triggers report-generation
+ * job. MUTATING + guarded (409 with no active workspace, like
+ * POST /api/directions/draft). `questions` is optional (Editable Research
+ * Plan, 2e-4): when it is a non-empty array, the server answers EXACTLY
+ * those questions and skips its own question-generation LLM call;
+ * omitted/empty preserves the original one-shot behavior (2e-1) unchanged.
+ * Returns { job_id }.
  */
 export function refreshReport(params = {}) {
-  const { topic } = params;
-  return post('/api/report/refresh', { topic: topic || '' });
+  const { topic, questions } = params;
+  const body = { topic: topic || '' };
+  if (Array.isArray(questions) && questions.length > 0) {
+    body.questions = questions;
+  }
+  return post('/api/report/refresh', body);
 }
 
 // ---------------------------------------------------------------------------

@@ -1172,6 +1172,49 @@ Coverage is the third of several planned Deep-Research Report refinements. An ed
 
 ---
 
+## 31. Editable Research Plan — review, edit, and approve the questions before the report runs
+
+Every Report now gives you a checkpoint before the expensive answering pass: a **research plan** that lists all the investigation questions the model will answer, ready for you to review, edit, add, remove, and reorder before it commits to answering them.
+
+**What changed:**
+
+Previously, clicking "Generate report" was a single, all-in-one action: the model generated a set of investigation questions AND immediately answered all of them in one background job. Now there is an optional, much cheaper checkpoint in between: you click **Generate plan** to produce the same set of questions (one LLM call), review and edit them (instantly, in your browser), and then click **Run report** to answer exactly the set you approved.
+
+The original one-shot flow is completely unchanged — the plain **Generate report** button still works exactly as before, immediately generating AND answering in one step, for anyone who wants to skip the checkpoint.
+
+**How to use the editable research plan:**
+
+1. Click **Generate plan** — this runs one LLM call to produce the investigation questions grounded in your library, and displays them as an editable list.
+
+2. Edit the questions directly in your browser:
+   - Click inside any question to edit its wording.
+   - Click the **✕** button next to a question to remove it entirely.
+   - Use **▲** and **▼** to reorder questions.
+   - Click **+ Add question** at the bottom to write your own investigation question from scratch.
+   - All of these edits happen instantly, with no server round-trip — purely client-side.
+
+3. When you're happy with the list, click **Run report** to answer exactly those questions with the same grounded, quote-verified engine, live "Answering N/M" progress bar, and full citation coverage as always.
+
+**Why use it:**
+
+- **Saves money** — you pay for only one LLM call (planning) upfront, then decide which questions are worth the more expensive answering pass. If the model's first guess isn't what you want, edit and re-run instead of generating a whole new report.
+- **Puts you in control** — you decide exactly which questions get answered, instead of trusting the model's first-draft list. Add your own domain-specific questions that the model wouldn't think of.
+- **Transparent** — every report records the exact set of questions that were actually answered in its metadata, so you can always trace back to your edits.
+
+**What happens if you navigate away:**
+
+If you generate a plan and navigate away (or reload the page) before running the report, the plan is saved as a **draft** and the page automatically reopens in the editable list the next time you visit that report. Your edits are never lost.
+
+**Editing and re-running an existing report:**
+
+An already-answered report has an **Edit plan / re-run** button that lets you revisit the exact set of questions that produced it, make adjustments, and generate a fresh report with your edited questions. This is useful if you want to refine your topic mid-investigation.
+
+**Honesty note — re-running clears prior evidence scores:**
+
+When you run the report (whether via the one-shot "Generate report" button or by running an edited plan), the report is rebuilt completely from scratch, which rebuilds all the answer sections and **clears any prior RCS (evidence scoring) results** — the relevance and stance badges are erased and need to be re-scored if you want them refreshed. This is expected and honest: running the report answers the questions again, and the prior RCS judgment was specific to the old answer text. Simply click **Score evidence** again after the new report finishes if you want the badges updated.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four

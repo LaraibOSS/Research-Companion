@@ -340,3 +340,51 @@ def test_build_report_never_raises_when_answer_fn_raises_for_every_question():
     report = build_report("topic", ["Q1?", "Q2?"], answer_fn=always_raises, generated_shas={})
     assert report["question_count"] == 2
     assert all(s["error"] == "down" for s in report["sections"])
+
+
+# ---------------------------------------------------------------------------
+# _normalize_plan_questions (Editable Research Plan, 2e-4)
+# ---------------------------------------------------------------------------
+
+def test_normalize_plan_questions_trims_and_drops_empty_and_non_string():
+    from research_companion.deep_research import _normalize_plan_questions
+
+    out = _normalize_plan_questions(
+        ["  What methods are used?  ", "", "   ", None, 42, "What datasets are used?"],
+        max_questions=12,
+    )
+    assert out == ["What methods are used?", "What datasets are used?"]
+
+
+def test_normalize_plan_questions_dedupes_case_insensitively():
+    from research_companion.deep_research import _normalize_plan_questions
+
+    out = _normalize_plan_questions(["What is X?", "what is x?", "What is Y?"], max_questions=12)
+    assert out == ["What is X?", "What is Y?"]
+
+
+def test_normalize_plan_questions_caps_at_max_questions_default_twelve():
+    from research_companion.deep_research import _normalize_plan_questions
+
+    out = _normalize_plan_questions([f"Question {i}?" for i in range(20)], max_questions=12)
+    assert len(out) == 12
+    assert out[0] == "Question 0?"
+
+
+def test_normalize_plan_questions_default_max_is_twelve():
+    from research_companion.deep_research import _normalize_plan_questions
+
+    out = _normalize_plan_questions([f"Q{i}?" for i in range(20)])
+    assert len(out) == 12
+
+
+def test_normalize_plan_questions_empty_list_returns_empty_list():
+    from research_companion.deep_research import _normalize_plan_questions
+    assert _normalize_plan_questions([]) == []
+    assert _normalize_plan_questions(None) == []
+
+
+def test_normalize_plan_questions_never_raises_on_garbage_input():
+    from research_companion.deep_research import _normalize_plan_questions
+    assert _normalize_plan_questions("not a list") == []
+    assert _normalize_plan_questions([1, 2, {"a": 1}, ["nested"]]) == []
