@@ -91,3 +91,56 @@ def test_relevant_units_malformed_entries_are_skipped():
     rank_fn = _stub_rank_fn(["not a dict", {"score": 0.9, "mode": "hybrid"}])  # no "unit" key
     result = _relevant_units("Q?", [{"paper_id": "p1"}], rank_fn=rank_fn, threshold=0.35)
     assert result == set()
+
+
+# ---------------------------------------------------------------------------
+# _section_coverage
+# ---------------------------------------------------------------------------
+
+def test_section_coverage_pct_from_cited_over_relevant():
+    from research_companion.coverage import _section_coverage
+
+    relevant = {("p1", "s1", 0), ("p1", "s1", 1), ("p2", "s1", 0), ("p2", "s1", 1)}
+    section = {"citations": [
+        {"paper_id": "p1", "section_id": "s1", "chunk_index": 0},
+        {"paper_id": "p2", "section_id": "s1", "chunk_index": 0},
+    ]}
+    cov = _section_coverage(section, relevant)
+    assert cov == {"pct": 50, "cited": 2, "relevant_available": 4}
+
+
+def test_section_coverage_zero_denominator_is_honest_not_fake_100():
+    from research_companion.coverage import _section_coverage
+    section = {"citations": [{"paper_id": "p1", "section_id": "s1", "chunk_index": 0}]}
+    cov = _section_coverage(section, set())
+    assert cov == {"pct": 0, "cited": 0, "relevant_available": 0}
+
+
+def test_section_coverage_citation_not_in_relevant_set_does_not_inflate():
+    from research_companion.coverage import _section_coverage
+    relevant = {("p1", "s1", 0)}
+    section = {"citations": [{"paper_id": "p9", "section_id": "s9", "chunk_index": 9}]}
+    cov = _section_coverage(section, relevant)
+    assert cov == {"pct": 0, "cited": 0, "relevant_available": 1}
+
+
+def test_section_coverage_dedupes_distinct_citation_units():
+    from research_companion.coverage import _section_coverage
+    relevant = {("p1", "s1", 0)}
+    section = {"citations": [
+        {"paper_id": "p1", "section_id": "s1", "chunk_index": 0},
+        {"paper_id": "p1", "section_id": "s1", "chunk_index": 0},  # duplicate
+    ]}
+    cov = _section_coverage(section, relevant)
+    assert cov == {"pct": 100, "cited": 1, "relevant_available": 1}
+
+
+def test_section_coverage_malformed_section_never_raises():
+    from research_companion.coverage import _section_coverage
+    assert _section_coverage(None, {("p1", "s1", 0)}) == {"pct": 0, "cited": 0, "relevant_available": 1}
+    assert _section_coverage({"citations": "not a list"}, {("p1", "s1", 0)}) == {
+        "pct": 0, "cited": 0, "relevant_available": 1,
+    }
+    assert _section_coverage({"citations": ["not a dict"]}, {("p1", "s1", 0)}) == {
+        "pct": 0, "cited": 0, "relevant_available": 1,
+    }

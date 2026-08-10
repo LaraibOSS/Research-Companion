@@ -29,6 +29,7 @@ See docs/superpowers/specs/2026-08-10-report-coverage-design.md.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from research_companion.gaps import _relevance_score
 from research_companion.rank import tokenize
@@ -94,3 +95,35 @@ def _relevant_units(
             unit.get("chunk_index", 0),
         ))
     return relevant
+
+
+# ---------------------------------------------------------------------------
+# _section_coverage
+# ---------------------------------------------------------------------------
+
+def _section_coverage(section: Any, relevant_set: set) -> dict:
+    """{"pct", "cited", "relevant_available"} for one report section.
+    relevant_available = len(relevant_set) (the size of the question's OWN
+    relevance set, computed by _relevant_units); cited = the count of
+    DISTINCT (paper_id, section_id, chunk_index) citation units that are
+    ALSO in relevant_set (a citation outside the relevant set never
+    inflates the count); pct = round(100 * cited / relevant_available), or
+    an honest 0 when relevant_available == 0 (never a fake 100%). A
+    malformed *section* (not a dict, non-list/malformed "citations")
+    degrades to cited=0 rather than raising. Never raises.
+    """
+    relevant_available = len(relevant_set)
+    citations = section.get("citations") if isinstance(section, dict) else None
+    citations = citations if isinstance(citations, list) else []
+
+    cited_units: set = set()
+    for c in citations:
+        if not isinstance(c, dict):
+            continue
+        key = (c.get("paper_id", ""), c.get("section_id", ""), c.get("chunk_index", 0))
+        if key in relevant_set:
+            cited_units.add(key)
+
+    cited = len(cited_units)
+    pct = round(100 * cited / relevant_available) if relevant_available > 0 else 0
+    return {"pct": pct, "cited": cited, "relevant_available": relevant_available}
