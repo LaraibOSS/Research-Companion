@@ -604,7 +604,7 @@ Each thread has a **Clear chat** button that wipes its history and deletes
 the conversation stored on disk — it works even if nothing has been
 persisted yet.
 
-## 16. Timeline & gaps
+## 16. Timeline, gaps & the Gaps tab
 
 The **Timeline** lays out concepts, methods, and datasets by year — when each
 first appeared and how it evolved. Toggle the **gap overlay**: amber diamonds
@@ -612,6 +612,36 @@ are limitations papers admitted in their own limitation/future-work sections
 (quoted and verified verbatim); your draft is the blue diamond. Click a gap
 for the evidence quote and a Discuss button. Gaps your draft addresses are
 highlighted; open gaps relevant to your draft become suggestions.
+
+### The Gaps tab
+
+The Timeline's diamonds show *individual* gaps against a timeline; the
+**Gaps** tab (left rail) shows the *synthesized* picture instead: near-duplicate
+gaps from across your library grouped into cross-corpus **themes**, so
+"three papers all said the same thing is missing" reads as one bullet instead
+of three.
+
+Each bullet carries:
+- A **type badge** — `Limitation` (something the paper admits it can't do) or
+  `Future work` (something the authors say should be done next) — and an
+  **FWS chip** classifying *what kind* of gap it is: Method, Resources,
+  Evaluation, Application, Problem, or Other.
+- **Citation chips** — every paper that raised (a member of) this theme;
+  click one to open that paper.
+- A **status pill** — `Open` (nothing in your library addresses it yet),
+  `Partially addressed`, or `Addressed`; a `★ Your draft` badge appears when
+  your own draft is one of the addressing papers.
+- A **frequency** count — how many distinct papers raised this gap.
+
+Use the **type**/**status** filter chips and the **Relevance / Recency /
+Frequency** sort buttons to narrow the list. **Refresh gaps** re-runs
+extraction, resolution, and theme synthesis (one LLM call to group gaps into
+themes) — the result is cached, so re-opening the tab afterward is instant
+until something changes. With no papers yet (or nothing synthesized), the
+tab shows: *"Add papers, then Refresh to surface research gaps."* Themes are
+only ever built from **quote-verified** gaps and always carry their source
+citations — the synthesis groups what your papers already say, it never
+invents a gap.
 
 ## 17. Background activity
 
