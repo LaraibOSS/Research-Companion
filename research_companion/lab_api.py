@@ -428,6 +428,71 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
 
 
 # ---------------------------------------------------------------------------
+# GET /api/discover helpers (feat/brainstorm-discover)
+# ---------------------------------------------------------------------------
+
+def _library_identity_ids() -> set[str]:
+    """alt_ids-style identity strings for every paper currently in the store.
+
+    Used to mark GET /api/discover results in_library. discover.py's own
+    search_topic/search_topic_openalex already filter results against the
+    local store, but search_topic_with_fallback's opt-in domain-connector
+    merge is only deduped against the S2/OpenAlex batch, not against the
+    local store — so a connector-only hit can still legitimately need
+    in_library=True. Re-checking here (rather than trusting upstream
+    filtering) keeps that flag honest regardless of which path a result
+    came from.
+    """
+    from research_companion import store
+    from research_companion.connectors.identity import alt_ids
+
+    ids: set[str] = set()
+    for meta in store.list_papers():
+        doi = meta.paper_id.removeprefix("doi:") if meta.paper_id.startswith("doi:") else None
+        arxiv_id = meta.paper_id.removeprefix("arxiv:") if meta.paper_id.startswith("arxiv:") else None
+        rec = {"doi": doi, "arxiv_id": arxiv_id, "pmid": meta.pmid, "pmcid": meta.pmcid}
+        ids |= alt_ids(rec)
+    return ids
+
+
+def _dedup_discovered(papers: list) -> list:
+    """Merge discovery results across multiple expanded queries.
+
+    Dedups by identity (connectors.identity.alt_ids over doi/arxiv_id/pmid/
+    pmcid), falling back to a lowercased-title token for papers with no
+    namespaced id. When two results share an identity, keeps whichever has
+    the higher citation_count (the more complete/informative record).
+    Order-preserving over first occurrence.
+    """
+    from research_companion.connectors.identity import alt_ids
+
+    id_to_token: dict[str, str] = {}
+    chosen: dict[str, object] = {}
+    order: list[str] = []
+
+    for p in papers:
+        rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
+        ids = alt_ids(rec)
+        token = None
+        for i in ids:
+            if i in id_to_token:
+                token = id_to_token[i]
+                break
+        if token is None:
+            token = next(iter(ids)) if ids else f"title:{p.title.lower().strip()}"
+        for i in ids:
+            id_to_token[i] = token
+
+        if token not in chosen:
+            chosen[token] = p
+            order.append(token)
+        elif p.citation_count > chosen[token].citation_count:
+            chosen[token] = p
+
+    return [chosen[t] for t in order]
+
+
+# ---------------------------------------------------------------------------
 # create_lab_app
 # ---------------------------------------------------------------------------
 
@@ -646,6 +711,62 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 meta, failures=failures, draft_id=draft_id, prompt_sha=prompt_sha)
             for meta in papers
         ]
+
+    # -----------------------------------------------------------------
+    # GET /api/discover  (read-only topic search — feat/brainstorm-discover)
+    # -----------------------------------------------------------------
+    @app.get("/api/discover")
+    async def get_discover(
+        q: str = "",
+        year_min: int | None = None,
+        year_max: int | None = None,
+        limit: int = 20,
+        expand: int = 0,
+    ) -> dict:
+        from research_companion import discover
+        from research_companion.connectors.identity import alt_ids
+
+        query = (q or "").strip()
+        limit = max(1, min(limit, 50))
+        expand_requested = bool(expand)
+
+        if not query:
+            return {"results": [], "queries_used": [], "expanded": expand_requested}
+
+        try:
+            if expand_requested:
+                resolved_llm = app.state.llm
+                if resolved_llm is None:
+                    resolved_llm = _resolve_llm(json_mode=True)
+                queries = await asyncio.to_thread(discover.expand_query, query, llm=resolved_llm)
+            else:
+                queries = [query]
+
+            all_results: list = []
+            for one_query in queries:
+                found = await asyncio.to_thread(
+                    discover.search_topic_with_fallback,
+                    one_query, limit=limit, year_min=year_min, year_max=year_max,
+                )
+                all_results.extend(found)
+        except Exception as exc:
+            return {
+                "results": [], "queries_used": [query], "expanded": expand_requested,
+                "error": f"Discovery search failed: {exc}",
+            }
+
+        deduped = _dedup_discovered(all_results)
+        library_ids = await asyncio.to_thread(_library_identity_ids)
+
+        results = []
+        for p in deduped[:limit]:
+            rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
+            ids = alt_ids(rec)
+            item = p.to_dict()
+            item["in_library"] = bool(ids & library_ids)
+            results.append(item)
+
+        return {"results": results, "queries_used": queries, "expanded": expand_requested}
 
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)

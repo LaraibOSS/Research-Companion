@@ -4535,3 +4535,149 @@ class TestSimplified:
 
         assert len(captured_prompts) == 1
         assert paper_text[:100] in captured_prompts[0]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/discover (feat/brainstorm-discover, Task 2)
+# ---------------------------------------------------------------------------
+
+class TestDiscoverEndpoint:
+    def _dp(self, title, **kw):
+        from research_companion.discover import DiscoveredPaper
+        base = dict(authors=["A. Author"], year=2023, citation_count=10, arxiv_id=None,
+                    doi=None, s2_id=None, url="https://example.org/p", abstract="An abstract.",
+                    source="search")
+        base.update(kw)
+        return DiscoveredPaper(title=title, **base)
+
+    def test_get_discover_empty_query_returns_empty_without_searching(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/discover")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data == {"results": [], "queries_used": [], "expanded": False}
+
+    def test_get_discover_expand_0_searches_only_q(self, isolated_papergraph_dir, monkeypatch):
+        calls = []
+
+        def fake_search(query, **kw):
+            calls.append(query)
+            return [self._dp("Found Paper", arxiv_id="2401.00001")]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        c = _make_client()
+        resp = c.get("/api/discover", params={"q": "graph neural networks"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert calls == ["graph neural networks"]
+        assert data["queries_used"] == ["graph neural networks"]
+        assert data["expanded"] is False
+        assert len(data["results"]) == 1
+        assert data["results"][0]["title"] == "Found Paper"
+        assert data["results"][0]["in_library"] is False
+
+    def test_get_discover_expand_1_calls_expand_query_and_searches_each(self, isolated_papergraph_dir, monkeypatch):
+        search_calls = []
+
+        def fake_search(query, **kw):
+            search_calls.append(query)
+            return [self._dp(f"Paper for {query}", arxiv_id=f"2401.{len(search_calls):05d}")]
+
+        def fake_expand(title, *, llm=None):
+            assert llm is not None  # the resolved LLM was passed through
+            return [title, "expanded query one"]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        monkeypatch.setattr("research_companion.discover.expand_query", fake_expand)
+
+        def fake_llm(prompt: str) -> str:
+            return "{}"
+
+        c = _make_client(llm=fake_llm)
+        resp = c.get("/api/discover", params={"q": "topic", "expand": 1})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["expanded"] is True
+        assert data["queries_used"] == ["topic", "expanded query one"]
+        assert sorted(search_calls) == ["expanded query one", "topic"]
+        assert len(data["results"]) == 2
+
+    def test_get_discover_dedups_across_queries_keeping_higher_citation(self, isolated_papergraph_dir, monkeypatch):
+        low = self._dp("Same Paper", arxiv_id="2401.11111", citation_count=5)
+        high = self._dp("Same Paper", arxiv_id="2401.11111", citation_count=50)
+
+        def fake_search(query, **kw):
+            return [low] if query == "q1" else [high]
+
+        def fake_expand(title, *, llm=None):
+            return ["q1", "q2"]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        monkeypatch.setattr("research_companion.discover.expand_query", fake_expand)
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.get("/api/discover", params={"q": "q1", "expand": 1})
+        data = resp.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["citation_count"] == 50
+
+    def test_get_discover_marks_in_library_by_identity(self, isolated_papergraph_dir, monkeypatch):
+        _make_paper(isolated_papergraph_dir, "arxiv:2401.22222", "Library Paper")
+
+        def fake_search(query, **kw):
+            return [self._dp("Library Paper (dup)", arxiv_id="2401.22222")]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        c = _make_client()
+        resp = c.get("/api/discover", params={"q": "q"})
+        data = resp.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["in_library"] is True
+
+    def test_get_discover_no_active_workspace_still_returns_results_none_in_library(self, isolated_papergraph_dir, monkeypatch):
+        def fake_search(query, **kw):
+            return [self._dp("Some Paper", arxiv_id="2401.33333")]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+        c = _make_client()
+        resp = c.get("/api/discover", params={"q": "q"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["in_library"] is False
+
+    def test_get_discover_search_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        def raising_search(query, **kw):
+            raise RuntimeError("network down")
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", raising_search)
+        c = _make_client()
+        resp = c.get("/api/discover", params={"q": "q"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["results"] == []
+        assert data["queries_used"] == ["q"]
+        assert "error" in data and data["error"]
+
+    def test_get_discover_expand_llm_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        def raising_expand(title, *, llm=None):
+            raise RuntimeError("provider down")
+
+        monkeypatch.setattr("research_companion.discover.expand_query", raising_expand)
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.get("/api/discover", params={"q": "q", "expand": 1})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["results"] == []
+        assert "error" in data and data["error"]
+
+    def test_get_discover_limit_is_capped_at_50(self, isolated_papergraph_dir, monkeypatch):
+        def fake_search(query, **kw):
+            assert kw["limit"] <= 50
+            return []
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        c = _make_client()
+        resp = c.get("/api/discover", params={"q": "q", "limit": 500})
+        assert resp.status_code == 200
