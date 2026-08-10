@@ -4701,3 +4701,96 @@ class TestDiscoverEndpoint:
         data = resp.json()
         assert data["results"] == []
         assert "error" in data and data["error"]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/directions (feat/brainstorm-directions, Task 3)
+# ---------------------------------------------------------------------------
+
+class TestDirectionsEndpoint:
+    def test_post_directions_empty_topic_empty_seeds_no_library_returns_empty_no_error(
+            self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/directions", json={"topic": "", "seeds": []})
+        assert resp.status_code == 200
+        assert resp.json() == {"directions": [], "topic": ""}
+
+    def test_post_directions_happy_path_with_library_and_seeds(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:2401.00001", "Library Paper", year=2022)
+
+        def fake_llm(prompt: str) -> str:
+            assert "graph neural networks" in prompt
+            assert "p:arxiv:2401.00001" in prompt
+            return json.dumps({"directions": [{
+                "title": "Extend BM25 with graph structure",
+                "rationale": "Combine retrieval with graph context.",
+                "direction_type": "extend_method",
+                "grounded_in": ["p:arxiv:2401.00001"],
+            }]})
+
+        c = _make_client(llm=fake_llm)
+        seeds = [{"title": "Seed Paper", "year": 2023, "abstract": "", "doi": "10.1/xyz",
+                  "arxiv_id": None, "s2_id": None, "pmid": None, "pmcid": None}]
+        resp = c.post("/api/directions", json={"topic": "graph neural networks", "seeds": seeds})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topic"] == "graph neural networks"
+        assert len(data["directions"]) == 1
+        d = data["directions"][0]
+        assert d["title"] == "Extend BM25 with graph structure"
+        assert d["direction_type"] == "extend_method"
+        assert d["grounding_count"] == 1
+        assert d["citations"][0]["paper_id"] == "arxiv:2401.00001"
+        assert "error" not in data
+
+    def test_post_directions_no_active_workspace_grounds_on_topic_and_seeds_only(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+
+        def fake_llm(prompt: str) -> str:
+            return json.dumps({"directions": [{
+                "title": "Try X", "rationale": "Because the seed paper suggests it.",
+                "direction_type": "new_application", "grounded_in": ["p:doi:10.1/xyz"],
+            }]})
+
+        c = _make_client(llm=fake_llm)
+        seeds = [{"title": "Seed Paper", "year": 2023, "abstract": "", "doi": "10.1/xyz",
+                  "arxiv_id": None, "s2_id": None, "pmid": None, "pmcid": None}]
+        resp = c.post("/api/directions", json={"topic": "topic", "seeds": seeds})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["directions"]) == 1
+        # grounded on the seed only -- paper_id is None because it is not in the (empty) library
+        assert data["directions"][0]["citations"][0]["paper_id"] is None
+
+    def test_post_directions_llm_failure_never_500s(self, isolated_papergraph_dir):
+        """synthesize_directions (Task 2) already swallows an LLM/parse
+        failure internally and degrades to an empty directions list rather
+        than propagating (see its docstring) -- so the handler's own
+        try/except never sees this exception and the response carries no
+        top-level "error" key. This still exercises the never-500 contract
+        end-to-end through the real (non-monkeypatched) synthesize_directions."""
+        def raising_llm(prompt: str) -> str:
+            raise RuntimeError("provider down")
+
+        c = _make_client(llm=raising_llm)
+        resp = c.post("/api/directions", json={"topic": "topic", "seeds": []})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["directions"] == []
+        assert "error" not in data
+
+    def test_post_directions_store_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+
+        def raising_list_papers():
+            raise RuntimeError("disk error")
+
+        monkeypatch.setattr(store, "list_papers", raising_list_papers)
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.post("/api/directions", json={"topic": "topic", "seeds": []})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["directions"] == []
+        assert "error" in data and data["error"]

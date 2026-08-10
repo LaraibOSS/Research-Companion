@@ -197,6 +197,15 @@ try:
         name: str | None = None
         archived: bool | None = None
 
+    class _DirectionsBody(_BaseModel):
+        """POST /api/directions body -- Research Directions (Brainstorm 2b).
+        year_min/year_max are accepted for parity with GET /api/discover but
+        are not yet used to filter (deferred; see the 2b design spec)."""
+        topic: str = ""
+        year_min: int | None = None
+        year_max: int | None = None
+        seeds: list[dict] = []
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -216,6 +225,7 @@ except ImportError:
     _ConverseBody = None  # type: ignore[assignment,misc]
     _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
+    _DirectionsBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -773,6 +783,56 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             }
 
         return {"results": results, "queries_used": queries, "expanded": expand_requested}
+
+    # -----------------------------------------------------------------
+    # POST /api/directions  (Research Directions -- Brainstorm 2b.
+    # Synchronous/ephemeral like GET /api/discover, NOT a persisted job:
+    # directions are a function of a free-text topic + transient 2a seeds,
+    # which change every search, so there is no corpus-SHA cache to key on.)
+    # -----------------------------------------------------------------
+    @app.post("/api/directions")
+    async def post_directions(body: _DirectionsBody) -> dict:
+        from research_companion import directions as directions_mod
+        from research_companion import store
+        from research_companion.graph import load_graph
+        from research_companion.prompts import extraction_prompt_sha256
+
+        topic = (body.topic or "").strip()
+        seeds = body.seeds if isinstance(body.seeds, list) else []
+
+        def _library_papers() -> list:
+            prompt_sha = extraction_prompt_sha256()
+            out = []
+            for meta in store.list_papers():
+                ext = store.load_extraction(meta.paper_id, prompt_sha=prompt_sha)
+                concepts = [c.get("name", "") for c in (ext or {}).get("concepts", []) if c.get("name")]
+                out.append({
+                    "paper_id": meta.paper_id, "title": meta.title, "year": meta.year,
+                    "abstract": meta.abstract, "concepts": concepts,
+                })
+            return out
+
+        try:
+            resolved_llm = app.state.llm
+            if resolved_llm is None:
+                resolved_llm = _resolve_llm(json_mode=True)
+
+            library_papers = await asyncio.to_thread(_library_papers)
+            loaded_graph = await asyncio.to_thread(load_graph)
+            gap_synthesis = await asyncio.to_thread(store.load_gap_synthesis)
+
+            result = await asyncio.to_thread(
+                directions_mod.synthesize_directions,
+                topic, seeds,
+                library_papers=library_papers,
+                graph=loaded_graph,
+                gap_synthesis=gap_synthesis,
+                llm=resolved_llm,
+            )
+        except Exception as exc:
+            return {"directions": [], "topic": topic, "error": f"Directions generation failed: {exc}"}
+
+        return {"directions": result.get("directions", []), "topic": result.get("topic", topic)}
 
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)
