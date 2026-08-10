@@ -28,10 +28,12 @@ See docs/superpowers/specs/2026-08-10-report-coverage-design.md.
 """
 from __future__ import annotations
 
+import hashlib
+import statistics
 from collections.abc import Callable
 from typing import Any
 
-from research_companion.gaps import _relevance_score
+from research_companion.gaps import _papers_sha, _relevance_score
 from research_companion.rank import tokenize
 
 _DEFAULT_THRESHOLD = 0.35
@@ -127,3 +129,101 @@ def _section_coverage(section: Any, relevant_set: set) -> dict:
     cited = len(cited_units)
     pct = round(100 * cited / relevant_available) if relevant_available > 0 else 0
     return {"pct": pct, "cited": cited, "relevant_available": relevant_available}
+
+
+# ---------------------------------------------------------------------------
+# score_report
+# ---------------------------------------------------------------------------
+
+def score_report(
+    report: dict,
+    *,
+    build_index_fn: Callable[[], list] | None = None,
+    rank_fn: Callable[..., list] | None = None,
+    threshold: float = _DEFAULT_THRESHOLD,
+) -> dict:
+    """Pure orchestration: build the retrieval unit index ONCE (default
+    *build_index_fn*: qa.build_section_index, called with no arguments --
+    the whole library; lazily imported, matching gaps.py's own top-level
+    import avoidance), then for each section compute _relevant_units for
+    its question + _section_coverage against that section's citations,
+    attaching `section["coverage"]`. Rolls up a report-level
+    `report["coverage"]` = {"pct", "cited", "relevant_available",
+    "median_pct"} (pct = sum(cited)/sum(relevant_available) across all
+    sections, rounded; median_pct = the median of the per-section pcts, a
+    headline number robust to one lopsided section). Stamps
+    `report["coverage_generated_from"]` = sha256(_papers_sha(paper_ids) +
+    "|" + str(threshold)) so a later library change is detectable the same
+    way gaps.py/rcs.py stamp staleness.
+
+    *build_index_fn*/*rank_fn* default (via a None sentinel resolved
+    in-body) to the real qa.build_section_index / retrieve.rank_units.
+
+    NEVER raises: a malformed *report* (not a dict, non-list "sections")
+    degrades gracefully; build_index_fn/rank_fn raising degrades every
+    section's coverage to honest zeros (relevant_available=0) rather than
+    aborting -- the report itself is left otherwise intact. Returns a NEW
+    report dict; the input *report* (and its nested sections) is never
+    mutated -- purely additive, exactly like rcs.score_report.
+    """
+    if not isinstance(report, dict):
+        return report
+
+    try:
+        if build_index_fn is None:
+            from research_companion.qa import build_section_index
+            build_index_fn = build_section_index
+        if rank_fn is None:
+            from research_companion.retrieve import rank_units
+            rank_fn = rank_units
+
+        sections = report.get("sections")
+        sections = sections if isinstance(sections, list) else []
+
+        try:
+            units = build_index_fn() or []
+        except Exception:
+            units = []
+        if not isinstance(units, list):
+            units = []
+
+        paper_ids = sorted({u.get("paper_id", "") for u in units if isinstance(u, dict)})
+
+        new_sections: list = []
+        total_cited = 0
+        total_relevant = 0
+        section_pcts: list = []
+
+        for section in sections:
+            if not isinstance(section, dict):
+                new_sections.append(section)
+                continue
+
+            question = section.get("question", "")
+            relevant_set = _relevant_units(question, units, rank_fn=rank_fn, threshold=threshold)
+            cov = _section_coverage(section, relevant_set)
+
+            new_section = dict(section)
+            new_section["coverage"] = cov
+            new_sections.append(new_section)
+
+            total_cited += cov["cited"]
+            total_relevant += cov["relevant_available"]
+            section_pcts.append(cov["pct"])
+
+        overall_pct = round(100 * total_cited / total_relevant) if total_relevant > 0 else 0
+        median_pct = round(statistics.median(section_pcts)) if section_pcts else 0
+
+        stamp_raw = f"{_papers_sha(paper_ids)}|{threshold}"
+        coverage_generated_from = hashlib.sha256(stamp_raw.encode("utf-8")).hexdigest()
+
+        new_report = dict(report)
+        new_report["sections"] = new_sections
+        new_report["coverage"] = {
+            "pct": overall_pct, "cited": total_cited,
+            "relevant_available": total_relevant, "median_pct": median_pct,
+        }
+        new_report["coverage_generated_from"] = coverage_generated_from
+        return new_report
+    except Exception:
+        return dict(report)

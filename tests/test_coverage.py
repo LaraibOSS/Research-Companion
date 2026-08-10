@@ -144,3 +144,149 @@ def test_section_coverage_malformed_section_never_raises():
     assert _section_coverage({"citations": ["not a dict"]}, {("p1", "s1", 0)}) == {
         "pct": 0, "cited": 0, "relevant_available": 1,
     }
+
+
+# ---------------------------------------------------------------------------
+# score_report
+# ---------------------------------------------------------------------------
+
+def _stub_build_index_fn(units):
+    return lambda: units
+
+
+def test_score_report_attaches_section_and_report_level_coverage():
+    from research_companion.coverage import score_report
+
+    units = [
+        {"paper_id": "p1", "section_id": "s1", "chunk_index": 0},
+        {"paper_id": "p1", "section_id": "s1", "chunk_index": 1},
+    ]
+    report = {
+        "topic": "t",
+        "sections": [{
+            "question": "Q1?", "answer": "A1 [S1].",
+            "citations": [{"paper_id": "p1", "section_id": "s1", "chunk_index": 0}],
+            "unverified_quotes": [],
+        }],
+        "generated_from": {}, "question_count": 1,
+    }
+    rank_fn = _stub_rank_fn([
+        {"unit": units[0], "score": 0.9, "bm25": 0.9, "cosine": 0.0, "mode": "hybrid"},
+        {"unit": units[1], "score": 0.9, "bm25": 0.9, "cosine": 0.0, "mode": "hybrid"},
+    ])
+
+    scored = score_report(report, build_index_fn=_stub_build_index_fn(units), rank_fn=rank_fn)
+
+    assert scored["sections"][0]["coverage"] == {"pct": 50, "cited": 1, "relevant_available": 2}
+    assert scored["coverage"] == {"pct": 50, "cited": 1, "relevant_available": 2, "median_pct": 50}
+    assert isinstance(scored["coverage_generated_from"], str)
+    assert len(scored["coverage_generated_from"]) == 64
+    int(scored["coverage_generated_from"], 16)  # raises ValueError if not hex
+    # non-mutating -- the input report is untouched
+    assert "coverage" not in report["sections"][0]
+    assert "coverage" not in report
+
+
+def test_score_report_empty_report_no_crash():
+    from research_companion.coverage import score_report
+    report = {"topic": "t", "sections": [], "generated_from": {}, "question_count": 0}
+    scored = score_report(report, build_index_fn=_stub_build_index_fn([]), rank_fn=_stub_rank_fn([]))
+    assert scored["sections"] == []
+    assert scored["coverage"] == {"pct": 0, "cited": 0, "relevant_available": 0, "median_pct": 0}
+
+
+def test_score_report_build_index_fn_raising_degrades_coverage_report_intact():
+    from research_companion.coverage import score_report
+
+    def _raising_build_index_fn():
+        raise RuntimeError("index build exploded")
+
+    report = {
+        "topic": "t",
+        "sections": [{"question": "Q?", "answer": "A", "citations": [], "unverified_quotes": []}],
+        "generated_from": {}, "question_count": 1,
+    }
+    scored = score_report(report, build_index_fn=_raising_build_index_fn, rank_fn=_stub_rank_fn([]))
+    # library is unreadable -> zero relevant units for every question -> pct 0,
+    # honest zero counts; the report itself is intact (not aborted)
+    assert scored["sections"][0]["coverage"] == {"pct": 0, "cited": 0, "relevant_available": 0}
+    assert scored["topic"] == "t"
+    assert scored["question_count"] == 1
+
+
+def test_score_report_never_raises_on_malformed_report():
+    from research_companion.coverage import score_report
+    assert score_report(None) is None
+    assert score_report("not a dict") == "not a dict"
+    assert score_report({"sections": "not a list"})["sections"] == []
+
+
+def test_score_report_never_mutates_input():
+    import copy
+
+    from research_companion.coverage import score_report
+
+    units = [{"paper_id": "p1", "section_id": "s1", "chunk_index": 0}]
+    report = {
+        "topic": "t",
+        "sections": [{"question": "Q?", "answer": "A",
+                       "citations": [{"paper_id": "p1", "section_id": "s1", "chunk_index": 0}],
+                       "unverified_quotes": []}],
+        "generated_from": {}, "question_count": 1,
+    }
+    before = copy.deepcopy(report)
+    rank_fn = _stub_rank_fn([{"unit": units[0], "score": 0.9, "bm25": 0.9, "cosine": 0.0, "mode": "hybrid"}])
+    score_report(report, build_index_fn=_stub_build_index_fn(units), rank_fn=rank_fn)
+    assert report == before
+
+
+def test_score_report_median_pct_is_robust_to_outlier_sections():
+    from research_companion.coverage import score_report
+
+    units = [{"paper_id": "p1", "section_id": "s1", "chunk_index": 0}]
+    report = {
+        "topic": "t",
+        "sections": [
+            {"question": "Q1?", "answer": "A", "citations": [
+                {"paper_id": "p1", "section_id": "s1", "chunk_index": 0}], "unverified_quotes": []},
+            {"question": "Q2?", "answer": "A", "citations": [], "unverified_quotes": []},
+            {"question": "Q3?", "answer": "A", "citations": [
+                {"paper_id": "p1", "section_id": "s1", "chunk_index": 0}], "unverified_quotes": []},
+        ],
+        "generated_from": {}, "question_count": 3,
+    }
+    rank_fn = _stub_rank_fn([{"unit": units[0], "score": 0.9, "bm25": 0.9, "cosine": 0.0, "mode": "hybrid"}])
+    scored = score_report(report, build_index_fn=_stub_build_index_fn(units), rank_fn=rank_fn)
+    # section pcts: 100, 0, 100 -- median 100
+    assert scored["coverage"]["median_pct"] == 100
+    # overall pct: sum(cited)=2, sum(relevant_available)=3 -> round(66.67) = 67
+    assert scored["coverage"]["pct"] == 67
+
+
+def test_score_report_non_dict_section_passed_through_unchanged():
+    from research_companion.coverage import score_report
+
+    report = {"topic": "t", "sections": ["not a dict"], "generated_from": {}, "question_count": 1}
+    scored = score_report(report, build_index_fn=_stub_build_index_fn([]), rank_fn=_stub_rank_fn([]))
+    assert scored["sections"] == ["not a dict"]
+
+
+def test_score_report_uses_real_defaults_with_empty_library_no_crash():
+    """No build_index_fn/rank_fn passed -- score_report resolves the REAL
+    qa.build_section_index + retrieve.rank_units by default (lazily
+    imported, matching gaps.py's own convention). The autouse
+    isolated_papergraph_dir fixture (tests/conftest.py) gives this test an
+    active workspace with no papers, so the real index is empty and
+    coverage degrades to honest zeros without crashing -- a genuine,
+    non-stubbed smoke test of the default wiring."""
+    from research_companion.coverage import score_report
+
+    report = {
+        "topic": "t",
+        "sections": [{"question": "Q?", "answer": "A", "citations": [], "unverified_quotes": []}],
+        "generated_from": {}, "question_count": 1,
+    }
+    scored = score_report(report)
+    assert scored["sections"][0]["coverage"] == {"pct": 0, "cited": 0, "relevant_available": 0}
+    assert scored["coverage"]["pct"] == 0
+    assert isinstance(scored["coverage_generated_from"], str)
