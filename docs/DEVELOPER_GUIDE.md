@@ -2342,3 +2342,112 @@ The entry emphasizes that coverage is a search-relative signal, never an absolut
 ### Design reference
 
 See `docs/superpowers/specs/2026-08-10-report-coverage-design.md` for the full design, including the deferred 2e-4/2e-5 sub-slices (editable research plan, export), rejected alternatives (whole-library percentage, opt-in endpoint, separate LLM judgment), and the manual test script.
+
+---
+
+## 35. Editable Research Plan — POST /api/report/plan, the extended refresh, and the frontend editor
+
+The **Editable Research Plan** feature adds a synchronous planning checkpoint before the expensive report-answering pass, allowing users to review and edit the model-generated investigation questions in their browser before committing to answers. It splits the previous all-in-one generate-and-answer flow into two optional steps, while keeping the one-shot path completely unchanged.
+
+### The pipeline split (`research_companion/deep_research.py` and `research_companion/lab_api.py`)
+
+Previously, `POST /api/report/refresh`'s background job called `generate_questions` and immediately answered every returned question in the same run, with no checkpoint.
+
+The 2e-4 change is **purely additive** — a plain `refresh({topic})` call (without a `questions` parameter) still generates AND answers in a single job, byte-for-byte identical to 2e-1. The new optional plan step adds an additional endpoint:
+
+1. **`POST /api/report/plan` endpoint** (`_ReportPlanBody{topic: str = ""}`, guarded by `require_active_workspace`):
+   - Runs a single `generate_questions` LLM call, just like the original refresh endpoint's first step, but **returns immediately** — it is **synchronous, never a background job**.
+   - On success, saves a **fresh plan-only artifact** via `store.save_report({"topic": topic, "plan": {"topic": topic, "questions": [...], "status": "draft"}})`, deliberately omitting `sections` and `generated_from` to fully supersede any old answered report.
+   - Publishes the existing `ReportUpdated` event with `question_count=0` (nothing has been answered yet).
+   - **Never raises HTTP 500** — any LLM failure, parse failure, or internal exception returns 200 OK with body `{ok: false, error: <message>}` instead of 500, giving the frontend the ability to show a graceful user-facing error and retry.
+   - Returns `{ok: true, plan: {topic, questions, status: "draft"}, error: null}` on success.
+
+2. **`POST /api/report/refresh` extended with optional `questions`** (`_ReportBody` gains `questions: list[str] | None = None`):
+   - Inside `_run_report`, if `body.questions` is a non-empty list, normalize via `_normalize_plan_questions` and skip the `generate_questions` call entirely, answering exactly those questions directly.
+   - If `body.questions` is omitted, `None`, or empty, the function falls through to the exact 2e-1 code path unchanged — one LLM call to generate questions, then answer them all in the same job.
+   - The fallback to the original behavior is **proven in the test suite** with an exploding `generate_questions` stub that will raise if invoked, demonstrating that when `body.questions` is a non-empty list, `generate_questions` is never called.
+   - After `build_report` completes (and `coverage.score_report` runs, if any), EVERY run — whether one-shot or plan-driven — stamps the report with the exact set of questions that was actually answered: `report["plan"] = {"topic": topic, "questions": normalized_questions, "status": "answered"}`, recording the definitive list that produced this report.
+
+3. **`_normalize_plan_questions(raw_questions: list, *, max_questions: int = 12) -> list[str]`** (pure utility, `research_companion/deep_research.py`):
+   - A thin wrapper around the existing `_normalize_questions` function, reused identically by both the new plan endpoint and the extended refresh's `questions`-provided branch.
+   - Higher default `max_questions` cap (12 vs. the 6 used by `generate_questions` alone) to allow user-curated lists to reasonably be longer than the model's initial guess.
+   - Filters out blanks, non-strings, truncates to `max_questions`, and normalizes whitespace — the exact same sanitization as the one-shot path.
+
+4. **`GET /api/report` additive passthrough**:
+   - The `report["plan"]` sub-object (if present) or `None` is added to all three of the endpoint's return points (top-level report, each section in the `sections` array, and the coverage sub-object), mirroring how `coverage`/`coverage_generated_from` were added in 2e-3.
+   - Non-breaking: if a report from an older slice is retrieved, `plan` is absent and read as `None` by the frontend.
+
+### The frontend (`research_companion/lab_static/js/`, specifically `views/report.js` and `reportHelpers.js`)
+
+**`reportHelpers.js`**:
+
+- **`reportPlanModel(rawPlan) -> {status, questions}|null`** — a pure helper that transforms the raw plan JSON into the front-end's display model:
+  - Validates `rawPlan.status` is one of `"draft"` or `"answered"`.
+  - Validates `rawPlan.questions` is an array and filters out non-strings and blanks.
+  - Returns `{status, questions: [str, ...]}` on success, or `null` if the input is `null`, undefined, or malformed.
+  - Escapes all question strings via `escapeHtml` **only for display-only read contexts** (history/review views); the actual editable state stays raw and lives in the module's `_plan` field.
+
+**`views/report.js`**:
+
+- New module state variables:
+  - `_plan`: the current editable plan's questions array, raw (no escaping) since it only ever goes into `<textarea>.value` and textarea never parses HTML.
+  - `_planMode`: either `"draft"` (user is editing the plan), `"answered"` (the report was answered), or `null` (no plan yet).
+  - `_planGenerating`: `true` while the "Generate plan" request is in flight.
+  - `_planError`: any error message from the plan generation or run.
+
+- **`_syncPlanFromReport(report)`** — called on every report fetch/refetch:
+  - If `report.plan.status === 'draft'`, automatically opens the plan in edit mode without user action (unfinished plans reopen where you left off).
+  - Populates `_plan` with `report.plan.questions`.
+
+- **`_generatePlan()`** — async function:
+  - Calls `api.reportPlan({topic: _topic})`.
+  - On `{ok: true}`, sets `_plan` and `_planMode = "draft"`, then calls `_render()`.
+  - On `{ok: false}`, stores the error message and re-renders to show the user.
+
+- **`_runReport()`** — async function:
+  - Calls `api.refreshReport({topic: _topic, questions: _plan})`, exactly the same job submission as always (returns `{job_id}`).
+  - Enters the existing `_pollJob` loop unchanged.
+  - Sets `_planMode = "answered"` once the report completes.
+
+- **`_editPlan()`** — opens the current report's plan in edit mode:
+  - Loads the questions from `_report.plan.questions` into `_plan`.
+  - Sets `_planMode = "draft"`.
+  - Renders the editable UI.
+
+- The **editable plan UI** (rendered when `_planMode === "draft"`):
+  - A list of per-question rows, one per question.
+  - Each row has a `<textarea>` (pre-populated with the question text), a **✕** delete button, **▲** and **▼** swap-reorder buttons.
+  - Below the list, a **+ Add question** form where users can type a new question and press Enter (or click a button).
+  - All edits are **purely client-side array mutations** followed by a local `_render()` — no network call until the user clicks **Run report**.
+  - "Generate plan" and "Run report" buttons trigger the network actions (async, with loading states).
+
+- **`api.js` clients**:
+  - **`api.reportPlan({topic}) -> {ok, plan?, error?}`** — POST to `/api/report/plan`, returns the plan object (with `questions` and `status`) or an error message.
+  - **`api.refreshReport({topic, questions?}) -> {job_id}`** — modified to accept an optional `questions` array and pass it in the POST body to `/api/report/refresh`.
+
+- The original 2e-1 **one-shot "Generate report" button** (`report-generate-btn`, the `_generate`/`_pollJob` flow) is **completely unmodified** — the new plan flow is purely additive UI alongside it, reusing the exact same job-submission and poll machinery for the "Run report" action.
+
+- **Markers and HTML elements**:
+  - `report-generate-plan-btn`: triggers "Generate plan".
+  - `Generate plan`: button label.
+  - `api.reportPlan(`: the plan-generation API call.
+  - `report-plan-q`: a question row in the editable list.
+  - `data-q-idx`: data attribute on each row to identify which question (for delete/reorder).
+  - `report-plan-delete`: delete button within a row.
+  - `report-plan-up`, `report-plan-down`: swap-reorder buttons (plain `▲`/`▼`).
+  - `report-plan-add-btn`: the "+ Add question" form.
+  - `+ Add question`: user-facing text.
+  - `report-run-btn`: triggers "Run report".
+  - `Run report`: button label.
+  - `_syncPlanFromReport`: function that populates the draft mode on report load.
+  - `'draft'` and `'answered'`: plan statuses checked in the render logic.
+  - `report-edit-plan-btn`: button to open an answered report's plan in edit mode.
+  - `Edit plan / re-run`: button label.
+
+### The honesty contract
+
+- **User-edited questions are answered exactly as-is** — the existing `qa.answer` engine is grounded and quote-verified, with no new fabrication surface introduced. User questions are not specially treated or re-drafted by the model; they are answered with the same standards as model-generated ones.
+- **Every run stamps the exact question set** — the `plan` sub-object on every report records the exact questions that were actually answered (`status: "answered"`), surviving `coverage.score_report`'s shallow-copy pass-through unchanged.
+- **Re-running clears prior RCS scores** — this behavior predates 2e-4 and is not new: when a report is regenerated, all sections are rebuilt from scratch, which erases prior RCS (evidence-scoring) results. The user must re-run "Score evidence" if they want the badges refreshed. This is documented in the USER_MANUAL and accepted as a soft limitation (not re-engineered).
+- **One-shot path is byte-for-byte identical to 2e-1** — the plain "Generate report" button invokes the exact same `refresh({topic})` call with no `questions` parameter, hitting the unchanged 2e-1 code path, tested with an exploding stub to prove `generate_questions` is never skipped.
+- **No new staleness machinery** — the design explicitly rejected plan-time library staleness and focused on the answering-time retrieval, matching the Ask and Brainstorm features' own staleness model.
