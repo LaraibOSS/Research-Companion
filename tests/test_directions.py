@@ -88,3 +88,94 @@ def test_underexplored_concepts_ties_broken_by_name_for_determinism():
     G = _concept_graph({"zeta": 1, "alpha": 1, "beta": 1})
     out = _underexplored_concepts(G)
     assert [c["name"] for c in out] == ["alpha", "beta", "zeta"]
+
+
+# ---------------------------------------------------------------------------
+# _collect_grounding
+# ---------------------------------------------------------------------------
+
+def test_collect_grounding_all_empty_returns_empty_block_and_index():
+    from research_companion.directions import _collect_grounding
+    block, index = _collect_grounding(
+        "", [], library_papers=[], graph=None, gap_synthesis=None)
+    assert block == ""
+    assert index == {}
+
+
+def test_collect_grounding_library_paper_gets_stable_p_key():
+    from research_companion.directions import _collect_grounding
+    lib = [{"paper_id": "arxiv:2401.00001", "title": "GraphRAG", "year": 2024,
+            "abstract": "A method for graph retrieval.", "concepts": ["Graph Retrieval"]}]
+    block, index = _collect_grounding(
+        "graph retrieval", [], library_papers=lib, graph=None, gap_synthesis=None)
+    assert "p:arxiv:2401.00001" in index
+    assert index["p:arxiv:2401.00001"]["kind"] == "paper"
+    assert index["p:arxiv:2401.00001"]["title"] == "GraphRAG"
+    assert index["p:arxiv:2401.00001"]["paper_id"] == "arxiv:2401.00001"
+    assert "[p:arxiv:2401.00001]" in block
+    assert "GraphRAG" in block
+
+
+def test_collect_grounding_dedupes_library_and_seed_by_identity_library_wins():
+    from research_companion.directions import _collect_grounding
+    lib = [{"paper_id": "doi:10.1/xyz", "title": "Library Copy", "year": 2022,
+            "abstract": "", "concepts": []}]
+    seeds = [{"title": "Seed Copy", "year": 2022, "abstract": "", "doi": "10.1/xyz",
+              "arxiv_id": None, "s2_id": None, "pmid": None, "pmcid": None}]
+    block, index = _collect_grounding(
+        "topic", seeds, library_papers=lib, graph=None, gap_synthesis=None)
+    paper_keys = [k for k in index if k.startswith("p:")]
+    assert len(paper_keys) == 1
+    assert index[paper_keys[0]]["title"] == "Library Copy"  # library iterated first, wins
+    assert index[paper_keys[0]]["paper_id"] == "doi:10.1/xyz"
+
+
+def test_collect_grounding_seed_only_paper_has_null_paper_id():
+    from research_companion.directions import _collect_grounding
+    seeds = [{"title": "Seed Only", "year": 2021, "abstract": "", "doi": "10.1/abc",
+              "arxiv_id": None, "s2_id": None, "pmid": None, "pmcid": None}]
+    _, index = _collect_grounding(
+        "topic", seeds, library_papers=[], graph=None, gap_synthesis=None)
+    paper_keys = [k for k in index if k.startswith("p:")]
+    assert len(paper_keys) == 1
+    assert index[paper_keys[0]]["paper_id"] is None
+
+
+def test_collect_grounding_includes_underexplored_concepts_with_c_key():
+    from research_companion.directions import _collect_grounding
+    G = _concept_graph({"sparse thing": 1})
+    block, index = _collect_grounding(
+        "topic", [], library_papers=[], graph=G, gap_synthesis=None)
+    keys = [k for k in index if k.startswith("c:")]
+    assert len(keys) == 1
+    assert index[keys[0]]["kind"] == "concept"
+    assert index[keys[0]]["name"] == "sparse thing"
+    assert "Underexplored concept: sparse thing" in block
+
+
+def test_collect_grounding_includes_open_and_partial_gaps_not_addressed():
+    from research_companion.directions import _collect_grounding
+    gap_synthesis = {"themes": [
+        {"theme_id": "theme_aaa", "title": "Missing benchmark", "bullet": "No shared benchmark exists.",
+         "status": "open"},
+        {"theme_id": "theme_bbb", "title": "Partial eval", "bullet": "Evaluation is incomplete.",
+         "status": "partial"},
+        {"theme_id": "theme_ccc", "title": "Already fixed", "bullet": "This was addressed.",
+         "status": "addressed"},
+    ]}
+    block, index = _collect_grounding(
+        "topic", [], library_papers=[], graph=None, gap_synthesis=gap_synthesis)
+    gap_keys = sorted(k for k in index if k.startswith("g:"))
+    assert gap_keys == ["g:theme_aaa", "g:theme_bbb"]
+    assert index["g:theme_aaa"]["bullet"] == "No shared benchmark exists."
+    assert "No shared benchmark exists." in block
+
+
+def test_collect_grounding_empty_gap_synthesis_none_is_safe():
+    from research_companion.directions import _collect_grounding
+    block, index = _collect_grounding(
+        "topic", [], library_papers=[], graph=None, gap_synthesis=None)
+    assert index == {}
+    assert block == ""
+
+
