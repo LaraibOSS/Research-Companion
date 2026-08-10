@@ -4794,3 +4794,91 @@ class TestDirectionsEndpoint:
         data = resp.json()
         assert data["directions"] == []
         assert "error" in data and data["error"]
+
+
+class TestNoveltyEndpoint:
+    def test_post_novelty_empty_title_returns_empty_shell(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.post("/api/novelty", json={"title": "", "rationale": ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verdict"] is None
+        assert data["prior_works"] == []
+        assert "error" not in data
+
+    def test_post_novelty_happy_path_with_stub_search_and_llm(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import discover
+
+        paper = discover.DiscoveredPaper(
+            title="Graph retrieval for code", authors=["A"], year=2022, citation_count=5,
+            arxiv_id="2201.00001", doi=None, s2_id=None, url="https://example.com/x",
+            abstract="A prior graph retrieval approach for source code search.",
+        )
+        monkeypatch.setattr(discover, "search_topic_with_fallback", lambda q, **kw: [paper])
+
+        def fake_llm(prompt: str) -> str:
+            return json.dumps({
+                "verdict": "overlaps", "confidence": 0.6,
+                "closest_prior": ["Graph retrieval for code"],
+                "rationale": "Closely related to an existing approach.",
+            })
+
+        c = _make_client(llm=fake_llm)
+        resp = c.post("/api/novelty", json={"title": "Graph retrieval for code search",
+                                             "rationale": "Apply graph retrieval to code."})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verdict"] == "overlaps"
+        assert data["confidence"] == 0.6
+        assert len(data["prior_works"]) == 1
+        assert data["prior_works"][0]["title"] == "Graph retrieval for code"
+        assert "error" not in data
+
+    def test_post_novelty_no_active_workspace_still_returns_200_with_verdict(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import discover, store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+        monkeypatch.setattr(discover, "search_topic_with_fallback", lambda q, **kw: [])
+
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.post("/api/novelty", json={"title": "Some cold topic", "rationale": ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verdict"] == "novel"  # zero prior works -> honest low-confidence novel
+        assert "error" not in data
+
+    def test_post_novelty_search_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import discover
+
+        def raising_search(q, **kw):
+            raise RuntimeError("search backend down")
+
+        monkeypatch.setattr(discover, "search_topic_with_fallback", raising_search)
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.post("/api/novelty", json={"title": "Some topic", "rationale": ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verdict"] is None
+        assert data["prior_works"] == []
+        assert "error" in data and data["error"]
+
+    def test_post_novelty_llm_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import discover
+
+        paper = discover.DiscoveredPaper(
+            title="Some prior paper", authors=[], year=2020, citation_count=1,
+            arxiv_id=None, doi=None, s2_id=None, url="", abstract="An abstract.",
+        )
+        monkeypatch.setattr(discover, "search_topic_with_fallback", lambda q, **kw: [paper])
+
+        def raising_llm(prompt: str) -> str:
+            raise RuntimeError("provider down")
+
+        c = _make_client(llm=raising_llm)
+        resp = c.post("/api/novelty", json={"title": "Some topic", "rationale": ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verdict"] is None
+        assert data["prior_works"] == []
+        assert "error" in data and "provider down" in data["error"]

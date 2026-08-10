@@ -28,6 +28,7 @@ import {
   sortDiscoverResults,
 } from '../discoverHelpers.js';
 import { directionResultModel, sortDirections } from '../directionsHelpers.js';
+import { noveltyResultModel } from '../noveltyHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -49,6 +50,7 @@ let _rawDirections = [];        // last raw POST /api/directions directions[]
 let _directionsHasGenerated = false;
 let _directionsSortCol = 'score';
 let _directionsSortDir = 'desc';
+let _noveltyByDirectionId = new Map(); // directionId -> {loading, error, result} — survives full _render()
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -71,6 +73,7 @@ export function mount(el) {
   _directionsHasGenerated = false;
   _directionsSortCol = 'score';
   _directionsSortDir = 'desc';
+  _noveltyByDirectionId = new Map();
   _render();
 }
 
@@ -335,6 +338,7 @@ function _directionsBodyHtml() {
 
 function _directionCardHtml(m) {
   const chips = m.citations.map(_citationChipHtml).join('');
+  const noveltyState = _noveltyByDirectionId.get(m.directionId) || null;
   return `
     <div class="brainstorm-direction-card" data-direction-id="${escapeHtml(m.directionId)}">
       <div class="brainstorm-direction-top">
@@ -344,7 +348,74 @@ function _directionCardHtml(m) {
       <div class="brainstorm-direction-title">${m.title}</div>
       <div class="brainstorm-direction-rationale muted">${m.rationale}</div>
       <div class="brainstorm-direction-citations">${chips}</div>
+      <div class="brainstorm-direction-novelty">${_noveltyPanelHtml(m.directionId, noveltyState)}</div>
     </div>`;
+}
+
+function _noveltyPanelHtml(directionId, state) {
+  if (!state) {
+    return `<button class="btn btn-sm brainstorm-novelty-btn" data-direction-id="${escapeHtml(directionId)}">Check novelty</button>`;
+  }
+  if (state.loading) {
+    return '<span class="muted brainstorm-novelty-loading">Checking novelty&hellip;</span>';
+  }
+  if (state.error) {
+    return `<div class="brainstorm-novelty-error">
+      <span>${escapeHtml(state.error)}</span>
+      <button class="btn btn-sm brainstorm-novelty-retry-btn" data-direction-id="${escapeHtml(directionId)}">Retry</button>
+    </div>`;
+  }
+  const model = noveltyResultModel(state.result);
+  const priorChips = model.priorWorks.map(pw => `
+    <a class="chip brainstorm-novelty-prior-chip" href="${escapeHtml(pw.url)}" target="_blank" rel="noopener">${pw.label}</a>`).join('');
+  return `
+    <div class="brainstorm-novelty-result">
+      <span class="chip brainstorm-novelty-badge brainstorm-novelty-badge-${escapeHtml(model.verdictBadge.slug)}">${model.verdictBadge.label}</span>
+      <span class="brainstorm-novelty-confidence muted">${escapeHtml(String(model.confidencePct))}% confidence</span>
+      <div class="brainstorm-novelty-rationale muted">${model.rationale}</div>
+      ${priorChips ? `<div class="brainstorm-novelty-priors">${priorChips}</div>` : ''}
+    </div>`;
+}
+
+async function _checkNovelty(directionId) {
+  if (!_el || !directionId) return;
+  const raw = _rawDirections.find(d => d.direction_id === directionId);
+  if (!raw) return;
+
+  const card = _el.querySelector(`.brainstorm-direction-card[data-direction-id="${CSS.escape(directionId)}"]`);
+  const panel = card ? card.querySelector('.brainstorm-direction-novelty') : null;
+
+  _noveltyByDirectionId.set(directionId, { loading: true, error: null, result: null });
+  if (panel) panel.innerHTML = _noveltyPanelHtml(directionId, _noveltyByDirectionId.get(directionId));
+
+  const yearMin = (_el.querySelector('#brainstorm-year-min') || {}).value || '';
+  const yearMax = (_el.querySelector('#brainstorm-year-max') || {}).value || '';
+
+  try {
+    const data = await api.checkNovelty({
+      title: raw.title || '', rationale: raw.rationale || '', yearMin, yearMax,
+    });
+    if (data.error) {
+      _noveltyByDirectionId.set(directionId, { loading: false, error: data.error, result: null });
+    } else {
+      _noveltyByDirectionId.set(directionId, { loading: false, error: null, result: data });
+    }
+  } catch (err) {
+    _noveltyByDirectionId.set(directionId, {
+      loading: false, error: err.message || 'Novelty check failed.', result: null,
+    });
+  }
+
+  if (panel) {
+    panel.innerHTML = _noveltyPanelHtml(directionId, _noveltyByDirectionId.get(directionId));
+    _bindNoveltyPanelEvents(panel, directionId);
+  }
+}
+
+function _bindNoveltyPanelEvents(panel, directionId) {
+  if (!panel) return;
+  const retryBtn = panel.querySelector('.brainstorm-novelty-retry-btn');
+  if (retryBtn) retryBtn.addEventListener('click', () => _checkNovelty(directionId));
 }
 
 function _citationChipHtml(c) {
@@ -399,5 +470,9 @@ function _bindEvents() {
       window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
       window.location.hash = '#/library';
     });
+  });
+
+  _el.querySelectorAll('.brainstorm-novelty-btn, .brainstorm-novelty-retry-btn').forEach(btn => {
+    btn.addEventListener('click', () => _checkNovelty(btn.dataset.directionId));
   });
 }

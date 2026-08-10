@@ -6723,3 +6723,36 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   margin-top: var(--space-3);
 }
 .brainstorm-direction-citation-paper { cursor: pointer; }
+
+/* ---------------------------------------------------------------------- */
+/* Novelty Gate — per-direction "Check novelty" action (Brainstorm 2c)    */
+/* ---------------------------------------------------------------------- */
+
+.brainstorm-direction-novelty { margin-top: var(--space-3); }
+.brainstorm-novelty-btn { cursor: pointer; }
+.brainstorm-novelty-loading { font-size: var(--text-sm); }
+.brainstorm-novelty-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-warn);
+}
+.brainstorm-novelty-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.brainstorm-novelty-badge { align-self: flex-start; }
+.brainstorm-novelty-badge-positive { border-color: var(--color-ok); color: var(--color-ok); }
+.brainstorm-novelty-badge-caution { border-color: var(--color-warn); color: var(--color-warn); }
+.brainstorm-novelty-badge-negative { border-color: var(--color-fail); color: var(--color-fail); }
+.brainstorm-novelty-badge-none { border-color: var(--color-border); color: var(--color-fg-dim); }
+.brainstorm-novelty-confidence { font-size: var(--text-xs); }
+.brainstorm-novelty-rationale { font-size: var(--text-sm); }
+.brainstorm-novelty-priors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.brainstorm-novelty-prior-chip { cursor: pointer; text-decoration: none; }

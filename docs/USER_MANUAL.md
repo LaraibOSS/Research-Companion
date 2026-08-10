@@ -995,6 +995,35 @@ on the roadmap and will grow inside this same tab.
 
 ---
 
+## 26. Novelty Gate — has anyone already done this?
+
+Every card in the **Research Directions** section (see §25) now has a
+**Check novelty** button. Click it and the AI searches the real literature
+for the closest prior work to that specific direction and returns a
+verdict — **novel**, **incremental**, **overlaps**, or **anticipated** —
+plus a confidence level, a one-line rationale, and the actual papers it
+compared against, each a clickable link.
+
+- The verdict is grounded ONLY in real papers the search actually found —
+  never invented. If the search turns up nothing relevant, you'll see an
+  honest **novel** verdict at low confidence with a note that no prior
+  work was found, rather than a false claim of certainty.
+- Checking novelty on one direction never disturbs another — each card's
+  check runs and updates independently, and the button shows "Checking…"
+  only on the card you clicked.
+- A result stays visible on its card even if you re-sort or regenerate
+  directions during the same visit, so you don't lose it by accident.
+- A network hiccup or a failed AI call shows an inline error with a
+  **Retry** button on that card, never a broken tab.
+- Like Generate directions, this is a single, opt-in, one-shot AI call per
+  click — nothing runs automatically, and nothing is cached across visits.
+
+The Novelty Gate is the third surface of the ideation arc — a full
+deep-research report is still on the roadmap and will grow inside this
+same tab.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four

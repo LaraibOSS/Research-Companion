@@ -1840,3 +1840,95 @@ grounded only in a not-yet-added 2a seed (no `paper_id`, and the pinned
 citation shape carries no URL), is informational only. Loading / empty /
 error(retry) states mirror the rest of the tab; there is no SSE
 subscription — the endpoint is synchronous, exactly like 2a's search.
+
+## 30. Novelty Gate — `POST /api/novelty`, `novelty_check.py`, and the frontend helpers
+
+The Brainstorm tab's per-direction **Check novelty** action (2c of the
+ideation arc) is a small, synchronous, ephemeral function — NOT the
+`ctx`-shaped `NoveltyAgent`/`PriorArtAgent` pipeline used by the full-paper
+review runner (that stays as-is; grep confirms it has zero references in
+`lab_api.py`). It reuses `prompts.format_comparison_prompt`
+(`COMPARISON_PROMPT`) exactly as-is — no new prompt was added.
+
+### `research_companion/novelty_check.py`
+
+`check_novelty(title, rationale, *, year_min=None, year_max=None, limit=15,
+top_n=5, search=None, llm=None) -> dict` is the orchestrator:
+
+1. **`_novelty_query`** (pure) strips the direction's `title` into a search
+   query. An empty/whitespace title returns an empty shell
+   (`{"verdict": None, ...}`) with **no search and no LLM call** — nothing
+   to check.
+2. **Real prior-art search** — `(search or
+   discover.search_topic_with_fallback)(query, limit=limit, year_min=...,
+   year_max=...)`, the same S2→OpenAlex-fallback search 2a/2b use; `search`
+   is the injectable seam for tests.
+3. **`_rank_prior_works`** (pure) re-ranks the results client-side by token
+   overlap (`rank.tokenize`, the same primitive `gaps.resolve_gaps` uses) —
+   there is no semantic-similarity primitive in this codebase. Score =
+   size of the token-set intersection between the direction text
+   (`title + " " + rationale`) and each paper's `title + " " + abstract`;
+   stable sort desc (ties keep the search's own citation-sorted order);
+   capped at `top_n`.
+4. **Zero prior works found** ⇒ returns an honest `verdict="novel"`,
+   `confidence=0.3`, `rationale="No prior work found for this direction in
+   the searched sources."`, `prior_works=[]`, and **no LLM call** —
+   nothing to compare against, so nothing is fabricated.
+5. **Otherwise, one LLM call** — `claim = f"{title}. {rationale}".strip()`;
+   `prior_art = _prior_block(top_papers)` (a numbered `"[i] {title}
+   ({year}) - {abstract[:300]}"` block); `format_comparison_prompt(claim,
+   prior_art)` → `llm(prompt)` → `_strip_code_fences` + a tolerant
+   `json.loads`, all inside a never-raise `try/except` that reports
+   `llm_error` and keeps `verdict=None` on any failure (malformed JSON,
+   LLM exception, or `llm=None`).
+6. **Normalize** (pure) — verdict coerced to one of the 4 labels
+   (`novel`/`incremental`/`overlaps`/`anticipated`) else `"novel"`;
+   confidence clamped to `[0.0, 1.0]`; `closest_prior` coerced to a list of
+   strings; `prior_works` attached as the curated, real (clickable) subset
+   of each `DiscoveredPaper` — `title`/`year`/`url`/`doi`/`arxiv_id`/
+   `s2_id`/`pmid`/`citation_count` (not the full `to_dict()`).
+
+Returns `{"verdict", "confidence", "rationale", "closest_prior",
+"prior_works", "query", "llm_error"}`. Never raises.
+
+### `POST /api/novelty`
+
+`research_companion/lab_api.py`, registered right after `POST
+/api/directions`. Body: `{title, rationale?, year_min?, year_max?}`
+(`_NoveltyBody`). The handler resolves the LLM (`app.state.llm or
+_resolve_llm(json_mode=True)`) and calls `novelty_check.check_novelty(...)`
+inside `asyncio.to_thread`.
+
+**Deliberately NOT behind `require_active_workspace`** — a novelty check
+depends only on the title/rationale it's given, not on the store, so a
+cold brainstormer with no active workspace can still use it.
+
+**Never 500s.** The entire body (LLM resolution, `check_novelty`) is
+wrapped in one `try/except Exception` that degrades to a 200
+`{"verdict": None, "prior_works": [], "error": "<msg>"}`. A second layer
+re-surfaces `check_novelty`'s own `llm_error` field as the same shape — a
+transient search/LLM outage shows a retry banner, never a false verdict.
+
+### Frontend — `noveltyHelpers.js` + the per-card Check novelty action
+
+`research_companion/lab/static/js/noveltyHelpers.js` is the pure,
+DOM-free, node-tested layer (`tests/js/noveltyHelpers.test.mjs`):
+`noveltyResultModel(raw)` maps one raw `POST /api/novelty` response to a
+display row — a verdict→badge map (`novel`→positive, `incremental`/
+`overlaps`→caution, `anticipated`→negative, unknown/null→none),
+`confidencePct`, pre-escaped `rationale`, a `priorWorks` list (pre-escaped
+`label`, raw `url`), and a pre-escaped `error`. Same escaping contract as
+`directionsHelpers.js`: pre-escaped fields interpolate directly; raw `url`
+is escaped by the caller when written into an attribute.
+
+`views/brainstorm.js` adds a **Check novelty** button inside
+`_directionCardHtml`, backed by a module-level `_noveltyByDirectionId` Map
+(`directionId -> {loading, error, result}`) so a verdict survives a
+subsequent full `_render()` (e.g. after a re-sort or a regenerate). The
+click handler (`_checkNovelty`) mirrors `components/citationsPanel.js`'s
+per-row pattern: it looks up the direction's raw (unescaped) `title`/
+`rationale` from `_rawDirections`, calls `api.checkNovelty(...)`, and
+mutates ONLY that card's own `.brainstorm-direction-novelty` panel via
+direct DOM assignment — never a full `_render()` mid-flight — so checking
+one card's novelty never disturbs another's in-flight check. An error
+renders an inline retry button, rebound after each DOM mutation.
