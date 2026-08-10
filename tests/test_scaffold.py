@@ -10,6 +10,8 @@ metadata+text+sections directly, bypassing the PDF pipeline).
 """
 from __future__ import annotations
 
+import json
+
 # ---------------------------------------------------------------------------
 # SCAFFOLD_OUTLINE_PROMPT triad (Task 1)
 # ---------------------------------------------------------------------------
@@ -124,3 +126,109 @@ def test_normalize_outline_sections_empty_input_returns_empty():
     from research_companion.scaffold import _normalize_outline_sections
     assert _normalize_outline_sections([]) == []
     assert _normalize_outline_sections(None) == []
+
+
+# ---------------------------------------------------------------------------
+# generate_outline
+# ---------------------------------------------------------------------------
+
+def test_generate_outline_happy_path_with_stub_llm():
+    from research_companion.scaffold import generate_outline
+
+    def fake_llm(prompt: str) -> str:
+        assert "Graph retrieval for code search" in prompt
+        assert "Apply graph-based retrieval to code." in prompt
+        assert "extend_method" in prompt
+        assert "GraphRAG for code retrieval (2023)." in prompt
+        return json.dumps({"sections": [
+            {"title": "Introduction", "level": 1, "description": "Intro desc."},
+            {"title": "Method", "level": 1, "description": "Method desc."},
+        ]})
+
+    direction = {
+        "title": "Graph retrieval for code search",
+        "rationale": "Apply graph-based retrieval to code.",
+        "direction_type": "extend_method",
+        "citations": [{"kind": "paper", "title": "GraphRAG for code retrieval", "year": 2023}],
+    }
+    out = generate_outline(direction, llm=fake_llm)
+    assert out["llm_error"] is None
+    assert len(out["sections"]) == 2
+    assert out["sections"][0] == {"title": "Introduction", "level": 1, "description": "Intro desc."}
+
+
+def test_generate_outline_malformed_json_sets_llm_error_no_raise():
+    from research_companion.scaffold import generate_outline
+
+    def bad_llm(prompt: str) -> str:
+        return "not json at all"
+
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=bad_llm)
+    assert out["sections"] == []
+    assert out["llm_error"]
+
+
+def test_generate_outline_missing_sections_key_sets_llm_error_no_raise():
+    from research_companion.scaffold import generate_outline
+
+    def bad_llm(prompt: str) -> str:
+        return json.dumps({"not_sections": []})
+
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=bad_llm)
+    assert out["sections"] == []
+    assert out["llm_error"]
+
+
+def test_generate_outline_empty_sections_list_is_treated_as_failure():
+    from research_companion.scaffold import generate_outline
+
+    def empty_llm(prompt: str) -> str:
+        return json.dumps({"sections": []})
+
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=empty_llm)
+    assert out["sections"] == []
+    assert out["llm_error"]  # a degenerate/empty outline is a failure
+
+
+def test_generate_outline_llm_raises_sets_llm_error_no_raise():
+    from research_companion.scaffold import generate_outline
+
+    def raising_llm(prompt: str) -> str:
+        raise RuntimeError("provider down")
+
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=raising_llm)
+    assert out["sections"] == []
+    assert out["llm_error"] == "provider down"
+
+
+def test_generate_outline_llm_none_sets_llm_error_no_raise():
+    from research_companion.scaffold import generate_outline
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=None)
+    assert out["sections"] == []
+    assert out["llm_error"]
+
+
+def test_generate_outline_strips_markdown_code_fences():
+    from research_companion.scaffold import generate_outline
+
+    def fenced_llm(prompt: str) -> str:
+        return "```json\n" + json.dumps({"sections": [
+            {"title": "Introduction", "level": 1, "description": "d"},
+        ]}) + "\n```"
+
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=fenced_llm)
+    assert out["llm_error"] is None
+    assert len(out["sections"]) == 1
+
+
+def test_generate_outline_normalizes_caps_and_clamps():
+    from research_companion.scaffold import generate_outline
+
+    def many_llm(prompt: str) -> str:
+        return json.dumps({"sections": [
+            {"title": f"Section {i}", "level": 1, "description": "d"} for i in range(20)
+        ]})
+
+    out = generate_outline({"title": "Topic", "rationale": "r"}, llm=many_llm)
+    assert out["llm_error"] is None
+    assert len(out["sections"]) == 12

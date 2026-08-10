@@ -32,6 +32,12 @@ See docs/superpowers/specs/2026-08-10-brainstorm-scaffold-design.md.
 """
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
+
+from research_companion.extract import _strip_code_fences
+from research_companion.prompts import format_scaffold_outline_prompt
+
 _MAX_SECTIONS = 12
 
 
@@ -85,3 +91,48 @@ def _normalize_outline_sections(raw_sections: list) -> list[dict]:
         if len(out) >= _MAX_SECTIONS:
             break
     return out
+
+
+# ---------------------------------------------------------------------------
+# generate_outline
+# ---------------------------------------------------------------------------
+
+def generate_outline(direction: dict, *, llm: Callable[[str], str] | None = None) -> dict:
+    """Turn one Research Direction (2b's {title, rationale, direction_type,
+    citations}) into a research-paper section outline via one
+    SCAFFOLD_OUTLINE_PROMPT call. Never raises.
+
+    A degenerate/empty outline (LLM call/parse failure, or a well-formed
+    but empty "sections" list) is treated as a failure -- callers must not
+    create an empty draft -- so BOTH cases set `llm_error`.
+
+    Returns {"sections": [{"title","level","description"}, ...],
+    "llm_error": str|None}.
+    """
+    d = direction if isinstance(direction, dict) else {}
+    title = str(d.get("title") or "").strip()
+    rationale = str(d.get("rationale") or "").strip()
+    direction_type = str(d.get("direction_type") or "").strip()
+    citations = d.get("citations") if isinstance(d.get("citations"), list) else []
+
+    prompt = format_scaffold_outline_prompt(
+        title=title, rationale=rationale, direction_type=direction_type,
+        grounding_block=_grounding_block(citations),
+    )
+
+    try:
+        raw = llm(prompt)
+        parsed = json.loads(_strip_code_fences(raw)) if isinstance(raw, str) else raw
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM returned non-object JSON")
+        raw_sections = parsed.get("sections")
+        if not isinstance(raw_sections, list):
+            raise ValueError("LLM response missing a 'sections' list")
+    except Exception as exc:
+        return {"sections": [], "llm_error": str(exc) or exc.__class__.__name__}
+
+    sections = _normalize_outline_sections(raw_sections)
+    if not sections:
+        return {"sections": [], "llm_error": "The model returned an empty outline."}
+
+    return {"sections": sections, "llm_error": None}
