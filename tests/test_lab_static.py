@@ -2933,3 +2933,75 @@ def test_get_static_gap_helpers_js_returns_200(lab_client):
     """GET /static/js/gapHelpers.js must return 200."""
     res = lab_client.get("/static/js/gapHelpers.js")
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# feat/brainstorm-discover: Brainstorm nav entry + view
+# ---------------------------------------------------------------------------
+
+def test_index_html_has_brainstorm_nav_button_positioned_after_home():
+    """index.html must have a Brainstorm nav button with data-route="/brainstorm",
+    a labeled span, and a data-desc, placed after Home."""
+    html = _index_text()
+    assert 'data-route="/brainstorm"' in html, (
+        'index.html missing Brainstorm nav button data-route="/brainstorm"'
+    )
+    assert '<span class="nav-label">Brainstorm</span>' in html, (
+        'index.html missing Brainstorm nav-label span'
+    )
+    home_pos = html.find('data-route="/home"')
+    brainstorm_pos = html.find('data-route="/brainstorm"')
+    assert home_pos != -1 and brainstorm_pos != -1 and home_pos < brainstorm_pos, (
+        "Brainstorm nav button must be positioned after Home"
+    )
+    btn_start = html.rfind('<button', 0, brainstorm_pos)
+    button_markup = html[btn_start:html.find('</button>', brainstorm_pos)]
+    assert 'data-desc="' in button_markup, "Brainstorm nav button is missing data-desc"
+
+
+def test_main_js_registers_brainstorm_route():
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "registerRoute('/brainstorm'" in main_js, (
+        "main.js must call registerRoute('/brainstorm', brainstormView)"
+    )
+    assert "views/brainstorm.js" in main_js
+
+
+def test_api_js_has_discover_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/discover" in api_js
+    assert "export function discover(" in api_js or "export const discover" in api_js
+
+
+def test_brainstorm_view_exists_and_wires_expected_calls():
+    path = STATIC_DIR / "js" / "views" / "brainstorm.js"
+    assert path.exists(), "views/brainstorm.js is missing"
+    text = path.read_text(encoding="utf-8")
+    assert "export function mount(" in text
+    assert "export function unmount(" in text
+    assert "api.discover(" in text
+    assert "ensureActiveResearch(" in text
+    assert "escapeHtml" in text
+    assert "discoverResultModel" in text
+    assert "dedupeDiscoverResults" in text
+    assert "sortDiscoverResults" in text
+
+
+def test_brainstorm_view_has_search_controls_and_states():
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert "brainstorm-search-input" in text
+    assert "brainstorm-year-min" in text
+    assert "brainstorm-year-max" in text
+    assert "brainstorm-expand-toggle" in text
+    assert "brainstorm-search-btn" in text
+    assert "brainstorm-add-all-btn" in text
+    assert "Search a topic to find papers" in text  # empty state copy
+
+
+def test_brainstorm_nav_button_has_exact_description_copy():
+    """The Brainstorm nav button's data-desc must match the fixed brief copy."""
+    html = _index_text()
+    assert 'data-desc="start from an idea &mdash; find papers, and (soon) directions &amp; novelty"' in html, (
+        "Brainstorm nav button data-desc must read "
+        "'start from an idea — find papers, and (soon) directions & novelty' (HTML-entity encoded)"
+    )
