@@ -1111,6 +1111,37 @@ first draft of the review in front of you.
 
 ---
 
+## 29. Score evidence — how strongly each citation actually backs the answer
+
+The **Score evidence** feature lets you rate each citation in a Report for its relevance to the question and its stance toward the answer. Click "Score evidence" in the Report tab's header to trigger an opt-in pass over an already-generated report, and the model will badge each citation chip with a relevance percentage and a stance indicator (supports / contradicts / neutral).
+
+**How to use it:**
+
+1. Once you have a Report, you'll see a **Score evidence** button in the Report tab's header.
+2. Click **Score evidence**. You'll see progress "Scoring evidence *j* of *m*" as the model works through each section.
+3. After it finishes, each citation chip shows two new pieces of information:
+   - A **relevance percentage** (a pill-shaped badge showing how well that passage backs the answer).
+   - A **stance icon** (a small triangle, lightning bolt, or diamond, matching the icons elsewhere in the app for supports / contradicts / neutral).
+4. You can hover over any badge to see a tooltip explaining what "supports", "contradicts", or "neutral" means in this context.
+
+**Important honesty note:**
+
+These badges are **an AI judgment about how well the cited passage supports the answer** — not independently verified in the same way the green "✓ verified" badge on Ask's citations is (that badge means the exact quote was matched word-for-word in your library). The RCS badges are the model's assessment of relevance and stance, and every one is labeled with a tooltip and a caption under the report header making this clear. You should always read the passage yourself to decide if you agree.
+
+**What happens if a citation's text can't be loaded:**
+
+If the text of a citation can't be retrieved from your library for some reason, it is simply left unbadged — the system never guesses a score.
+
+**Re-scoring:**
+
+You can click **Score evidence** any time to re-score the current report. It will replace the previous badges with fresh scores from the model.
+
+**What's next:**
+
+Score evidence is the second of several planned Deep-Research Report refinements. Coverage scoring (showing how much of your topic your library actually answers), an editable research plan you can guide before generation, and export to a shareable document are all coming in later slices (2e-3 through 2e-5).
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
