@@ -2762,10 +2762,20 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run_gaps():
             await _announce_start(job_id, "gaps", gaps_label)
             try:
+                from datetime import datetime, timezone
+
+                from research_companion import store
                 from research_companion.gaps import (
+                    _papers_sha,
                     extract_all_gaps,
                     gaps_overview,
                     resolve_gaps,
+                    synthesize_gaps,
+                )
+                from research_companion.prompts import (
+                    gap_prompt_sha256,
+                    gap_resolution_prompt_sha256,
+                    gap_synthesis_prompt_sha256,
                 )
 
                 resolved_llm = app.state.llm
@@ -2785,7 +2795,21 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     for g in p.get("gaps", [])
                     if g.get("resolution", {}).get("status") == "open"
                 )
-                await bus.publish(GapsUpdated(n_gaps=n_gaps, n_open=n_open))
+
+                synthesis = await asyncio.to_thread(synthesize_gaps, overview, llm=resolved_llm)
+                all_papers = await asyncio.to_thread(store.list_papers)
+                p_sha = _papers_sha([m.paper_id for m in all_papers])
+                await asyncio.to_thread(store.save_gap_synthesis, {
+                    "gap_prompt_sha256": gap_prompt_sha256(),
+                    "resolution_prompt_sha256": gap_resolution_prompt_sha256(),
+                    "papers_sha256": p_sha,
+                    "synthesis_prompt_sha256": gap_synthesis_prompt_sha256(),
+                    "computed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "themes": synthesis.get("themes", []),
+                })
+                n_themes = len(synthesis.get("themes", []))
+
+                await bus.publish(GapsUpdated(n_gaps=n_gaps, n_open=n_open, n_themes=n_themes))
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "gaps",
                                           "label": gaps_label, "target": ""}
             except Exception as exc:  # noqa: BLE001
