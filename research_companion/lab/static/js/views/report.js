@@ -273,6 +273,9 @@ function _render() {
   const topic = (_report && typeof _report.topic === 'string') ? _report.topic : '';
   const models = sections.map(reportSectionModel);
   const hasReport = models.length > 0;
+  // The honesty caption appears only once at least one citation actually
+  // carries an rcs badge — an unscored report renders exactly as 2e-1.
+  const hasRcs = models.some(m => (m.citations || []).some(c => c && c.rcs));
 
   _el.innerHTML = `
     <div class="report-view">
@@ -295,7 +298,7 @@ function _render() {
       ${_error ? `<div class="report-error">${escapeHtml(_error)}</div>` : ''}
       ${_scoring ? `<div class="report-progress muted">${escapeHtml(_scoreDetail)}</div>` : ''}
       ${_scoreError ? `<div class="report-error">${escapeHtml(_scoreError)}</div>` : ''}
-      ${hasReport ? '<p class="report-rcs-caption muted">Relevance &amp; stance are AI judgments of the cited passage — not independently verified.</p>' : ''}
+      ${hasRcs ? '<p class="report-rcs-caption muted">Relevance &amp; stance are AI judgments of the cited passage — not independently verified.</p>' : ''}
       <div class="report-body">
         ${!_generating && models.length === 0 ? _emptyHtml() : models.map(_sectionHtml).join('')}
       </div>

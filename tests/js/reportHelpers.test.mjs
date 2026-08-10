@@ -122,6 +122,14 @@ test('absent/null rcs means no badge', () => {
   assert.equal(m.citations[1].rcs, null);
 });
 
+test('array rcs value yields no badge (not a defaulted object)', () => {
+  const m = reportSectionModel({
+    question: 'Q', answer: 'A',
+    citations: [{ paper_id: 'p1', paper_title: 'P1', rcs: [] }],
+  });
+  assert.equal(m.citations[0].rcs, null);
+});
+
 test('malformed rcs fields default safely and never throw', () => {
   const m = reportSectionModel({
     question: 'Q', answer: 'A',

@@ -36,7 +36,7 @@ const _RCS_STANCE_TO_RELATION = {
  * percent conversion.
  */
 function _rcsModel(raw) {
-  if (!raw || typeof raw !== 'object') return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
   const stanceSlug = (raw.stance === 'supports' || raw.stance === 'contradicts' || raw.stance === 'neutral')
     ? raw.stance : 'neutral';
