@@ -15,6 +15,8 @@ dropped. RCS is a MODEL JUDGMENT, never "verified".
 """
 from __future__ import annotations
 
+import json
+
 # ---------------------------------------------------------------------------
 # RCS_PROMPT triad (Task 1)
 # ---------------------------------------------------------------------------
@@ -199,3 +201,123 @@ def test_normalize_scores_skips_non_dict_entries_and_missing_ref():
     ]}
     out = _normalize_scores(parsed, {0})
     assert out == {0: {"relevance": 0.5, "stance": "supports", "rationale": "ok"}}
+
+
+# ---------------------------------------------------------------------------
+# score_section
+# ---------------------------------------------------------------------------
+
+def _stub_load_text(paper_texts):
+    def _load(paper_id):
+        return paper_texts.get(paper_id)
+    return _load
+
+
+def test_score_section_attaches_rcs_per_real_chunk():
+    from research_companion.rcs import score_section
+
+    citations = [
+        {"paper_id": "p1", "paper_title": "Paper One", "char_start": 0, "char_end": 11},
+        {"paper_id": "p2", "paper_title": "Paper Two", "char_start": 0, "char_end": 5},
+    ]
+    load_text_fn = _stub_load_text({"p1": "Hello world, more text here.", "p2": None})
+
+    def fake_llm(prompt: str) -> str:
+        assert "[0] Paper One" in prompt
+        assert "Hello world" in prompt
+        return json.dumps({"scores": [
+            {"ref": 0, "relevance": 0.9, "stance": "supports", "rationale": "Directly relevant."},
+        ]})
+
+    results = score_section(
+        "What is discussed?", "It discusses X.", citations,
+        load_text_fn=load_text_fn, llm=fake_llm,
+    )
+    assert results[0] == {"relevance": 0.9, "stance": "supports", "rationale": "Directly relevant."}
+    assert results[1] is None  # p2's load_text_fn returned None -> no loadable chunk
+
+
+def test_score_section_no_scorable_chunks_skips_llm_call():
+    from research_companion.rcs import score_section
+
+    def exploding_llm(prompt):
+        raise AssertionError("must not be called")
+
+    citations = [{"paper_id": "p1", "char_start": 0, "char_end": 10}]
+    load_text_fn = _stub_load_text({})  # p1 not found -> None
+
+    results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=exploding_llm)
+    assert results == [None]
+
+
+def test_score_section_malformed_llm_json_returns_all_none_no_raise():
+    from research_companion.rcs import score_section
+
+    citations = [{"paper_id": "p1", "char_start": 0, "char_end": 5}]
+    load_text_fn = _stub_load_text({"p1": "Hello world"})
+
+    def bad_llm(prompt):
+        return "not json"
+
+    results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=bad_llm)
+    assert results == [None]
+
+
+def test_score_section_llm_raises_returns_all_none_no_raise():
+    from research_companion.rcs import score_section
+
+    citations = [{"paper_id": "p1", "char_start": 0, "char_end": 5}]
+    load_text_fn = _stub_load_text({"p1": "Hello world"})
+
+    def raising_llm(prompt):
+        raise RuntimeError("provider down")
+
+    results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=raising_llm)
+    assert results == [None]
+
+
+def test_score_section_drops_invented_ref():
+    from research_companion.rcs import score_section
+
+    citations = [{"paper_id": "p1", "char_start": 0, "char_end": 5}]
+    load_text_fn = _stub_load_text({"p1": "Hello world"})
+
+    def fake_llm(prompt):
+        return json.dumps({"scores": [
+            {"ref": 0, "relevance": 0.5, "stance": "neutral", "rationale": "ok"},
+            {"ref": 99, "relevance": 1.0, "stance": "supports", "rationale": "invented"},
+        ]})
+
+    results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=fake_llm)
+    assert results == [{"relevance": 0.5, "stance": "neutral", "rationale": "ok"}]
+
+
+def test_score_section_llm_none_returns_all_none():
+    from research_companion.rcs import score_section
+
+    citations = [{"paper_id": "p1", "char_start": 0, "char_end": 5}]
+    load_text_fn = _stub_load_text({"p1": "Hello world"})
+
+    results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=None)
+    assert results == [None]
+
+
+def test_score_section_empty_citations_returns_empty_list():
+    from research_companion.rcs import score_section
+    results = score_section("Q", "A", [], load_text_fn=lambda p: None, llm=lambda p: "{}")
+    assert results == []
+
+
+def test_score_section_strips_markdown_code_fences():
+    from research_companion.rcs import score_section
+
+    citations = [{"paper_id": "p1", "char_start": 0, "char_end": 5}]
+    load_text_fn = _stub_load_text({"p1": "Hello world"})
+
+    def fenced_llm(prompt):
+        return "```json\n" + json.dumps({"scores": [
+            {"ref": 0, "relevance": 0.4, "stance": "contradicts", "rationale": "ok"},
+        ]}) + "\n```"
+
+    results = score_section("Q", "A", citations, load_text_fn=load_text_fn, llm=fenced_llm)
+    assert results == [{"relevance": 0.4, "stance": "contradicts", "rationale": "ok"}]

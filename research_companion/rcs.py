@@ -23,8 +23,11 @@ See docs/superpowers/specs/2026-08-10-report-rcs-scoring-design.md.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
+
+from research_companion import store
 
 _MAX_CHUNK_CHARS = 400
 _VALID_STANCES = {"supports", "contradicts", "neutral"}
@@ -140,3 +143,53 @@ def _normalize_scores(parsed: Any, valid_refs: set) -> dict:
 
         out[ref] = {"relevance": relevance, "stance": stance, "rationale": rationale}
     return out
+
+
+# ---------------------------------------------------------------------------
+# score_section
+# ---------------------------------------------------------------------------
+
+def score_section(
+    question: str,
+    answer: str,
+    citations: list,
+    *,
+    load_text_fn: Callable[[str], str | None] = store.load_text,
+    llm: Callable[[str], str] | None = None,
+) -> list:
+    """Score one section's cited evidence chunks against its question/
+    answer via ONE RCS_PROMPT LLM call, batched-numbered-block style
+    (mirrors gaps.synthesize_gaps). Returns a list index-aligned with
+    *citations*: each entry is an rcs dict {"relevance": float, "stance":
+    str, "rationale": str} for a citation whose real chunk text was
+    scored, or None for a citation that had no loadable chunk text, wasn't
+    returned by the LLM (an invented ref never maps back to a citation),
+    or when there were no scorable chunks / no llm / the call or parse
+    failed. Never raises.
+    """
+    from research_companion.extract import _strip_code_fences
+    from research_companion.prompts import format_rcs_prompt
+
+    citations = list(citations or [])
+    chunk_texts = [_chunk_text(c, load_text_fn=load_text_fn) for c in citations]
+    chunks_block, ref_to_index = _chunks_block(citations, chunk_texts)
+
+    results: list = [None] * len(citations)
+    if not ref_to_index or llm is None:
+        return results
+
+    prompt = format_rcs_prompt(
+        question=str(question or ""), answer=str(answer or ""), chunks_block=chunks_block,
+    )
+
+    try:
+        raw = llm(prompt)
+        parsed = json.loads(_strip_code_fences(raw)) if isinstance(raw, str) else raw
+    except Exception:
+        return results
+
+    scores_by_ref = _normalize_scores(parsed, set(ref_to_index.keys()))
+    for ref, idx in ref_to_index.items():
+        if ref in scores_by_ref:
+            results[idx] = scores_by_ref[ref]
+    return results
