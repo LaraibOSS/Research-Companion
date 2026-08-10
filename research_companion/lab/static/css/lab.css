@@ -6849,3 +6849,26 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   font-size: var(--text-sm);
   color: var(--color-warn);
 }
+
+/* ---------------------------------------------------------------------- */
+/* Report Evidence Scoring (RCS) badges (Phase 2, slice 2e-2)             */
+/* RCS is a MODEL JUDGMENT, not "verified" -- visually distinct (pill +   */
+/* icon, no checkmark) from the code-verified .badge-ok "✓ verified".     */
+/* ---------------------------------------------------------------------- */
+
+.rcs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.rcs-badge-relevance,
+.rcs-badge-stance {
+  cursor: help;
+}
+.report-rcs-caption {
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}

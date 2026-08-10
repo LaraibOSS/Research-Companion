@@ -23,6 +23,17 @@ import { showToast } from '../components/toast.js';
 import { ensureActiveResearch } from '../researchGuard.js';
 import { pollDecision } from '../oaLinkHelpers.js';
 import { reportSectionModel } from '../reportHelpers.js';
+import { tip } from '../glossary.js';
+
+// RCS stance vocab (supports/contradicts/neutral, Report Evidence Scoring
+// / RCS, 2e-2) -> a badge color, keyed directly by the rcs stanceSlug
+// (mirrors draft.js's own local STANCE_COLORS constant -- colors are not
+// centralized in format.js).
+const RCS_STANCE_COLORS = {
+  supports: '#3fb950',
+  contradicts: '#f85149',
+  neutral: '#58a6ff',
+};
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -34,6 +45,9 @@ let _report = null;      // last fetched GET /api/report payload
 let _generating = false;
 let _jobDetail = '';
 let _error = null;
+let _scoring = false;         // Report Evidence Scoring (RCS, 2e-2)
+let _scoreDetail = '';
+let _scoreError = null;
 
 const _POLL_MS = 800;
 
@@ -46,6 +60,9 @@ export function mount(el) {
   _generating = false;
   _jobDetail = '';
   _error = null;
+  _scoring = false;
+  _scoreDetail = '';
+  _scoreError = null;
 
   el.innerHTML = `<div class="report-view"><div class="report-loading muted">Loading report…</div></div>`;
 
@@ -169,6 +186,83 @@ async function _pollJob(jobId) {
 }
 
 // ---------------------------------------------------------------------------
+// Score evidence (Report Evidence Scoring / RCS, 2e-2)
+// ---------------------------------------------------------------------------
+
+async function _scoreEvidence() {
+  await ensureActiveResearch(async () => {
+    _scoring = true;
+    _scoreError = null;
+    _scoreDetail = 'Scoring evidence…';
+    _render();
+
+    try {
+      const { job_id } = await api.scoreEvidence();
+      await _pollScoreJob(job_id);
+    } catch (err) {
+      _scoring = false;
+      _scoreError = err.message || 'Failed to score evidence';
+      _render();
+    }
+  });
+}
+
+async function _pollScoreJob(jobId) {
+  let consecutiveFailures = 0;
+  let elapsedPolls = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    elapsedPolls += 1;
+    let job = null;
+    let err = null;
+    try {
+      job = await api.getJob(jobId);
+    } catch (e) {
+      err = e;
+    }
+
+    if (!err) {
+      consecutiveFailures = 0;
+      if (job && job.status !== 'running') {
+        _scoring = false;
+        if (job.status === 'failed') {
+          _scoreError = job.detail || 'Evidence scoring failed';
+        } else {
+          _scoreError = null;
+          try {
+            _report = await api.getReport();
+          } catch (fetchErr) {
+            console.warn('[report] post-score refetch failed:', fetchErr);
+          }
+        }
+        _render();
+        return;
+      }
+      _scoreDetail = (job && job.detail) || 'Scoring evidence…';
+      _render();
+    }
+
+    const decision = pollDecision({
+      status: job ? job.status : undefined,
+      error: err,
+      consecutiveFailures,
+      elapsedPolls,
+    });
+
+    if (decision === 'retry-transient') consecutiveFailures += 1;
+    if (decision === 'give-up' || decision === 'stop-404') {
+      _scoring = false;
+      _scoreError = 'Evidence scoring is taking too long — try refreshing.';
+      _render();
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, _POLL_MS));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
@@ -178,6 +272,10 @@ function _render() {
   const sections = (_report && Array.isArray(_report.sections)) ? _report.sections : [];
   const topic = (_report && typeof _report.topic === 'string') ? _report.topic : '';
   const models = sections.map(reportSectionModel);
+  const hasReport = models.length > 0;
+  // The honesty caption appears only once at least one citation actually
+  // carries an rcs badge — an unscored report renders exactly as 2e-1.
+  const hasRcs = models.some(m => (m.citations || []).some(c => c && c.rcs));
 
   _el.innerHTML = `
     <div class="report-view">
@@ -191,9 +289,16 @@ function _render() {
         <button class="btn btn-primary report-generate-btn" ${_generating ? 'disabled' : ''}>
           ${_generating ? 'Generating…' : 'Generate report'}
         </button>
+        <button class="btn btn-secondary report-score-evidence-btn"
+                ${(!hasReport || _scoring || _generating) ? 'disabled' : ''}>
+          ${_scoring ? 'Scoring…' : 'Score evidence'}
+        </button>
       </div>
       ${_generating ? `<div class="report-progress muted">${escapeHtml(_jobDetail)}</div>` : ''}
       ${_error ? `<div class="report-error">${escapeHtml(_error)}</div>` : ''}
+      ${_scoring ? `<div class="report-progress muted">${escapeHtml(_scoreDetail)}</div>` : ''}
+      ${_scoreError ? `<div class="report-error">${escapeHtml(_scoreError)}</div>` : ''}
+      ${hasRcs ? '<p class="report-rcs-caption muted">Relevance &amp; stance are AI judgments of the cited passage — not independently verified.</p>' : ''}
       <div class="report-body">
         ${!_generating && models.length === 0 ? _emptyHtml() : models.map(_sectionHtml).join('')}
       </div>
@@ -206,10 +311,20 @@ function _emptyHtml() {
   return `<div class="report-empty muted">Enter a topic and generate a report from your library.</div>`;
 }
 
+function _rcsBadgeHtml(rcs) {
+  if (!rcs) return '';
+  const color = RCS_STANCE_COLORS[rcs.stanceSlug] || '#8b949e';
+  return `
+    <span class="rcs-badge" style="color:${escapeHtml(color)}" title="${rcs.rationale}">
+      <span class="rcs-badge-relevance"${tip('rcs_relevance')}>${rcs.relevancePct}%</span>
+      <span class="rcs-badge-stance"${tip('rcs_stance')}>${rcs.stanceIcon}</span>
+    </span>`;
+}
+
 function _sectionHtml(m) {
   const chips = m.citations.map(c => `
     <button class="chip report-citation-chip" data-paper-id="${escapeHtml(c.paperId)}" data-section-id="${escapeHtml(c.sectionId)}">
-      ${c.label}
+      ${c.label}${_rcsBadgeHtml(c.rcs)}
     </button>`).join('');
 
   const bodyHtml = m.hasError
@@ -236,6 +351,9 @@ function _bindEvents() {
 
   const btn = _el.querySelector('.report-generate-btn');
   if (btn) btn.addEventListener('click', () => { _generate(); });
+
+  const scoreBtn = _el.querySelector('.report-score-evidence-btn');
+  if (scoreBtn) scoreBtn.addEventListener('click', () => { _scoreEvidence(); });
 
   const input = _el.querySelector('#report-topic-input');
   if (input) {

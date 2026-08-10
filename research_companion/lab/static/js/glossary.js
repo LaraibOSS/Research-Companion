@@ -22,6 +22,8 @@ export const GLOSSARY = {
   severity:    'Priority of an improvement suggestion: critical > high > medium > low.',
   hybrid:      'Search combining BM25 keyword matching with semantic (vector) similarity.',
   bm25:        'BM25: keyword-frequency ranking algorithm used in the hybrid retrieval stage.',
+  rcs_relevance: 'How relevant this cited passage is to the question — an AI judgment, not independently verified.',
+  rcs_stance:    'Whether this cited passage supports, contradicts, or is neutral toward the answer — an AI judgment, not independently verified.',
 };
 
 /**

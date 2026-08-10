@@ -2168,3 +2168,94 @@ See `docs/superpowers/specs/2026-08-10-deep-research-report-design.md`
 for the full design, including the deferred 2e-2..2e-5 sub-slices
 (relevance/support/contradiction scoring, coverage %, an editable research
 plan, and export).
+
+## 33. Report Evidence Scoring (RCS) — `POST /api/report/score-evidence`, `rcs.py`, and the frontend badge
+
+The **Report Evidence Scoring** (RCS) system rates each citation in a Report for relevance to its question and stance (supports / contradicts / neutral) toward its answer — an honest, on-demand AI judgment separate from the quote-verified ✓ badge used elsewhere.
+
+### The pipeline (`research_companion/rcs.py`)
+
+The core functions mirror the report-generation architecture:
+
+1. **`_chunk_text(paper_id, char_start, char_end, *, load_text_fn=store.load_text) -> str`** (pure) — retrieves the exact character range from `store.load_text(paper_id)[char_start:char_end]`, using the precise offsets that `build_report`/`qa.answer` already produced. No fresh retrieval, no approximation. Returns `""` if the text cannot be loaded.
+
+2. **`_chunks_block(citations, chunk_texts) -> (block, ref_to_index)`** (pure) — assembles the scorable citations into a numbered LLM-facing block, skipping any citation whose chunk text is empty. Returns a tuple: the formatted `"0. [Paper]: ... {quote excerpt}"` block and a `ref_to_index` dict mapping LLM-facing reference numbers (0, 1, ...) to indices in the original citations list.
+
+3. **`score_section(question, answer, citations, *, load_text_fn=store.load_text, llm=None) -> list[dict|None]`** — orchestrates one section's scoring:
+   - Loads chunk text for each citation via `_chunk_text`.
+   - Assembles the block via `_chunks_block`, skipping unchunkable citations.
+   - Calls `RCS_PROMPT` (from `prompts.format_rcs_prompt`, one call per section, **batched like `gaps.synthesize_gaps`**).
+   - Parses the LLM response and maps scores back onto the original citation list via `ref_to_index`.
+   - Returns `list[dict|None]` where a scorable citation gets `{"relevance": float 0..1, "stance": "supports"|"contradicts"|"neutral", "rationale": "..."}` and an unchunkable one gets `None`.
+
+4. **`_normalize_scores(scores) -> list[dict|None]`** (pure) — post-processes a scored list:
+   - Drops any `ref` key the LLM may have invented (only refs in `ref_to_index` are legal).
+   - Clamps `relevance` to [0, 1] and normalizes it to [0%, 100%].
+   - Ensures `stance` is one of the three canonical values; invalid stances become `None` (unscorable).
+   - Returns the normalized list, with unparseable entries becoming `None`.
+
+5. **`score_report(report, *, load_text_fn=store.load_text, llm=None, progress=None) -> dict`** — the public entry point:
+   - Walks each section in the saved report and calls `score_section` on its citations.
+   - Attaches the scored results directly onto each citation in place: `citation["rcs"] = {"relevance": ..., "stance": ..., "rationale": ...}`.
+   - Stamps the report with `rcs_generated_from: {rcs_prompt_sha256: "..."}` so staleness checks know which version of the prompt generated these scores.
+   - Never raises — an LLM failure, a malformed section, or any other error degrades gracefully to unscored citations.
+   - Returns the augmented report dict (identical to `load_report`'s shape, with `rcs` fields added to citations).
+
+The `RCS_PROMPT` is defined in `research_companion/prompts.py` alongside `REPORT_QUESTIONS_PROMPT` and other templates; `rcs_prompt_sha256()` returns a stable hash for staleness tracking (Task 1).
+
+### Why a separate opt-in job instead of folding into `POST /api/report/refresh`?
+
+Scoring adds `question_count` extra LLM calls on top of report generation (one per section). This is kept opt-in and separately costed, mirroring the pattern that novelty-check and alignment-scoring use elsewhere in the app — the user decides when to pay the extra cost, not every report generation.
+
+### The honesty contract
+
+- `rcs.score_section` and `rcs.score_report` **never raise** — an LLM failure, parse error, or any other issue degrades to unscored citations (the citation stays in the report, just with no `rcs` badge).
+- The `rcs` field is **purely additive** — a report scored by an older client, or never scored at all, still renders correctly; the field is optional and its absence is not an error.
+- Chunk text is **always real** — `_chunk_text` loads only from `store.load_text`, never invents or approximates text.
+- Invented `ref`s are **always dropped** — `_normalize_scores` never lets an LLM-invented reference onto a citation.
+- Scores are **clamped and normalized** — `relevance` is bounded to [0, 1] and displayed as an integer percentage; `stance` is validated against the canonical set.
+
+### The endpoint (`research_companion/lab_api.py`)
+
+`POST /api/report/score-evidence` (`dependencies=[Depends(require_active_workspace)]`) enqueues a background job exactly like `POST /api/report/refresh`:
+
+- Returns 202 `{"job_id"}` immediately.
+- Runs `score_report(report, llm=resolved_llm, progress=_progress)` where `_progress` is a callback updating the job's `detail` with `"Scoring evidence j/m"`.
+- Publishes `ReportUpdated(question_count=..., topic=...)` on completion, reusing the same event that `POST /api/report/refresh` publishes — the frontend refetches and re-renders automatically.
+- Job `kind: "report_rcs"`, with `"failed"`/`"done"` transitions and corresponding `_announce_start`/`_announce_finish` calls.
+
+The guarded-202-job pattern keeps scoring on-demand and crashes are impossible — an LLM error is caught and degraded to unscored citations within `score_report` itself.
+
+### The frontend (`research_companion/lab/static/js/reportHelpers.js`, `views/report.js`, `api.js`, `glossary.js`)
+
+**`reportHelpers.js`** — new pure, node-tested helper:
+
+- **`_rcsModel(rawRcs) -> {relevancePct, stanceSlug, stanceIcon, rationale, tipRelevance, tipStance}`** — maps the `rcs` dict onto display-friendly fields:
+  - `relevancePct`: clamped percentage string (e.g., "85%").
+  - `stanceSlug`: one of `"supports"`, `"contradicts"`, `"neutral"`.
+  - `stanceIcon`: mapped via `format.js`'s `stanceIcon(stanceSlug)` function (reusing the same icons as elsewhere in the app).
+  - `rationale`: the model's explanation text (HTML-escaped).
+  - `tipRelevance`: literal string `"rcs_relevance"` for glossary lookup.
+  - `tipStance`: literal string `"rcs_stance"` for glossary lookup.
+
+**`views/report.js`**:
+
+- **"Score evidence" button** in the report header (only enabled if a report is loaded).
+- **Progress display** "Scoring evidence j/m" while the job is running.
+- **Badge rendering** — each citation chip gains a new sub-section showing relevancePct and the stance icon (built via `_rcsBadgeHtml`), with the icon's tooltip and rationale visible on hover.
+- **Event handling** — on `ReportUpdated`, refetch and re-render, which picks up the new `rcs` fields automatically.
+
+**`api.js`**:
+
+- **`api.scoreEvidence() -> {job_id}`** — `POST /api/report/score-evidence`, wraps the job endpoint.
+
+**`glossary.js`**:
+
+- **`rcs_relevance`**: "The relevance of this citation to the question (an AI judgment of the cited passage, not independently verified)."
+- **`rcs_stance`**: "Whether this citation supports, contradicts, or is neutral toward the answer (an AI judgment, not independently verified)."
+
+Both glossary entries emphasize that these are AI judgments, never "verified" in the same sense as the ✓ badge.
+
+### Design reference
+
+See `docs/superpowers/specs/2026-08-10-report-rcs-scoring-design.md` for the full design, the deferred 2e-3..2e-5 sub-slices (coverage %, editable research plan, export), rejected alternatives (folding into refresh, per-chunk calls, reusing `ALIGNMENT_PROMPT` verbatim, badging as "verified"), and the manual test script.

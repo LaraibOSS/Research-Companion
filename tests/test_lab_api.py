@@ -5182,3 +5182,145 @@ class TestReportEndpoints:
         resp = c.get("/api/report")
         assert resp.status_code == 200
         assert resp.json()["stale"] is True
+
+
+# ---------------------------------------------------------------------------
+# POST /api/report/score-evidence  (Report Evidence Scoring / RCS, 2e-2)
+# ---------------------------------------------------------------------------
+
+class TestScoreEvidenceEndpoint:
+    def test_no_active_workspace_returns_409(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+
+        c = _make_client()
+        resp = c.post("/api/report/score-evidence")
+        assert resp.status_code == 409
+
+    def test_no_saved_report_marks_job_failed_server_ok(self, isolated_papergraph_dir):
+        import time
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=lambda p: "{}")
+        with TestClient(app) as c:
+            resp = c.post("/api/report/score-evidence")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "failed"
+            assert "report" in (job["detail"] or "").lower()
+
+            still_ok = c.get("/api/report")
+            assert still_ok.status_code == 200
+
+    def test_scores_saved_report_and_publishes_report_updated(
+            self, isolated_papergraph_dir):
+        import time
+
+        from research_companion import store
+        from research_companion.agents.events import ReportUpdated
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+        text = store.load_text("arxiv:1234.56789")
+
+        store.save_report({
+            "topic": "graph retrieval",
+            "sections": [{
+                "question": "What methods are used?",
+                "answer": "Graph retrieval is used [S1].",
+                "citations": [{
+                    "paper_id": "arxiv:1234.56789", "paper_title": "Graph Retrieval Paper",
+                    "section_id": "s1", "char_start": 0, "char_end": min(100, len(text)),
+                    "chunk_index": 0, "score": 2.5,
+                }],
+                "unverified_quotes": [],
+            }],
+            "generated_from": {}, "question_count": 1,
+        })
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"scores": [
+                {"ref": 0, "relevance": 0.9, "stance": "supports", "rationale": "Directly backs the claim."},
+            ]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/score-evidence")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            report_resp = c.get("/api/report")
+
+        data = report_resp.json()
+        rcs = data["sections"][0]["citations"][0].get("rcs")
+        assert rcs is not None
+        assert rcs["stance"] == "supports"
+        assert 0.0 <= rcs["relevance"] <= 1.0
+
+        events = [e for e in bus.history if isinstance(e, ReportUpdated)]
+        assert len(events) >= 1
+
+        assert store.load_report()["sections"][0]["citations"][0]["rcs"]["stance"] == "supports"
+
+    def test_llm_failure_during_scoring_completes_job_with_citations_unscored(
+            self, isolated_papergraph_dir):
+        """rcs.score_report/score_section never raise -- an LLM that raises
+        on every scoring call degrades to unscored citations, not a failed
+        job; the job still completes ("done") and the server stays up.
+        (A job only becomes "failed" for a genuinely unexpected failure,
+        e.g. no saved report -- see the test above.)"""
+        import time
+
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+        text = store.load_text("arxiv:1234.56789")
+        store.save_report({
+            "topic": "graph retrieval",
+            "sections": [{
+                "question": "Q?", "answer": "A [S1].",
+                "citations": [{
+                    "paper_id": "arxiv:1234.56789", "paper_title": "Graph Retrieval Paper",
+                    "section_id": "s1", "char_start": 0, "char_end": min(100, len(text)),
+                    "chunk_index": 0, "score": 1.0,
+                }],
+                "unverified_quotes": [],
+            }],
+            "generated_from": {}, "question_count": 1,
+        })
+
+        def _bad_llm(prompt: str) -> str:
+            raise RuntimeError("provider down")
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_bad_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/score-evidence")
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            report_resp = c.get("/api/report")
+        assert report_resp.status_code == 200
+        assert report_resp.json()["sections"][0]["citations"][0].get("rcs") is None
