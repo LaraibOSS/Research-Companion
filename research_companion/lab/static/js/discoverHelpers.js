@@ -70,6 +70,11 @@ function _shortAbstract(abstract) {
  *   abstractShort:string, inLibrary:boolean, addTarget:string, url:string,
  *   arxivId:(string|null), doi:(string|null), s2Id:(string|null),
  *   pmid:(string|null), pmcid:(string|null)}}
+ *
+ * ESCAPING CONTRACT: `title`, `authorsText`, `sourceLabel`, and `abstractShort`
+ * are ALREADY HTML-escaped — interpolate them directly, do NOT re-escape (that
+ * would double-escape). `addTarget`, `url`, `source`, and the raw ids are NOT
+ * escaped — the caller must escapeHtml them before writing into the DOM.
  */
 export function discoverResultModel(raw, libraryIds) {
   const r = (raw && typeof raw === 'object') ? raw : {};
