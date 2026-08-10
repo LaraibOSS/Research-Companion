@@ -559,3 +559,9 @@ test('store.startIngestManifest: seeds rows, already_in_library -> skipped, othe
   assert.equal(rowB.status, 'skipped');
   assert.equal(rowB.reason, 'already in library');
 });
+
+test('applyEvent: report_updated returns the report topic', () => {
+  const state = { papers: new Map(), jobs: new Map(), failures: {} };
+  const topics = applyEvent(state, { event: 'report_updated', question_count: 4, topic: 'graph retrieval' });
+  assert.deepEqual(topics, ['report']);
+});

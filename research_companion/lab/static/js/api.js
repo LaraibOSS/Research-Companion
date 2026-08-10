@@ -283,6 +283,25 @@ export const getGaps = () => get('/api/gaps');
 export const refreshGaps = () => post('/api/gaps/refresh');
 
 // ---------------------------------------------------------------------------
+// Deep-Research Report endpoints (Phase 2, slice 2e-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/report — returns { topic, sections, question_count, stale }
+ */
+export const getReport = () => get('/api/report');
+
+/**
+ * POST /api/report/refresh { topic } — triggers report-generation job.
+ * MUTATING + guarded (409 with no active workspace, like
+ * POST /api/directions/draft). Returns { job_id }.
+ */
+export function refreshReport(params = {}) {
+  const { topic } = params;
+  return post('/api/report/refresh', { topic: topic || '' });
+}
+
+// ---------------------------------------------------------------------------
 // Workspace endpoints (W4-F1)
 // ---------------------------------------------------------------------------
 

@@ -6778,3 +6778,74 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   font-size: var(--text-sm);
 }
 .brainstorm-scaffold-open-btn { cursor: pointer; text-decoration: none; }
+
+/* ---------------------------------------------------------------------- */
+/* Deep-Research Report view (Phase 2, slice 2e-1)                        */
+/* ---------------------------------------------------------------------- */
+
+.report-view {
+  padding: var(--space-5);
+  max-width: 960px;
+  margin: 0 auto;
+}
+.report-header { margin-bottom: var(--space-4); }
+.report-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.report-topic-input {
+  flex: 1 1 320px;
+  min-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+.report-progress { margin-bottom: var(--space-3); }
+.report-error {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-warn);
+  color: var(--color-warn);
+  margin-bottom: var(--space-3);
+}
+.report-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.report-section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--color-panel);
+}
+.report-question {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.report-answer {
+  font-size: var(--text-sm);
+  color: var(--color-fg);
+  margin-bottom: var(--space-2);
+  white-space: pre-wrap;
+}
+.report-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.report-citation-chip { cursor: pointer; font-size: var(--text-xs); }
+.report-unverified { font-size: var(--text-xs); }
+.report-section-error {
+  font-size: var(--text-sm);
+  color: var(--color-warn);
+}

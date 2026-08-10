@@ -297,6 +297,11 @@ export function applyEvent(state, evt) {
       return ['gaps'];
     }
 
+    // Deep-Research Report completed (Phase 2, slice 2e-1)
+    case 'report_updated': {
+      return ['report'];
+    }
+
     // W5-ACT: background job started
     case 'job_started': {
       if (!state.activeJobs) state.activeJobs = new Map();

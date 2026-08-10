@@ -3370,6 +3370,17 @@ class TestGapsEndpoints:
         assert d["event"] == "gaps_updated"
         assert d["n_themes"] == 0
 
+    def test_report_updated_event_shape(self, isolated_papergraph_dir):
+        """ReportUpdated serializes with the report_updated discriminator and
+        carries question_count + topic (2e-1)."""
+        from research_companion.agents.events import ReportUpdated, event_to_dict
+
+        evt = ReportUpdated(question_count=4, topic="graph retrieval")
+        d = event_to_dict(evt)
+        assert d["event"] == "report_updated"
+        assert d["question_count"] == 4
+        assert d["topic"] == "graph retrieval"
+
     def test_get_gaps_themes_empty_when_no_cache(self, isolated_papergraph_dir):
         """GET /api/gaps always includes 'themes'; [] when nothing cached yet."""
         c = _make_client()
@@ -5003,3 +5014,171 @@ class TestScaffoldEndpoint:
         data = resp.json()
         assert data["ok"] is False
         assert "disk error" in data["error"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/report + POST /api/report/refresh  (Deep-Research Report, 2e-1)
+# ---------------------------------------------------------------------------
+
+class TestReportEndpoints:
+    def test_get_report_empty_when_none(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/report")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["sections"] == []
+        assert data["question_count"] == 0
+        assert data["stale"] is False
+
+    def test_post_report_refresh_no_active_workspace_returns_409(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+
+        c = _make_client()
+        resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+        assert resp.status_code == 409
+
+    def test_post_report_refresh_returns_202_completes_and_publishes(
+            self, isolated_papergraph_dir, monkeypatch):
+        import time
+
+        from research_companion import qa, store
+        from research_companion.agents.events import ReportUpdated
+        from research_companion.qa import QAAnswer, QASource
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+
+        def _fake_answer(question, *, llm=None, paper_ids=None, **kwargs):
+            src = QASource(paper_id="arxiv:1234.56789", paper_title="Graph Retrieval Paper",
+                            section_id="s1", section_title="Intro", score=1.0)
+            return QAAnswer(answer=f"Answer to: {question} [S1]",
+                             sources=[src], cited=[src], unverified_quotes=[], input_chars=100)
+
+        monkeypatch.setattr(qa, "answer", _fake_answer)
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": [
+                "What methods does the library use for graph retrieval?",
+                "What datasets are used for evaluation?",
+            ]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            report_resp = c.get("/api/report")
+
+        data = report_resp.json()
+        assert data["topic"] == "graph retrieval"
+        assert data["question_count"] == 2
+        assert len(data["sections"]) == 2
+        assert data["sections"][0]["citations"][0]["paper_id"] == "arxiv:1234.56789"
+        assert data["stale"] is False
+
+        report_events = [e for e in bus.history if isinstance(e, ReportUpdated)]
+        assert len(report_events) >= 1
+        assert report_events[0].question_count == 2
+
+        assert store.load_report() is not None
+
+    def test_post_report_refresh_generate_questions_failure_marks_job_failed_server_ok(
+            self, isolated_papergraph_dir):
+        """Uses `with TestClient(app) as c:` (not the bare _make_client()
+        helper) -- POST /api/report/refresh's job runs via
+        asyncio.create_task, exactly like gaps-refresh's own
+        test_post_gaps_refresh_job_tracked; the app's lifespan must stay
+        open for that background task to actually run to completion."""
+        import time
+
+        def _bad_llm(prompt: str) -> str:
+            raise RuntimeError("provider down")
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_bad_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "failed"
+
+            still_ok = c.get("/api/report")
+            assert still_ok.status_code == 200
+
+    def test_post_report_refresh_one_question_answer_failure_still_completes_report(
+            self, isolated_papergraph_dir, monkeypatch):
+        """Same `with TestClient(app) as c:` requirement as the test above."""
+        import time
+
+        from research_companion import qa
+        from research_companion.qa import QAAnswer, QASource
+
+        calls = {"n": 0}
+
+        def _flaky_answer(question, *, llm=None, paper_ids=None, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("retrieval exploded")
+            src = QASource(paper_id="p1", paper_title="P1", section_id="s1",
+                            section_title="Intro", score=1.0)
+            return QAAnswer(answer="ok [S1]", sources=[src], cited=[src],
+                             unverified_quotes=[], input_chars=10)
+
+        monkeypatch.setattr(qa, "answer", _flaky_answer)
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": ["Q1?", "Q2?"]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            data = c.get("/api/report").json()
+        assert data["question_count"] == 2
+        assert data["sections"][0]["error"]
+        assert not data["sections"][1].get("error")
+
+    def test_get_report_stale_true_after_library_changes(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        store.save_report({
+            "topic": "old topic",
+            "sections": [],
+            "generated_from": {"papers_sha256": "stale_sha",
+                                "report_questions_prompt_sha256": "stale_sha"},
+            "question_count": 0,
+        })
+        _make_paper(isolated_papergraph_dir, "arxiv:9999.99999", "New Paper")
+
+        c = _make_client()
+        resp = c.get("/api/report")
+        assert resp.status_code == 200
+        assert resp.json()["stale"] is True

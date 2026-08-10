@@ -224,6 +224,12 @@ try:
         direction_type: str = ""
         citations: list[dict] = []
 
+    class _ReportBody(_BaseModel):
+        """POST /api/report/refresh body -- Deep-Research Report (2e-1).
+        MUTATING (writes research_report.json) -- unlike _DirectionsBody/
+        _NoveltyBody, guarded by require_active_workspace."""
+        topic: str = ""
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -246,6 +252,7 @@ except ImportError:
     _DirectionsBody = None  # type: ignore[assignment,misc]
     _NoveltyBody = None  # type: ignore[assignment,misc]
     _ScaffoldBody = None  # type: ignore[assignment,misc]
+    _ReportBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -3129,6 +3136,137 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 await _announce_finish(job_id, "gaps")
 
         asyncio.create_task(_run_gaps())
+        return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
+    # GET /api/report  (Deep-Research Report, 2e-1 -- read-only, never 500s)
+    # -----------------------------------------------------------------
+    @app.get("/api/report")
+    async def get_report() -> dict:
+        from research_companion import store
+
+        try:
+            cached = await asyncio.to_thread(store.load_report)
+            if cached is None:
+                return {"topic": "", "sections": [], "question_count": 0, "stale": False}
+
+            from research_companion.gaps import _papers_sha
+            from research_companion.prompts import report_questions_prompt_sha256
+
+            all_papers = await asyncio.to_thread(store.list_papers)
+            p_sha = _papers_sha([m.paper_id for m in all_papers])
+            generated_from = cached.get("generated_from")
+            generated_from = generated_from if isinstance(generated_from, dict) else {}
+            stale = (
+                generated_from.get("papers_sha256") != p_sha
+                or generated_from.get("report_questions_prompt_sha256") != report_questions_prompt_sha256()
+            )
+            sections = cached.get("sections")
+            return {
+                "topic": cached.get("topic", "") or "",
+                "sections": sections if isinstance(sections, list) else [],
+                "question_count": cached.get("question_count", 0) or 0,
+                "stale": stale,
+            }
+        except Exception:  # noqa: BLE001 — GET /api/report must never 500
+            return {"topic": "", "sections": [], "question_count": 0, "stale": False}
+
+    # -----------------------------------------------------------------
+    # POST /api/report/refresh  -> 202 {"job_id"}  (Deep-Research Report, 2e-1)
+    # -----------------------------------------------------------------
+    @app.post("/api/report/refresh", status_code=202, dependencies=[Depends(require_active_workspace)])
+    async def refresh_report(body: _ReportBody) -> dict:
+        topic = (body.topic or "").strip()
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        report_label = "Generating report…"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "report",
+                                  "label": report_label, "target": ""}
+
+        async def _run_report():
+            await _announce_start(job_id, "report", report_label)
+            try:
+                import hashlib
+
+                from research_companion import deep_research, store
+                from research_companion.agents.events import ReportUpdated
+                from research_companion.gaps import _papers_sha
+                from research_companion.graph import load_graph
+                from research_companion.prompts import (
+                    extraction_prompt_sha256,
+                    report_questions_prompt_sha256,
+                )
+                from research_companion.qa import answer as qa_answer_fn
+
+                def _library_papers() -> list:
+                    prompt_sha = extraction_prompt_sha256()
+                    out = []
+                    for meta in store.list_papers():
+                        ext = store.load_extraction(meta.paper_id, prompt_sha=prompt_sha)
+                        concepts = [c.get("name", "") for c in (ext or {}).get("concepts", []) if c.get("name")]
+                        out.append({
+                            "paper_id": meta.paper_id, "title": meta.title, "year": meta.year,
+                            "abstract": meta.abstract, "concepts": concepts,
+                        })
+                    return out
+
+                resolved_llm = app.state.llm
+                if resolved_llm is None:
+                    resolved_llm = _resolve_llm(json_mode=True)
+
+                library_papers = await asyncio.to_thread(_library_papers)
+                loaded_graph = await asyncio.to_thread(load_graph)
+
+                q_result = await asyncio.to_thread(
+                    deep_research.generate_questions,
+                    topic, library_papers=library_papers, graph=loaded_graph, llm=resolved_llm,
+                )
+                questions = q_result.get("questions") or []
+                if q_result.get("llm_error") or not questions:
+                    error = q_result.get("llm_error") or "No investigation questions could be generated."
+                    app.state.jobs[job_id] = {
+                        "status": "failed", "detail": error, "kind": "report",
+                        "label": report_label, "target": "",
+                    }
+                    return
+
+                n = len(questions)
+                progress = {"i": 0}
+
+                def _answer_fn(q: str):
+                    progress["i"] += 1
+                    app.state.jobs[job_id]["detail"] = f"Answering {progress['i']}/{n}"
+                    return qa_answer_fn(q, llm=resolved_llm, paper_ids=None)
+
+                all_papers = await asyncio.to_thread(store.list_papers)
+                p_sha = _papers_sha([m.paper_id for m in all_papers])
+                generated_shas = {
+                    "topic_sha256": hashlib.sha256(topic.encode("utf-8")).hexdigest(),
+                    "papers_sha256": p_sha,
+                    "report_questions_prompt_sha256": report_questions_prompt_sha256(),
+                }
+
+                report = await asyncio.to_thread(
+                    deep_research.build_report, topic, questions,
+                    answer_fn=_answer_fn, generated_shas=generated_shas,
+                )
+                await asyncio.to_thread(store.save_report, report)
+
+                await bus.publish(ReportUpdated(
+                    question_count=report.get("question_count", 0), topic=topic,
+                ))
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "report",
+                                          "label": report_label, "target": ""}
+            except Exception as exc:  # noqa: BLE001
+                app.state.jobs[job_id] = {
+                    "status": "failed", "detail": str(exc), "kind": "report",
+                    "label": report_label, "target": "",
+                }
+            finally:
+                await _announce_finish(job_id, "report")
+
+        asyncio.create_task(_run_report())
         return {"job_id": job_id}
 
     # -----------------------------------------------------------------
