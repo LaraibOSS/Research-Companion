@@ -148,3 +148,72 @@ def generate_questions(
         return {"questions": [], "llm_error": "The model returned no investigation questions."}
 
     return {"questions": questions, "llm_error": None}
+
+
+# ---------------------------------------------------------------------------
+# build_report
+# ---------------------------------------------------------------------------
+
+def _citation_dict(source: Any) -> dict:
+    """Map one QASource-like object to the report's citation dict shape.
+    Duck-typed (getattr with defaults) so a plain namespace/mock works in
+    tests too -- this module never imports qa.QASource directly."""
+    return {
+        "paper_id": getattr(source, "paper_id", "") or "",
+        "paper_title": getattr(source, "paper_title", "") or "",
+        "section_id": getattr(source, "section_id", "") or "",
+        "char_start": getattr(source, "char_start", 0) or 0,
+        "char_end": getattr(source, "char_end", 0) or 0,
+        "chunk_index": getattr(source, "chunk_index", 0) or 0,
+        "score": getattr(source, "score", 0.0) or 0.0,
+    }
+
+
+def build_report(
+    topic: str,
+    questions: list,
+    *,
+    answer_fn: Callable[[str], Any],
+    generated_shas: dict,
+) -> dict:
+    """Pure orchestration: for each question, call the injectable
+    `answer_fn(question) -> QAAnswer`-like object (the caller passes a
+    `qa.answer` closure) and map it to a report section. A question whose
+    `answer_fn` raises, or returns something with no usable answer (e.g.
+    None), degrades to an empty section with an `"error"` key -- it never
+    aborts the rest of the report. Never raises.
+
+    Returns {"topic", "sections": [{"question", "answer", "citations":
+    [{"paper_id","paper_title","section_id","char_start","char_end",
+    "chunk_index","score"}, ...], "unverified_quotes", "error"?}, ...],
+    "generated_from": generated_shas, "question_count": len(sections)}.
+    """
+    sections: list[dict] = []
+    for q in questions or []:
+        if not isinstance(q, str) or not q.strip():
+            continue
+        try:
+            qa_answer = answer_fn(q)
+            if qa_answer is None:
+                raise ValueError("No answer was returned for this question.")
+            sections.append({
+                "question": q,
+                "answer": getattr(qa_answer, "answer", "") or "",
+                "citations": [_citation_dict(s) for s in (getattr(qa_answer, "cited", None) or [])],
+                "unverified_quotes": list(getattr(qa_answer, "unverified_quotes", None) or []),
+            })
+        except Exception as exc:
+            sections.append({
+                "question": q,
+                "answer": "",
+                "citations": [],
+                "unverified_quotes": [],
+                "error": str(exc) or exc.__class__.__name__,
+            })
+
+    return {
+        "topic": str(topic or "").strip(),
+        "sections": sections,
+        "generated_from": generated_shas,
+        "question_count": len(sections),
+    }

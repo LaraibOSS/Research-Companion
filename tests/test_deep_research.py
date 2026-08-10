@@ -224,3 +224,119 @@ def test_generate_questions_topic_alone_still_calls_llm():
     out = generate_questions("a real topic", library_papers=[], graph=None, llm=fake_llm)
     assert out["llm_error"] is None
     assert out["questions"] == ["Q1?"]
+
+
+# ---------------------------------------------------------------------------
+# build_report
+# ---------------------------------------------------------------------------
+
+def test_build_report_assembles_sections_with_citations():
+    from research_companion.deep_research import build_report
+    from research_companion.qa import QAAnswer, QASource
+
+    def fake_answer_fn(question):
+        return QAAnswer(
+            answer=f"Answer to: {question} [S1]",
+            sources=[QASource(paper_id="p1", paper_title="Paper One", section_id="s1",
+                               section_title="Intro", score=2.5, char_start=0, char_end=100, chunk_index=0)],
+            cited=[QASource(paper_id="p1", paper_title="Paper One", section_id="s1",
+                             section_title="Intro", score=2.5, char_start=0, char_end=100, chunk_index=0)],
+            unverified_quotes=["an unverified span here that is long enough"],
+            input_chars=500,
+        )
+
+    report = build_report(
+        "graph retrieval", ["What methods are used?"],
+        answer_fn=fake_answer_fn, generated_shas={"topic_sha256": "abc"},
+    )
+    assert report["topic"] == "graph retrieval"
+    assert report["question_count"] == 1
+    assert report["generated_from"] == {"topic_sha256": "abc"}
+    section = report["sections"][0]
+    assert section["question"] == "What methods are used?"
+    assert section["answer"] == "Answer to: What methods are used? [S1]"
+    assert section["citations"] == [{
+        "paper_id": "p1", "paper_title": "Paper One", "section_id": "s1",
+        "char_start": 0, "char_end": 100, "chunk_index": 0, "score": 2.5,
+    }]
+    assert section["unverified_quotes"] == ["an unverified span here that is long enough"]
+    assert "error" not in section
+
+
+def test_build_report_one_failing_question_does_not_abort_others():
+    from research_companion.deep_research import build_report
+    from research_companion.qa import QAAnswer, QASource
+
+    def flaky_answer_fn(question):
+        if question == "Bad question?":
+            raise RuntimeError("retrieval exploded")
+        return QAAnswer(
+            answer="Fine [S1]",
+            sources=[QASource(paper_id="p1", paper_title="Paper One", section_id="s1",
+                               section_title="Intro", score=1.0)],
+            cited=[QASource(paper_id="p1", paper_title="Paper One", section_id="s1",
+                             section_title="Intro", score=1.0)],
+            unverified_quotes=[], input_chars=10,
+        )
+
+    report = build_report(
+        "topic", ["Bad question?", "Good question?"],
+        answer_fn=flaky_answer_fn, generated_shas={},
+    )
+    assert report["question_count"] == 2
+    bad, good = report["sections"]
+    assert bad["question"] == "Bad question?"
+    assert bad["answer"] == ""
+    assert bad["citations"] == []
+    assert bad["error"] == "retrieval exploded"
+    assert good["question"] == "Good question?"
+    assert good["answer"] == "Fine [S1]"
+    assert "error" not in good
+
+
+def test_build_report_answer_fn_returning_none_is_an_error_not_a_raise():
+    from research_companion.deep_research import build_report
+
+    def none_answer_fn(question):
+        return None
+
+    report = build_report("topic", ["Q?"], answer_fn=none_answer_fn, generated_shas={})
+    assert report["sections"][0]["error"]
+    assert report["sections"][0]["answer"] == ""
+
+
+def test_build_report_empty_questions_list_returns_empty_sections():
+    from research_companion.deep_research import build_report
+
+    def unused_answer_fn(question):
+        raise AssertionError("must not be called")
+
+    report = build_report("topic", [], answer_fn=unused_answer_fn, generated_shas={})
+    assert report["sections"] == []
+    assert report["question_count"] == 0
+
+
+def test_build_report_skips_non_string_and_empty_questions():
+    from research_companion.deep_research import build_report
+    from research_companion.qa import QAAnswer
+
+    def fake_answer_fn(question):
+        return QAAnswer(answer="ok", sources=[], cited=[], unverified_quotes=[], input_chars=1)
+
+    report = build_report(
+        "topic", ["Real question?", "", None, 42],
+        answer_fn=fake_answer_fn, generated_shas={},
+    )
+    assert report["question_count"] == 1
+    assert report["sections"][0]["question"] == "Real question?"
+
+
+def test_build_report_never_raises_when_answer_fn_raises_for_every_question():
+    from research_companion.deep_research import build_report
+
+    def always_raises(question):
+        raise RuntimeError("down")
+
+    report = build_report("topic", ["Q1?", "Q2?"], answer_fn=always_raises, generated_shas={})
+    assert report["question_count"] == 2
+    assert all(s["error"] == "down" for s in report["sections"])
