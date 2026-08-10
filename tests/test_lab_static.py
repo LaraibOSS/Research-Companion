@@ -3159,3 +3159,56 @@ def test_report_view_has_scope_note_and_empty_state():
     text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
     assert "Based on your library" in text
     assert "Enter a topic and generate a report from your library." in text
+
+
+# ---------------------------------------------------------------------------
+# feat/report-rcs-scoring: RCS badges + "Score evidence" (2e-2)
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_score_evidence_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/report/score-evidence" in api_js
+    assert "export const scoreEvidence" in api_js or "export function scoreEvidence" in api_js
+
+
+def test_glossary_has_rcs_entries():
+    text = (STATIC_DIR / "js" / "glossary.js").read_text(encoding="utf-8")
+    assert "rcs_relevance" in text
+    assert "rcs_stance" in text
+
+
+def test_report_view_has_score_evidence_button_and_honesty_caption():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-score-evidence-btn" in text
+    assert "Score evidence" in text
+    assert "api.scoreEvidence(" in text
+    assert "not independently verified" in text
+    assert "tip('rcs_relevance')" in text
+    assert "tip('rcs_stance')" in text
+
+
+def test_report_view_score_evidence_wraps_call_in_ensure_active_research():
+    """The mutating score-evidence call MUST be wrapped in
+    ensureActiveResearch, mirroring _generate -- POST /api/report/
+    score-evidence is guarded (409 with no active workspace)."""
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    start = text.index("async function _scoreEvidence")
+    end = text.index("\n\nasync function _pollScoreJob", start)
+    body = text[start:end]
+    assert "ensureActiveResearch(async () => {" in body
+    assert "api.scoreEvidence(" in body
+
+
+def test_report_view_renders_rcs_badge_in_citation_chip():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "_rcsBadgeHtml" in text
+    assert "rcs-badge" in text
+    assert "c.rcs" in text
+
+
+def test_report_view_score_evidence_button_disabled_with_no_report():
+    """The button must be conditionally disabled based on whether a report
+    exists -- not always enabled (mirrors hasReport gating, not just
+    _scoring)."""
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "hasReport" in text
