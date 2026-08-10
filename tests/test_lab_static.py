@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -88,6 +88,8 @@ REQUIRED_STATIC_FILES = [
     # W4-F1 additions
     "js/workspaceHelpers.js",
     "js/views/researches.js",
+    "js/gapHelpers.js",
+    "js/views/gaps.js",
     "js/components/workspaceSwitcher.js",
     # W5-C3 additions
     "js/citationsHelpers.js",
@@ -2849,3 +2851,85 @@ def test_no_literal_main_fallback_remains_in_store_or_workspaces():
             f"workspaces.py must not contain the literal fallback pattern: {pattern!r}"
     assert 'any(w.get("id") == "main" for w in others)' not in ws_text, \
         "workspaces.py must not special-case 'main' when picking the new active workspace"
+
+
+# ---------------------------------------------------------------------------
+# feat/gap-analysis-section (Task 4): dedicated Gaps view
+# ---------------------------------------------------------------------------
+
+def test_gaps_nav_entry_exists():
+    """index.html must have a Gaps nav-rail button (gap-analysis-section)."""
+    html = _index_text()
+    assert 'data-route="/gaps"' in html, "Missing Gaps nav-rail button (data-route=/gaps)"
+    assert 'nav-label">Gaps<' in html, "Gaps nav button must have nav-label 'Gaps'"
+    assert 'data-desc="research gaps across your papers, as actionable bullets"' in html, \
+        "Gaps nav button missing its data-desc"
+
+
+def test_gaps_view_registered_in_main_js():
+    """main.js must import views/gaps.js and register it at /gaps."""
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "views/gaps.js" in main_js, "main.js must import from views/gaps.js"
+    assert "registerRoute('/gaps'" in main_js, "main.js must registerRoute('/gaps', ...)"
+
+
+def test_gaps_view_renders_bullet_list_not_diamonds():
+    """views/gaps.js must render a themed bullet list (not the timeline diamonds)."""
+    gaps_js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert "gaps-row" in gaps_js, "gaps.js must render .gaps-row bullet rows"
+    assert "tl-gap-diamond" not in gaps_js, "gaps.js must not reuse the timeline diamond markup"
+
+
+def test_gaps_view_uses_gap_helpers():
+    """views/gaps.js must import the pure model from gapHelpers.js."""
+    gaps_js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert "gapHelpers.js" in gaps_js
+    assert "gapThemeRowModel" in gaps_js
+    assert "sortGapThemes" in gaps_js
+    assert "filterGapThemes" in gaps_js
+
+
+def test_gaps_view_escapes_server_strings():
+    """views/gaps.js must use escapeHtml for server-derived strings."""
+    gaps_js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert "escapeHtml" in gaps_js
+
+
+def test_gaps_view_calls_refresh_gaps():
+    """views/gaps.js must wire a Refresh button to api.refreshGaps()."""
+    gaps_js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert "refreshGaps" in gaps_js
+
+
+def test_gaps_view_subscribes_to_gaps_topic():
+    """views/gaps.js must subscribe to the 'gaps' store topic (gaps_updated SSE) and refetch."""
+    gaps_js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert "'gaps'" in gaps_js
+    assert "api.getGaps()" in gaps_js
+
+
+def test_gap_helpers_test_file_exists():
+    """tests/js/gapHelpers.test.mjs must exist (node tests for the pure model)."""
+    assert (REPO_ROOT / "tests" / "js" / "gapHelpers.test.mjs").exists(), \
+        "Missing tests/js/gapHelpers.test.mjs"
+
+
+def test_lab_css_has_gaps_styles():
+    """lab.css must include the Gaps view styles."""
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    for needle in (".gaps-view", ".gaps-row", ".gaps-status-pill", ".gaps-citation-chip"):
+        assert needle in css, f"lab.css missing Gaps style: {needle}"
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_gaps_view_js_returns_200(lab_client):
+    """GET /static/js/views/gaps.js must return 200."""
+    res = lab_client.get("/static/js/views/gaps.js")
+    assert res.status_code == 200
+
+
+@pytest.mark.skipif(not _FASTAPI_AVAILABLE, reason="fastapi not installed")
+def test_get_static_gap_helpers_js_returns_200(lab_client):
+    """GET /static/js/gapHelpers.js must return 200."""
+    res = lab_client.get("/static/js/gapHelpers.js")
+    assert res.status_code == 200

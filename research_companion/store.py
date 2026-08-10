@@ -1101,3 +1101,39 @@ def load_gap_resolution() -> dict | None:
         return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def gap_synthesis_path() -> Path | None:
+    """Return papergraph_dir()/gap_synthesis.json, or None when none is active."""
+    return workspace_path("gap_synthesis.json")
+
+
+def save_gap_synthesis(payload: dict) -> Path | None:
+    """Save store-level gap-theme synthesis to gap_synthesis.json.
+
+    Mirrors save_gap_resolution: the caller embeds whatever staleness-key sha
+    fields it wants (gap_prompt_sha256, resolution_prompt_sha256,
+    papers_sha256, synthesis_prompt_sha256) in *payload*; this function writes
+    it as-is. Returns None if no active workspace.
+    """
+    p = gap_synthesis_path()
+    if p is None:
+        return None
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_gap_synthesis() -> dict | None:
+    """Load gap_synthesis.json. Returns None if missing, unparseable, not a
+    dict, or no active workspace. Staleness (sha comparison against current
+    gap/resolution/papers/synthesis-prompt shas) is the caller's job, exactly
+    like load_gap_resolution."""
+    p = gap_synthesis_path()
+    if p is None or not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None

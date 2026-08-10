@@ -3359,6 +3359,196 @@ class TestGapsEndpoints:
             job_data = c.get(f"/api/jobs/{job_id}").json()
             assert job_data["kind"] == "gaps"
 
+    def test_gaps_updated_default_n_themes_is_zero(self, isolated_papergraph_dir):
+        """GapsUpdated must default n_themes=0 so existing construction sites
+        (that don't know about themes yet) keep working (additive field)."""
+        from research_companion.agents.events import GapsUpdated, event_to_dict
+
+        evt = GapsUpdated(n_gaps=2, n_open=1)
+        assert evt.n_themes == 0
+        d = event_to_dict(evt)
+        assert d["event"] == "gaps_updated"
+        assert d["n_themes"] == 0
+
+    def test_get_gaps_themes_empty_when_no_cache(self, isolated_papergraph_dir):
+        """GET /api/gaps always includes 'themes'; [] when nothing cached yet."""
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.status_code == 200
+        assert resp.json()["themes"] == []
+
+    def test_get_gaps_returns_cached_fresh_themes(self, isolated_papergraph_dir):
+        """A gap_synthesis.json whose sha fields match current prompts is served as-is."""
+        from research_companion import store
+        from research_companion.gaps import _papers_sha
+        from research_companion.prompts import (
+            gap_prompt_sha256,
+            gap_resolution_prompt_sha256,
+            gap_synthesis_prompt_sha256,
+        )
+
+        _make_paper(isolated_papergraph_dir, "local:synth_fresh_001", "Synth Paper", year=2021)
+        all_papers = store.list_papers()
+        p_sha = _papers_sha([m.paper_id for m in all_papers])
+        store.save_gap_synthesis({
+            "gap_prompt_sha256": gap_prompt_sha256(),
+            "resolution_prompt_sha256": gap_resolution_prompt_sha256(),
+            "papers_sha256": p_sha,
+            "synthesis_prompt_sha256": gap_synthesis_prompt_sha256(),
+            "computed_at": "2024-01-01T00:00:00Z",
+            "themes": [{
+                "theme_id": "theme_abc", "title": "X", "bullet": "Y", "fws_type": "method",
+                "type": "limitation", "citations": [], "status": "open",
+                "frequency": 1, "recency": 2021, "score": 3.0, "gap_ids": [],
+            }],
+        })
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        data = resp.json()
+        assert len(data["themes"]) == 1
+        assert data["themes"][0]["theme_id"] == "theme_abc"
+
+    def test_get_gaps_ignores_stale_themes_cache(self, isolated_papergraph_dir):
+        """A gap_synthesis.json with mismatched sha fields (e.g. from before a
+        paper was re-extracted) is treated as absent, not served stale."""
+        from research_companion import store
+
+        store.save_gap_synthesis({
+            "gap_prompt_sha256": "stale_sha",
+            "resolution_prompt_sha256": "stale_sha",
+            "papers_sha256": "stale_sha",
+            "synthesis_prompt_sha256": "stale_sha",
+            "computed_at": "2024-01-01T00:00:00Z",
+            "themes": [{"theme_id": "theme_old", "title": "Old"}],
+        })
+        c = _make_client()
+        resp = c.get("/api/gaps")
+        assert resp.json()["themes"] == []
+
+    def test_post_gaps_refresh_computes_and_caches_synthesis(self, isolated_papergraph_dir):
+        """POST /api/gaps/refresh calls synthesize_gaps and caches the result
+        so a subsequent GET /api/gaps serves the themes."""
+        import time
+
+        from research_companion import store
+        from research_companion.gaps import _gap_id, _papers_sha
+        from research_companion.prompts import gap_prompt_sha256, gap_resolution_prompt_sha256
+
+        pid = "local:synth_refresh_001"
+        _make_paper(isolated_papergraph_dir, pid, "Refresh Synth Paper", year=2020)
+        gid = _gap_id(pid, "Cannot scale to large datasets.")
+
+        # Preload gaps.json + gap_resolution.json with matching prompt shas so
+        # extract_all_gaps/resolve_gaps are cache hits (no LLM calls for them) —
+        # only the synthesis LLM call actually fires.
+        store.save_gaps(pid, {
+            "prompt_sha256": gap_prompt_sha256(),
+            "computed_at": "2024-01-01T00:00:00Z",
+            "no_gap_sections": False,
+            "gaps": [{
+                "gap_id": gid,
+                "statement": "Cannot scale to large datasets.",
+                "kind": "limitation",
+                "evidence": {"quote": "cannot scale", "verified": True, "match": "exact"},
+            }],
+        })
+        all_papers = store.list_papers()
+        p_sha = _papers_sha([m.paper_id for m in all_papers])
+        store.save_gap_resolution({
+            "gap_prompt_sha256": gap_prompt_sha256(),
+            "resolution_prompt_sha256": gap_resolution_prompt_sha256(),
+            "papers_sha256": p_sha,
+            "computed_at": "2024-01-01T00:00:00Z",
+            "resolutions": {
+                gid: {
+                    "status": "open", "resolved_by": None, "rationale": "",
+                    "evidence": {"quote": "", "verified": False}, "checked_papers": [],
+                },
+            },
+        })
+
+        def _synth_llm(prompt: str) -> str:
+            return json.dumps({"themes": [{
+                "title": "Scaling limitations",
+                "bullet": "Scaling to large datasets remains unaddressed.",
+                "fws_type": "method",
+                "gap_ids": [gid],
+            }]})
+
+        c = _make_client(llm=_synth_llm)
+        with c:
+            resp = c.post("/api/gaps/refresh")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            gaps_resp = c.get("/api/gaps")
+        themes = gaps_resp.json()["themes"]
+        assert len(themes) == 1
+        assert themes[0]["citations"][0]["paper_id"] == pid
+        assert store.load_gap_synthesis() is not None
+
+    def test_post_gaps_refresh_publishes_n_themes(self, isolated_papergraph_dir):
+        """The GapsUpdated event published by the refresh job carries n_themes."""
+        import time
+
+        from research_companion import store
+        from research_companion.agents.events import GapsUpdated
+        from research_companion.gaps import _gap_id, _papers_sha
+        from research_companion.prompts import gap_prompt_sha256, gap_resolution_prompt_sha256
+
+        pid = "local:synth_events_001"
+        _make_paper(isolated_papergraph_dir, pid, "Events Synth Paper", year=2020)
+        gid = _gap_id(pid, "Cannot scale to large datasets.")
+        store.save_gaps(pid, {
+            "prompt_sha256": gap_prompt_sha256(),
+            "computed_at": "2024-01-01T00:00:00Z",
+            "no_gap_sections": False,
+            "gaps": [{
+                "gap_id": gid,
+                "statement": "Cannot scale to large datasets.",
+                "kind": "limitation",
+                "evidence": {"quote": "cannot scale", "verified": True, "match": "exact"},
+            }],
+        })
+        all_papers = store.list_papers()
+        p_sha = _papers_sha([m.paper_id for m in all_papers])
+        store.save_gap_resolution({
+            "gap_prompt_sha256": gap_prompt_sha256(),
+            "resolution_prompt_sha256": gap_resolution_prompt_sha256(),
+            "papers_sha256": p_sha,
+            "computed_at": "2024-01-01T00:00:00Z",
+            "resolutions": {
+                gid: {
+                    "status": "open", "resolved_by": None, "rationale": "",
+                    "evidence": {"quote": "", "verified": False}, "checked_papers": [],
+                },
+            },
+        })
+
+        def _synth_llm(prompt: str) -> str:
+            return json.dumps({"themes": [{
+                "title": "Scaling limitations", "bullet": "B",
+                "fws_type": "method", "gap_ids": [gid],
+            }]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_synth_llm)
+        with TestClient(app) as c:
+            c.post("/api/gaps/refresh")
+            time.sleep(0.5)
+
+        events = [e for e in bus.history if isinstance(e, GapsUpdated)]
+        assert len(events) >= 1
+        assert events[-1].n_themes == 1
+
 
 class TestRegenerateWithoutReviewReport:
     """W3 wrap-up fix: alignment-only suggestions must work without a review report."""

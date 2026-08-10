@@ -174,6 +174,7 @@ class DraftVersionAdded:
 class GapsUpdated:
     n_gaps: int
     n_open: int
+    n_themes: int = 0
 
 
 # ---------------------------------------------------------------------------

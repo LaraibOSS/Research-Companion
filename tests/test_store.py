@@ -319,3 +319,50 @@ def test_find_existing_paper_for_does_not_create_dirs(fake_pdf_bytes):
     store.find_existing_paper_for(fake_pdf_bytes + b"z", filename="x_arXiv-9999.99999.pdf")
     after = {d.name for d in store.papers_dir().iterdir()} if store.papers_dir().exists() else set()
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Gap synthesis cache persistence
+# ---------------------------------------------------------------------------
+
+
+class TestGapSynthesisCache:
+    def test_save_and_load_roundtrip(self, isolated_papergraph_dir):
+        payload = {
+            "gap_prompt_sha256": "sha_a",
+            "resolution_prompt_sha256": "sha_b",
+            "papers_sha256": "sha_c",
+            "synthesis_prompt_sha256": "sha_d",
+            "computed_at": "2024-01-01T00:00:00Z",
+            "themes": [{"theme_id": "theme_1", "title": "T"}],
+        }
+        store.save_gap_synthesis(payload)
+        loaded = store.load_gap_synthesis()
+        assert loaded == payload
+
+    def test_load_returns_none_when_missing(self, isolated_papergraph_dir):
+        assert store.load_gap_synthesis() is None
+
+    def test_load_returns_none_on_corrupt_json(self, isolated_papergraph_dir):
+        p = store.gap_synthesis_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{not valid json", encoding="utf-8")
+        assert store.load_gap_synthesis() is None
+
+    def test_load_returns_none_when_file_is_a_json_list(self, isolated_papergraph_dir):
+        p = store.gap_synthesis_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("[1, 2, 3]", encoding="utf-8")
+        assert store.load_gap_synthesis() is None
+
+    def test_save_overwrites_previous_payload(self, isolated_papergraph_dir):
+        store.save_gap_synthesis({"themes": [{"theme_id": "old"}]})
+        store.save_gap_synthesis({"themes": [{"theme_id": "new"}]})
+        loaded = store.load_gap_synthesis()
+        assert loaded["themes"] == [{"theme_id": "new"}]
+
+    def test_save_returns_none_when_no_active_workspace(self, isolated_papergraph_dir, monkeypatch):
+        """save_gap_synthesis returns None and writes nothing when no active workspace."""
+        monkeypatch.setattr(store, "gap_synthesis_path", lambda: None)
+        result = store.save_gap_synthesis({"themes": []})
+        assert result is None

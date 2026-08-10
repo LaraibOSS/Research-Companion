@@ -21,6 +21,8 @@ from research_companion import store
 from research_companion.gaps import (
     _GAP_SECTION_RE,
     GapError,
+    _assemble_themes,
+    _collect_verified_gaps,
     _gap_id,
     _papers_sha,
     _relevance_score,
@@ -28,7 +30,9 @@ from research_companion.gaps import (
     extract_gaps,
     gaps_for_suggestions,
     gaps_overview,
+    rank_gap_themes,
     resolve_gaps,
+    synthesize_gaps,
 )
 
 # ---------------------------------------------------------------------------
@@ -1114,3 +1118,331 @@ class TestStoreGaps:
         loaded = store.load_gaps(pid)  # no sha check
         assert loaded is not None
         assert loaded["no_gap_sections"] is True
+
+
+# ---------------------------------------------------------------------------
+# Gap synthesis — themed cross-corpus bullets (gap-analysis-section)
+# ---------------------------------------------------------------------------
+
+def _overview_fixture() -> dict:
+    """A gaps_overview()-shaped dict with 2 papers, 3 gaps (1 unverified)."""
+    return {
+        "papers": [
+            {
+                "paper_id": "arxiv:2001.00001",
+                "title": "Paper A",
+                "year": 2020,
+                "gaps": [
+                    {
+                        "gap_id": "gap_aaaaaaaaaaaa",
+                        "statement": "Cannot scale to large datasets.",
+                        "kind": "limitation",
+                        "evidence": {"quote": "cannot scale", "verified": True, "match": "exact"},
+                        "resolution": {"status": "open"},
+                    },
+                    {
+                        "gap_id": "gap_bbbbbbbbbbbb",
+                        "statement": "Unverified gap should be dropped.",
+                        "kind": "limitation",
+                        "evidence": {"quote": "", "verified": False, "match": ""},
+                        "resolution": {"status": "open"},
+                    },
+                ],
+            },
+            {
+                "paper_id": "arxiv:2022.00002",
+                "title": "Paper B",
+                "year": 2022,
+                "gaps": [
+                    {
+                        "gap_id": "gap_cccccccccccc",
+                        "statement": "Efficiency improvements needed for scale.",
+                        "kind": "future_work",
+                        "evidence": {"quote": "efficiency improvements", "verified": True, "match": "exact"},
+                        "resolution": {"status": "partially"},
+                    },
+                ],
+            },
+        ],
+        "draft_addresses": [],
+        "stale": False,
+    }
+
+
+class TestCollectVerifiedGaps:
+    def test_drops_unverified_gaps(self):
+        verified = _collect_verified_gaps(_overview_fixture())
+        gap_ids = {g["gap_id"] for g in verified}
+        assert "gap_bbbbbbbbbbbb" not in gap_ids
+        assert gap_ids == {"gap_aaaaaaaaaaaa", "gap_cccccccccccc"}
+
+    def test_carries_status_from_resolution(self):
+        verified = _collect_verified_gaps(_overview_fixture())
+        by_id = {g["gap_id"]: g for g in verified}
+        assert by_id["gap_aaaaaaaaaaaa"]["status"] == "open"
+        assert by_id["gap_cccccccccccc"]["status"] == "partially"
+
+    def test_default_status_open_when_resolution_missing(self):
+        overview = {
+            "papers": [{
+                "paper_id": "p1", "title": "T", "year": 2020,
+                "gaps": [{
+                    "gap_id": "gap_x", "statement": "S", "kind": "limitation",
+                    "evidence": {"quote": "q", "verified": True, "match": "exact"},
+                    # no "resolution" key at all
+                }],
+            }],
+            "draft_addresses": [], "stale": False,
+        }
+        verified = _collect_verified_gaps(overview)
+        assert verified[0]["status"] == "open"
+
+    def test_empty_overview_yields_empty_list(self):
+        assert _collect_verified_gaps({"papers": [], "draft_addresses": [], "stale": True}) == []
+
+    def test_carries_paper_id_title_year(self):
+        verified = _collect_verified_gaps(_overview_fixture())
+        by_id = {g["gap_id"]: g for g in verified}
+        a = by_id["gap_aaaaaaaaaaaa"]
+        assert a["paper_id"] == "arxiv:2001.00001"
+        assert a["title"] == "Paper A"
+        assert a["year"] == 2020
+
+
+class TestAssembleThemes:
+    def _index(self):
+        return {g["gap_id"]: g for g in _collect_verified_gaps(_overview_fixture())}
+
+    def test_maps_gap_ids_to_deduped_citations(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling",
+            "bullet": "Scaling to large datasets remains unaddressed.",
+            "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert len(themes) == 1
+        t = themes[0]
+        paper_ids = {c["paper_id"] for c in t["citations"]}
+        assert paper_ids == {"arxiv:2001.00001", "arxiv:2022.00002"}
+        assert t["frequency"] == 2
+
+    def test_dedupes_citations_from_same_paper(self):
+        index = self._index()
+        # Add a second gap from the SAME paper as gap_aaaaaaaaaaaa
+        index["gap_dddddddddddd"] = {
+            "gap_id": "gap_dddddddddddd", "statement": "Another gap same paper.",
+            "kind": "limitation", "paper_id": "arxiv:2001.00001",
+            "title": "Paper A", "year": 2020, "status": "open",
+        }
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_dddddddddddd"],
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["frequency"] == 1
+        assert len(themes[0]["citations"]) == 1
+
+    def test_rolls_up_status_open_wins(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],  # open + partially
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["status"] == "open"
+
+    def test_rolls_up_status_partial_when_no_open(self):
+        index = self._index()
+        index["gap_aaaaaaaaaaaa"] = {**index["gap_aaaaaaaaaaaa"], "status": "addressed"}
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],  # addressed + partially
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["status"] == "partial"
+
+    def test_rolls_up_status_addressed_when_all_addressed(self):
+        index = self._index()
+        index["gap_aaaaaaaaaaaa"] = {**index["gap_aaaaaaaaaaaa"], "status": "addressed"}
+        index["gap_cccccccccccc"] = {**index["gap_cccccccccccc"], "status": "addressed"}
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["status"] == "addressed"
+
+    def test_drops_gap_ids_the_llm_invented(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_NOT_IN_INDEX"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["gap_ids"] == ["gap_aaaaaaaaaaaa"]
+        assert themes[0]["frequency"] == 1
+
+    def test_drops_theme_with_zero_valid_members(self):
+        cluster_result = {"themes": [{
+            "title": "Ghost", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_totally_invented"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes == []
+
+    def test_dominant_kind_becomes_type(self):
+        index = self._index()
+        # gap_aaaaaaaaaaaa is "limitation", gap_cccccccccccc is "future_work" -> tie -> "limitation" wins
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        themes = _assemble_themes(cluster_result, index)
+        assert themes[0]["type"] == "limitation"
+
+    def test_invalid_fws_type_defaults_to_other(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "not_a_real_type",
+            "gap_ids": ["gap_aaaaaaaaaaaa"],
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["fws_type"] == "other"
+
+    def test_recency_is_max_year_among_citations(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],  # years 2020, 2022
+        }]}
+        themes = _assemble_themes(cluster_result, self._index())
+        assert themes[0]["recency"] == 2022
+
+    def test_theme_id_is_deterministic_from_member_gap_ids(self):
+        cluster_result = {"themes": [{
+            "title": "Scaling", "bullet": "B", "fws_type": "method",
+            "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+        }]}
+        t1 = _assemble_themes(cluster_result, self._index())[0]
+        t2 = _assemble_themes(cluster_result, self._index())[0]
+        assert t1["theme_id"] == t2["theme_id"]
+        assert t1["theme_id"].startswith("theme_")
+
+    def test_empty_cluster_result_yields_empty_themes(self):
+        assert _assemble_themes({"themes": []}, self._index()) == []
+        assert _assemble_themes({}, self._index()) == []
+
+
+class TestRankGapThemes:
+    def _theme(self, **overrides) -> dict:
+        base = {
+            "theme_id": "theme_x", "title": "T", "bullet": "B", "fws_type": "other",
+            "type": "limitation", "citations": [], "status": "open",
+            "frequency": 1, "recency": 2020, "gap_ids": ["gap_x"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_higher_frequency_ranks_first(self):
+        low = self._theme(theme_id="low", frequency=1, recency=2020, status="open")
+        high = self._theme(theme_id="high", frequency=3, recency=2020, status="open")
+        ranked = rank_gap_themes([low, high])
+        assert [t["theme_id"] for t in ranked] == ["high", "low"]
+
+    def test_more_recent_ranks_first_at_equal_frequency(self):
+        old = self._theme(theme_id="old", frequency=1, recency=2015, status="open")
+        new = self._theme(theme_id="new", frequency=1, recency=2023, status="open")
+        ranked = rank_gap_themes([old, new])
+        assert [t["theme_id"] for t in ranked] == ["new", "old"]
+
+    def test_open_ranks_above_partial_ranks_above_addressed(self):
+        addressed = self._theme(theme_id="addressed", frequency=1, recency=2020, status="addressed")
+        partial = self._theme(theme_id="partial", frequency=1, recency=2020, status="partial")
+        open_ = self._theme(theme_id="open", frequency=1, recency=2020, status="open")
+        ranked = rank_gap_themes([addressed, partial, open_])
+        assert [t["theme_id"] for t in ranked] == ["open", "partial", "addressed"]
+
+    def test_missing_recency_treated_as_zero_weight_not_a_crash(self):
+        no_recency = self._theme(theme_id="no_recency", frequency=1, recency=None, status="open")
+        ranked = rank_gap_themes([no_recency])
+        assert ranked[0]["score"] is not None
+
+    def test_stable_for_equal_scores(self):
+        a = self._theme(theme_id="a", frequency=1, recency=2020, status="open")
+        b = self._theme(theme_id="b", frequency=1, recency=2020, status="open")
+        c = self._theme(theme_id="c", frequency=1, recency=2020, status="open")
+        ranked = rank_gap_themes([a, b, c])
+        assert [t["theme_id"] for t in ranked] == ["a", "b", "c"]
+
+    def test_attaches_score_field(self):
+        t = self._theme()
+        ranked = rank_gap_themes([t])
+        assert isinstance(ranked[0]["score"], float)
+
+    def test_does_not_mutate_input(self):
+        t = self._theme()
+        rank_gap_themes([t])
+        assert "score" not in t
+
+    def test_empty_list(self):
+        assert rank_gap_themes([]) == []
+
+
+class TestGapSynthesisPrompt:
+    def test_format_substitutes_gaps_block(self):
+        from research_companion.prompts import format_gap_synthesis_prompt
+        rendered = format_gap_synthesis_prompt(gaps_block="- [gap_x] (limitation, 2020, open): S")
+        assert "- [gap_x] (limitation, 2020, open): S" in rendered
+        assert "<<GAPS_BLOCK>>" not in rendered
+
+    def test_sha256_is_stable(self):
+        from research_companion.prompts import gap_synthesis_prompt_sha256
+        assert gap_synthesis_prompt_sha256() == gap_synthesis_prompt_sha256()
+        assert len(gap_synthesis_prompt_sha256()) == 64
+
+
+class TestSynthesizeGaps:
+    def test_empty_overview_yields_empty_themes_no_llm_call(self):
+        def _boom(prompt: str) -> str:
+            raise AssertionError("LLM must not be called for an empty overview")
+
+        result = synthesize_gaps({"papers": [], "draft_addresses": [], "stale": True}, llm=_boom)
+        assert result["themes"] == []
+        assert "generated_from_sha" in result
+
+    def test_stubbed_llm_returns_theme_shape(self):
+        def _stub_llm(prompt: str) -> str:
+            return json.dumps({"themes": [{
+                "title": "Scaling limitations",
+                "bullet": "Scaling to large datasets remains unaddressed.",
+                "fws_type": "method",
+                "gap_ids": ["gap_aaaaaaaaaaaa", "gap_cccccccccccc"],
+            }]})
+
+        result = synthesize_gaps(_overview_fixture(), llm=_stub_llm)
+        assert len(result["themes"]) == 1
+        t = result["themes"][0]
+        for key in ("theme_id", "title", "bullet", "fws_type", "type", "citations",
+                    "status", "frequency", "recency", "score"):
+            assert key in t
+
+    def test_malformed_llm_json_degrades_to_empty_themes_no_crash(self):
+        def _garbage_llm(prompt: str) -> str:
+            return "not json at all"
+
+        result = synthesize_gaps(_overview_fixture(), llm=_garbage_llm)
+        assert result["themes"] == []
+
+    def test_llm_exception_degrades_to_empty_themes_no_crash(self):
+        def _raising_llm(prompt: str) -> str:
+            raise RuntimeError("boom")
+
+        result = synthesize_gaps(_overview_fixture(), llm=_raising_llm)
+        assert result["themes"] == []
+
+    def test_generated_from_sha_matches_prompt_sha(self):
+        from research_companion.prompts import gap_synthesis_prompt_sha256
+
+        def _stub_llm(prompt: str) -> str:
+            return json.dumps({"themes": []})
+
+        result = synthesize_gaps({"papers": [], "draft_addresses": [], "stale": False}, llm=_stub_llm)
+        assert result["generated_from_sha"] == gap_synthesis_prompt_sha256()
+

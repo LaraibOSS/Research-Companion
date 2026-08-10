@@ -1574,3 +1574,79 @@ throwing) on a cancelled prompt or a failed create/activate. It gates the
 first Add draft / Ingest folder / + Add papers action from `home.js` /
 `main.js` so a user never hits a write against no active workspace through
 the normal UI flow.
+
+## 27. Gap synthesis — themed bullets from verified gaps
+
+`research_companion/gaps.py` already extracts and resolves per-paper
+limitation/future-work gaps (`extract_gaps`, `resolve_gaps`,
+`gaps_overview()`). The Gaps tab adds one more pure+LLM pass on top,
+`synthesize_gaps(overview, *, llm=None)`, that groups near-duplicate
+**verified** gaps into cross-corpus themes:
+
+1. `_collect_verified_gaps(overview)` — pure. Flattens `gaps_overview()`'s
+   `papers[].gaps[]` to the gaps whose `evidence.verified` is `True`, dropping
+   everything else. Each item is `{gap_id, statement, kind, paper_id, title,
+   year, status}` (`status` from the gap's `resolution`, default `"open"`).
+2. One `GAP_SYNTHESIS_PROMPT` call (`research_companion/prompts.py`) — the
+   only LLM call in the pipeline. It receives the verified gaps rendered as
+   `[gap_id] (kind, year, status): statement` lines and returns
+   `{"themes": [{"title", "bullet", "fws_type", "gap_ids": [...]}]}`. The
+   prompt is explicit that every `gap_id` must be copied from the input list —
+   grouping only, no invention.
+3. `_assemble_themes(cluster_result, index)` — pure. For each raw theme,
+   drops any `gap_id` not present in `index` (an LLM-invented id never
+   survives into a citation); a theme left with zero valid members is
+   dropped entirely. Builds `citations` (deduped by `paper_id`, first
+   occurrence wins), `frequency` (# distinct citing papers), `recency` (max
+   citation year), a rolled-up `status` (`open` if any member is open, else
+   `partial`, else `addressed`), and the dominant `type` (`limitation` vs
+   `future_work`, tie-broken toward `limitation`). `theme_id` is
+   `"theme_" + sha256("|".join(sorted(gap_ids)))[:12]` — reproducible from
+   the final membership alone.
+4. `rank_gap_themes(themes)` — pure. Attaches a deterministic `score =
+   3.0*frequency + 0.1*(recency-2000) + open_weight` (`open_weight`: 2.0 for
+   `open`, 1.0 for `partial`, 0.0 for `addressed`) and stable-sorts
+   descending.
+
+`synthesize_gaps` never raises: an overview with no verified gaps returns
+`{"themes": [], "generated_from_sha": ...}` **without calling the LLM at
+all**; a malformed LLM response or a raised exception during the LLM call
+degrades to an empty themes list rather than propagating, so
+`POST /api/gaps/refresh` can still finish extraction/resolution and cache
+what it has even if the synthesis step has a bad day.
+
+### Caching
+
+Like `gap_resolution.json`, the synthesis is cached store-side —
+`gap_synthesis.json`, written by `store.save_gap_synthesis(payload)` /
+read by `store.load_gap_synthesis()`. Staleness is the caller's job (mirrors
+`gaps_overview()`'s own staleness check against `gap_resolution.json`):
+the payload embeds `gap_prompt_sha256`, `resolution_prompt_sha256`,
+`papers_sha256` (from `gaps._papers_sha`), and `synthesis_prompt_sha256`
+(from the new `prompts.gap_synthesis_prompt_sha256()`); a cache is only
+served when all four match the current values.
+
+### Wiring
+
+`POST /api/gaps/refresh` (`lab_api.py`) already ran
+`extract_all_gaps` -> `resolve_gaps` -> `gaps_overview()`; it now also runs
+`synthesize_gaps(overview, llm=resolved_llm)` (same injectable
+`app.state.llm` / `_resolve_llm(json_mode=True)` seam as everything else),
+caches the result via `store.save_gap_synthesis`, and publishes
+`GapsUpdated(n_gaps, n_open, n_themes)` on the event bus (`n_themes` is
+additive, default `0`, so any code still constructing the old two-field
+`GapsUpdated` keeps working). `GET /api/gaps` reads the cache back (`themes:
+[]` when there is none, or it's stale) and adds it to the existing response
+— additive, no schema break.
+
+### Frontend
+
+`research_companion/lab/static/js/gapHelpers.js` is the pure, node-tested
+model (`gapThemeRowModel`, `sortGapThemes`, `filterGapThemes` —
+`tests/js/gapHelpers.test.mjs`); `views/gaps.js` (route `/gaps`, nav-rail
+entry "Gaps") is the thin DOM layer on top, following the same
+mount/unmount + `store.subscribe(['gaps'], ...)` re-fetch pattern as
+`views/timeline.js` (both react to the `gaps_updated` SSE event via the
+same `'gaps'` store topic). The Timeline's diamond overlay is untouched —
+the Gaps tab is a complementary, deduped, cross-corpus reading of the same
+underlying verified-gap data.

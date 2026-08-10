@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -648,3 +649,188 @@ def gaps_for_suggestions(
         })
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Gap synthesis — cluster verified gaps into cross-corpus themes
+# ---------------------------------------------------------------------------
+#
+# synthesize_gaps() pipeline:
+#   1. _collect_verified_gaps (pure)  -- flatten gaps_overview() to verified gaps
+#   2. one GAP_SYNTHESIS_PROMPT call  -- LLM groups near-duplicate gaps into themes
+#   3. _assemble_themes (pure)        -- attach citations/status/type, drop invented ids
+#   4. rank_gap_themes (pure)         -- deterministic score, stable sort desc
+#
+# Honesty: only verified gaps are ever offered to the LLM; any gap_id the LLM
+# returns that isn't in the collected verified set is dropped (never invented
+# into a citation); a theme left with zero valid members is dropped entirely.
+
+_FWS_TYPES = {"method", "resources", "evaluation", "application", "problem", "other"}
+_THEME_OPEN_WEIGHT = {"open": 2.0, "partial": 1.0, "addressed": 0.0}
+_THEME_RECENCY_BASE_YEAR = 2000
+
+
+def _collect_verified_gaps(overview: dict) -> list[dict]:
+    """Flatten gaps_overview() to VERIFIED gaps only.
+
+    Returns a list of {gap_id, statement, kind, paper_id, title, year, status}.
+    Unverified gaps (evidence.verified is False) are dropped — synthesis must
+    only ever see quote-verified gaps. status comes from the gap's resolution
+    (default "open" when no resolution record exists yet).
+    """
+    out: list[dict] = []
+    for paper in overview.get("papers", []):
+        pid = paper.get("paper_id")
+        title = paper.get("title", "")
+        year = paper.get("year")
+        for gap in paper.get("gaps", []):
+            evidence = gap.get("evidence") or {}
+            if not evidence.get("verified", False):
+                continue
+            resolution = gap.get("resolution") or {"status": "open"}
+            out.append({
+                "gap_id": gap["gap_id"],
+                "statement": gap["statement"],
+                "kind": gap.get("kind", "limitation"),
+                "paper_id": pid,
+                "title": title,
+                "year": year,
+                "status": resolution.get("status", "open"),
+            })
+    return out
+
+
+def _assemble_themes(cluster_result: dict, index: dict[str, dict]) -> list[dict]:
+    """Turn raw LLM theme groups into citation-backed theme records (no score yet).
+
+    *cluster_result* is the parsed GAP_SYNTHESIS_PROMPT JSON:
+        {"themes": [{"title", "bullet", "fws_type", "gap_ids": [...]}]}
+    *index* maps gap_id -> the corresponding item from _collect_verified_gaps.
+
+    Any gap_id in a theme's gap_ids that is not a key of *index* is dropped
+    (honesty: the LLM groups gaps, it never invents one); a theme left with
+    zero valid members after that filter is dropped entirely. theme_id is
+    derived from the FINAL (filtered, sorted) member gap_ids, so it is
+    reproducible from the assembled membership alone.
+    """
+    themes_out: list[dict] = []
+    for raw in (cluster_result or {}).get("themes", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        gap_ids = [gid for gid in (raw.get("gap_ids") or []) if gid in index]
+        if not gap_ids:
+            continue
+
+        members = [index[gid] for gid in gap_ids]
+
+        citations: list[dict] = []
+        seen_papers: set[str] = set()
+        for m in members:
+            if m["paper_id"] in seen_papers:
+                continue
+            seen_papers.add(m["paper_id"])
+            citations.append({"paper_id": m["paper_id"], "title": m["title"], "year": m["year"]})
+
+        frequency = len(citations)
+        years = [c["year"] for c in citations if c["year"] is not None]
+        recency = max(years) if years else None
+
+        statuses = {m["status"] for m in members}
+        if "open" in statuses:
+            status = "open"
+        elif "partially" in statuses:
+            status = "partial"
+        else:
+            status = "addressed"
+
+        kind_counts = Counter(m["kind"] for m in members)
+        top_count = max(kind_counts.values())
+        tied = sorted(k for k, c in kind_counts.items() if c == top_count)
+        dominant_kind = "limitation" if "limitation" in tied else tied[0]
+
+        raw_fws = str(raw.get("fws_type", "other")).strip().lower()
+        fws_type = raw_fws if raw_fws in _FWS_TYPES else "other"
+
+        theme_id = "theme_" + hashlib.sha256(
+            "|".join(sorted(gap_ids)).encode("utf-8")
+        ).hexdigest()[:12]
+
+        themes_out.append({
+            "theme_id": theme_id,
+            "title": str(raw.get("title", "")).strip() or "Untitled theme",
+            "bullet": str(raw.get("bullet", "")).strip(),
+            "fws_type": fws_type,
+            "type": dominant_kind,
+            "citations": citations,
+            "status": status,
+            "frequency": frequency,
+            "recency": recency,
+            "gap_ids": gap_ids,
+        })
+    return themes_out
+
+
+def rank_gap_themes(themes: list[dict]) -> list[dict]:
+    """Attach a deterministic `score` to each theme and sort descending, stable.
+
+    score = 3.0*frequency + 0.1*(recency - 2000) [0 if recency is None] + open_weight
+    where open_weight is 2.0 for status=="open", 1.0 for "partial", 0.0 for
+    "addressed"/anything else. Does not mutate the input dicts (returns new
+    dicts with `score` added). Python's sort is stable, so themes with an
+    identical score keep their original relative order.
+    """
+    scored: list[dict] = []
+    for t in themes:
+        recency = t.get("recency")
+        recency_weight = 0.1 * (recency - _THEME_RECENCY_BASE_YEAR) if recency is not None else 0.0
+        open_weight = _THEME_OPEN_WEIGHT.get(t.get("status"), 0.0)
+        score = round(3.0 * (t.get("frequency") or 0) + recency_weight + open_weight, 4)
+        scored.append({**t, "score": score})
+    return sorted(scored, key=lambda t: -t["score"])
+
+
+def synthesize_gaps(overview: dict, *, llm: Callable[[str], str] | None = None) -> dict:
+    """Cluster verified gaps into cross-corpus themes.
+
+    Pipeline: pure collect -> one LLM cluster call -> pure assemble -> pure
+    rank. Never raises: an empty overview skips the LLM call entirely (no
+    verified gaps to synthesize); any LLM/parse failure degrades to an empty
+    themes list rather than propagating, so the caller (the
+    POST /api/gaps/refresh job) can still finish extraction/resolution and
+    cache what it has.
+
+    Returns {"themes": [...], "generated_from_sha": gap_synthesis_prompt_sha256()}.
+    """
+    from research_companion.prompts import (
+        format_gap_synthesis_prompt,
+        gap_synthesis_prompt_sha256,
+    )
+
+    sha = gap_synthesis_prompt_sha256()
+    verified = _collect_verified_gaps(overview)
+    if not verified:
+        return {"themes": [], "generated_from_sha": sha}
+
+    index = {g["gap_id"]: g for g in verified}
+
+    gaps_block = "\n".join(
+        f"- [{g['gap_id']}] ({g['kind']}, {g['year'] if g['year'] is not None else 'n.d.'}, "
+        f"{g['status']}): {g['statement']}"
+        for g in verified
+    )
+    prompt = format_gap_synthesis_prompt(gaps_block=gaps_block)
+
+    raw_themes: list = []
+    try:
+        raw = llm(prompt)
+        brace_idx = raw.find("{")
+        data = json.loads(raw[brace_idx:]) if brace_idx != -1 else {}
+        candidate = data.get("themes")
+        if isinstance(candidate, list):
+            raw_themes = candidate
+    except Exception:  # noqa: BLE001
+        raw_themes = []
+
+    themes = _assemble_themes({"themes": raw_themes}, index)
+    themes = rank_gap_themes(themes)
+    return {"themes": themes, "generated_from_sha": sha}
