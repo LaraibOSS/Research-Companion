@@ -5538,6 +5538,24 @@ class TestReportPlanEndpoint:
         assert "error" in data
         assert store.load_report() is None
 
+    def test_post_report_plan_failure_leaves_existing_report_untouched(
+            self, isolated_papergraph_dir):
+        # Safety: a failed plan generation must NOT clobber a pre-existing
+        # saved report (the return precedes any save_report call).
+        from research_companion import store
+        existing = {"topic": "old", "sections": [{"question": "Q?", "answer": "A"}],
+                    "question_count": 1}
+        store.save_report(existing)
+
+        def _bad_llm(prompt: str) -> str:
+            return "not json at all"
+
+        c = _make_client(llm=_bad_llm)
+        resp = c.post("/api/report/plan", json={"topic": "new topic"})
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+        assert store.load_report() == existing  # unchanged, not clobbered
+
     def test_post_report_plan_no_active_workspace_returns_409(
             self, isolated_papergraph_dir, monkeypatch):
         from research_companion import store
