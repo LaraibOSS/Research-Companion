@@ -30,6 +30,16 @@ from research_companion.rank import tokenize
 _VERDICTS = {"novel", "incremental", "overlaps", "anticipated"}
 
 
+def _field(p, name: str, default=None):
+    """Attribute accessor safe against non-DiscoveredPaper items. A bare
+    ``str`` in the papers list would make ``getattr(p, "title", "")`` return
+    the bound ``str.title`` method rather than the default, so treat any
+    ``str`` as having no fields."""
+    if isinstance(p, str):
+        return default
+    return getattr(p, name, default)
+
+
 # ---------------------------------------------------------------------------
 # _novelty_query
 # ---------------------------------------------------------------------------
@@ -61,8 +71,8 @@ def _rank_prior_works(direction_text: str, papers: list, top_n: int = 5) -> list
     direction_tokens = set(tokenize(direction_text))
     scored = []
     for idx, p in enumerate(papers):
-        title = getattr(p, "title", "") or ""
-        abstract = getattr(p, "abstract", "") or ""
+        title = _field(p, "title", "") or ""
+        abstract = _field(p, "abstract", "") or ""
         paper_tokens = set(tokenize(f"{title} {abstract}"))
         score = len(direction_tokens & paper_tokens)
         scored.append((score, idx, p))
@@ -82,10 +92,10 @@ def _prior_block(papers: list) -> str:
     Empty *papers* returns "" (never raises)."""
     lines = []
     for i, p in enumerate(papers, 1):
-        title = getattr(p, "title", "") or "Untitled"
-        year = getattr(p, "year", None)
+        title = _field(p, "title", "") or "Untitled"
+        year = _field(p, "year", None)
         year_str = year if year is not None else "n.d."
-        abstract = getattr(p, "abstract", "") or ""
+        abstract = _field(p, "abstract", "") or ""
         lines.append(f"[{i}] {title} ({year_str}) - {abstract[:300]}")
     return "\n".join(lines)
 
@@ -99,14 +109,14 @@ def _prior_work_dict(p) -> dict:
     check_novelty's output -- title/year/url/doi/arxiv_id/s2_id/pmid/
     citation_count (NOT the full DiscoveredPaper.to_dict())."""
     return {
-        "title": getattr(p, "title", "") or "",
-        "year": getattr(p, "year", None),
-        "url": getattr(p, "url", "") or "",
-        "doi": getattr(p, "doi", None),
-        "arxiv_id": getattr(p, "arxiv_id", None),
-        "s2_id": getattr(p, "s2_id", None),
-        "pmid": getattr(p, "pmid", None),
-        "citation_count": getattr(p, "citation_count", 0) or 0,
+        "title": _field(p, "title", "") or "",
+        "year": _field(p, "year", None),
+        "url": _field(p, "url", "") or "",
+        "doi": _field(p, "doi", None),
+        "arxiv_id": _field(p, "arxiv_id", None),
+        "s2_id": _field(p, "s2_id", None),
+        "pmid": _field(p, "pmid", None),
+        "citation_count": _field(p, "citation_count", 0) or 0,
     }
 
 
@@ -161,7 +171,18 @@ def check_novelty(
         }
 
     search_fn = search or discover.search_topic_with_fallback
-    papers = search_fn(query, limit=limit, year_min=year_min, year_max=year_max)
+    try:
+        papers = search_fn(query, limit=limit, year_min=year_min, year_max=year_max)
+    except Exception as exc:
+        # A prior-art search failure (network/provider outage) is a retryable
+        # failure, NOT evidence of novelty -- surface it via llm_error (which
+        # the endpoint maps to a retry banner) rather than propagating or
+        # falsely returning "novel".
+        return {
+            "verdict": None, "confidence": 0.0, "rationale": "",
+            "closest_prior": [], "prior_works": [], "query": query,
+            "llm_error": str(exc) or exc.__class__.__name__,
+        }
 
     direction_text = f"{title} {rationale}".strip()
     top = _rank_prior_works(direction_text, papers, top_n=top_n)

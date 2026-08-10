@@ -242,6 +242,39 @@ def test_check_novelty_llm_raises_sets_llm_error_no_raise():
     assert out["llm_error"] == "provider down"
 
 
+def test_check_novelty_search_raises_sets_llm_error_no_raise():
+    # A prior-art search failure must NOT propagate (never-raise contract) and
+    # must NOT be reported as a confident "novel" -- it is a retryable failure
+    # surfaced via llm_error, never touching the LLM.
+    from research_companion.novelty_check import check_novelty
+
+    def raising_search(query, *, limit, year_min, year_max):
+        raise RuntimeError("network down")
+
+    def exploding_llm(prompt):
+        raise AssertionError("llm must not be called when the search itself failed")
+
+    out = check_novelty("Topic", "rationale", search=raising_search, llm=exploding_llm)
+    assert out["verdict"] is None
+    assert out["confidence"] == 0.0
+    assert out["prior_works"] == []
+    assert out["closest_prior"] == []
+    assert out["llm_error"] == "network down"
+    assert out["query"] == "Topic"
+
+
+def test_rank_and_block_are_safe_against_bare_string_items():
+    # Defensive: a bare str in the papers list must not leak a bound method
+    # (str.title) into the ranking or the prompt block.
+    from research_companion.novelty_check import _prior_block, _rank_prior_works
+
+    ranked = _rank_prior_works("graph retrieval", ["not a paper object"], top_n=5)
+    assert ranked == ["not a paper object"]  # ranked (score 0) but not crashed
+    block = _prior_block(["not a paper object"])
+    assert "built-in method" not in block
+    assert block.startswith("[1] Untitled (n.d.)")
+
+
 def test_check_novelty_normalizes_unknown_verdict_to_novel():
     from research_companion.novelty_check import check_novelty
     papers = [_paper(title="X", abstract="x")]
