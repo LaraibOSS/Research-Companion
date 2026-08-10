@@ -900,3 +900,38 @@ def format_readiness_narrative_prompt(readiness: dict) -> str:
 
 def readiness_narrative_prompt_sha256() -> str:
     return hashlib.sha256(READINESS_NARRATIVE_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Discover query-expansion prompt (discover.py expand_query). SHA-cached.
+# Turns a rough title/topic into a small set of literature-search queries.
+# ---------------------------------------------------------------------------
+
+DISCOVER_EXPAND_PROMPT = """You are helping a researcher turn a rough topic or working title into a
+small set of well-formed literature-search queries.
+
+Rough topic/title: <<TITLE>>
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "queries": ["string", "string", "..."]
+}
+
+Rules:
+- Produce at most 4 ADDITIONAL queries beyond the original title.
+- Each query is a short search phrase (a keyphrase, a synonym, or an adjacent subfield) suitable
+  for a literature-search API — not a full sentence, not a question.
+- Do NOT repeat the original title verbatim as one of your queries.
+- Do NOT invent unrelated topics; stay grounded in the rough topic/title above.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_discover_expand_prompt(title: str) -> str:
+    """Substitute placeholders in DISCOVER_EXPAND_PROMPT."""
+    return DISCOVER_EXPAND_PROMPT.replace("<<TITLE>>", title)
+
+
+def discover_expand_prompt_sha256() -> str:
+    return hashlib.sha256(DISCOVER_EXPAND_PROMPT.encode("utf-8")).hexdigest()
