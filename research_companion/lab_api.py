@@ -3163,7 +3163,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             cached = await asyncio.to_thread(store.load_report)
             if cached is None:
                 return {"topic": "", "sections": [], "question_count": 0, "stale": False,
-                        "coverage": None, "coverage_generated_from": None}
+                        "coverage": None, "coverage_generated_from": None, "plan": None}
 
             from research_companion.gaps import _papers_sha
             from research_companion.prompts import report_questions_prompt_sha256
@@ -3178,6 +3178,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             )
             sections = cached.get("sections")
             coverage = cached.get("coverage")
+            plan = cached.get("plan")
             return {
                 "topic": cached.get("topic", "") or "",
                 "sections": sections if isinstance(sections, list) else [],
@@ -3185,10 +3186,11 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 "stale": stale,
                 "coverage": coverage if isinstance(coverage, dict) else None,
                 "coverage_generated_from": cached.get("coverage_generated_from") or None,
+                "plan": plan if isinstance(plan, dict) else None,
             }
         except Exception:  # noqa: BLE001 — GET /api/report must never 500
             return {"topic": "", "sections": [], "question_count": 0, "stale": False,
-                    "coverage": None, "coverage_generated_from": None}
+                    "coverage": None, "coverage_generated_from": None, "plan": None}
 
     # -----------------------------------------------------------------
     # POST /api/report/plan  (Editable Research Plan, 2e-4)
@@ -3295,18 +3297,35 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 library_papers = await asyncio.to_thread(_library_papers)
                 loaded_graph = await asyncio.to_thread(load_graph)
 
-                q_result = await asyncio.to_thread(
-                    deep_research.generate_questions,
-                    topic, library_papers=library_papers, graph=loaded_graph, llm=resolved_llm,
-                )
-                questions = q_result.get("questions") or []
-                if q_result.get("llm_error") or not questions:
-                    error = q_result.get("llm_error") or "No investigation questions could be generated."
-                    app.state.jobs[job_id] = {
-                        "status": "failed", "detail": error, "kind": "report",
-                        "label": report_label, "target": "",
-                    }
-                    return
+                # Editable Research Plan (2e-4): a non-empty body.questions
+                # means the user reviewed/edited a generated plan (or wrote
+                # their own) -- skip generate_questions entirely (the
+                # "cheaper: one LLM call to plan, answer only what you
+                # approved" guarantee) and answer exactly those questions.
+                # Omitted/empty preserves the 2e-1 one-shot behavior
+                # UNCHANGED -- this is the backward-compatibility guarantee.
+                if isinstance(body.questions, list) and len(body.questions) > 0:
+                    questions = deep_research._normalize_plan_questions(body.questions)
+                    if not questions:
+                        app.state.jobs[job_id] = {
+                            "status": "failed",
+                            "detail": "No usable investigation questions were provided.",
+                            "kind": "report", "label": report_label, "target": "",
+                        }
+                        return
+                else:
+                    q_result = await asyncio.to_thread(
+                        deep_research.generate_questions,
+                        topic, library_papers=library_papers, graph=loaded_graph, llm=resolved_llm,
+                    )
+                    questions = q_result.get("questions") or []
+                    if q_result.get("llm_error") or not questions:
+                        error = q_result.get("llm_error") or "No investigation questions could be generated."
+                        app.state.jobs[job_id] = {
+                            "status": "failed", "detail": error, "kind": "report",
+                            "label": report_label, "target": "",
+                        }
+                        return
 
                 n = len(questions)
                 progress = {"i": 0}
@@ -3328,6 +3347,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     deep_research.build_report, topic, questions,
                     answer_fn=_answer_fn, generated_shas=generated_shas,
                 )
+
+                # Editable Research Plan (2e-4): stamp the EXACT plan that
+                # was answered (whether user-edited or freshly generated)
+                # so the report always records what actually ran, distinct
+                # from a not-yet-run "draft" saved by POST /api/report/plan.
+                report["plan"] = {"topic": topic, "questions": questions, "status": "answered"}
 
                 # Coverage / Saturation (2e-3) -- LLM-FREE, always-on: folded
                 # directly into refresh (no new endpoint, no opt-in gate).

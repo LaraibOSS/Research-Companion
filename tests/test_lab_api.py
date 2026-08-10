@@ -5600,3 +5600,164 @@ class TestReportPlanEndpoint:
         assert data["ok"] is True
         assert data["plan"]["questions"] == ["Q1?", "Q2?"]
         assert store.load_report()["plan"]["questions"] == ["Q1?", "Q2?"]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/report/refresh + questions -- backward-compatible extension
+# (Editable Research Plan, 2e-4)
+# ---------------------------------------------------------------------------
+
+class TestReportPlanRefreshIntegration:
+    def test_refresh_with_questions_skips_generate_questions_and_stamps_answered_plan(
+            self, isolated_papergraph_dir, monkeypatch):
+        """A non-empty body.questions MUST skip generate_questions entirely
+        (the "cheaper: one LLM call to plan, answer only what you approved"
+        guarantee) -- proven here with an EXPLODING stub, not just a spy."""
+        import time
+
+        from research_companion import deep_research, qa, store
+        from research_companion.qa import QAAnswer, QASource
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+
+        def _fake_answer(question, *, llm=None, paper_ids=None, **kwargs):
+            src = QASource(paper_id="arxiv:1234.56789", paper_title="Graph Retrieval Paper",
+                            section_id="s1", section_title="Intro", score=1.0)
+            return QAAnswer(answer=f"Answer to: {question} [S1]",
+                             sources=[src], cited=[src], unverified_quotes=[], input_chars=100)
+
+        monkeypatch.setattr(qa, "answer", _fake_answer)
+
+        def _exploding_generate_questions(*args, **kwargs):
+            raise AssertionError("generate_questions must NOT be called when questions are provided")
+
+        monkeypatch.setattr(deep_research, "generate_questions", _exploding_generate_questions)
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=None)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={
+                "topic": "graph retrieval",
+                "questions": ["  What methods are used?  ", "", "What datasets are used?"],
+            })
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            data = c.get("/api/report").json()
+
+        assert data["question_count"] == 2
+        assert data["sections"][0]["question"] == "What methods are used?"
+        assert data["sections"][1]["question"] == "What datasets are used?"
+        assert data["plan"] == {
+            "topic": "graph retrieval",
+            "questions": ["What methods are used?", "What datasets are used?"],
+            "status": "answered",
+        }
+        assert store.load_report()["plan"]["status"] == "answered"
+
+    def test_refresh_without_questions_generates_as_before_and_stamps_answered_plan(
+            self, isolated_papergraph_dir, monkeypatch):
+        """The one-shot path (body.questions omitted) MUST behave EXACTLY as
+        2e-1: generate_questions IS called, the full topic-driven report is
+        built -- this is the backward-compatibility guarantee 2e-4 must
+        never break. Also asserts the NEW plan.status="answered" stamp."""
+        import time
+
+        from research_companion import qa
+        from research_companion.qa import QAAnswer, QASource
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+
+        def _fake_answer(question, *, llm=None, paper_ids=None, **kwargs):
+            src = QASource(paper_id="arxiv:1234.56789", paper_title="Graph Retrieval Paper",
+                            section_id="s1", section_title="Intro", score=1.0)
+            return QAAnswer(answer=f"Answer to: {question} [S1]",
+                             sources=[src], cited=[src], unverified_quotes=[], input_chars=100)
+
+        monkeypatch.setattr(qa, "answer", _fake_answer)
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": ["What methods does the library use?"]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            data = c.get("/api/report").json()
+
+        assert data["question_count"] == 1
+        assert data["plan"] == {
+            "topic": "graph retrieval",
+            "questions": ["What methods does the library use?"],
+            "status": "answered",
+        }
+
+    def test_refresh_with_only_blank_questions_marks_job_failed(
+            self, isolated_papergraph_dir, monkeypatch):
+        """A questions list that normalizes to empty (all blank/whitespace)
+        must NOT silently fall back to generating from topic -- it fails
+        the job honestly, still without calling generate_questions."""
+        import time
+
+        from research_companion import deep_research
+
+        def _exploding_generate_questions(*args, **kwargs):
+            raise AssertionError("generate_questions must not be called")
+
+        monkeypatch.setattr(deep_research, "generate_questions", _exploding_generate_questions)
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=None)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={
+                "topic": "graph retrieval", "questions": ["", "   "],
+            })
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "failed", job
+            assert "no usable" in job["detail"].lower()
+
+    def test_get_report_returns_plan_field(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        store.save_report({
+            "topic": "t", "sections": [], "generated_from": {}, "question_count": 0,
+            "plan": {"topic": "t", "questions": ["Q1?"], "status": "draft"},
+        })
+
+        c = _make_client()
+        resp = c.get("/api/report")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["plan"] == {"topic": "t", "questions": ["Q1?"], "status": "draft"}
+
+    def test_get_report_empty_returns_plan_none(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/report")
+        assert resp.status_code == 200
+        assert resp.json()["plan"] is None
