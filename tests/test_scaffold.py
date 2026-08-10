@@ -38,3 +38,27 @@ def test_format_scaffold_outline_prompt_substitutes_all_placeholders():
     assert "<<RATIONALE>>" not in rendered
     assert "<<DIRECTION_TYPE>>" not in rendered
     assert "<<GROUNDING_BLOCK>>" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# _grounding_block
+# ---------------------------------------------------------------------------
+
+def test_grounding_block_lists_paper_citations_only():
+    from research_companion.scaffold import _grounding_block
+    citations = [
+        {"kind": "paper", "title": "GraphRAG for code retrieval", "year": 2023},
+        {"kind": "concept", "name": "underexplored concept"},
+        {"kind": "gap", "theme_id": "g1", "title": "Some gap"},
+        {"kind": "paper", "title": "Another Paper", "year": None},
+    ]
+    block = _grounding_block(citations)
+    assert block == "- GraphRAG for code retrieval (2023).\n- Another Paper (n.d.)."
+
+
+def test_grounding_block_empty_or_missing_title_safe():
+    from research_companion.scaffold import _grounding_block
+    assert _grounding_block([]) == ""
+    assert _grounding_block(None) == ""
+    assert _grounding_block([{"kind": "paper", "title": ""}]) == ""
+    assert _grounding_block([{"kind": "paper"}, "not a dict"]) == ""
