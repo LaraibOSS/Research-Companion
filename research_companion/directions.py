@@ -242,3 +242,74 @@ def _collect_grounding(
 
     return "\n".join(lines), index
 
+
+# ---------------------------------------------------------------------------
+# _assemble_directions
+# ---------------------------------------------------------------------------
+
+def _assemble_directions(llm_result: dict, index: dict[str, dict]) -> list[dict]:
+    """Turn raw LLM direction candidates into citation-backed direction
+    records (no `score` yet -- that is rank_directions's job; `recency` IS
+    computed here since it depends only on the surviving citations).
+
+    *llm_result* is the parsed DIRECTIONS_PROMPT JSON:
+        {"directions": [{"title","rationale","direction_type","grounded_in":[...]}]}
+    *index* is `_collect_grounding`'s index.
+
+    Any `grounded_in` key not a key of *index* is DROPPED (honesty guard,
+    exactly like gaps._assemble_themes drops invented gap_ids -- the LLM
+    cites, it never invents a reference). A direction whose citations all
+    drop is KEPT (not discarded) with `grounding_count: 0` so ranking sends
+    it to the bottom, never silently hidden. A direction with no `title` is
+    dropped (nothing to show). `direction_id` = "dir_" +
+    sha256(_norm(title))[:12] (same _norm as gaps._gap_id).
+
+    Returns [{"direction_id", "title", "rationale", "direction_type",
+    "citations", "grounding_count", "recency"}, ...].
+    """
+    out: list[dict] = []
+    for raw in (llm_result or {}).get("directions", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title", "")).strip()
+        if not title:
+            continue
+        rationale = str(raw.get("rationale", "")).strip()
+        raw_type = str(raw.get("direction_type", "other")).strip().lower()
+        direction_type = raw_type if raw_type in _DIRECTION_TYPES else "other"
+
+        keys = [k for k in (raw.get("grounded_in") or []) if isinstance(k, str) and k in index]
+
+        citations: list[dict] = []
+        grounding_papers: set[str] = set()
+        for k in keys:
+            item = index[k]
+            if item["kind"] == "paper":
+                dedup_key = item.get("paper_id") or k
+                citations.append({
+                    "kind": "paper",
+                    "paper_id": item.get("paper_id"),
+                    "title": item["title"],
+                    "year": item.get("year"),
+                })
+                grounding_papers.add(dedup_key)
+            elif item["kind"] == "concept":
+                citations.append({"kind": "concept", "name": item["name"]})
+            elif item["kind"] == "gap":
+                citations.append({
+                    "kind": "gap", "theme_id": item["theme_id"], "title": item["title"],
+                })
+
+        years = [c["year"] for c in citations if c.get("kind") == "paper" and c.get("year") is not None]
+        recency = max(years) if years else 0
+
+        out.append({
+            "direction_id": "dir_" + hashlib.sha256(_norm(title).encode("utf-8")).hexdigest()[:12],
+            "title": title,
+            "rationale": rationale,
+            "direction_type": direction_type,
+            "citations": citations,
+            "grounding_count": len(grounding_papers),
+            "recency": recency,
+        })
+    return out

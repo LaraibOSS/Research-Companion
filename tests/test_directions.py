@@ -179,3 +179,125 @@ def test_collect_grounding_empty_gap_synthesis_none_is_safe():
     assert block == ""
 
 
+# ---------------------------------------------------------------------------
+# _assemble_directions
+# ---------------------------------------------------------------------------
+
+def _paper_index_entry(paper_id="arxiv:2401.00001", title="Some Paper", year=2023):
+    return {"kind": "paper", "title": title, "year": year, "paper_id": paper_id,
+            "abstract": "", "concepts": []}
+
+
+def test_assemble_directions_maps_grounded_in_keys_to_citations():
+    from research_companion.directions import _assemble_directions
+    index = {"p:arxiv:2401.00001": _paper_index_entry()}
+    llm_result = {"directions": [{
+        "title": "Extend method X", "rationale": "Because Some Paper shows Y.",
+        "direction_type": "extend_method", "grounded_in": ["p:arxiv:2401.00001"],
+    }]}
+    out = _assemble_directions(llm_result, index)
+    assert len(out) == 1
+    d = out[0]
+    assert d["title"] == "Extend method X"
+    assert d["direction_type"] == "extend_method"
+    assert d["citations"] == [{"kind": "paper", "paper_id": "arxiv:2401.00001",
+                                "title": "Some Paper", "year": 2023}]
+    assert d["grounding_count"] == 1
+    assert d["recency"] == 2023
+    assert d["direction_id"].startswith("dir_")
+
+
+def test_assemble_directions_drops_invented_keys():
+    from research_companion.directions import _assemble_directions
+    index = {"p:arxiv:2401.00001": _paper_index_entry()}
+    llm_result = {"directions": [{
+        "title": "Direction", "rationale": "r", "direction_type": "other",
+        "grounded_in": ["p:arxiv:2401.00001", "p:invented:9999"],
+    }]}
+    out = _assemble_directions(llm_result, index)
+    assert len(out[0]["citations"]) == 1  # invented key silently dropped
+    assert out[0]["grounding_count"] == 1
+
+
+def test_assemble_directions_keeps_zero_grounding_direction_flagged():
+    from research_companion.directions import _assemble_directions
+    index = {"p:arxiv:2401.00001": _paper_index_entry()}
+    llm_result = {"directions": [{
+        "title": "All invented", "rationale": "r", "direction_type": "other",
+        "grounded_in": ["p:totally:invented"],
+    }]}
+    out = _assemble_directions(llm_result, index)
+    assert len(out) == 1  # kept, not discarded
+    assert out[0]["citations"] == []
+    assert out[0]["grounding_count"] == 0
+    assert out[0]["recency"] == 0
+
+
+def test_assemble_directions_grounding_count_is_distinct_papers_only():
+    from research_companion.directions import _assemble_directions
+    index = {
+        "p:arxiv:2401.00001": _paper_index_entry(paper_id="arxiv:2401.00001"),
+        "c:sparse": {"kind": "concept", "name": "sparse", "paper_count": 1},
+        "g:theme_aaa": {"kind": "gap", "theme_id": "theme_aaa", "title": "Gap", "bullet": "b"},
+    }
+    llm_result = {"directions": [{
+        "title": "Mixed", "rationale": "r", "direction_type": "cross_pollination",
+        "grounded_in": ["p:arxiv:2401.00001", "c:sparse", "g:theme_aaa"],
+    }]}
+    out = _assemble_directions(llm_result, index)
+    assert len(out[0]["citations"]) == 3  # all three kinds kept in citations
+    assert out[0]["grounding_count"] == 1  # only the paper counts toward grounding_count
+
+
+def test_assemble_directions_recency_is_max_cited_paper_year():
+    from research_companion.directions import _assemble_directions
+    index = {
+        "p:a": _paper_index_entry(paper_id="a", year=2019),
+        "p:b": _paper_index_entry(paper_id="b", year=2023),
+    }
+    llm_result = {"directions": [{
+        "title": "T", "rationale": "r", "direction_type": "other",
+        "grounded_in": ["p:a", "p:b"],
+    }]}
+    out = _assemble_directions(llm_result, index)
+    assert out[0]["recency"] == 2023
+
+
+def test_assemble_directions_unknown_type_falls_back_to_other():
+    from research_companion.directions import _assemble_directions
+    llm_result = {"directions": [{
+        "title": "T", "rationale": "r", "direction_type": "not_a_real_type", "grounded_in": [],
+    }]}
+    out = _assemble_directions(llm_result, {})
+    assert out[0]["direction_type"] == "other"
+
+
+def test_assemble_directions_skips_entries_with_no_title():
+    from research_companion.directions import _assemble_directions
+    llm_result = {"directions": [
+        {"title": "", "rationale": "r", "direction_type": "other", "grounded_in": []},
+        {"title": "Real one", "rationale": "r", "direction_type": "other", "grounded_in": []},
+    ]}
+    out = _assemble_directions(llm_result, {})
+    assert [d["title"] for d in out] == ["Real one"]
+
+
+def test_assemble_directions_direction_id_is_deterministic_and_norm_insensitive():
+    from research_companion.directions import _assemble_directions
+    llm_result_a = {"directions": [{"title": "Extend BM25", "rationale": "r",
+                                     "direction_type": "other", "grounded_in": []}]}
+    llm_result_b = {"directions": [{"title": "  extend   bm25  ", "rationale": "r2",
+                                     "direction_type": "other", "grounded_in": []}]}
+    id_a = _assemble_directions(llm_result_a, {})[0]["direction_id"]
+    id_b = _assemble_directions(llm_result_b, {})[0]["direction_id"]
+    assert id_a == id_b  # same normalized title -> same id, regardless of casing/whitespace
+
+
+def test_assemble_directions_empty_or_malformed_input_returns_empty():
+    from research_companion.directions import _assemble_directions
+    assert _assemble_directions({"directions": []}, {}) == []
+    assert _assemble_directions({}, {}) == []
+    assert _assemble_directions({"directions": "not-a-list"}, {}) == []
+    assert _assemble_directions({"directions": [None, "not-a-dict"]}, {}) == []
+
+
