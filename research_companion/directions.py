@@ -313,3 +313,31 @@ def _assemble_directions(llm_result: dict, index: dict[str, dict]) -> list[dict]
             "recency": recency,
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# rank_directions
+# ---------------------------------------------------------------------------
+
+def rank_directions(directions: list[dict]) -> list[dict]:
+    """Attach a deterministic `score` to each direction and sort descending,
+    stable.
+
+    score = 3.0*grounding_count + 0.1*(recency - 2000) + type_weight
+    where type_weight is 2.0 for open_gap, 1.5 for underexplored_concept,
+    1.0 for cross_pollination, 0.0 otherwise. Does not mutate the input
+    dicts (returns new dicts with `score` added). Python's sort is stable,
+    so directions with an identical score keep their original (LLM) order.
+    """
+    scored: list[dict] = []
+    for d in directions:
+        recency = d.get("recency") or 0
+        type_weight = _DIRECTION_TYPE_WEIGHT.get(d.get("direction_type"), 0.0)
+        score = round(
+            3.0 * (d.get("grounding_count") or 0)
+            + 0.1 * (recency - _DIRECTIONS_RECENCY_BASE_YEAR)
+            + type_weight,
+            4,
+        )
+        scored.append({**d, "score": score})
+    return sorted(scored, key=lambda d: -d["score"])

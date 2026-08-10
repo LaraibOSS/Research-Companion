@@ -301,3 +301,68 @@ def test_assemble_directions_empty_or_malformed_input_returns_empty():
     assert _assemble_directions({"directions": [None, "not-a-dict"]}, {}) == []
 
 
+# ---------------------------------------------------------------------------
+# rank_directions
+# ---------------------------------------------------------------------------
+
+def _direction(title="T", grounding_count=0, recency=0, direction_type="other"):
+    return {"direction_id": f"dir_{title}", "title": title, "rationale": "r",
+            "direction_type": direction_type, "citations": [],
+            "grounding_count": grounding_count, "recency": recency}
+
+
+def test_rank_directions_higher_grounding_count_ranks_first():
+    from research_companion.directions import rank_directions
+    low = _direction("low", grounding_count=1, recency=2020)
+    high = _direction("high", grounding_count=3, recency=2020)
+    ranked = rank_directions([low, high])
+    assert [d["title"] for d in ranked] == ["high", "low"]
+
+
+def test_rank_directions_score_formula_is_exact():
+    from research_companion.directions import rank_directions
+    d = _direction("d", grounding_count=2, recency=2010, direction_type="open_gap")
+    ranked = rank_directions([d])
+    # 3.0*2 + 0.1*(2010-2000) + 2.0 (open_gap bonus) = 6 + 1.0 + 2.0 = 9.0
+    assert ranked[0]["score"] == 9.0
+
+
+def test_rank_directions_type_weight_bonus_open_gap_and_underexplored_concept():
+    from research_companion.directions import rank_directions
+    base = _direction("base", grounding_count=1, recency=2000, direction_type="other")
+    gap = _direction("gap", grounding_count=1, recency=2000, direction_type="open_gap")
+    concept = _direction("concept", grounding_count=1, recency=2000, direction_type="underexplored_concept")
+    cross = _direction("cross", grounding_count=1, recency=2000, direction_type="cross_pollination")
+    ranked = rank_directions([base, cross, concept, gap])
+    assert [d["title"] for d in ranked] == ["gap", "concept", "cross", "base"]
+
+
+def test_rank_directions_zero_grounding_sinks_to_bottom():
+    from research_companion.directions import rank_directions
+    grounded = _direction("grounded", grounding_count=1, recency=2024)
+    ungrounded = _direction("ungrounded", grounding_count=0, recency=2024)
+    ranked = rank_directions([ungrounded, grounded])
+    assert [d["title"] for d in ranked] == ["grounded", "ungrounded"]
+
+
+def test_rank_directions_stable_sort_ties_keep_llm_order():
+    from research_companion.directions import rank_directions
+    a = _direction("a", grounding_count=1, recency=2020)
+    b = _direction("b", grounding_count=1, recency=2020)
+    c = _direction("c", grounding_count=1, recency=2020)
+    ranked = rank_directions([a, b, c])
+    assert [d["title"] for d in ranked] == ["a", "b", "c"]
+
+
+def test_rank_directions_does_not_mutate_input():
+    from research_companion.directions import rank_directions
+    d = _direction("d", grounding_count=1, recency=2020)
+    rank_directions([d])
+    assert "score" not in d
+
+
+def test_rank_directions_empty_list_returns_empty():
+    from research_companion.directions import rank_directions
+    assert rank_directions([]) == []
+
+
