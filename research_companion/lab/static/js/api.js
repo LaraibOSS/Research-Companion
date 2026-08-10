@@ -302,6 +302,17 @@ export function refreshReport(params = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Report Evidence Scoring (RCS) endpoint (Phase 2, slice 2e-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/report/score-evidence — triggers an RCS evidence-scoring job
+ * over the currently saved report. MUTATING + guarded (409 with no active
+ * workspace, like refreshReport). No body. Returns { job_id }.
+ */
+export const scoreEvidence = () => post('/api/report/score-evidence');
+
+// ---------------------------------------------------------------------------
 // Workspace endpoints (W4-F1)
 // ---------------------------------------------------------------------------
 
