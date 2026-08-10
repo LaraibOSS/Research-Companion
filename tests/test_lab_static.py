@@ -3212,3 +3212,37 @@ def test_report_view_score_evidence_button_disabled_with_no_report():
     _scoring)."""
     text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
     assert "hasReport" in text
+
+
+# ---------------------------------------------------------------------------
+# feat/report-coverage: coverage bars + honest caption (2e-3)
+# ---------------------------------------------------------------------------
+
+def test_glossary_has_coverage_entry():
+    text = (STATIC_DIR / "js" / "glossary.js").read_text(encoding="utf-8")
+    assert "coverage:" in text
+
+
+def test_report_view_renders_coverage_bars_reusing_research_cov_bar():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "reportCoverageModel" in text
+    assert "_coverageBarHtml" in text
+    assert "research-cov-bar" in text
+    assert "research-cov-bar-fill" in text
+    assert "tip('coverage')" in text
+
+
+def test_report_view_coverage_gated_on_has_coverage():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "hasCoverage" in text
+
+
+def test_report_view_coverage_honesty_caption_present():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "BM25 heuristic" in text
+    assert "No relevant library material was found" in text
+
+
+def test_report_view_section_coverage_wired_into_section_html():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "_coverageBarHtml(m.coverage)" in text
