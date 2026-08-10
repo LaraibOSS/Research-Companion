@@ -418,3 +418,29 @@ export function discover(params = {}) {
   if (expand) usp.set('expand', '1');
   return get(`/api/discover?${usp.toString()}`);
 }
+
+// ---------------------------------------------------------------------------
+// Research Directions endpoint (feat/brainstorm-directions, Brainstorm 2b)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/directions { topic, year_min?, year_max?, seeds? }
+ * Research Directions (Brainstorm 2b) -- a synchronous, ephemeral endpoint
+ * like GET /api/discover. Always 200 -- a search/LLM failure server-side
+ * comes back as {directions:[], error:"..."} rather than an HTTP error, so
+ * callers should check `data.error` in addition to catching network
+ * rejections. Returns { directions, topic, error? }.
+ *
+ * @param {{topic?:string, yearMin?:number|string, yearMax?:number|string,
+ *   seeds?:object[]}} params
+ */
+export function directions(params = {}) {
+  const { topic, yearMin, yearMax, seeds } = params;
+  const body = {
+    topic: topic || '',
+    year_min: yearMin ? Number(yearMin) : null,
+    year_max: yearMax ? Number(yearMax) : null,
+    seeds: Array.isArray(seeds) ? seeds : [],
+  };
+  return post('/api/directions', body);
+}

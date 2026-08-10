@@ -3005,3 +3005,29 @@ def test_brainstorm_nav_button_has_exact_description_copy():
         "Brainstorm nav button data-desc must read "
         "'start from an idea — find papers, and (soon) directions & novelty' (HTML-entity encoded)"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat/brainstorm-directions: Research Directions section
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_directions_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/directions" in api_js
+    assert "export function directions(" in api_js or "export const directions" in api_js
+
+
+def test_brainstorm_view_has_research_directions_section():
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert "Research Directions" in text
+    assert "brainstorm-directions-btn" in text
+    assert "Generate directions" in text
+    assert "api.directions(" in text
+    assert "directionResultModel" in text
+    assert "sortDirections" in text
+
+
+def test_brainstorm_view_has_directions_states_and_empty_copy():
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert "Search a topic or add papers, then generate directions." in text
+    assert "brainstorm-directions-retry-btn" in text

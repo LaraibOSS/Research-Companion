@@ -6668,3 +6668,58 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   color: var(--color-ok);
 }
 .brainstorm-footer { display: flex; justify-content: flex-end; }
+
+/* ---------------------------------------------------------------------- */
+/* Research Directions section (feat/brainstorm-directions, Brainstorm 2b) */
+/* ---------------------------------------------------------------------- */
+
+.brainstorm-directions-section {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+.brainstorm-directions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.brainstorm-directions-loading, .brainstorm-directions-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.brainstorm-directions-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warn);
+  border-radius: var(--radius-lg);
+  color: var(--color-warn);
+}
+.brainstorm-direction-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--color-panel);
+}
+.brainstorm-direction-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.brainstorm-direction-score { font-size: var(--text-xs); }
+.brainstorm-direction-title { font-size: var(--text-md); font-weight: 600; color: var(--color-fg); }
+.brainstorm-direction-rationale { font-size: var(--text-sm); margin-top: var(--space-1); }
+.brainstorm-direction-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+.brainstorm-direction-citation-paper { cursor: pointer; }
