@@ -3264,3 +3264,72 @@ def test_api_js_refresh_report_supports_optional_questions():
     end = api_js.index("\n\n", start)
     body = api_js[start:end]
     assert "questions" in body
+
+
+# ---------------------------------------------------------------------------
+# feat/report-editable-plan: views/report.js editable plan UI (2e-4)
+# ---------------------------------------------------------------------------
+
+def test_report_view_has_generate_plan_button_and_editable_list():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-generate-plan-btn" in text
+    assert "Generate plan" in text
+    assert "api.reportPlan(" in text
+    assert "report-plan-q" in text
+    assert "data-q-idx" in text
+    assert "report-plan-delete" in text
+    assert "report-plan-up" in text
+    assert "report-plan-down" in text
+    assert "report-plan-add-btn" in text
+    assert "+ Add question" in text
+
+
+def test_report_view_has_run_report_button():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-run-btn" in text
+    assert "Run report" in text
+
+
+def test_report_view_generate_plan_wraps_call_in_ensure_active_research():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    start = text.index("async function _generatePlan")
+    end = text.index("\n\nasync function _runReport", start)
+    body = text[start:end]
+    assert "ensureActiveResearch(async () => {" in body
+    assert "api.reportPlan(" in body
+
+
+def test_report_view_run_report_posts_edited_questions_wrapped_in_ensure_active_research():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    start = text.index("async function _runReport")
+    end = text.index("\n\nfunction _editPlan", start)
+    body = text[start:end]
+    assert "ensureActiveResearch(async () => {" in body
+    assert "api.refreshReport(" in body
+    assert "questions" in body
+
+
+def test_report_view_opens_draft_plan_in_edit_mode_and_edit_affordance_present():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "_syncPlanFromReport" in text
+    assert "'draft'" in text
+    assert "report-edit-plan-btn" in text
+    assert "Edit plan / re-run" in text
+
+
+def test_report_view_original_2e1_generate_report_flow_is_preserved():
+    """2e-4 is purely additive -- the original one-shot Generate report
+    button/flow (2e-1) must remain intact, unchanged in position/behavior."""
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-generate-btn" in text
+    assert "Generate report" in text
+    start = text.index("async function _generate(")
+    end = text.index("\n\nasync function _pollJob", start)
+    body = text[start:end]
+    assert "ensureActiveResearch(async () => {" in body
+    assert "api.refreshReport({ topic })" in body
+
+
+def test_report_view_uses_report_plan_model():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "reportPlanModel" in text

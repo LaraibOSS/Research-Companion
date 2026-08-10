@@ -22,7 +22,7 @@ import { escapeHtml } from '../format.js';
 import { showToast } from '../components/toast.js';
 import { ensureActiveResearch } from '../researchGuard.js';
 import { pollDecision } from '../oaLinkHelpers.js';
-import { reportSectionModel, reportCoverageModel } from '../reportHelpers.js';
+import { reportSectionModel, reportCoverageModel, reportPlanModel } from '../reportHelpers.js';
 import { tip } from '../glossary.js';
 
 // RCS stance vocab (supports/contradicts/neutral, Report Evidence Scoring
@@ -49,6 +49,16 @@ let _scoring = false;         // Report Evidence Scoring (RCS, 2e-2)
 let _scoreDetail = '';
 let _scoreError = null;
 
+// Editable Research Plan (Phase 2, slice 2e-4). `_plan` is the RAW
+// (unescaped) editable list of question strings -- only ever written into
+// a <textarea>.value (never interpolated into HTML), so no escaping is
+// needed here; reportPlanModel()'s escaped copy is used only for the
+// read-only "Plan: N questions" summary line, never for editing.
+let _plan = null;          // string[] | null -- non-null iff _planMode is true
+let _planMode = false;     // true -> render the editable plan list
+let _planGenerating = false;
+let _planError = null;
+
 const _POLL_MS = 800;
 
 // ---------------------------------------------------------------------------
@@ -63,6 +73,10 @@ export function mount(el) {
   _scoring = false;
   _scoreDetail = '';
   _scoreError = null;
+  _plan = null;
+  _planMode = false;
+  _planGenerating = false;
+  _planError = null;
 
   el.innerHTML = `<div class="report-view"><div class="report-loading muted">Loading report…</div></div>`;
 
@@ -72,6 +86,7 @@ export function mount(el) {
     } catch (err) {
       console.warn('[report] refetch failed:', err);
     }
+    _syncPlanFromReport();
     _render();
   }));
 
@@ -94,6 +109,7 @@ async function _fetch() {
   } catch (err) {
     console.warn('[report] fetch failed:', err);
   }
+  _syncPlanFromReport();
   _render();
 }
 
@@ -183,6 +199,129 @@ async function _pollJob(jobId) {
 
     await new Promise(resolve => setTimeout(resolve, _POLL_MS));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Editable Research Plan (Phase 2, slice 2e-4)
+//
+// "Generate plan" (api.reportPlan -- SYNCHRONOUS, one LLM call, like
+// api.directions) populates `_plan` (raw editable question strings) and
+// switches into edit mode; the plan list itself (add/remove/reorder/edit)
+// is entirely CLIENT-SIDE (no per-edit network call); "Run report" posts
+// the edited list via the EXISTING api.refreshReport({topic, questions})
+// 202 job + _pollJob (reused as-is). A saved plan.status === 'draft' (from
+// GET /api/report) opens the view in edit mode on load/refetch; an
+// 'answered' plan shows the report with an "Edit plan / re-run" affordance
+// that repopulates `_plan` from the report's own plan.questions.
+// ---------------------------------------------------------------------------
+
+function _syncPlanFromReport() {
+  const rawPlan = _report && _report.plan;
+  if (rawPlan && rawPlan.status === 'draft' && Array.isArray(rawPlan.questions)) {
+    _plan = rawPlan.questions.slice();
+    _planMode = true;
+  } else {
+    _planMode = false;
+  }
+}
+
+async function _generatePlan() {
+  const topic = _currentTopic();
+  if (!topic) {
+    showToast('Enter a topic first', 'error');
+    return;
+  }
+
+  await ensureActiveResearch(async () => {
+    _planGenerating = true;
+    _planError = null;
+    _render();
+
+    try {
+      const data = await api.reportPlan({ topic });
+      _planGenerating = false;
+      if (!data || data.ok !== true || !data.plan) {
+        _planError = (data && data.error) || 'Failed to generate plan';
+        _render();
+        return;
+      }
+      _plan = Array.isArray(data.plan.questions) ? data.plan.questions.slice() : [];
+      _planMode = true;
+      if (_report) _report.plan = data.plan;
+      _render();
+    } catch (err) {
+      _planGenerating = false;
+      _planError = err.message || 'Failed to generate plan';
+      _render();
+    }
+  });
+}
+
+async function _runReport() {
+  const topic = _currentTopic();
+  if (!topic) {
+    showToast('Enter a topic first', 'error');
+    return;
+  }
+  const questions = (_plan || []).map(q => (q || '').trim()).filter(q => q);
+  if (questions.length === 0) {
+    showToast('Add at least one question first', 'error');
+    return;
+  }
+
+  await ensureActiveResearch(async () => {
+    _generating = true;
+    _error = null;
+    _jobDetail = 'Generating report…';
+    _render();
+
+    try {
+      const { job_id } = await api.refreshReport({ topic, questions });
+      await _pollJob(job_id);
+      if (!_error) {
+        _planMode = false;
+        _render();
+      }
+    } catch (err) {
+      _generating = false;
+      _error = err.message || 'Failed to generate report';
+      _render();
+    }
+  });
+}
+
+function _editPlan() {
+  const rawPlan = _report && _report.plan;
+  _plan = (rawPlan && Array.isArray(rawPlan.questions)) ? rawPlan.questions.slice() : [];
+  _planMode = true;
+  _planError = null;
+  _render();
+}
+
+function _planListHtml() {
+  const rows = _plan.map((_q, i) => `
+    <div class="report-plan-row" data-q-idx="${i}">
+      <textarea class="report-plan-q" data-q-idx="${i}" rows="2" aria-label="Investigation question ${i + 1}"></textarea>
+      <div class="report-plan-row-actions">
+        <button type="button" class="btn-icon report-plan-up" data-q-idx="${i}" title="Move up" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
+        <button type="button" class="btn-icon report-plan-down" data-q-idx="${i}" title="Move down" ${i === _plan.length - 1 ? 'disabled' : ''}>&#9660;</button>
+        <button type="button" class="btn-icon report-plan-delete" data-q-idx="${i}" title="Remove question">&#10005;</button>
+      </div>
+    </div>`).join('');
+
+  const canRun = _plan.some(q => q && q.trim());
+
+  return `
+    <div class="report-plan-editor">
+      <p class="report-plan-hint muted">Review, edit, add, remove, or reorder these investigation questions, then Run report to answer exactly this set.</p>
+      <div class="report-plan-list">${rows}</div>
+      <div class="report-plan-actions">
+        <button type="button" class="btn btn-secondary report-plan-add-btn">+ Add question</button>
+        <button type="button" class="btn btn-primary report-run-btn" ${(_generating || !canRun) ? 'disabled' : ''}>
+          ${_generating ? 'Running…' : 'Run report'}
+        </button>
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +426,17 @@ function _render() {
     ? 'No relevant library material was found for these questions — coverage cannot be computed yet.'
     : 'Coverage is a BM25 heuristic — relative to what our own search judged relevant to each question, not ground truth.';
 
+  // Editable Research Plan (2e-4, purely additive) -- a report with no
+  // `plan` field (older than this slice) renders with none of this: no
+  // status line, no "Edit plan / re-run" button, exactly as 2e-1/2e-2/2e-3.
+  const planModel = reportPlanModel(_report && _report.plan);
+  const planStatusLine = planModel
+    ? `<p class="report-plan-status muted">Plan: ${planModel.questions.length} question${planModel.questions.length === 1 ? '' : 's'} (${planModel.status}).</p>`
+    : '';
+  const editPlanBtnHtml = (planModel && !_planMode)
+    ? `<button class="btn btn-secondary report-edit-plan-btn" type="button" ${(_generating || _scoring) ? 'disabled' : ''}>Edit plan / re-run</button>`
+    : '';
+
   _el.innerHTML = `
     <div class="report-view">
       <div class="report-header">
@@ -299,11 +449,19 @@ function _render() {
         <button class="btn btn-primary report-generate-btn" ${_generating ? 'disabled' : ''}>
           ${_generating ? 'Generating…' : 'Generate report'}
         </button>
+        <button class="btn btn-secondary report-generate-plan-btn" type="button"
+                ${(_planGenerating || _generating) ? 'disabled' : ''}>
+          ${_planGenerating ? 'Generating plan…' : 'Generate plan'}
+        </button>
         <button class="btn btn-secondary report-score-evidence-btn"
                 ${(!hasReport || _scoring || _generating) ? 'disabled' : ''}>
           ${_scoring ? 'Scoring…' : 'Score evidence'}
         </button>
       </div>
+      ${_planError ? `<div class="report-error report-plan-error">${escapeHtml(_planError)}</div>` : ''}
+      ${planStatusLine}
+      ${editPlanBtnHtml}
+      ${_planMode ? _planListHtml() : ''}
       ${_generating ? `<div class="report-progress muted">${escapeHtml(_jobDetail)}</div>` : ''}
       ${_error ? `<div class="report-error">${escapeHtml(_error)}</div>` : ''}
       ${_scoring ? `<div class="report-progress muted">${escapeHtml(_scoreDetail)}</div>` : ''}
@@ -407,4 +565,75 @@ function _bindEvents() {
       window.location.hash = '#/library';
     });
   });
+
+  _bindPlanEvents();
+}
+
+// ---------------------------------------------------------------------------
+// Editable Research Plan (2e-4) event binding -- all list edits are
+// CLIENT-SIDE ONLY (no per-edit network call); textarea values are set
+// here in JS (never interpolated into the template string), so no
+// escaping is needed for the raw question text.
+// ---------------------------------------------------------------------------
+
+function _bindPlanEvents() {
+  if (!_el) return;
+
+  const genPlanBtn = _el.querySelector('.report-generate-plan-btn');
+  if (genPlanBtn) genPlanBtn.addEventListener('click', () => { _generatePlan(); });
+
+  const editPlanBtn = _el.querySelector('.report-edit-plan-btn');
+  if (editPlanBtn) editPlanBtn.addEventListener('click', () => { _editPlan(); });
+
+  if (!_planMode || !Array.isArray(_plan)) return;
+
+  // Set each row's textarea value in JS (not via HTML interpolation) --
+  // textarea .value never parses HTML, so raw user text is always safe.
+  _el.querySelectorAll('.report-plan-q').forEach((ta) => {
+    const idx = Number(ta.dataset.qIdx);
+    ta.value = _plan[idx] != null ? _plan[idx] : '';
+    ta.addEventListener('input', () => {
+      _plan[idx] = ta.value;
+    });
+  });
+
+  _el.querySelectorAll('.report-plan-delete').forEach((delBtn) => {
+    delBtn.addEventListener('click', () => {
+      const idx = Number(delBtn.dataset.qIdx);
+      _plan.splice(idx, 1);
+      _render();
+    });
+  });
+
+  _el.querySelectorAll('.report-plan-up').forEach((upBtn) => {
+    upBtn.addEventListener('click', () => {
+      const idx = Number(upBtn.dataset.qIdx);
+      if (idx <= 0) return;
+      [_plan[idx - 1], _plan[idx]] = [_plan[idx], _plan[idx - 1]];
+      _render();
+    });
+  });
+
+  _el.querySelectorAll('.report-plan-down').forEach((downBtn) => {
+    downBtn.addEventListener('click', () => {
+      const idx = Number(downBtn.dataset.qIdx);
+      if (idx >= _plan.length - 1) return;
+      [_plan[idx], _plan[idx + 1]] = [_plan[idx + 1], _plan[idx]];
+      _render();
+    });
+  });
+
+  const addBtn = _el.querySelector('.report-plan-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      _plan.push('');
+      _render();
+      const rows = _el.querySelectorAll('.report-plan-q');
+      const last = rows[rows.length - 1];
+      if (last) last.focus();
+    });
+  }
+
+  const runBtn = _el.querySelector('.report-run-btn');
+  if (runBtn) runBtn.addEventListener('click', () => { _runReport(); });
 }
