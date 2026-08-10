@@ -958,6 +958,43 @@ tab.
 
 ---
 
+## 25. Research Directions — turn a topic into a ranked list of what to work on
+
+Below the Brainstorm tab's search results sits a **Research Directions**
+section. Where the search above answers "what papers exist on this topic?",
+this answers "so what should I actually work on?" Click **Generate
+directions** and the AI turns your topic, the papers currently in view (both
+your library and whatever the search above just found), your knowledge
+graph's most underexplored concepts, and any open research gaps into a
+ranked list of concrete, citation-backed suggestions.
+
+- Every direction shows a one-line **title**, a one-line **rationale**, a
+  type badge (extend a method, new application, underexplored concept, open
+  gap, cross-pollination, or other), and **citation chips** — the real
+  papers, concepts, or gaps it was grounded in. A direction is never allowed
+  to cite something that wasn't actually shown to the AI: any citation it
+  tries to invent is silently dropped before you ever see it.
+- A citation chip for a paper already in your library opens it directly in
+  the reader. A concept or gap chip (or a paper found only via the search
+  above, not yet added) is informational.
+- Directions are ranked by how well-grounded they are, favoring open gaps
+  and underexplored concepts — the "what's missing" tilt — over generic
+  extensions.
+- **Generate directions** is enabled once you've typed a topic or the search
+  above has found at least one paper; it always additionally considers your
+  whole library regardless. Like Brainstorm's search, this is a single,
+  opt-in, one-shot AI call — nothing is cached or auto-refreshed, since the
+  result depends on the exact topic and search results in front of you at
+  that moment.
+- A network hiccup or a failed AI call never breaks the tab: you'll see a
+  friendly error with a **Retry** button instead of a blank section.
+
+Research Directions is the second surface of the ideation arc — a novelty
+check ("has anyone done this already?") and a full deep-research report are
+on the roadmap and will grow inside this same tab.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
