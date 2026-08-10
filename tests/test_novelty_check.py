@@ -75,3 +75,30 @@ def test_rank_prior_works_missing_title_and_abstract_safe():
     p = _paper(title="", abstract="")
     out = _rank_prior_works("graph retrieval", [p], top_n=5)
     assert out == [p]
+
+
+# ---------------------------------------------------------------------------
+# _prior_block
+# ---------------------------------------------------------------------------
+
+def test_prior_block_numbers_and_truncates_abstract():
+    from research_companion.novelty_check import _prior_block
+    long_abstract = "x" * 400
+    p1 = _paper(title="Paper One", year=2020, abstract=long_abstract)
+    p2 = _paper(title="Paper Two", year=2021, abstract="short")
+    block = _prior_block([p1, p2])
+    lines = block.split("\n")
+    assert lines[0] == f"[1] Paper One (2020) - {'x' * 300}"
+    assert lines[1] == "[2] Paper Two (2021) - short"
+
+
+def test_prior_block_missing_year_and_abstract_safe():
+    from research_companion.novelty_check import _prior_block
+    p = _paper(title="No Year Paper", year=None, abstract="")
+    block = _prior_block([p])
+    assert block == "[1] No Year Paper (n.d.) - "
+
+
+def test_prior_block_empty_list_returns_empty_string():
+    from research_companion.novelty_check import _prior_block
+    assert _prior_block([]) == ""

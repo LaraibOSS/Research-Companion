@@ -69,3 +69,22 @@ def _rank_prior_works(direction_text: str, papers: list, top_n: int = 5) -> list
     scored.sort(key=lambda t: (-t[0], t[1]))
     cap = max(0, top_n)
     return [p for _score, _idx, p in scored[:cap]]
+
+
+# ---------------------------------------------------------------------------
+# _prior_block
+# ---------------------------------------------------------------------------
+
+def _prior_block(papers: list) -> str:
+    """Numbered "[i] {title} ({year}) - {abstract[:300]}" block for the
+    COMPARISON_PROMPT's prior_art slot (1-indexed). Missing year renders as
+    "n.d."; missing/empty abstract renders as an empty trailing string.
+    Empty *papers* returns "" (never raises)."""
+    lines = []
+    for i, p in enumerate(papers, 1):
+        title = getattr(p, "title", "") or "Untitled"
+        year = getattr(p, "year", None)
+        year_str = year if year is not None else "n.d."
+        abstract = getattr(p, "abstract", "") or ""
+        lines.append(f"[{i}] {title} ({year_str}) - {abstract[:300]}")
+    return "\n".join(lines)
