@@ -8,6 +8,7 @@ All APIs are free, no auth required. Rate limit: ~100 req/5min without a key.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -435,3 +436,51 @@ def search_topic_with_fallback(
             seen_titles.add(t)
             merged.append(p)
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Query expansion — turn a rough title/topic into a handful of search queries
+# ---------------------------------------------------------------------------
+
+def expand_query(title: str, *, llm=None) -> list[str]:
+    """Expand a rough title/topic into up to 5 literature-search queries.
+
+    The original `title` is ALWAYS the first entry in the returned list.
+    When `llm` is None, or the LLM call / JSON parse fails for ANY reason,
+    degrades to `[title]` — this function never raises. Otherwise appends
+    up to 4 additional AI-suggested queries (deduped case-insensitively
+    against the original and each other) via a single SHA-cached
+    DISCOVER_EXPAND_PROMPT call.
+
+    `llm`: an injectable callable(prompt: str) -> str (same seam as the
+    rest of the codebase: `_resolve_llm(json_mode=True)` / `app.state.llm`
+    in lab_api.py).
+    """
+    if llm is None:
+        return [title]
+
+    from research_companion.extract import _strip_code_fences
+    from research_companion.prompts import format_discover_expand_prompt
+
+    try:
+        raw = llm(format_discover_expand_prompt(title))
+        data = json.loads(_strip_code_fences(raw)) if isinstance(raw, str) else raw
+        extra = data.get("queries") if isinstance(data, dict) else None
+        if not isinstance(extra, list):
+            return [title]
+    except Exception:
+        return [title]
+
+    queries = [title]
+    seen = {title.strip().lower()}
+    for q in extra:
+        if not isinstance(q, str):
+            continue
+        q = q.strip()
+        if not q or q.lower() in seen:
+            continue
+        queries.append(q)
+        seen.add(q.lower())
+        if len(queries) >= 5:
+            break
+    return queries
