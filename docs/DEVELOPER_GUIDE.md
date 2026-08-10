@@ -2044,3 +2044,127 @@ plus a `showToast(..., 'info')`, and mutates ONLY that card's own
 mid-flight, so drafting one direction never disturbs another's in-flight
 request. An error renders an inline retry button, rebound after each DOM
 mutation, exactly like 2c's novelty panel.
+
+## 32. Deep-Research Report — `POST /api/report/refresh`, `deep_research.py`, and the frontend helpers
+
+The **Report** tab (slice 2e-1 of the ideation arc) turns a topic into a
+structured, cited literature review over the researcher's own library —
+"topic in, cited report out." Unlike 2b/2c/2d's synchronous/atomic
+endpoints, this is a **background job** (like `POST /api/gaps/refresh`),
+because it makes N sequential LLM calls (one per investigation question)
+and reports incremental progress along the way.
+
+### Pipeline (`research_companion/deep_research.py`)
+
+1. **`_report_grounding_block(library_papers, graph)`** (pure) — builds
+   the LLM grounding block for question generation: one `"- Paper: {title}
+   ({year})."` line per real library paper, plus one `"- Underexplored
+   concept: {name} (...)."` line per underexplored concept, reusing
+   `directions._underexplored_concepts` — the only existing per-concept
+   frequency signal. `""` when there's nothing to ground on. Never raises.
+2. **`generate_questions(topic, *, library_papers=(), graph=None,
+   llm=None, max_questions=6) -> {"questions", "llm_error"}`** — one
+   `REPORT_QUESTIONS_PROMPT` call (`prompts.format_report_questions_prompt`)
+   turning the topic + grounding block into 4-`max_questions` distinct
+   investigation sub-questions. `_normalize_questions` (pure) dedupes
+   case-insensitively, drops empty/non-string items, and caps the count.
+   An empty topic AND empty grounding short-circuits with no LLM call
+   (`{"questions": [], "llm_error": None}` — truly nothing to ground on).
+   A degenerate/empty question list (LLM/parse failure, or a well-formed
+   but empty list) is treated as a **failure** — both set `llm_error`, so
+   the caller never builds an empty report (mirrors
+   `scaffold.generate_outline`'s empty-outline rule). Never raises.
+3. **`build_report(topic, questions, *, answer_fn, generated_shas) ->
+   dict`** (pure orchestration) — for each question, calls the injectable
+   `answer_fn(question)` (the caller passes a `qa.answer` closure) and maps
+   the result to a report section via `_citation_dict` (duck-typed
+   `getattr` reads off the `QAAnswer`/`QASource`-like object, so this
+   module never imports `qa.QASource` directly). A question whose
+   `answer_fn` raises, or returns `None`, degrades to a section with an
+   `"error"` key rather than aborting the rest of the report — **per-question
+   failure isolation**, the same guarantee `synthesize_gaps` gives
+   per-paper. Returns `{"topic", "sections": [{"question", "answer",
+   "citations": [{"paper_id", "paper_title", "section_id", "char_start",
+   "char_end", "chunk_index", "score"}, ...], "unverified_quotes",
+   "error"?}, ...], "generated_from": generated_shas, "question_count"}`.
+
+Honest by construction: questions are grounded ONLY in the library's own
+concepts/papers (the prompt must not invent papers/concepts not
+supplied), and every answer + its citations come straight from `qa.answer`
+— real, quote-verified library chunks. Nothing is fabricated.
+
+### The job, the store trio, and staleness
+
+`POST /api/report/refresh` (`research_companion/lab_api.py`, guarded —
+`dependencies=[Depends(require_active_workspace)]`, body `{topic}` via
+`_ReportBody`) enqueues a background task exactly like `POST
+/api/gaps/refresh`: it creates a `job_id`, returns 202 `{"job_id"}`
+immediately, then runs `generate_questions` -> a loop of `qa.answer` calls
+(updating the job's `detail` with `"Answering i/N"` between each one, the
+progress `views/report.js` polls for) -> `build_report`, and finally
+`store.save_report(...)`.
+
+The persistence trio in `research_companion/store.py` mirrors the
+gap-synthesis trio exactly:
+
+- **`report_path() -> Path | None`** — `papergraph_dir()/research_report.json`,
+  `None` with no active workspace.
+- **`save_report(payload) -> Path | None`** — writes the payload as-is; the
+  caller embeds whatever staleness-key SHAs it wants under
+  `payload["generated_from"]`.
+- **`load_report() -> dict | None`** — `None` if missing, unparseable, not
+  a dict, or no active workspace. Staleness is the caller's job.
+
+`GET /api/report` (read-only, never 500s) loads the cached report and
+recomputes staleness by comparing `generated_from`'s `papers_sha256`
+(`gaps._papers_sha`) and `report_questions_prompt_sha256`
+(`prompts.report_questions_prompt_sha256`) against the CURRENT library —
+exactly the same cached-themes freshness check `GET /api/gaps` runs.
+`topic_sha256` is also recorded under `generated_from` (though not yet
+consulted by `GET /api/report`'s `stale` flag) so a future slice can key
+staleness on topic changes too. Returns `{"topic", "sections",
+"question_count", "stale"}`.
+
+### The event
+
+`ReportUpdated(question_count, topic)` (`research_companion/agents/events.py`)
+is published (`report_updated` on the wire) once the background job
+finishes; the frontend `reducer.js`'s `report_updated` case maps it to the
+`'report'` topic, so any mounted `views/report.js` refetches automatically
+— a report generated from another tab/session still shows up here.
+
+### Frontend — `reportHelpers.js` + `views/report.js`
+
+`research_companion/lab/static/js/reportHelpers.js` is the pure, DOM-free,
+node-tested layer (`tests/js/reportHelpers.test.mjs`):
+`reportSectionModel(rawSection)` maps one raw `GET /api/report`
+`sections[]` item to `{question, answer, hasError, errorMessage,
+citations: [{label, paperId, sectionId}], unverifiedQuotes}`. `question`,
+`answer`, `errorMessage`, each unverified quote, and each citation's
+`label` are returned ALREADY escaped (interpolate directly — do not
+re-escape); each citation's raw `paperId`/`sectionId` are NOT escaped, so
+the view must `escapeHtml` them before writing into a `data-` attribute.
+Never throws — every field defaults safely for a partial/malformed
+section (a missing `paper_title` becomes `"Untitled"`, a missing
+`question` becomes `"Untitled question"`, etc.).
+
+`views/report.js` (`mount`/`unmount`, `store.subscribe(['report'],
+refetch)` like `views/gaps.js`) renders a topic input + **Generate
+report** button. The mutating `_generate()` call wraps `api.refreshReport`
+in `ensureActiveResearch(async () => {...})` — mirroring Brainstorm's
+`_scaffoldDraft` — since `POST /api/report/refresh` is guarded. Once the
+job starts, `_pollJob` polls `api.getJob(jobId)` on an 800ms interval,
+reusing `oaLinkHelpers.pollDecision` (the same job-poll state machine
+`views/library.js` uses for find-pdf jobs) to decide `continue` /
+`retry-transient` / `give-up` / `stop-404` on each attempt, surfacing the
+job's `detail` ("Answering i/N") as live progress text. On completion it
+refetches `GET /api/report` and renders each section — question heading,
+answer, citation chips (open the cited paper/section in the reader via
+the shared `rc:open-paper` CustomEvent, exactly like `views/gaps.js`'s
+citation chips), and an unverified-quote caveat — as escaped-HTML DOM
+built from the structured JSON, with no markdown library involved.
+
+See `docs/superpowers/specs/2026-08-10-deep-research-report-design.md`
+for the full design, including the deferred 2e-2..2e-5 sub-slices
+(relevance/support/contradiction scoring, coverage %, an editable research
+plan, and export).

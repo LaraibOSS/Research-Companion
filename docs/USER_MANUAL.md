@@ -1056,6 +1056,61 @@ a full deep-research report still on the roadmap.
 
 ---
 
+## 28. Report — a cited literature review of your library, from just a topic
+
+The **Report** tab turns a topic into a structured, cited literature
+review — built entirely from your own library. Type in a topic, and the
+AI investigates it the way a researcher would: it breaks the topic into a
+handful of distinct sub-questions grounded in your library's own papers
+and concepts, then answers each one using the same grounded, quote-verified
+Q&A engine that powers Ask (see §14), complete with citations back to the
+exact paper and section.
+
+**How to use it:**
+
+1. Open the **Report** tab and type a topic into the input box (e.g.
+   "graph-based retrieval for code search").
+2. Click **Generate report**. While it works you'll see live progress —
+   "Answering *i* of *N*" — as each investigation question is answered in
+   turn.
+3. When it finishes, read the assembled report: a topic heading followed
+   by one section per investigation question.
+
+**What each section shows:**
+
+- The **investigation question** the AI chose to explore, as a heading.
+- A **grounded answer**, written from what your library actually says
+  about that question.
+- **Citation chips** underneath the answer — click one to open the exact
+  cited paper/section in the reader, just like Ask's citations.
+- An **"unverified quote"** note when the answer contained a quote the
+  system could not verify verbatim in the source text — the same honesty
+  guarantee Ask gives you, so you always know which parts of the answer
+  are pinned to a checkable source and which aren't.
+
+**Honesty notes:**
+
+- Every citation comes straight from the same cited Q&A engine behind
+  Ask — nothing is fabricated, and no paper or quote is invented.
+- Investigation questions are grounded only in your library's own
+  concepts and papers — the AI is not asking about the open literature in
+  general, only about what's in front of it.
+- A topic with little relevant material in your library gets an honest
+  "there's little in your library on this" answer for that section,
+  rather than a confident-sounding invented one.
+- Re-generating a report replaces the previous one — there's no history
+  of past reports to page through yet.
+
+Report is the first of several planned Deep-Research Report sub-slices.
+Relevance/support/contradiction scoring of each citation, a coverage
+percentage showing how much of the topic your library actually answers,
+an editable research plan you can steer before generation, and export to
+a shareable document are all deferred to later slices (2e-2 through
+2e-5) — this first slice focuses purely on getting a trustworthy, cited
+first draft of the review in front of you.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
