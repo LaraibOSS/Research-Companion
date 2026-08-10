@@ -54,3 +54,34 @@ def _grounding_block(citations: list) -> str:
         year_str = year if year is not None else "n.d."
         lines.append(f"- {title} ({year_str}).")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# _normalize_outline_sections
+# ---------------------------------------------------------------------------
+
+def _normalize_outline_sections(raw_sections: list) -> list[dict]:
+    """Pure post-processing of the LLM's raw "sections" list: caps at
+    _MAX_SECTIONS, clamps level to {1,2}, drops empty titles, and promotes a
+    level-2 section with no preceding level-1 to level-1 (mirrors
+    sections.py's tiling invariant -- a level-2 section always nests under
+    a real level-1 parent). Never raises. Returns
+    [{"title","level","description"}, ...]."""
+    out: list[dict] = []
+    seen_level1 = False
+    for item in raw_sections or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        level = 2 if item.get("level") in (2, "2") else 1
+        if level == 2 and not seen_level1:
+            level = 1
+        if level == 1:
+            seen_level1 = True
+        description = str(item.get("description") or "").strip()
+        out.append({"title": title, "level": level, "description": description})
+        if len(out) >= _MAX_SECTIONS:
+            break
+    return out

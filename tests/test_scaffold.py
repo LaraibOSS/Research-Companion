@@ -62,3 +62,65 @@ def test_grounding_block_empty_or_missing_title_safe():
     assert _grounding_block(None) == ""
     assert _grounding_block([{"kind": "paper", "title": ""}]) == ""
     assert _grounding_block([{"kind": "paper"}, "not a dict"]) == ""
+
+
+# ---------------------------------------------------------------------------
+# _normalize_outline_sections
+# ---------------------------------------------------------------------------
+
+def test_normalize_outline_sections_caps_at_12():
+    from research_companion.scaffold import _normalize_outline_sections
+    raw = [{"title": f"Section {i}", "level": 1, "description": "d"} for i in range(20)]
+    out = _normalize_outline_sections(raw)
+    assert len(out) == 12
+
+
+def test_normalize_outline_sections_drops_empty_titles():
+    from research_companion.scaffold import _normalize_outline_sections
+    raw = [
+        {"title": "Kept", "level": 1, "description": "d"},
+        {"title": "", "level": 1, "description": "dropped"},
+        {"title": "   ", "level": 1, "description": "dropped"},
+    ]
+    out = _normalize_outline_sections(raw)
+    assert [s["title"] for s in out] == ["Kept"]
+
+
+def test_normalize_outline_sections_clamps_level_to_1_or_2():
+    from research_companion.scaffold import _normalize_outline_sections
+    raw = [
+        {"title": "A", "level": 1, "description": "d"},
+        {"title": "B", "level": 3, "description": "d"},
+        {"title": "C", "level": "bogus", "description": "d"},
+    ]
+    out = _normalize_outline_sections(raw)
+    assert [s["level"] for s in out] == [1, 1, 1]
+
+
+def test_normalize_outline_sections_level_2_without_preceding_level_1_becomes_level_1():
+    from research_companion.scaffold import _normalize_outline_sections
+    raw = [{"title": "Orphan subsection", "level": 2, "description": "d"}]
+    out = _normalize_outline_sections(raw)
+    assert out == [{"title": "Orphan subsection", "level": 1, "description": "d"}]
+
+
+def test_normalize_outline_sections_level_2_after_level_1_stays_level_2():
+    from research_companion.scaffold import _normalize_outline_sections
+    raw = [
+        {"title": "Method", "level": 1, "description": "d1"},
+        {"title": "Setup", "level": 2, "description": "d2"},
+    ]
+    out = _normalize_outline_sections(raw)
+    assert [s["level"] for s in out] == [1, 2]
+
+
+def test_normalize_outline_sections_ignores_non_dict_items():
+    from research_companion.scaffold import _normalize_outline_sections
+    out = _normalize_outline_sections(["not a dict", None, {"title": "Kept", "level": 1}])
+    assert [s["title"] for s in out] == ["Kept"]
+
+
+def test_normalize_outline_sections_empty_input_returns_empty():
+    from research_companion.scaffold import _normalize_outline_sections
+    assert _normalize_outline_sections([]) == []
+    assert _normalize_outline_sections(None) == []
