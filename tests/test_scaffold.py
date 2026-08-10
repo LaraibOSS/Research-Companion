@@ -232,3 +232,82 @@ def test_generate_outline_normalizes_caps_and_clamps():
     out = generate_outline({"title": "Topic", "rationale": "r"}, llm=many_llm)
     assert out["llm_error"] is None
     assert len(out["sections"]) == 12
+
+
+# ---------------------------------------------------------------------------
+# scaffold_sections_payload
+# ---------------------------------------------------------------------------
+
+def _sample_outline() -> dict:
+    return {"sections": [
+        {"title": "Introduction", "level": 1, "description": "Intro desc."},
+        {"title": "Method", "level": 1, "description": "Method desc."},
+        {"title": "Setup", "level": 2, "description": "Setup desc."},
+    ]}
+
+
+def test_scaffold_sections_payload_tiles_text_exactly():
+    from research_companion.scaffold import scaffold_sections_payload
+    text, payload = scaffold_sections_payload(_sample_outline(), title="My Direction")
+
+    assert text == (
+        "# Introduction\n\nIntro desc.\n\n"
+        "# Method\n\nMethod desc.\n\n"
+        "## Setup\n\nSetup desc.\n\n"
+    )
+    sections = payload["sections"]
+    assert sections[0] == {
+        "section_id": "s1", "title": "Introduction", "level": 1, "parent": None,
+        "char_start": 0, "char_end": 29,
+    }
+    assert sections[1] == {
+        "section_id": "s2", "title": "Method", "level": 1, "parent": None,
+        "char_start": 29, "char_end": 53,
+    }
+    assert sections[2] == {
+        "section_id": "s2.1", "title": "Setup", "level": 2, "parent": "s2",
+        "char_start": 53, "char_end": 76,
+    }
+    # tiling: no gaps/overlaps, exact cover of the whole text
+    assert sections[0]["char_start"] == 0
+    assert sections[-1]["char_end"] == len(text)
+    for i in range(len(sections) - 1):
+        assert sections[i]["char_end"] == sections[i + 1]["char_start"]
+
+
+def test_scaffold_sections_payload_shape_and_hash():
+    import hashlib
+
+    from research_companion.scaffold import scaffold_sections_payload
+    text, payload = scaffold_sections_payload(_sample_outline(), title="My Direction")
+    assert payload["version"] == 1
+    assert payload["method"] == "scaffold"
+    assert payload["text_sha256"] == hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_scaffold_sections_payload_second_level1_after_a_level2_gets_new_parent():
+    from research_companion.scaffold import scaffold_sections_payload
+    outline = {"sections": [
+        {"title": "A", "level": 1, "description": "a"},
+        {"title": "A.1", "level": 2, "description": "a1"},
+        {"title": "B", "level": 1, "description": "b"},
+        {"title": "B.1", "level": 2, "description": "b1"},
+    ]}
+    _text, payload = scaffold_sections_payload(outline, title="T")
+    ids = [(s["section_id"], s["parent"]) for s in payload["sections"]]
+    assert ids == [("s1", None), ("s1.1", "s1"), ("s2", None), ("s2.1", "s2")]
+
+
+def test_scaffold_sections_payload_empty_outline_returns_empty_text_and_sections():
+    from research_companion.scaffold import scaffold_sections_payload
+    text, payload = scaffold_sections_payload({"sections": []}, title="T")
+    assert text == ""
+    assert payload["sections"] == []
+
+
+def test_scaffold_sections_payload_missing_title_defaults_to_untitled():
+    from research_companion.scaffold import scaffold_sections_payload
+    outline = {"sections": [{"title": "", "level": 1, "description": "d"}]}
+    text, payload = scaffold_sections_payload(outline, title="T")
+    assert payload["sections"][0]["title"] == "Untitled"
+    assert "Untitled" in text

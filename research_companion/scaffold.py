@@ -32,6 +32,7 @@ See docs/superpowers/specs/2026-08-10-brainstorm-scaffold-design.md.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 
@@ -136,3 +137,83 @@ def generate_outline(direction: dict, *, llm: Callable[[str], str] | None = None
         return {"sections": [], "llm_error": "The model returned an empty outline."}
 
     return {"sections": sections, "llm_error": None}
+
+
+# ---------------------------------------------------------------------------
+# scaffold_sections_payload
+# ---------------------------------------------------------------------------
+
+def scaffold_sections_payload(outline: dict, *, title: str) -> tuple[str, dict]:
+    """Build the synthetic draft body + the tiling sections.json from a
+    successful `generate_outline` result. Pure; never raises.
+
+    For each outline section: a markdown block "# {title}\\n\\n{description}
+    \\n\\n" (level 1) or "## {title}\\n\\n{description}\\n\\n" (level 2),
+    concatenated in order into `text`. char_start/char_end tile `text`
+    exactly (no gaps/overlaps), section_id follows sections.py's convention
+    (s1, s2, s2.1, ...), and a level-2's `parent` is the nearest preceding
+    level-1's section_id (or None -> "s0.N" if somehow there is none, the
+    same fallback sections.build_section_tree uses).
+
+    `title` (the direction's own title, i.e. what create_draft_from_direction
+    also uses for the paper's metadata.title) is accepted for signature
+    symmetry with create_draft_from_direction but is NOT written into the
+    body -- every outline section already carries its own tailored heading,
+    so a redundant top-level "# {title}" would just duplicate what the
+    Introduction section already says (mirrors directions.py's
+    _collect_grounding, whose `topic` parameter is accepted for the same
+    symmetry reason without being grounding content itself).
+
+    Returns (text, {"version": 1, "text_sha256": ..., "method": "scaffold",
+    "sections": [{"section_id","title","level","parent","char_start",
+    "char_end"}, ...]}).
+    """
+    _ = title  # accepted for signature symmetry only; see docstring above.
+    sections = (outline or {}).get("sections") or []
+
+    blocks: list[str] = []
+    records: list[dict] = []
+    l1_idx = 0
+    current_l1_sid: str | None = None
+    l2_counters: dict[str, int] = {}
+
+    for sec in sections:
+        if not isinstance(sec, dict):
+            continue
+        sec_title = str(sec.get("title") or "").strip() or "Untitled"
+        description = str(sec.get("description") or "").strip()
+        level = 2 if sec.get("level") == 2 else 1
+
+        if level == 1:
+            l1_idx += 1
+            sid = f"s{l1_idx}"
+            current_l1_sid = sid
+            parent = None
+            heading = f"# {sec_title}\n\n{description}\n\n"
+        else:
+            parent = current_l1_sid
+            parent_key = parent or "_none"
+            l2_counters[parent_key] = l2_counters.get(parent_key, 0) + 1
+            sid = f"{parent}.{l2_counters[parent_key]}" if parent else f"s0.{l2_counters[parent_key]}"
+            heading = f"## {sec_title}\n\n{description}\n\n"
+
+        blocks.append(heading)
+        records.append({"section_id": sid, "title": sec_title, "level": level, "parent": parent})
+
+    text = "".join(blocks)
+
+    pos = 0
+    sections_payload: list[dict] = []
+    for block, rec in zip(blocks, records, strict=True):
+        start = pos
+        end = pos + len(block)
+        pos = end
+        sections_payload.append({**rec, "char_start": start, "char_end": end})
+
+    payload = {
+        "version": 1,
+        "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "method": "scaffold",
+        "sections": sections_payload,
+    }
+    return text, payload
