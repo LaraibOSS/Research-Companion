@@ -796,6 +796,61 @@ def gap_synthesis_prompt_sha256() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Report Evidence Scoring (RCS) prompt (rcs.py score_section). SHA-cached.
+# Scores a section's cited evidence chunks for relevance-to-question and
+# stance-toward-answer, batched-numbered-block style like
+# GAP_SYNTHESIS_PROMPT. Honest: scores ONLY the listed chunk refs; must not
+# invent a ref. This is a MODEL JUDGMENT, never "verified" evidence.
+# ---------------------------------------------------------------------------
+
+RCS_PROMPT = """You are scoring how well cited evidence chunks support an answer to a research question.
+
+Question: <<QUESTION>>
+
+Answer: <<ANSWER>>
+
+Below are numbered evidence chunks cited in the answer above (their exact text, truncated):
+<<CHUNKS_BLOCK>>
+
+For EACH numbered chunk listed above, score its relevance to the QUESTION and its stance toward the ANSWER.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "scores": [
+    {
+      "ref": 0,
+      "relevance": 0.0,
+      "stance": "supports|contradicts|neutral",
+      "rationale": "one sentence grounded in the chunk text"
+    }
+  ]
+}
+
+Rules:
+- ref MUST be one of the exact chunk numbers listed above. Do NOT invent a ref, and do NOT skip a listed chunk.
+- relevance is a float between 0.0 and 1.0: how relevant this chunk is to the QUESTION (0 = irrelevant, 1 = highly relevant).
+- stance is the chunk's relationship to the ANSWER: "supports" (the chunk backs the answer's claim), "contradicts" (the chunk challenges or contradicts the answer's claim), or "neutral" (neither -- background/tangential).
+- rationale must be one sentence, grounded ONLY in the chunk text shown above -- do not introduce facts not in the chunk.
+- Score every listed chunk exactly once. Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_rcs_prompt(*, question: str, answer: str, chunks_block: str) -> str:
+    """Substitute placeholders in RCS_PROMPT."""
+    return (
+        RCS_PROMPT
+        .replace("<<QUESTION>>", question)
+        .replace("<<ANSWER>>", answer)
+        .replace("<<CHUNKS_BLOCK>>", chunks_block)
+    )
+
+
+def rcs_prompt_sha256() -> str:
+    return hashlib.sha256(RCS_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Venue-fit prompt (agents/venuefit.py). SHA-cached.
 # Judges whether a paper matches a target venue's scope.
 # ---------------------------------------------------------------------------
