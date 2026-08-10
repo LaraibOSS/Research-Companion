@@ -3370,6 +3370,17 @@ class TestGapsEndpoints:
         assert d["event"] == "gaps_updated"
         assert d["n_themes"] == 0
 
+    def test_report_updated_event_shape(self, isolated_papergraph_dir):
+        """ReportUpdated serializes with the report_updated discriminator and
+        carries question_count + topic (2e-1)."""
+        from research_companion.agents.events import ReportUpdated, event_to_dict
+
+        evt = ReportUpdated(question_count=4, topic="graph retrieval")
+        d = event_to_dict(evt)
+        assert d["event"] == "report_updated"
+        assert d["question_count"] == 4
+        assert d["topic"] == "graph retrieval"
+
     def test_get_gaps_themes_empty_when_no_cache(self, isolated_papergraph_dir):
         """GET /api/gaps always includes 'themes'; [] when nothing cached yet."""
         c = _make_client()

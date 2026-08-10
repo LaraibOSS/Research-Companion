@@ -31,6 +31,8 @@ _KIND = {
     "DraftVersionAdded": "draft_version_added",
     # Gaps events (Task W3-T9)
     "GapsUpdated": "gaps_updated",
+    # Deep-Research Report events (Phase 2, slice 2e-1)
+    "ReportUpdated": "report_updated",
     # Embed events (Task W3-T11)
     "EmbeddingsReady": "embeddings_ready",
     # Workspace events (Task W4-B4)
@@ -175,6 +177,18 @@ class GapsUpdated:
     n_gaps: int
     n_open: int
     n_themes: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Deep-Research Report events (Phase 2, slice 2e-1)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ReportUpdated:
+    """A deep-research report finished generating -- drives the 'report'
+    topic so views/report.js refetches GET /api/report."""
+    question_count: int
+    topic: str
 
 
 # ---------------------------------------------------------------------------
