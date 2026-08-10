@@ -5324,3 +5324,143 @@ class TestScoreEvidenceEndpoint:
             report_resp = c.get("/api/report")
         assert report_resp.status_code == 200
         assert report_resp.json()["sections"][0]["citations"][0].get("rcs") is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage / Saturation fold-in (2e-3) -- LLM-FREE, always-on, folded into
+# the existing POST /api/report/refresh job (no new endpoint)
+# ---------------------------------------------------------------------------
+
+class TestReportCoverageFold:
+    def test_report_refresh_folds_coverage_into_saved_report(
+            self, isolated_papergraph_dir, monkeypatch):
+        import time
+
+        from research_companion import coverage, qa, store
+        from research_companion.qa import QAAnswer, QASource
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+
+        def _fake_answer(question, *, llm=None, paper_ids=None, **kwargs):
+            src = QASource(paper_id="arxiv:1234.56789", paper_title="Graph Retrieval Paper",
+                            section_id="s1", section_title="Intro", score=1.0)
+            return QAAnswer(answer=f"Answer to: {question} [S1]",
+                             sources=[src], cited=[src], unverified_quotes=[], input_chars=100)
+
+        monkeypatch.setattr(qa, "answer", _fake_answer)
+
+        def _fake_score_report(report, **kwargs):
+            new = dict(report)
+            new_sections = []
+            for s in report.get("sections", []):
+                ns = dict(s)
+                ns["coverage"] = {"pct": 50, "cited": 1, "relevant_available": 2}
+                new_sections.append(ns)
+            new["sections"] = new_sections
+            new["coverage"] = {"pct": 50, "cited": 1, "relevant_available": 2, "median_pct": 50}
+            new["coverage_generated_from"] = "stub-sha"
+            return new
+
+        monkeypatch.setattr(coverage, "score_report", _fake_score_report)
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": ["What methods are used?"]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            data = c.get("/api/report").json()
+
+        assert data["sections"][0]["coverage"] == {"pct": 50, "cited": 1, "relevant_available": 2}
+        assert data["coverage"] == {"pct": 50, "cited": 1, "relevant_available": 2, "median_pct": 50}
+        assert data["coverage_generated_from"] == "stub-sha"
+        assert store.load_report()["coverage"]["pct"] == 50
+
+    def test_report_refresh_coverage_failure_still_saves_report(
+            self, isolated_papergraph_dir, monkeypatch):
+        """coverage.score_report raising must NEVER fail the report job --
+        the report saves and completes without a `coverage` field."""
+        import time
+
+        from research_companion import coverage, qa, store
+        from research_companion.qa import QAAnswer, QASource
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+
+        def _fake_answer(question, *, llm=None, paper_ids=None, **kwargs):
+            src = QASource(paper_id="arxiv:1234.56789", paper_title="Graph Retrieval Paper",
+                            section_id="s1", section_title="Intro", score=1.0)
+            return QAAnswer(answer=f"Answer to: {question} [S1]",
+                             sources=[src], cited=[src], unverified_quotes=[], input_chars=100)
+
+        monkeypatch.setattr(qa, "answer", _fake_answer)
+
+        def _raising_score_report(report, **kwargs):
+            raise RuntimeError("coverage exploded")
+
+        monkeypatch.setattr(coverage, "score_report", _raising_score_report)
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": ["What methods are used?"]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        with TestClient(app) as c:
+            resp = c.post("/api/report/refresh", json={"topic": "graph retrieval"})
+            job_id = resp.json()["job_id"]
+
+            job = {"status": "running"}
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.1)
+            assert job["status"] == "done", job
+
+            data = c.get("/api/report").json()
+
+        assert data["question_count"] == 1
+        assert data["sections"][0].get("coverage") is None
+        assert data.get("coverage") is None
+        assert store.load_report() is not None
+
+    def test_get_report_returns_report_level_coverage(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        store.save_report({
+            "topic": "t",
+            "sections": [{"question": "Q?", "answer": "A", "citations": [], "unverified_quotes": [],
+                           "coverage": {"pct": 40, "cited": 2, "relevant_available": 5}}],
+            "generated_from": {},
+            "question_count": 1,
+            "coverage": {"pct": 40, "cited": 2, "relevant_available": 5, "median_pct": 40},
+            "coverage_generated_from": "abc123",
+        })
+
+        c = _make_client()
+        resp = c.get("/api/report")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["coverage"] == {"pct": 40, "cited": 2, "relevant_available": 5, "median_pct": 40}
+        assert data["coverage_generated_from"] == "abc123"
+        assert data["sections"][0]["coverage"]["pct"] == 40
+
+    def test_get_report_empty_returns_coverage_none(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/report")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["coverage"] is None
+        assert data["coverage_generated_from"] is None
