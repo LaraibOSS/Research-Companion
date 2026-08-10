@@ -22,7 +22,7 @@ import { escapeHtml } from '../format.js';
 import { showToast } from '../components/toast.js';
 import { ensureActiveResearch } from '../researchGuard.js';
 import { pollDecision } from '../oaLinkHelpers.js';
-import { reportSectionModel } from '../reportHelpers.js';
+import { reportSectionModel, reportCoverageModel } from '../reportHelpers.js';
 import { tip } from '../glossary.js';
 
 // RCS stance vocab (supports/contradicts/neutral, Report Evidence Scoring
@@ -277,6 +277,16 @@ function _render() {
   // carries an rcs badge — an unscored report renders exactly as 2e-1.
   const hasRcs = models.some(m => (m.citations || []).some(c => c && c.rcs));
 
+  // Coverage / Saturation (2e-3, LLM-FREE, always-on) -- purely additive:
+  // a report with no `coverage` field (an older client's report, or a
+  // coverage computation that failed and was skipped) renders exactly as
+  // 2e-1/2e-2 -- no bar, no summary line, no caption.
+  const reportCoverage = reportCoverageModel(_report);
+  const hasCoverage = !!reportCoverage;
+  const coverageCaption = (reportCoverage && reportCoverage.relevantAvailable === 0)
+    ? 'No relevant library material was found for these questions — coverage cannot be computed yet.'
+    : 'Coverage is a BM25 heuristic — relative to what our own search judged relevant to each question, not ground truth.';
+
   _el.innerHTML = `
     <div class="report-view">
       <div class="report-header">
@@ -299,6 +309,15 @@ function _render() {
       ${_scoring ? `<div class="report-progress muted">${escapeHtml(_scoreDetail)}</div>` : ''}
       ${_scoreError ? `<div class="report-error">${escapeHtml(_scoreError)}</div>` : ''}
       ${hasRcs ? '<p class="report-rcs-caption muted">Relevance &amp; stance are AI judgments of the cited passage — not independently verified.</p>' : ''}
+      ${hasCoverage ? `
+        <div class="report-coverage report-coverage--summary"${tip('coverage')} title="${reportCoverage.pct}% (${reportCoverage.cited}/${reportCoverage.relevantAvailable})">
+          <span class="report-coverage-label">Overall coverage: ${reportCoverage.pct}% (median ${reportCoverage.medianPct}%) — ${reportCoverage.cited}/${reportCoverage.relevantAvailable} relevant passages cited</span>
+          <div class="research-cov-bar">
+            <div class="research-cov-bar-fill" style="width:${reportCoverage.pct}%"></div>
+          </div>
+        </div>
+        <p class="report-coverage-caption muted">${coverageCaption}</p>
+      ` : ''}
       <div class="report-body">
         ${!_generating && models.length === 0 ? _emptyHtml() : models.map(_sectionHtml).join('')}
       </div>
@@ -321,6 +340,19 @@ function _rcsBadgeHtml(rcs) {
     </span>`;
 }
 
+function _coverageBarHtml(cov) {
+  // Coverage / Saturation (2e-3) -- purely additive: no coverage on this
+  // section (an older/unscored report) renders nothing, exactly 2e-1/2e-2.
+  if (!cov) return '';
+  return `
+    <div class="report-coverage"${tip('coverage')} title="${cov.pct}% (${cov.cited}/${cov.relevantAvailable})">
+      <span class="report-coverage-label">Coverage: ${cov.pct}% (${cov.cited}/${cov.relevantAvailable})</span>
+      <div class="research-cov-bar">
+        <div class="research-cov-bar-fill" style="width:${cov.pct}%"></div>
+      </div>
+    </div>`;
+}
+
 function _sectionHtml(m) {
   const chips = m.citations.map(c => `
     <button class="chip report-citation-chip" data-paper-id="${escapeHtml(c.paperId)}" data-section-id="${escapeHtml(c.sectionId)}">
@@ -338,6 +370,7 @@ function _sectionHtml(m) {
   return `
     <div class="report-section">
       <div class="report-question">${m.question}</div>
+      ${_coverageBarHtml(m.coverage)}
       ${bodyHtml}
     </div>`;
 }

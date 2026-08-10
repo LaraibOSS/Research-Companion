@@ -10,7 +10,7 @@ const CANONICAL = [
   'verified', 'unverified', 'band', 'strength', 'stance',
   'strengthens', 'challenges', 'alternative',
   'grounded', 'cited', 'gap', 'severity', 'hybrid', 'bm25',
-  'rcs_relevance', 'rcs_stance',
+  'rcs_relevance', 'rcs_stance', 'coverage',
 ];
 
 test('every canonical term has a non-empty definition', () => {

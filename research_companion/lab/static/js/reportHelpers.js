@@ -79,6 +79,32 @@ function _citationChipModel(raw) {
  *   errorMessage:(string|null), citations:Array<{label,paperId,sectionId}>,
  *   unverifiedQuotes:string[]}}
  */
+/**
+ * Map one section's raw `coverage` field ({pct, cited, relevant_available}
+ * | undefined) -- or the report-level `coverage` field, same shape plus
+ * `median_pct` -- to a numeric display model, or null when there is
+ * nothing to show. Coverage / Saturation (2e-3) is an ADDITIVE, purely
+ * optional, LLM-FREE field: absent or malformed input means no coverage
+ * bar, never a thrown error. Every field is numeric (no HTML escaping
+ * needed) and clamped defensively: pct to an integer in [0,100];
+ * cited/relevantAvailable to non-negative integers (a negative or
+ * non-numeric value degrades to 0, never a fabricated count).
+ */
+function _coverageModel(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  const clampCount = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? Math.round(v) : 0;
+  const pct = (typeof raw.pct === 'number' && Number.isFinite(raw.pct))
+    ? Math.max(0, Math.min(100, Math.round(raw.pct))) : 0;
+
+  return {
+    pct,
+    cited: clampCount(raw.cited),
+    relevantAvailable: clampCount(raw.relevant_available),
+    tip: 'coverage',
+  };
+}
+
 export function reportSectionModel(rawSection) {
   const s = (rawSection && typeof rawSection === 'object' && !Array.isArray(rawSection)) ? rawSection : {};
 
@@ -97,5 +123,27 @@ export function reportSectionModel(rawSection) {
     errorMessage: hasError ? escapeHtml(s.error) : null,
     citations,
     unverifiedQuotes,
+    coverage: _coverageModel(s.coverage),
   };
+}
+
+/**
+ * Map the top-level GET /api/report `coverage` field to the same numeric
+ * display model _coverageModel produces for a section -- the report-level
+ * saturation summary the view renders near the header -- plus `medianPct`
+ * (the report-level roll-up's robust headline number; sections don't have
+ * one). Null when the report has no `coverage` field (older client, or a
+ * coverage computation that failed and was skipped -- see lab_api.py's
+ * try/except around coverage.score_report).
+ *
+ * @param {object} rawReport -- the full GET /api/report payload
+ */
+export function reportCoverageModel(rawReport) {
+  const r = (rawReport && typeof rawReport === 'object') ? rawReport : {};
+  const base = _coverageModel(r.coverage);
+  if (!base) return null;
+  const raw = r.coverage;
+  const medianPct = (raw && typeof raw.median_pct === 'number' && Number.isFinite(raw.median_pct))
+    ? Math.max(0, Math.min(100, Math.round(raw.median_pct))) : base.pct;
+  return { ...base, medianPct };
 }

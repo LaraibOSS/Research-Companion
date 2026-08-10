@@ -3148,7 +3148,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         try:
             cached = await asyncio.to_thread(store.load_report)
             if cached is None:
-                return {"topic": "", "sections": [], "question_count": 0, "stale": False}
+                return {"topic": "", "sections": [], "question_count": 0, "stale": False,
+                        "coverage": None, "coverage_generated_from": None}
 
             from research_companion.gaps import _papers_sha
             from research_companion.prompts import report_questions_prompt_sha256
@@ -3162,14 +3163,18 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 or generated_from.get("report_questions_prompt_sha256") != report_questions_prompt_sha256()
             )
             sections = cached.get("sections")
+            coverage = cached.get("coverage")
             return {
                 "topic": cached.get("topic", "") or "",
                 "sections": sections if isinstance(sections, list) else [],
                 "question_count": cached.get("question_count", 0) or 0,
                 "stale": stale,
+                "coverage": coverage if isinstance(coverage, dict) else None,
+                "coverage_generated_from": cached.get("coverage_generated_from") or None,
             }
         except Exception:  # noqa: BLE001 — GET /api/report must never 500
-            return {"topic": "", "sections": [], "question_count": 0, "stale": False}
+            return {"topic": "", "sections": [], "question_count": 0, "stale": False,
+                    "coverage": None, "coverage_generated_from": None}
 
     # -----------------------------------------------------------------
     # POST /api/report/refresh  -> 202 {"job_id"}  (Deep-Research Report, 2e-1)
@@ -3251,6 +3256,18 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     deep_research.build_report, topic, questions,
                     answer_fn=_answer_fn, generated_shas=generated_shas,
                 )
+
+                # Coverage / Saturation (2e-3) -- LLM-FREE, always-on: folded
+                # directly into refresh (no new endpoint, no opt-in gate).
+                # coverage.score_report NEVER raises on its own, but this is
+                # wrapped defensively too -- a coverage failure must NEVER
+                # fail the report job; the report simply saves without it.
+                try:
+                    from research_companion import coverage
+                    report = await asyncio.to_thread(coverage.score_report, report)
+                except Exception:  # noqa: BLE001
+                    pass
+
                 await asyncio.to_thread(store.save_report, report)
 
                 await bus.publish(ReportUpdated(

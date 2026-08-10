@@ -1142,6 +1142,36 @@ Score evidence is the second of several planned Deep-Research Report refinements
 
 ---
 
+## 30. Coverage — how much of the relevant material actually made it into the report
+
+Every Report automatically shows a **coverage** signal — a per-question and overall bar indicating how much of the library material our search judged relevant actually ended up cited in the answer. This is computed automatically, for free, every time you generate or regenerate a report, with no button to click and no extra wait.
+
+**What coverage means:**
+
+Coverage answers the question: "Of the passages in my library that the search ranked as relevant to this question, how many actually ended up cited in the answer?" It's always framed as "of the library material *our own search* judged relevant" — never "% of the whole library" (which would be misleading, since the library's full size is orders of magnitude larger than the search results).
+
+**How to read the numbers:**
+
+Each section in your report shows a small coverage bar with a percentage and a raw count in the format `cited/relevant_available`:
+
+- **"3/7"** (43%) means the search found 7 passages in the library ranked as relevant to that sub-question, and 3 of them were actually cited in the answer.
+- **"5/5"** (100%) means the answer cited every passage the search ranked relevant to it.
+- **"0/0"** (0%) means the search found no relevant material at all for that question — an honest signal. This is never shown as a fake 100%; an empty result stays empty.
+
+A thin sub-question with a low percentage (e.g., "1/7", 14%) is a signal worth investigating manually: it suggests the search ranked many passages as relevant, but the answer drew from very few. You can read the full papers to understand why, or refine your topic and re-generate the report.
+
+An overall **saturation** number near the report header aggregates coverage across all sections, showing the median percentage and total counts, so you can see at a glance how well your library answers your topic.
+
+**Honesty framing:**
+
+Coverage is explicitly labeled a **BM25 heuristic, not ground truth**. It reflects what the library's own keyword and semantic search ranked as relevant, which is an imperfect proxy — not an authoritative measure of "everything truly relevant." A passage might be highly relevant but poorly ranked by the search algorithm; another might score high on keywords but not actually address the question. Coverage is one signal to help you decide if you need more targeted reading or a broader search strategy, not a definitive judgment of your library's completeness.
+
+**What's next:**
+
+Coverage is the third of several planned Deep-Research Report refinements. An editable research plan you can steer before generation and export to a shareable document are deferred to later slices (2e-4 and 2e-5).
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four

@@ -2259,3 +2259,86 @@ Both glossary entries emphasize that these are AI judgments, never "verified" in
 ### Design reference
 
 See `docs/superpowers/specs/2026-08-10-report-rcs-scoring-design.md` for the full design, the deferred 2e-3..2e-5 sub-slices (coverage %, editable research plan, export), rejected alternatives (folding into refresh, per-chunk calls, reusing `ALIGNMENT_PROMPT` verbatim, badging as "verified"), and the manual test script.
+
+## 34. Report Coverage / Saturation — coverage.py and the always-on refresh fold-in
+
+The **Report Coverage** system computes an auditable, BM25-heuristic coverage metric for each section and the report overall — showing how much of the library material the search judged relevant actually ended up cited in the answer. This is computed for free, LLM-free, and automatically every time a report is generated or regenerated, with no new endpoint or user action required.
+
+### The pipeline (`research_companion/coverage.py`)
+
+The core functions mirror the report-generation architecture:
+
+1. **`_relevant_units(question, units, *, rank_fn, threshold=0.35) -> set[tuple[str, str, int]]`** (pure) — re-ranks a section's question against every unit in the library's retrieval index to find relevant passages:
+   - Calls `rank_fn(question, q_tokens, units, *, k=len(units))` — a full re-rank of all available units, not a top-k cutoff (in practice, `rank_fn` is `retrieve.rank_units` from the same module that powers Ask and Brainstorm).
+   - Applies the exact same relevance gate `gaps._relevance_score >= threshold` (default `0.35`) that `gaps.py` and `directions.py` use for their own relevance filtering.
+   - Returns the set of unit tuples `(paper_id, section_id, chunk_index)` that passed the gate.
+
+2. **`_section_coverage(section, relevant_units) -> dict`** (pure) — computes coverage for a single section:
+   - Extracts the distinct cited units from the section's answer citations (each citation records its exact `(paper_id, section_id, chunk_index)`).
+   - Intersects the cited units against the relevant units: `cited_set = cited_units & relevant_units`.
+   - Computes the percentage: `pct = round(100 * len(cited_set) / len(relevant_units))` if `relevant_units` is non-empty, otherwise an honest `0` — never a fake `100`.
+   - Returns `{"pct": int, "cited": len(cited_set), "relevant_available": len(relevant_units)}`.
+
+3. **`score_report(report, *, build_index_fn=None, rank_fn=None, threshold=0.35) -> dict`** — the public entry point:
+   - Builds the retrieval unit index once using `build_index_fn(report)` (or the real `qa.build_section_index` if not stubbed).
+   - For each section, calls `_relevant_units` to find relevant material and `_section_coverage` to compute coverage.
+   - Rolls up per-section coverage into a report-level summary: `{pct, cited, relevant_available, median_pct}` where `median_pct` is the median of all non-zero section percentages (robust to outliers).
+   - Stamps the report with `coverage_generated_from: timestamp_or_stable_key` for staleness tracking.
+   - **Never raises** — any failure in `build_index_fn`, `rank_fn`, or section processing degrades gracefully to honest zeros (each section gets `{"pct": 0, "cited": 0, "relevant_available": 0}`), never a fabricated number.
+   - Returns a new dict with `coverage` and `coverage_generated_from` added (non-mutating; the original report is unchanged).
+
+### Why fold it into `POST /api/report/refresh` instead of a separate opt-in job like RCS?
+
+Coverage costs **zero extra LLM calls** — it's pure retrieval math over data the report already computed (the citations and the section structure). There is no latency cost and no billing reason to gate it behind a click. It is **LLM-free and always-on**: every report automatically includes coverage, computed at the same time as the report itself, adding no perceptible overhead.
+
+This differs from RCS (Report Evidence Scoring), which adds `question_count` extra LLM calls and is kept opt-in and separately costed.
+
+### The honesty contract
+
+- **Relative to the search's own judgment, never the whole library** — the denominator is "passages *our* search ranked relevant," not the size of the entire library (which would yield misleading percentages in the single digits for large libraries).
+- **BM25 heuristic label, not ground truth** — a tooltip and caption under the report header explicitly state that coverage reflects the search algorithm's judgment, which is an imperfect proxy.
+- **Auditable raw counts always shown** — each bar displays the fraction `cited/relevant_available` (e.g., "3/7") so the raw numbers are transparent.
+- **Honest 0-denominator, never fake 100%** — if `relevant_available` is 0 (the search found no relevant material for that question), coverage is `0%` / `0/0`, never hidden or shown as a misleading 100%.
+- **Graceful degradation** — any failure (retrieval error, index build failure, etc.) degrades each affected section to honest zeros, never crashes the report job.
+- **Purely additive** — the `coverage` field is optional; a report generated without coverage or by an older version still renders correctly, with the field simply absent.
+
+### The endpoint (`research_companion/lab_api.py`)
+
+Coverage is folded directly into the existing `POST /api/report/refresh` job, guarded by try/except:
+
+- After `build_report` generates the answer and citations, `coverage.score_report(report)` is called to compute coverage for each section and the report overall.
+- The computed `coverage` and `coverage_generated_from` fields are attached to the report dict before `save_report`.
+- If `score_report` raises for any reason, the exception is caught, logged, and the report is saved with honest zero-coverage fields on all sections, never failing the job itself.
+- The `GET /api/report` endpoint gains a passthrough for `coverage` and `coverage_generated_from` so the frontend receives them (the existing `sections` passthrough already carries per-section coverage).
+
+### The frontend (`research_companion/lab/static/js/reportHelpers.js`, `views/report.js`, `glossary.js`)
+
+**`reportHelpers.js`** — new pure, node-tested helper:
+
+- **`_coverageModel(rawCoverage) -> {pct, cited, relevantAvailable, tip: 'coverage'}`** — maps the `coverage` dict onto display-friendly fields:
+  - `pct`: numeric percentage (0–100).
+  - `cited`: count of cited passages.
+  - `relevantAvailable`: count of passages the search ranked relevant.
+  - `tip: 'coverage'`: literal key for glossary lookup.
+  - Returns `null` if `rawCoverage` is null or malformed (safe to consume in views without extra checks).
+
+- **`reportCoverageModel(report) -> {pct, cited, relevantAvailable, medianPct, ...}` or null** — models the report-level coverage summary, gates on truthiness (if coverage was computed), and never throws.
+
+- **`reportSectionModel(section, ...)`** — updated to include section-level coverage via the same `_coverageModel` shape.
+
+**`views/report.js`**:
+
+- **Per-section coverage bar** — each section heading is followed by a small coverage bar and percentage, rendered verbatim using `lab.css`'s existing `.research-cov-bar` and `.research-cov-bar-fill` CSS classes (no new styles, reusing the exact component from the RCS feature).
+- **Report-level saturation** — near the report header (after the topic and questions, before the sections), a summary bar shows the overall coverage percentage, median percentage, and raw counts.
+- **Gating** — both bars are only shown if `reportCoverage` is truthy (exact same pattern as 2e-2's `hasRcs` gating).
+- **Event handling** — on `ReportUpdated`, refetch and re-render, picking up the new `coverage` fields automatically.
+
+**`glossary.js`**:
+
+- **`coverage`**: "How much of the library material our search judged relevant actually made it into the citations (a BM25 heuristic, not ground truth: the denominator is passages *our search* ranked relevant, not your entire library; each bar shows cited/relevant_available). Shows 0/0 and 0% honestly if the search found no relevant material."
+
+The entry emphasizes that coverage is a search-relative signal, never an absolute measure of library completeness.
+
+### Design reference
+
+See `docs/superpowers/specs/2026-08-10-report-coverage-design.md` for the full design, including the deferred 2e-4/2e-5 sub-slices (editable research plan, export), rejected alternatives (whole-library percentage, opt-in endpoint, separate LLM judgment), and the manual test script.

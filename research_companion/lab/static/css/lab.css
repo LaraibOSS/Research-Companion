@@ -6872,3 +6872,28 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   font-size: var(--text-xs);
   margin-bottom: var(--space-3);
 }
+
+/* ---------------------------------------------------------------------- */
+/* Report Coverage / Saturation (Phase 2, slice 2e-3)                     */
+/* Layout only -- the bar itself REUSES .research-cov-bar/-fill verbatim  */
+/* (no new bar look); LLM-free, always-on, purely additive.               */
+/* ---------------------------------------------------------------------- */
+
+.report-coverage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  cursor: help;
+}
+.report-coverage-label {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.report-coverage--summary {
+  margin-top: var(--space-2);
+}
+.report-coverage-caption {
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}
