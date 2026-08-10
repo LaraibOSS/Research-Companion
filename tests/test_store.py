@@ -366,3 +366,49 @@ class TestGapSynthesisCache:
         monkeypatch.setattr(store, "gap_synthesis_path", lambda: None)
         result = store.save_gap_synthesis({"themes": []})
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Deep-Research Report artifact persistence (2e-1)
+# ---------------------------------------------------------------------------
+
+
+class TestReportArtifact:
+    def test_save_and_load_roundtrip(self, isolated_papergraph_dir):
+        payload = {
+            "topic": "graph retrieval",
+            "sections": [{"question": "Q1?", "answer": "A1", "citations": [], "unverified_quotes": []}],
+            "generated_from": {"topic_sha256": "abc", "papers_sha256": "def",
+                                "report_questions_prompt_sha256": "ghi"},
+            "question_count": 1,
+        }
+        store.save_report(payload)
+        loaded = store.load_report()
+        assert loaded == payload
+
+    def test_load_returns_none_when_missing(self, isolated_papergraph_dir):
+        assert store.load_report() is None
+
+    def test_load_returns_none_on_corrupt_json(self, isolated_papergraph_dir):
+        p = store.report_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{not valid json", encoding="utf-8")
+        assert store.load_report() is None
+
+    def test_load_returns_none_when_file_is_a_json_list(self, isolated_papergraph_dir):
+        p = store.report_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("[1, 2, 3]", encoding="utf-8")
+        assert store.load_report() is None
+
+    def test_save_overwrites_previous_payload(self, isolated_papergraph_dir):
+        store.save_report({"topic": "old", "sections": []})
+        store.save_report({"topic": "new", "sections": []})
+        loaded = store.load_report()
+        assert loaded["topic"] == "new"
+
+    def test_save_returns_none_when_no_active_workspace(self, isolated_papergraph_dir, monkeypatch):
+        """save_report returns None and writes nothing when no active workspace."""
+        monkeypatch.setattr(store, "report_path", lambda: None)
+        result = store.save_report({"topic": "x"})
+        assert result is None
