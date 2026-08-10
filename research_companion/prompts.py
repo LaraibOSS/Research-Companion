@@ -989,3 +989,59 @@ def format_directions_prompt(*, topic: str, grounding_block: str) -> str:
 
 def directions_prompt_sha256() -> str:
     return hashlib.sha256(DIRECTIONS_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Draft-scaffold outline prompt (scaffold.py generate_outline). SHA-cached.
+# Turns one chosen Research Direction (2b) into a research-paper section
+# outline tailored to it. Honest: grounded ONLY in the direction's own
+# rationale + its real grounding papers; must NOT invent papers/citations.
+# ---------------------------------------------------------------------------
+
+SCAFFOLD_OUTLINE_PROMPT = """You are a research writing advisor helping a researcher turn one chosen research direction into the start of a paper.
+
+Direction title: <<TITLE>>
+Direction type: <<DIRECTION_TYPE>>
+Rationale: <<RATIONALE>>
+
+Below are the real papers this direction is grounded in (title, year), if any:
+<<GROUNDING_BLOCK>>
+
+Produce a research-paper section outline tailored to this specific direction -- NOT a generic template. Aim for 6 to 10 top-level (level 1) sections in a sensible paper order (e.g. Introduction, Related Work, Method, Experiments/Evaluation, Discussion, Conclusion, adapted to what this direction actually needs), with optional level-2 subsections under a level-1 section where it helps (e.g. a Method section split into two sub-approaches). Every section gets a one-to-two-sentence description of what should go there, grounded in the rationale and the grounding papers above -- you may reference a grounding paper by its title, but you must NOT invent papers, citations, or results not given above.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "sections": [
+    {
+      "title": "short section title",
+      "level": 1,
+      "description": "one or two sentences, grounded ONLY in the rationale and grounding papers above"
+    }
+  ]
+}
+
+Rules:
+- 6 to 10 top-level (level 1) sections; a level-2 section must immediately follow the level-1 section it belongs under.
+- level is exactly 1 or 2.
+- description is one or two sentences and must not introduce a paper, citation, dataset, or result not given above.
+- Do NOT invent papers or citations not supplied in the grounding papers above.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_scaffold_outline_prompt(
+    *, title: str, rationale: str, direction_type: str, grounding_block: str
+) -> str:
+    """Substitute placeholders in SCAFFOLD_OUTLINE_PROMPT."""
+    return (
+        SCAFFOLD_OUTLINE_PROMPT
+        .replace("<<TITLE>>", title)
+        .replace("<<RATIONALE>>", rationale)
+        .replace("<<DIRECTION_TYPE>>", direction_type)
+        .replace("<<GROUNDING_BLOCK>>", grounding_block)
+    )
+
+
+def scaffold_outline_prompt_sha256() -> str:
+    return hashlib.sha256(SCAFFOLD_OUTLINE_PROMPT.encode("utf-8")).hexdigest()

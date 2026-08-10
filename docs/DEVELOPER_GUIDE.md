@@ -1932,3 +1932,115 @@ mutates ONLY that card's own `.brainstorm-direction-novelty` panel via
 direct DOM assignment — never a full `_render()` mid-flight — so checking
 one card's novelty never disturbs another's in-flight check. An error
 renders an inline retry button, rebound after each DOM mutation.
+
+## 31. Draft this direction — `POST /api/directions/draft`, `scaffold.py`, and the frontend helpers
+
+The Brainstorm tab's per-direction **Draft this direction** action (2d of
+the ideation arc) turns one chosen Research Direction (2b) into a real
+draft paper — an ordinary paper pointed at by `config.draft_paper_id`
+(there is no distinct Draft object; see `_apply_draft` below). Unlike 2b's
+`POST /api/directions` and 2c's `POST /api/novelty`, this endpoint
+**MUTATES** (it creates a draft in the active research) so it is
+workspace-guarded, and it is **atomic-on-success**: nothing is created
+unless the outline LLM call actually succeeds.
+
+### `research_companion/scaffold.py`
+
+Two clearly separated stages, mirroring the design note in the module
+docstring:
+
+1. **`generate_outline(direction, *, llm=None) -> dict`** — one call to the
+   new `prompts.SCAFFOLD_OUTLINE_PROMPT` (via
+   `format_scaffold_outline_prompt`), grounded in the direction's `title`,
+   `rationale`, `direction_type`, and a `_grounding_block` of its real
+   `citations` (kind `"paper"` only — concepts/gaps aren't papers to name).
+   `_strip_code_fences` + a tolerant `json.loads`, all inside a never-raise
+   `try/except`. `_normalize_outline_sections` (pure) then caps the result
+   at 12 sections, clamps `level` to `{1, 2}`, drops empty titles, and
+   promotes a level-2 section with no preceding level-1 to level-1 (the
+   same tiling invariant `sections.py` enforces). **A degenerate/empty
+   outline — an LLM/parse failure OR a well-formed but empty `sections`
+   list — is treated as a failure**: both set `llm_error`, so the caller
+   never creates an empty draft. Returns `{"sections": [...],
+   "llm_error": str|None}`.
+2. **`scaffold_sections_payload(outline, *, title) -> (text, sections_payload)`**
+   (pure) — builds the synthetic draft body (a `"# {title}\n\n{description}
+   \n\n"` / `"## …"` block per section, concatenated in document order) and
+   the tiling `sections.json` (`section_id`s `s1`/`s2`/`s2.1`, a level-2's
+   `parent` is the nearest preceding level-1, `char_start`/`char_end` tile
+   `text` exactly, `text_sha256` of that same text, `method: "scaffold"`).
+   `title` is accepted only for signature symmetry with
+   `create_draft_from_direction` (which uses it for the paper's own
+   `metadata.title`) — it is NOT written into the body, since every outline
+   section already carries its own tailored heading (mirrors
+   `directions.py`'s `_collect_grounding`, whose `topic` parameter is
+   accepted for the same reason without being grounding content itself).
+3. **`create_draft_from_direction(direction, outline, *, store_mod=store) -> str`**
+   — MUTATING; call ONLY after `generate_outline` succeeds. Mints a
+   **deterministic** `paper_id` — `"scaffold:" +
+   sha256(_norm(title) + "|" + _norm(rationale))[:12]` (same
+   `rebuttal.verify._norm` + sha256-truncation convention as
+   `directions._assemble_directions`'s `direction_id`) — so re-scaffolding
+   the SAME direction overwrites the same draft paper instead of piling up
+   duplicates. Builds a `store.PaperMetadata(paper_id, title=title,
+   authors=[], year=None, abstract=rationale, source_url="",
+   added_at=<now>, parse_source="scaffold", full_text_available=True)`,
+   `.save()`s it, then `store.save_text` + `store.save_sections` from
+   `scaffold_sections_payload`. Does **not** set the draft pointer or
+   record a journey version — the endpoint reuses the existing
+   `_apply_draft` for that, so the wiring is never duplicated.
+
+### `POST /api/directions/draft`
+
+`research_companion/lab_api.py`, registered right after `POST
+/api/novelty`. Body: `{title, rationale?, direction_type?, citations?}`
+(`_ScaffoldBody`). **Guarded** —
+`dependencies=[Depends(require_active_workspace)]` (409 when no research is
+active), unlike `POST /api/directions`/`POST /api/novelty`, because this
+endpoint actually creates a draft in that research.
+
+**Atomic-on-success.** The handler resolves the LLM, calls
+`scaffold.generate_outline` inside `asyncio.to_thread`, and — if
+`outline["llm_error"]` or `outline["sections"]` is empty — returns 200
+`{"ok": False, "error": "..."}` **without creating anything**. Only once
+the outline succeeds does it call `scaffold.create_draft_from_direction`
+(also in `asyncio.to_thread`), capture `replaced = store.get_draft_paper_id()
+not in (None, paper_id)` (whether a *different* draft already existed),
+and `await _apply_draft(paper_id)` — the same shared mutator `POST
+/api/draft` and `POST /api/papers/upload` use, so the draft pointer,
+journey draft-version record, background suggestion-matching, and
+`DraftVersionAdded` event all fire exactly as they do for any other draft.
+Success: `{"ok": True, "paper_id", "draft_paper_id", "section_count",
+"replaced_draft"}`.
+
+**Never 500s.** The entire body is wrapped in one `try/except Exception`
+that degrades to 200 `{"ok": False, "error": "Draft scaffold failed:
+<msg>"}` — an LLM/parse failure never leaves a half-made draft (nothing
+runs after the outline check fails) and never surfaces as a raw 500.
+
+### Frontend — `scaffoldHelpers.js` + the guarded per-card Draft this direction action
+
+`research_companion/lab/static/js/scaffoldHelpers.js` is the pure,
+DOM-free, node-tested layer (`tests/js/scaffoldHelpers.test.mjs`):
+`scaffoldPanelModel(state)` maps a per-card `{loading, error, result}`
+state (tracked by `views/brainstorm.js`'s `_scaffoldByDirectionId` Map,
+exactly like 2c's `_noveltyByDirectionId`) to one of four display states —
+idle (the button), loading, error (pre-escaped `errorMessage` + retry), or
+success (a pre-escaped `successMessage` naming the section count and
+whether a previous draft was replaced, plus a raw `openDraftRoute`,
+`"#/draft"`). Never throws.
+
+`views/brainstorm.js` adds a **Draft this direction** button in
+`_directionCardHtml` (a sibling slot to 2c's novelty panel), and a
+`_scaffoldDraft(directionId)` handler that — unlike `_checkNovelty`, which
+is read-only — **wraps the entire mutation in
+`ensureActiveResearch(async () => ...)`**, mirroring `_addOne`/`_addAll`:
+a cold brainstormer with no active research is prompted to name one before
+anything is created. On success it calls `store.setDraft(paper_id)` (so
+the rest of the UI — e.g. the topbar draft indicator — picks up the new
+draft immediately), renders an inline "Open draft" link (`href="#/draft"`)
+plus a `showToast(..., 'info')`, and mutates ONLY that card's own
+`.brainstorm-direction-scaffold` panel — never a full `_render()`
+mid-flight, so drafting one direction never disturbs another's in-flight
+request. An error renders an inline retry button, rebound after each DOM
+mutation, exactly like 2c's novelty panel.

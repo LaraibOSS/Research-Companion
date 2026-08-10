@@ -6756,3 +6756,25 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   gap: var(--space-1);
 }
 .brainstorm-novelty-prior-chip { cursor: pointer; text-decoration: none; }
+
+/* ---------------------------------------------------------------------- */
+/* Draft this direction — per-direction scaffold action (Brainstorm 2d)   */
+/* ---------------------------------------------------------------------- */
+
+.brainstorm-direction-scaffold { margin-top: var(--space-2); }
+.brainstorm-scaffold-btn { cursor: pointer; }
+.brainstorm-scaffold-loading { font-size: var(--text-sm); }
+.brainstorm-scaffold-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-warn);
+}
+.brainstorm-scaffold-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.brainstorm-scaffold-open-btn { cursor: pointer; text-decoration: none; }

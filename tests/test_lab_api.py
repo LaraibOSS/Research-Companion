@@ -4882,3 +4882,124 @@ class TestNoveltyEndpoint:
         assert data["verdict"] is None
         assert data["prior_works"] == []
         assert "error" in data and "provider down" in data["error"]
+
+
+class TestScaffoldEndpoint:
+    def test_post_directions_draft_happy_path_creates_draft_and_sets_pointer(
+            self, isolated_papergraph_dir):
+        def fake_llm(prompt: str) -> str:
+            assert "Graph retrieval for code" in prompt
+            return json.dumps({"sections": [
+                {"title": "Introduction", "level": 1, "description": "Intro."},
+                {"title": "Method", "level": 1, "description": "Method desc."},
+            ]})
+
+        c = _make_client(llm=fake_llm)
+        resp = c.post("/api/directions/draft", json={
+            "title": "Graph retrieval for code",
+            "rationale": "Apply graph retrieval to code.",
+            "direction_type": "extend_method",
+            "citations": [],
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["section_count"] == 2
+        assert data["replaced_draft"] is False
+        paper_id = data["paper_id"]
+        assert paper_id.startswith("scaffold:")
+        assert data["draft_paper_id"] == paper_id
+
+        from research_companion import store
+        assert store.get_draft_paper_id() == paper_id
+        sections = store.load_sections(paper_id)
+        assert sections is not None
+        assert len(sections["sections"]) == 2
+        assert sections["method"] == "scaffold"
+
+    def test_post_directions_draft_no_active_workspace_returns_409(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+
+        c = _make_client(llm=lambda p: json.dumps({"sections": []}))
+        resp = c.post("/api/directions/draft", json={"title": "Some direction"})
+        assert resp.status_code == 409
+
+    def test_post_directions_draft_llm_failure_creates_nothing(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        def raising_llm(prompt: str) -> str:
+            raise RuntimeError("provider down")
+
+        c = _make_client(llm=raising_llm)
+        before = store.get_draft_paper_id()
+
+        resp = c.post("/api/directions/draft", json={
+            "title": "Graph retrieval for code", "rationale": "Apply graph retrieval.",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "provider down" in data["error"]
+        assert store.get_draft_paper_id() == before  # unchanged -- nothing created
+
+    def test_post_directions_draft_empty_outline_creates_nothing(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        c = _make_client(llm=lambda p: json.dumps({"sections": []}))
+        before = store.get_draft_paper_id()
+
+        resp = c.post("/api/directions/draft", json={
+            "title": "Graph retrieval for code", "rationale": "Apply graph retrieval.",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "error" in data and data["error"]
+        assert store.get_draft_paper_id() == before
+
+    def test_post_directions_draft_replaced_draft_true_when_draft_preexisted(
+            self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:1111.11111", "Existing Draft")
+        c = _make_client()
+        c.post("/api/draft", json={"paper_id": "arxiv:1111.11111"})
+
+        def fake_llm(prompt: str) -> str:
+            return json.dumps({"sections": [
+                {"title": "Introduction", "level": 1, "description": "Intro."},
+            ]})
+
+        c2 = _make_client(llm=fake_llm)
+        resp = c2.post("/api/directions/draft", json={
+            "title": "New direction", "rationale": "New rationale.",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["replaced_draft"] is True
+
+    def test_post_directions_draft_handler_level_failure_never_500s(
+            self, isolated_papergraph_dir, monkeypatch):
+        """A failure inside create_draft_from_direction itself (after a
+        successful outline) must still degrade to 200, not a raw 500."""
+        from research_companion import scaffold
+
+        def raising_create(*a, **kw):
+            raise RuntimeError("disk error")
+
+        monkeypatch.setattr(scaffold, "create_draft_from_direction", raising_create)
+
+        def fake_llm(prompt: str) -> str:
+            return json.dumps({"sections": [
+                {"title": "Introduction", "level": 1, "description": "Intro."},
+            ]})
+
+        c = _make_client(llm=fake_llm)
+        resp = c.post("/api/directions/draft", json={
+            "title": "Graph retrieval for code", "rationale": "Apply graph retrieval.",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "disk error" in data["error"]

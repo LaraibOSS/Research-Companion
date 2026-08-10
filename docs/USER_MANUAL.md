@@ -1024,6 +1024,38 @@ same tab.
 
 ---
 
+## 27. Draft this direction — turn an idea into the start of a paper
+
+Every card in the **Research Directions** section (see §25), right next to
+**Check novelty** (§26), now has a **Draft this direction** button. Click
+it and the AI turns that one direction into a real, editable draft: a
+titled outline of research-paper sections (Introduction, Related Work,
+Method, and so on, tailored to what this specific direction actually
+needs), each with a short description of what belongs there — grounded in
+the direction's own rationale and the real papers it cited.
+
+- The new draft becomes your **active draft** immediately, flowing
+  straight into the same alignment, opportunities, and citation-coverage
+  tools every other draft uses — open the Draft tab and you'll see the
+  sections there, ready for library papers to be matched against them.
+- Nothing is invented: the outline's descriptions are grounded only in the
+  direction's rationale and the grounding papers you already saw on its
+  card. It is clearly a scaffold to fill in, not a finished paper.
+- If you don't have a research selected yet, clicking the button prompts
+  you to name one first — nothing is created until you do.
+- Drafting one direction never disturbs another card, and re-clicking the
+  same direction replaces its draft rather than creating a duplicate — you
+  can regenerate the scaffold as many times as you like.
+- If the AI call fails, you'll see an inline error with a **Retry**
+  button, and nothing is created — your existing draft, if you had one,
+  is untouched.
+
+Draft this direction is the fourth surface of the ideation arc — from
+topic, to directions, to a novelty check, to a real starting draft — with
+a full deep-research report still on the roadmap.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
