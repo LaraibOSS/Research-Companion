@@ -206,6 +206,14 @@ try:
         year_max: int | None = None
         seeds: list[dict] = []
 
+    class _NoveltyBody(_BaseModel):
+        """POST /api/novelty body -- Novelty Gate (Brainstorm 2c). Checks one
+        direction's title+rationale against real, freshly-searched prior work."""
+        title: str = ""
+        rationale: str = ""
+        year_min: int | None = None
+        year_max: int | None = None
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -226,6 +234,7 @@ except ImportError:
     _WorkspaceCreateBody = None  # type: ignore[assignment,misc]
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
     _DirectionsBody = None  # type: ignore[assignment,misc]
+    _NoveltyBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -841,6 +850,48 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     "error": f"Directions generation failed: {llm_error}"}
 
         return {"directions": result.get("directions", []), "topic": result.get("topic", topic)}
+
+    # -----------------------------------------------------------------
+    # POST /api/novelty  (Novelty Gate -- Brainstorm 2c. Synchronous/ephemeral
+    # like GET /api/discover and POST /api/directions: a novelty check is a
+    # function of one direction's title+rationale, not a persisted job.)
+    # -----------------------------------------------------------------
+    @app.post("/api/novelty")
+    async def post_novelty(body: _NoveltyBody) -> dict:
+        from research_companion import novelty_check
+
+        title = body.title or ""
+        rationale = body.rationale or ""
+
+        try:
+            resolved_llm = app.state.llm
+            if resolved_llm is None:
+                resolved_llm = _resolve_llm(json_mode=True)
+
+            result = await asyncio.to_thread(
+                novelty_check.check_novelty,
+                title, rationale,
+                year_min=body.year_min, year_max=body.year_max,
+                llm=resolved_llm,
+            )
+        except Exception as exc:
+            return {"verdict": None, "prior_works": [], "error": f"Novelty check failed: {exc}"}
+
+        # An LLM call/parse failure is swallowed inside check_novelty (it
+        # never raises); surface it here as the same never-500 error shape
+        # so a transient outage shows a retry banner, not a false verdict.
+        llm_error = result.get("llm_error")
+        if llm_error:
+            return {"verdict": None, "prior_works": [], "error": f"Novelty check failed: {llm_error}"}
+
+        return {
+            "verdict": result.get("verdict"),
+            "confidence": result.get("confidence", 0.0),
+            "rationale": result.get("rationale", ""),
+            "closest_prior": result.get("closest_prior", []),
+            "prior_works": result.get("prior_works", []),
+            "query": result.get("query", ""),
+        }
 
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)
