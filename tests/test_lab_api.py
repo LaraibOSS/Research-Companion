@@ -5464,3 +5464,121 @@ class TestReportCoverageFold:
         data = resp.json()
         assert data["coverage"] is None
         assert data["coverage_generated_from"] is None
+
+
+# ---------------------------------------------------------------------------
+# POST /api/report/plan (Editable Research Plan, 2e-4) -- guarded,
+# SYNCHRONOUS (one LLM call, like /api/directions), NEVER 500s
+# ---------------------------------------------------------------------------
+
+class TestReportPlanEndpoint:
+    def test_post_report_plan_happy_path_saves_draft_and_returns_questions(
+            self, isolated_papergraph_dir):
+        from research_companion import store
+        from research_companion.agents.events import ReportUpdated
+
+        _make_paper(isolated_papergraph_dir, "arxiv:1234.56789", "Graph Retrieval Paper")
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": [
+                "What methods does the library use for graph retrieval?",
+                "What datasets are used for evaluation?",
+            ]})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=_fake_llm)
+        c = TestClient(app)
+        resp = c.post("/api/report/plan", json={"topic": "graph retrieval"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["plan"]["topic"] == "graph retrieval"
+        assert data["plan"]["status"] == "draft"
+        assert data["plan"]["questions"] == [
+            "What methods does the library use for graph retrieval?",
+            "What datasets are used for evaluation?",
+        ]
+
+        saved = store.load_report()
+        assert saved["plan"]["status"] == "draft"
+        assert saved["plan"]["questions"] == data["plan"]["questions"]
+        assert "sections" not in saved  # a fresh plan-only artifact -- no stale sections
+
+        plan_events = [e for e in bus.history if isinstance(e, ReportUpdated)]
+        assert len(plan_events) >= 1
+        assert plan_events[0].topic == "graph retrieval"
+
+    def test_post_report_plan_empty_questions_returns_ok_false_nothing_saved(
+            self, isolated_papergraph_dir):
+        from research_companion import store
+
+        def _empty_llm(prompt: str) -> str:
+            return json.dumps({"questions": []})
+
+        c = _make_client(llm=_empty_llm)
+        resp = c.post("/api/report/plan", json={"topic": "graph retrieval"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "error" in data
+        assert store.load_report() is None
+
+    def test_post_report_plan_llm_error_returns_ok_false_nothing_saved(
+            self, isolated_papergraph_dir):
+        from research_companion import store
+
+        def _bad_llm(prompt: str) -> str:
+            return "not json at all"
+
+        c = _make_client(llm=_bad_llm)
+        resp = c.post("/api/report/plan", json={"topic": "graph retrieval"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "error" in data
+        assert store.load_report() is None
+
+    def test_post_report_plan_no_active_workspace_returns_409(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+
+        c = _make_client()
+        resp = c.post("/api/report/plan", json={"topic": "graph retrieval"})
+        assert resp.status_code == 409
+
+    def test_post_report_plan_never_500_on_internal_exception(
+            self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+
+        def _raising_save_report(payload):
+            raise RuntimeError("disk exploded")
+
+        monkeypatch.setattr(store, "save_report", _raising_save_report)
+
+        def _fake_llm(prompt: str) -> str:
+            return json.dumps({"questions": ["Q1?"]})
+
+        c = _make_client(llm=_fake_llm)
+        resp = c.post("/api/report/plan", json={"topic": "graph retrieval"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "error" in data
+
+    def test_post_report_plan_normalizes_questions_before_saving(
+            self, isolated_papergraph_dir):
+        """The plan endpoint reuses _normalize_plan_questions on the
+        LLM's raw output too (trim/dedupe/cap), not just on user-edited
+        refresh input."""
+        from research_companion import store
+
+        def _messy_llm(prompt: str) -> str:
+            return json.dumps({"questions": ["  Q1?  ", "q1?", "Q2?"]})
+
+        c = _make_client(llm=_messy_llm)
+        resp = c.post("/api/report/plan", json={"topic": "graph retrieval"})
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["plan"]["questions"] == ["Q1?", "Q2?"]
+        assert store.load_report()["plan"]["questions"] == ["Q1?", "Q2?"]

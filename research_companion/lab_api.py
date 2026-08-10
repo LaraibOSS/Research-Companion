@@ -227,7 +227,20 @@ try:
     class _ReportBody(_BaseModel):
         """POST /api/report/refresh body -- Deep-Research Report (2e-1).
         MUTATING (writes research_report.json) -- unlike _DirectionsBody/
-        _NoveltyBody, guarded by require_active_workspace."""
+        _NoveltyBody, guarded by require_active_workspace. `questions` is
+        additive (Editable Research Plan, 2e-4): a non-empty list skips
+        the server's own generate_questions call and answers exactly
+        those questions; omitted/empty preserves the 2e-1 one-shot
+        behavior unchanged."""
+        topic: str = ""
+        questions: list[str] | None = None
+
+    class _ReportPlanBody(_BaseModel):
+        """POST /api/report/plan body -- Editable Research Plan (2e-4).
+        MUTATING (saves a draft plan to research_report.json) + guarded by
+        require_active_workspace, like _ReportBody -- but the endpoint
+        itself is SYNCHRONOUS (one LLM call), unlike refresh's background
+        job."""
         topic: str = ""
 
 except ImportError:
@@ -253,6 +266,7 @@ except ImportError:
     _NoveltyBody = None  # type: ignore[assignment,misc]
     _ScaffoldBody = None  # type: ignore[assignment,misc]
     _ReportBody = None  # type: ignore[assignment,misc]
+    _ReportPlanBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -3175,6 +3189,64 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except Exception:  # noqa: BLE001 — GET /api/report must never 500
             return {"topic": "", "sections": [], "question_count": 0, "stale": False,
                     "coverage": None, "coverage_generated_from": None}
+
+    # -----------------------------------------------------------------
+    # POST /api/report/plan  (Editable Research Plan, 2e-4)
+    # SYNCHRONOUS -- one LLM call, seconds, like /api/directions -- NOT a
+    # background job. Guarded (MUTATING: saves a draft plan). Never 500s:
+    # an LLM/parse failure or any internal exception returns 200
+    # {"ok": False, "error": ...}. On success, saves a FRESH plan-only
+    # artifact (deliberately no "sections" -- a new plan supersedes any
+    # old answered report) and publishes ReportUpdated so other tabs/
+    # sessions refetch.
+    # -----------------------------------------------------------------
+    @app.post("/api/report/plan", dependencies=[Depends(require_active_workspace)])
+    async def post_report_plan(body: _ReportPlanBody) -> dict:
+        topic = (body.topic or "").strip()
+
+        try:
+            from research_companion import deep_research, store
+            from research_companion.agents.events import ReportUpdated
+            from research_companion.graph import load_graph
+            from research_companion.prompts import extraction_prompt_sha256
+
+            def _library_papers() -> list:
+                prompt_sha = extraction_prompt_sha256()
+                out = []
+                for meta in store.list_papers():
+                    ext = store.load_extraction(meta.paper_id, prompt_sha=prompt_sha)
+                    concepts = [c.get("name", "") for c in (ext or {}).get("concepts", []) if c.get("name")]
+                    out.append({
+                        "paper_id": meta.paper_id, "title": meta.title, "year": meta.year,
+                        "abstract": meta.abstract, "concepts": concepts,
+                    })
+                return out
+
+            resolved_llm = app.state.llm
+            if resolved_llm is None:
+                resolved_llm = _resolve_llm(json_mode=True)
+
+            library_papers = await asyncio.to_thread(_library_papers)
+            loaded_graph = await asyncio.to_thread(load_graph)
+
+            q_result = await asyncio.to_thread(
+                deep_research.generate_questions,
+                topic, library_papers=library_papers, graph=loaded_graph, llm=resolved_llm,
+            )
+            questions = q_result.get("questions") or []
+            if q_result.get("llm_error") or not questions:
+                error = q_result.get("llm_error") or "No investigation questions could be generated."
+                return {"ok": False, "error": f"Plan generation failed: {error}"}
+
+            normalized = deep_research._normalize_plan_questions(questions)
+            plan = {"topic": topic, "questions": normalized, "status": "draft"}
+            await asyncio.to_thread(store.save_report, {"topic": topic, "plan": plan})
+
+            await bus.publish(ReportUpdated(question_count=0, topic=topic))
+        except Exception as exc:
+            return {"ok": False, "error": f"Plan generation failed: {exc}"}
+
+        return {"ok": True, "plan": plan}
 
     # -----------------------------------------------------------------
     # POST /api/report/refresh  -> 202 {"job_id"}  (Deep-Research Report, 2e-1)
