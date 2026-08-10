@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -2933,3 +2933,75 @@ def test_get_static_gap_helpers_js_returns_200(lab_client):
     """GET /static/js/gapHelpers.js must return 200."""
     res = lab_client.get("/static/js/gapHelpers.js")
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# feat/brainstorm-discover: Brainstorm nav entry + view
+# ---------------------------------------------------------------------------
+
+def test_index_html_has_brainstorm_nav_button_positioned_after_home():
+    """index.html must have a Brainstorm nav button with data-route="/brainstorm",
+    a labeled span, and a data-desc, placed after Home."""
+    html = _index_text()
+    assert 'data-route="/brainstorm"' in html, (
+        'index.html missing Brainstorm nav button data-route="/brainstorm"'
+    )
+    assert '<span class="nav-label">Brainstorm</span>' in html, (
+        'index.html missing Brainstorm nav-label span'
+    )
+    home_pos = html.find('data-route="/home"')
+    brainstorm_pos = html.find('data-route="/brainstorm"')
+    assert home_pos != -1 and brainstorm_pos != -1 and home_pos < brainstorm_pos, (
+        "Brainstorm nav button must be positioned after Home"
+    )
+    btn_start = html.rfind('<button', 0, brainstorm_pos)
+    button_markup = html[btn_start:html.find('</button>', brainstorm_pos)]
+    assert 'data-desc="' in button_markup, "Brainstorm nav button is missing data-desc"
+
+
+def test_main_js_registers_brainstorm_route():
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "registerRoute('/brainstorm'" in main_js, (
+        "main.js must call registerRoute('/brainstorm', brainstormView)"
+    )
+    assert "views/brainstorm.js" in main_js
+
+
+def test_api_js_has_discover_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/discover" in api_js
+    assert "export function discover(" in api_js or "export const discover" in api_js
+
+
+def test_brainstorm_view_exists_and_wires_expected_calls():
+    path = STATIC_DIR / "js" / "views" / "brainstorm.js"
+    assert path.exists(), "views/brainstorm.js is missing"
+    text = path.read_text(encoding="utf-8")
+    assert "export function mount(" in text
+    assert "export function unmount(" in text
+    assert "api.discover(" in text
+    assert "ensureActiveResearch(" in text
+    assert "escapeHtml" in text
+    assert "discoverResultModel" in text
+    assert "dedupeDiscoverResults" in text
+    assert "sortDiscoverResults" in text
+
+
+def test_brainstorm_view_has_search_controls_and_states():
+    text = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert "brainstorm-search-input" in text
+    assert "brainstorm-year-min" in text
+    assert "brainstorm-year-max" in text
+    assert "brainstorm-expand-toggle" in text
+    assert "brainstorm-search-btn" in text
+    assert "brainstorm-add-all-btn" in text
+    assert "Search a topic to find papers" in text  # empty state copy
+
+
+def test_brainstorm_nav_button_has_exact_description_copy():
+    """The Brainstorm nav button's data-desc must match the fixed brief copy."""
+    html = _index_text()
+    assert 'data-desc="start from an idea &mdash; find papers, and (soon) directions &amp; novelty"' in html, (
+        "Brainstorm nav button data-desc must read "
+        "'start from an idea — find papers, and (soon) directions & novelty' (HTML-entity encoded)"
+    )

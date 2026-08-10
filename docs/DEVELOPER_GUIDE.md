@@ -1650,3 +1650,96 @@ mount/unmount + `store.subscribe(['gaps'], ...)` re-fetch pattern as
 same `'gaps'` store topic). The Timeline's diamond overlay is untouched —
 the Gaps tab is a complementary, deduped, cross-corpus reading of the same
 underlying verified-gap data.
+
+## 28. Brainstorm — `GET /api/discover`, `expand_query`, and the frontend helpers
+
+The Brainstorm tab's discovery surface (2a of the ideation arc) is a
+read-only literature search layered on top of the existing `discover.py`
+module — no new mutating endpoint, no new dependency.
+
+### `discover.expand_query(title, *, llm=None) -> list[str]`
+
+`research_companion/discover.py`. Turns a rough title/topic into up to 5
+search queries via one SHA-cached `DISCOVER_EXPAND_PROMPT` LLM call
+(`research_companion/prompts.py`, `format_discover_expand_prompt` /
+`discover_expand_prompt_sha256`). The original `title` is always the first
+entry in the returned list. `llm` is the same injectable
+`callable(prompt: str) -> str` seam used throughout (`_resolve_llm`,
+`app.state.llm`). Never raises: `llm=None`, an LLM exception, or
+unparsable/malformed JSON all degrade to `[title]`.
+
+### `GET /api/discover`
+
+`research_companion/lab_api.py`, registered inside `create_lab_app` right
+after `GET /api/papers`. Query params: `q` (required — empty returns
+`{results: [], queries_used: [], expanded}` with no search attempted),
+`year_min`, `year_max`, `limit` (default 20, capped at 50), `expand` (0/1).
+
+1. `expand=1` -> `queries = expand_query(q, llm=resolved_llm)` (same
+   `app.state.llm` / `_resolve_llm(json_mode=True)` fallback pattern as the
+   other LLM-backed endpoints); `expand=0` -> `queries = [q]`.
+2. Each query is searched via `discover.search_topic_with_fallback(query,
+   limit=..., year_min=..., year_max=...)` inside `asyncio.to_thread` (it's
+   a blocking `httpx` call).
+3. Results are merged across queries and deduped by identity
+   (`connectors.identity.alt_ids`, same precedence as the rest of the
+   codebase: DOI > PMID > PMCID > arXiv > title), keeping the
+   higher-citation copy of any duplicate (`_dedup_discovered`).
+4. Each surviving result is marked `in_library` by re-checking its identity
+   against every paper currently in the store (`_library_identity_ids()`).
+   This re-check matters even though `search_topic`/`search_topic_openalex`
+   already filter out papers you own: `search_topic_with_fallback`'s
+   opt-in domain-connector merge is only deduped against the S2/OpenAlex
+   batch and against itself, not against the local store, so a
+   connector-only hit can still legitimately need `in_library: true`.
+
+**Deliberately NOT behind `require_active_workspace`** — it's a read, and a
+brand-new user with no research yet must still be able to search. Dedup
+against the library uses `store.list_papers()`, which is `[]` with no
+active workspace, so nothing is marked `in_library` in that case (never a
+409, never a 500).
+
+**Never 500s.** Any exception raised while expanding or searching is caught
+around the whole "resolve queries + search" block and turned into a 200
+`{"results": [], "queries_used": [q], "expanded": expand, "error": "<msg>"}`
+— exactly the shape the frontend already knows how to render as a retry
+banner, not a broken tab.
+
+Add-to-library is unchanged: results carry `add_cmd` and the raw
+identifiers `POST /api/papers` already understands, and the existing add
+pipeline (job queue, `require_active_workspace`, `ensureActiveResearch` on
+the frontend) is reused as-is — no new mutating endpoint.
+
+### Frontend — `discoverHelpers.js` + `views/brainstorm.js`
+
+`research_companion/lab/static/js/discoverHelpers.js` is the pure,
+DOM-free, node-tested layer (`tests/js/discoverHelpers.test.mjs`):
+
+- `dedupeDiscoverResults(list)` — a second, defensive dedup pass over the
+  raw `results[]` from `GET /api/discover` (same identity + higher-citation
+  tie-break logic as the backend, kept independent so the view stays
+  correct even against an older server).
+- `discoverResultModel(raw, libraryIds)` — maps one raw result to a display
+  row: escaped title/author-string/short-abstract, a human `sourceLabel`,
+  `citationCount`/`year` normalized to safe defaults, `inLibrary` (ORs the
+  server's `in_library` with an optional local `Set` of `"prefix:id"`
+  identifiers the view already knows about right after an Add, before the
+  next full refetch), and `addTarget` — the bare identifier
+  `POST /api/papers`'s `target` expects, using the same pmid > arXiv > DOI
+  > S2 > URL precedence as `DiscoveredPaper.add_cmd`.
+- `sortDiscoverResults(list, col, dir)` — sorts an array of
+  `discoverResultModel` rows by `'citations'` or `'year'`; `'relevance'`
+  (or any unknown column) is a no-op copy, because the array's incoming
+  order already **is** the relevance order the search API returned.
+
+`views/brainstorm.js` (route `/brainstorm`, registered in `main.js`) is the
+thin glue: a topic input + year-range inputs + an AI-expand checkbox + a
+Search button call `api.discover({...})`; the raw `results[]` is run
+through `dedupeDiscoverResults` -> `discoverResultModel` ->
+`sortDiscoverResults` before rendering. Every result row's Add button (and
+the header's Add all) calls
+`ensureActiveResearch(() => api.addPaper(model.addTarget))` — the same
+guard every other add-flow in the Lab uses, so a brand-new user is
+prompted to name a research before the first paper lands. Loading / empty
+/ error states mirror `views/gaps.js`; an `.error` payload from the server
+renders as a retry banner instead of an exception.

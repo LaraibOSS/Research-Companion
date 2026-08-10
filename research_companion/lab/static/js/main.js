@@ -22,6 +22,7 @@ import * as draftView from './views/draft.js';
 import * as compareView from './views/compare.js';
 import * as askView from './views/ask.js';
 import * as homeView from './views/home.js';
+import * as brainstormView from './views/brainstorm.js';
 import * as timelineView from './views/timeline.js';
 import * as gapsView from './views/gaps.js';
 import * as settingsView from './views/settings.js';
@@ -51,6 +52,7 @@ import { noKeyBannerModel, shouldShowWelcome, WELCOME_SEEN_KEY } from './keyProm
 // Register routes
 // ---------------------------------------------------------------------------
 registerRoute('/home',        homeView);
+registerRoute('/brainstorm',  brainstormView);
 registerRoute('/library',     libraryView);
 registerRoute('/graph',       graphView);
 registerRoute('/draft',       draftView);

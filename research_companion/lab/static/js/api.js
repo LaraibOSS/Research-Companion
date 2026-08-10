@@ -393,3 +393,28 @@ export const deleteNote = (id) => del(`/api/notes/${encodeURIComponent(id)}`);
  */
 export const exportNotes = (groupBy = 'section') =>
   get('/api/notes/export?group_by=' + encodeURIComponent(groupBy));
+
+// ---------------------------------------------------------------------------
+// Discover / Brainstorm endpoint (feat/brainstorm-discover)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/discover?q=&year_min=&year_max=&limit=&expand=
+ * Read-only topic search. Always 200 — a search/LLM failure server-side
+ * comes back as {results:[], error:"..."} rather than an HTTP error, so
+ * callers should check `data.error` in addition to catching network
+ * rejections. Returns { results, queries_used, expanded, error? }.
+ *
+ * @param {{q?:string, yearMin?:number|string, yearMax?:number|string,
+ *   limit?:number, expand?:boolean}} params
+ */
+export function discover(params = {}) {
+  const { q, yearMin, yearMax, limit, expand } = params;
+  const usp = new URLSearchParams();
+  if (q) usp.set('q', q);
+  if (yearMin) usp.set('year_min', String(yearMin));
+  if (yearMax) usp.set('year_max', String(yearMax));
+  if (limit) usp.set('limit', String(limit));
+  if (expand) usp.set('expand', '1');
+  return get(`/api/discover?${usp.toString()}`);
+}

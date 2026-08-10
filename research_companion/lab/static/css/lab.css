@@ -6577,3 +6577,94 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   gap: var(--space-1);
 }
 .gaps-citation-chip { font-size: var(--text-xs); }
+
+/* ---------------------------------------------------------------------- */
+/* Brainstorm view (feat/brainstorm-discover)                              */
+/* ---------------------------------------------------------------------- */
+
+.brainstorm-view {
+  padding: var(--space-5);
+  max-width: 960px;
+  margin: 0 auto;
+}
+.brainstorm-header { margin-bottom: var(--space-4); }
+.brainstorm-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.brainstorm-search-input {
+  flex: 1 1 320px;
+  min-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+.brainstorm-year-input {
+  width: 100px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+.brainstorm-expand-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-fg-dim);
+  white-space: nowrap;
+}
+.brainstorm-queries-used {
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.brainstorm-query-chip { font-size: var(--text-xs); }
+.brainstorm-body { margin-bottom: var(--space-4); }
+.brainstorm-loading, .brainstorm-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.brainstorm-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warn);
+  border-radius: var(--radius-lg);
+  color: var(--color-warn);
+}
+.brainstorm-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--color-panel);
+}
+.brainstorm-row-main { min-width: 0; flex: 1 1 auto; }
+.brainstorm-row-title { font-size: var(--text-md); font-weight: 600; color: var(--color-fg); }
+.brainstorm-row-meta { font-size: var(--text-xs); margin-top: var(--space-1); }
+.brainstorm-row-abstract { font-size: var(--text-sm); margin-top: var(--space-2); }
+.brainstorm-source-chip { font-size: var(--text-xs); }
+.brainstorm-row-actions { flex: 0 0 auto; }
+.brainstorm-in-library-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-ok);
+}
+.brainstorm-footer { display: flex; justify-content: flex-end; }

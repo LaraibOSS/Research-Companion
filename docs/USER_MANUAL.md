@@ -923,6 +923,41 @@ coverage — it's for planning your work, not for the analysis itself.
 
 ---
 
+## 24. Brainstorm — discover papers from a topic
+
+The **Brainstorm** tab is the front door for starting from just an idea
+rather than a paper you already have. Open it from the left-hand nav (it
+sits near the top, next to Home) and type a rough topic or working title —
+anything from a single phrase to a half-formed working title works.
+
+- **Search** runs a free, keyless literature search (Semantic Scholar,
+  falling back to OpenAlex, plus any domain connectors you've enabled in
+  Settings) against exactly what you typed.
+- **"Expand my topic with AI"** is an opt-in toggle: turn it on before you
+  search and the AI first turns your topic into up to five related search
+  queries (synonyms, keyphrases, adjacent subfields) and searches all of
+  them, merging and deduplicating the results. This is the only part of
+  Brainstorm that costs an LLM call — plain search never does. When it ran,
+  you'll see small "searched: &hellip;" chips above the results so you
+  always know exactly what was searched.
+- Each result shows its title, authors, year, citation count, source
+  badge, and a short abstract snippet. A result already in your library is
+  marked **In library** instead of showing an Add button.
+- **Add** pulls a single result straight into your current research (same
+  add pipeline as pasting a URL/DOI); **Add all** does the same for every
+  result not already in your library. If you don't have an active research
+  yet, adding prompts you to name one first — the same guard used
+  everywhere else in the Lab.
+- A network hiccup or a failed AI-expand call never breaks the tab: you'll
+  see a friendly error with a **Retry** button instead of a blank screen.
+
+Brainstorm is the first surface of a larger ideation arc — research
+directions, a novelty check ("has anyone done this?"), and a full
+deep-research report are on the roadmap and will grow inside this same
+tab.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four
