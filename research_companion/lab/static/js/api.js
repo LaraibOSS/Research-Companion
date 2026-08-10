@@ -444,3 +444,32 @@ export function directions(params = {}) {
   };
   return post('/api/directions', body);
 }
+
+// ---------------------------------------------------------------------------
+// Novelty Gate endpoint (feat/brainstorm-novelty, Brainstorm 2c)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/novelty { title, rationale, year_min?, year_max? }
+ * Novelty Gate (Brainstorm 2c) -- checks one research direction's
+ * title+rationale against real, freshly-searched prior work. Synchronous,
+ * ephemeral, like GET /api/discover and POST /api/directions. Always 200 --
+ * a search/LLM failure server-side comes back as
+ * {verdict:null, prior_works:[], error:"..."} rather than an HTTP error, so
+ * callers should check `data.error` in addition to catching network
+ * rejections. Returns { verdict, confidence, rationale, closest_prior,
+ * prior_works, query, error? }.
+ *
+ * @param {{title?:string, rationale?:string, yearMin?:number|string,
+ *   yearMax?:number|string}} params
+ */
+export function checkNovelty(params = {}) {
+  const { title, rationale, yearMin, yearMax } = params;
+  const body = {
+    title: title || '',
+    rationale: rationale || '',
+    year_min: yearMin ? Number(yearMin) : null,
+    year_max: yearMax ? Number(yearMax) : null,
+  };
+  return post('/api/novelty', body);
+}
