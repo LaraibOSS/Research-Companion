@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs
 
 Tests:
   - Every file referenced by index.html exists in lab/static
@@ -103,6 +103,9 @@ REQUIRED_STATIC_FILES = [
     "js/views/notes.js",
     # feat/no-research-selected additions
     "js/researchGuard.js",
+    # feat/deep-research-report additions (2e-1)
+    "js/reportHelpers.js",
+    "js/views/report.js",
 ]
 
 
@@ -3100,3 +3103,59 @@ def test_brainstorm_view_has_open_draft_link():
     assert "#/draft" in helpers
     assert "openDraftRoute" in view
     assert "Open draft" in view
+
+
+# ---------------------------------------------------------------------------
+# feat/deep-research-report: /report tab (Deep-Research Report, 2e-1)
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_report_clients():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/report" in api_js
+    assert "/api/report/refresh" in api_js
+    assert "export const getReport" in api_js or "export function getReport" in api_js
+    assert "export function refreshReport" in api_js or "export const refreshReport" in api_js
+
+
+def test_index_html_has_report_nav_entry():
+    html = _index_text()
+    assert 'data-route="/report"' in html
+    assert 'data-desc="a cited literature review of your library on a topic"' in html
+
+
+def test_main_js_registers_report_route():
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "registerRoute('/report'" in main_js
+    assert "views/report.js" in main_js
+
+
+def test_report_view_has_topic_input_and_generate_button():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-topic-input" in text
+    assert "Generate report" in text
+    assert "api.refreshReport(" in text
+    assert "api.getReport(" in text
+    assert "reportSectionModel" in text
+
+
+def test_report_view_subscribes_to_report_topic():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "store.subscribe(['report']" in text
+
+
+def test_report_view_generate_wraps_call_in_ensure_active_research():
+    """The mutating refresh call MUST be wrapped in ensureActiveResearch,
+    mirroring Brainstorm's _scaffoldDraft -- POST /api/report/refresh is
+    guarded (409 with no active workspace)."""
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    start = text.index("async function _generate")
+    end = text.index("\n\nasync function _pollJob", start)
+    body = text[start:end]
+    assert "ensureActiveResearch(async () => {" in body
+    assert "api.refreshReport(" in body
+
+
+def test_report_view_has_scope_note_and_empty_state():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "Based on your library" in text
+    assert "Enter a topic and generate a report from your library." in text
