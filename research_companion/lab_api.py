@@ -214,6 +214,16 @@ try:
         year_min: int | None = None
         year_max: int | None = None
 
+    class _ScaffoldBody(_BaseModel):
+        """POST /api/directions/draft body -- "Draft this direction"
+        (Brainstorm 2d). The one chosen direction's full shape (2b's
+        title/rationale/direction_type/citations), MUTATING -- unlike
+        _DirectionsBody/_NoveltyBody, this creates a real draft."""
+        title: str
+        rationale: str = ""
+        direction_type: str = ""
+        citations: list[dict] = []
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -235,6 +245,7 @@ except ImportError:
     _WorkspacePatchBody = None  # type: ignore[assignment,misc]
     _DirectionsBody = None  # type: ignore[assignment,misc]
     _NoveltyBody = None  # type: ignore[assignment,misc]
+    _ScaffoldBody = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # Static directory (always relative to this file)
@@ -891,6 +902,55 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             "closest_prior": result.get("closest_prior", []),
             "prior_works": result.get("prior_works", []),
             "query": result.get("query", ""),
+        }
+
+    # -----------------------------------------------------------------
+    # POST /api/directions/draft  ("Draft this direction" -- Brainstorm 2d.
+    # MUTATING + guarded, unlike POST /api/directions/POST /api/novelty:
+    # this creates a real draft in the active research. Atomic-on-success:
+    # the draft is created ONLY after scaffold.generate_outline succeeds --
+    # an LLM/parse failure returns a friendly 200 {"ok": False, "error"} and
+    # creates NOTHING (never a raw 500, never a half-made draft).
+    # -----------------------------------------------------------------
+    @app.post("/api/directions/draft", dependencies=[Depends(require_active_workspace)])
+    async def post_directions_draft(body: _ScaffoldBody) -> dict:
+        from research_companion import scaffold, store
+
+        direction = {
+            "title": body.title or "",
+            "rationale": body.rationale or "",
+            "direction_type": body.direction_type or "",
+            "citations": body.citations if isinstance(body.citations, list) else [],
+        }
+
+        try:
+            resolved_llm = app.state.llm
+            if resolved_llm is None:
+                resolved_llm = _resolve_llm(json_mode=True)
+
+            outline = await asyncio.to_thread(
+                scaffold.generate_outline, direction, llm=resolved_llm,
+            )
+
+            if outline.get("llm_error") or not outline.get("sections"):
+                error = outline.get("llm_error") or "The model returned an empty outline."
+                return {"ok": False, "error": f"Draft scaffold failed: {error}"}
+
+            paper_id = await asyncio.to_thread(
+                scaffold.create_draft_from_direction, direction, outline,
+            )
+
+            replaced = store.get_draft_paper_id() not in (None, paper_id)
+            await _apply_draft(paper_id)
+        except Exception as exc:
+            return {"ok": False, "error": f"Draft scaffold failed: {exc}"}
+
+        return {
+            "ok": True,
+            "paper_id": paper_id,
+            "draft_paper_id": paper_id,
+            "section_count": len(outline.get("sections", [])),
+            "replaced_draft": replaced,
         }
 
     # -----------------------------------------------------------------
