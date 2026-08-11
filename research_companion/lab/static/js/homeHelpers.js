@@ -40,6 +40,53 @@ export function emptyHeroModel(state) {
  * @param {object} state — store state ({ draftId, papers (Map), ... })
  * @returns {Array<{key,label,desc,count,route?,action?}>}
  */
+/**
+ * True only for a genuinely untouched workspace — no draft, an empty library,
+ * and no active research. This is STRICTER than the empty-hero condition
+ * (`!draftId`): a user who has added papers but not a draft is NOT first-run
+ * and keeps today's empty-hero, not the A/B chooser. Never throws.
+ * @param {object} state — store state ({ draftId, papers (Map), workspaces })
+ * @returns {boolean}
+ */
+export function isFirstRun(state) {
+  if (!state || typeof state !== 'object') return false;
+  const papers = state.papers instanceof Map ? state.papers : null;
+  const hasPapers = papers ? papers.size > 0 : false;
+  const activeResearch = state.workspaces && state.workspaces.activeId;
+  return !state.draftId && !hasPapers && !activeResearch;
+}
+
+/**
+ * Pure model for the first-run A/B entry chooser (two paths). Each card carries
+ * EITHER `route` (hash string, kind 'route') or `action` (event key, kind
+ * 'action'), never both. Raw strings — the caller (home.js) escapes them at
+ * render, per this file's convention. Node-testable, never throws.
+ * @returns {{ heading: string, subline: string,
+ *   cards: Array<{key,title,desc,kind,route?,action?}> }}
+ */
+export function abChooserModel() {
+  return {
+    heading: 'How do you want to start?',
+    subline: 'Two ways in — begin from a rough idea, or bring a draft you already have.',
+    cards: [
+      {
+        key: 'brainstorm',
+        title: 'Brainstorm from an idea',
+        desc: 'Start from a rough topic — discover papers, get research directions, check novelty, and build toward a cited report.',
+        kind: 'route',
+        route: '#/brainstorm',
+      },
+      {
+        key: 'draft',
+        title: 'I already have a draft',
+        desc: 'Upload your draft PDF and align it against the literature — see what supports, challenges, and is missing.',
+        kind: 'action',
+        action: 'open-ab-draft',
+      },
+    ],
+  };
+}
+
 export function homeNavModel(state) {
   const papers = (state && state.papers instanceof Map) ? state.papers : new Map();
   const draftId = state ? state.draftId : null;
