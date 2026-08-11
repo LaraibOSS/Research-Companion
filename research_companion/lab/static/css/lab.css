@@ -6421,6 +6421,28 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   border-radius: var(--radius-sm); padding: 0 var(--space-2); color: var(--color-fg-dim);
 }
 
+/* First-run A/B entry chooser — reuses .home-nav-card's ring + hover-lift. */
+.home-ab-section { margin-top: var(--space-4); text-align: center; }
+.home-ab-section .home-section-eyebrow { text-align: center; margin-bottom: var(--space-2); }
+.home-ab-sub {
+  font-size: var(--text-sm); color: var(--color-fg-dim);
+  margin: 0 auto var(--space-4); max-width: 46ch;
+}
+.home-ab-row {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 720px;
+  margin: 0 auto;
+}
+@media (max-width: 560px) { .home-ab-row { grid-template-columns: 1fr; } }
+.home-ab-card {
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: left;
+}
+.home-ab-icon { color: var(--color-accent); margin-top: 2px; }
+.home-ab-title { font-size: var(--text-md); font-weight: 700; }
+
 /* Product pillars (empty state) */
 .home-pillars {
   display: grid; grid-template-columns: repeat(3, 1fr);

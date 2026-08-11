@@ -23,7 +23,7 @@ globalThis.localStorage = {
   removeItem: (k) => mockLocalStorage.delete(k),
 };
 
-const { emptyHeroModel, homeNavModel } = await import(
+const { emptyHeroModel, homeNavModel, isFirstRun, abChooserModel } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'homeHelpers.js')).href
 );
 
@@ -167,4 +167,47 @@ test('homeNavModel draft label switches on whether a draft exists', () => {
   // never throws on missing/empty state
   assert.doesNotThrow(() => homeNavModel({}));
   assert.equal(homeNavModel({}).find(m => m.key === 'library').count, 0);
+});
+
+// -----------------------------------------------------------------------
+// isFirstRun — true only for a genuinely untouched workspace
+// -----------------------------------------------------------------------
+
+test('isFirstRun: true only when no draft, empty library, and no active research', () => {
+  assert.equal(isFirstRun({ draftId: null, papers: new Map(), workspaces: { activeId: null } }), true);
+  // any draft -> not first run
+  assert.equal(isFirstRun({ draftId: 'd1', papers: new Map(), workspaces: { activeId: null } }), false);
+  // any papers -> not first run
+  assert.equal(isFirstRun({ draftId: null, papers: new Map([['p1', {}]]), workspaces: { activeId: null } }), false);
+  // active research -> not first run
+  assert.equal(isFirstRun({ draftId: null, papers: new Map(), workspaces: { activeId: 'w1' } }), false);
+});
+
+test('isFirstRun: never throws on partial/absent state; false for non-object', () => {
+  assert.doesNotThrow(() => isFirstRun());
+  assert.doesNotThrow(() => isFirstRun(null));
+  assert.doesNotThrow(() => isFirstRun({}));
+  assert.equal(isFirstRun(null), false);
+  assert.equal(isFirstRun(5), false);
+  // missing workspaces / papers still resolves (treated as empty)
+  assert.equal(isFirstRun({ draftId: null }), true);
+});
+
+// -----------------------------------------------------------------------
+// abChooserModel — two entry paths (route vs action)
+// -----------------------------------------------------------------------
+
+test('abChooserModel returns two cards: brainstorm route + draft action', () => {
+  const m = abChooserModel();
+  assert.equal(m.cards.length, 2);
+  const a = m.cards.find(c => c.key === 'brainstorm');
+  const b = m.cards.find(c => c.key === 'draft');
+  assert.equal(a.kind, 'route');
+  assert.equal(a.route, '#/brainstorm');
+  assert.equal(a.action, undefined);
+  assert.equal(b.kind, 'action');
+  assert.equal(b.action, 'open-ab-draft');
+  assert.equal(b.route, undefined);
+  assert.ok(typeof m.heading === 'string' && m.heading.length > 0);
+  assert.doesNotThrow(() => abChooserModel());
 });
