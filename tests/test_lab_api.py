@@ -5761,3 +5761,72 @@ class TestReportPlanRefreshIntegration:
         resp = c.get("/api/report")
         assert resp.status_code == 200
         assert resp.json()["plan"] is None
+
+
+# ---------------------------------------------------------------------------
+# Deep-Research Report Export (2e-5) -- GET /api/report/export, UNGUARDED,
+# read-only, never-500. Mirrors GET /api/notes/export.
+# ---------------------------------------------------------------------------
+
+class TestReportExportEndpoint:
+    def test_returns_markdown_for_a_saved_report(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        store.save_report({
+            "topic": "graph retrieval",
+            "sections": [{
+                "question": "What methods are used?",
+                "answer": "Graph retrieval is used [S1].",
+                "citations": [{
+                    "paper_id": "arxiv:1234.56789", "paper_title": "Graph Retrieval Paper",
+                    "section_id": "s1", "char_start": 0, "char_end": 100,
+                    "chunk_index": 0, "score": 2.5,
+                }],
+                "unverified_quotes": [],
+            }],
+            "generated_from": {}, "question_count": 1,
+        })
+
+        c = _make_client()
+        resp = c.get("/api/report/export")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "# graph retrieval" in data["markdown"]
+        assert "Graph Retrieval Paper" in data["markdown"]
+
+    def test_no_saved_report_returns_empty_markdown(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/report/export")
+        assert resp.status_code == 200
+        assert resp.json() == {"markdown": ""}
+
+    def test_no_active_workspace_returns_empty_markdown_not_error(
+            self, isolated_papergraph_dir, monkeypatch):
+        """GET /api/report/export is UNGUARDED (read-only, mirrors GET
+        /api/notes/export / GET /api/report) -- no active workspace
+        degrades to empty markdown, never a 409/500."""
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+
+        c = _make_client()
+        resp = c.get("/api/report/export")
+        assert resp.status_code == 200
+        assert resp.json() == {"markdown": ""}
+
+    def test_serializer_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        """report_to_markdown itself never raises (Task 1), but this proves
+        the endpoint's own defensive try/except also holds if it somehow
+        did -- never a 500."""
+        from research_companion import report_export, store
+
+        store.save_report({"topic": "t", "sections": [], "generated_from": {}, "question_count": 0})
+
+        def _raising_report_to_markdown(report):
+            raise RuntimeError("serializer exploded")
+
+        monkeypatch.setattr(report_export, "report_to_markdown", _raising_report_to_markdown)
+
+        c = _make_client()
+        resp = c.get("/api/report/export")
+        assert resp.status_code == 200
+        assert resp.json() == {"markdown": ""}
