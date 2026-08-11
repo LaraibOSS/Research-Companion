@@ -508,6 +508,18 @@ export function directions(params = {}) {
 // Brainstorm session persistence (per research; survives revisits/reloads)
 // ---------------------------------------------------------------------------
 
+/**
+ * POST /api/brief { topic, direction?, session_paper_ids? } — Brainstorm Brief:
+ * grounded, cited bullet outline from the topic + this session's papers. Always
+ * 200 like /api/directions: returns { ok, brief:{brief_id, topic, sections}, error? }.
+ */
+export const brief = (params = {}) =>
+  post('/api/brief', {
+    topic: params.topic || '',
+    direction: params.direction || null,
+    session_paper_ids: Array.isArray(params.sessionPaperIds) ? params.sessionPaperIds : [],
+  });
+
 /** GET /api/brainstorm/session -> { session: <blob>|null }. Never errors. */
 export const getBrainstormSession = () => get('/api/brainstorm/session');
 
