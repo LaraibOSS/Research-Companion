@@ -5017,6 +5017,151 @@ class TestScaffoldEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/draft/analyze  ("Analyze this draft" — bulk-align vs current draft)
+# ---------------------------------------------------------------------------
+
+class TestAnalyzeDraft:
+    def test_analyze_no_draft_returns_ok_false_and_no_job(self, isolated_papergraph_dir):
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.post("/api/draft/analyze", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "draft" in data["error"].lower()
+        # No job was started.
+        assert not any(j.get("kind") == "analyze"
+                       for j in c.app.state.jobs.values())
+
+    def test_analyze_no_analyzable_papers_returns_ok_false(self, isolated_papergraph_dir):
+        from research_companion import store
+        # A draft, but no other papers with an extraction to align.
+        _make_paper(isolated_papergraph_dir, "arxiv:draft001", "Draft", write_extraction=False)
+        store.set_draft_paper_id("arxiv:draft001")
+
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.post("/api/draft/analyze", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "no analyzed papers" in data["error"].lower()
+
+    def test_analyze_no_model_returns_ok_false(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import lab_api, store
+        _make_paper(isolated_papergraph_dir, "arxiv:draft001", "Draft")
+        store.set_draft_paper_id("arxiv:draft001")
+        monkeypatch.setattr(lab_api, "_resolve_llm", lambda *a, **k: None)
+
+        c = _make_client(llm=None)
+        resp = c.post("/api/draft/analyze", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "model" in data["error"].lower()
+
+    def test_analyze_happy_path_aligns_every_paper_and_completes(
+            self, isolated_papergraph_dir):
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:draft001", "Draft")
+        _make_paper(isolated_papergraph_dir, "arxiv:cand001", "Cand One")
+        _make_paper(isolated_papergraph_dir, "arxiv:cand002", "Cand Two")
+        store.set_draft_paper_id("arxiv:draft001")
+
+        calls = []
+
+        def spy_aligner(draft_id, candidate_id, *, llm, force=False):
+            calls.append((draft_id, candidate_id, force))
+            return {"verdict": "related", "score": 0.5}
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=lambda p: "{}")
+        app.state.aligner_override = spy_aligner
+
+        with TestClient(app) as c:
+            resp = c.post("/api/draft/analyze", json={})
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ok"] is True
+            assert data["total"] == 2
+            job_id = data["job_id"]
+
+            import time
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "done", f"job did not finish: {job}"
+
+        # Both candidates aligned against the draft (never the draft itself).
+        aligned_ids = sorted(cid for _, cid, _ in calls)
+        assert aligned_ids == ["arxiv:cand001", "arxiv:cand002"]
+        # One AlignmentReady per candidate.
+        from research_companion.agents.events import AlignmentReady
+        ready = [e for e in bus.history if isinstance(e, AlignmentReady)]
+        assert sorted(e.paper_id for e in ready) == ["arxiv:cand001", "arxiv:cand002"]
+
+    def test_analyze_per_paper_failure_still_completes(self, isolated_papergraph_dir):
+        from research_companion import store
+
+        _make_paper(isolated_papergraph_dir, "arxiv:draft001", "Draft")
+        _make_paper(isolated_papergraph_dir, "arxiv:cand001", "Cand One")
+        _make_paper(isolated_papergraph_dir, "arxiv:cand002", "Cand Two")
+        store.set_draft_paper_id("arxiv:draft001")
+
+        def flaky_aligner(draft_id, candidate_id, *, llm, force=False):
+            if candidate_id == "arxiv:cand001":
+                raise RuntimeError("alignment blew up")
+            return {"verdict": "related", "score": 0.5}
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=lambda p: "{}")
+        app.state.aligner_override = flaky_aligner
+
+        with TestClient(app) as c:
+            resp = c.post("/api/draft/analyze", json={})
+            data = resp.json()
+            assert data["ok"] is True and data["total"] == 2
+            job_id = data["job_id"]
+
+            import time
+            for _ in range(50):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            # One paper failed but the job still finishes cleanly (not "failed").
+            assert job["status"] == "done", f"job did not finish: {job}"
+
+    def test_scaffold_draft_reports_status_done(self, isolated_papergraph_dir):
+        """A materialized scaffold draft (text + sections, no extraction) must
+        report status 'done' in GET /api/papers, not sit 'pending' forever."""
+        from research_companion import store
+
+        pid = "scaffold:deadbeef1234"
+        meta = store.PaperMetadata(
+            paper_id=pid,
+            title="A scaffolded direction",
+            authors=[],
+            year=None,
+            added_at="2024-01-01T00:00:00Z",
+            parse_source="scaffold",
+            full_text_available=True,
+        )
+        meta.save()
+        store.save_text(pid, "# Introduction\n\nBody.")
+        store.save_sections(pid, {"method": "scaffold", "sections": [
+            {"section_id": "s1", "title": "Introduction", "level": 1,
+             "parent": None, "char_start": 0, "char_end": 20},
+        ]})
+
+        c = _make_client()
+        papers = c.get("/api/papers").json()
+        rec = next(p for p in papers if p["paper_id"] == pid)
+        assert rec["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
 # GET /api/report + POST /api/report/refresh  (Deep-Research Report, 2e-1)
 # ---------------------------------------------------------------------------
 
