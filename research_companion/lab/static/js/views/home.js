@@ -16,7 +16,7 @@ import { mergeJourney, sparklinePath, severityDonut } from '../journeyHelpers.js
 import { openModal } from '../components/ingestModal.js';
 import { escapeHtml, timeAgo } from '../format.js';
 import { explainerBanner } from '../components/explainer.js';
-import { emptyHeroModel, homeNavModel } from '../homeHelpers.js';
+import { emptyHeroModel, homeNavModel, isFirstRun, abChooserModel } from '../homeHelpers.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { shouldSuggestNewResearch } from '../researchNudgeHelpers.js';
 import { ensureActiveResearch } from '../researchGuard.js';
@@ -90,9 +90,15 @@ function _render() {
 
   const draft = draftId ? papers.get(draftId) : null;
 
-  // Zone 1 — hero (draft) or welcome hero (no draft)
+  // First-run (no draft, empty library, no active research) shows the two-path
+  // A/B chooser instead of the dashboard/empty-hero. Stricter than !draft.
+  const firstRun = isFirstRun(state);
+
+  // Zone 1 — first-run chooser / hero (draft) / welcome hero (no draft)
   let zone1Html;
-  if (draft) {
+  if (firstRun) {
+    zone1Html = _abChooserHtml();
+  } else if (draft) {
     zone1Html = _heroHtml(draft, papers, suggestions, suggestionCounts, journey);
   } else {
     zone1Html = _emptyHeroHtml(state);
@@ -108,17 +114,17 @@ function _render() {
     suggestionCounts,
     citationCoverage: citationCoverage || null,
   });
-  const zone2Html = _nbaHtml(actions);
+  const zone2Html = firstRun ? '' : _nbaHtml(actions);
 
   // Zone 3 — top-3 open suggestions
   const openSugs = (Array.isArray(suggestions) ? suggestions : [])
     .filter(s => s.status === 'open')
     .slice(0, 3);
   const totalOpen = (suggestionCounts && suggestionCounts.open) || 0;
-  const zone3Html = _sugsHtml(openSugs, totalOpen);
+  const zone3Html = firstRun ? '' : _sugsHtml(openSugs, totalOpen);
 
   // Zone 4 — journey
-  const zone4Html = _journeyHtml(journey);
+  const zone4Html = firstRun ? '' : _journeyHtml(journey);
 
   // Quick-nav row: the empty-state hero already embeds its own nav row
   // (below the product pillars); the populated (draft) hero does not, so
@@ -139,8 +145,31 @@ function _render() {
       ${zone4Html}
     </div>`;
 
+  // Wire the first-run A/B chooser cards (route card → Brainstorm; action
+  // card → the same guarded draft-upload flow as the empty hero).
+  if (firstRun) {
+    _el.querySelectorAll('[data-ab-route]').forEach(card => {
+      const go = () => { window.location.hash = card.dataset.abRoute; };
+      card.addEventListener('click', go);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    });
+    _el.querySelectorAll('[data-ab-action]').forEach(card => {
+      const go = () => {
+        if (card.dataset.abAction === 'open-ab-draft') {
+          ensureActiveResearch(() => _addDraftWithNudge());
+        }
+      };
+      card.addEventListener('click', go);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    });
+  }
+
   // Wire zone 1 welcome hero buttons if needed
-  if (!draft) {
+  if (!draft && !firstRun) {
     _el.querySelector('#home-hero-draft')?.addEventListener('click', () => {
       ensureActiveResearch(() => _addDraftWithNudge());
     });
@@ -290,6 +319,47 @@ const _PILLARS = [
   { t: 'Answers you can trust', d: 'Ask in plain language — every claim is cited to the exact paper and section.' },
   { t: 'Submission-ready', d: 'Align your draft, verify each reference, and catch integrity issues before reviewers do.' },
 ];
+
+// First-run A/B entry icons (lightbulb = brainstorm, document = have-a-draft).
+const _AB_ICONS = {
+  brainstorm: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 12.5a4.5 4.5 0 1 1 5 0c-.5.4-.8.9-.9 1.5H7.4c-.1-.6-.4-1.1-.9-1.5z"/><line x1="7" y1="16" x2="11" y2="16"/><line x1="7.7" y1="17.3" x2="10.3" y2="17.3"/></svg>`,
+  draft: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6l-3-4z"/><path d="M11 2v4h3"/><path d="M7 10l1.5 1.5L12 8"/></svg>`,
+};
+
+// First-run (no draft, empty library, no active research): the two-path chooser.
+function _abChooserHtml() {
+  const model = abChooserModel();
+  const cards = model.cards.map(c => {
+    const attr = c.kind === 'route'
+      ? `data-ab-route="${escapeHtml(c.route || '')}"`
+      : `data-ab-action="${escapeHtml(c.action || '')}"`;
+    return `
+      <div class="home-nav-card home-ab-card" ${attr} role="button" tabindex="0">
+        <span class="home-nav-icon home-ab-icon">${_AB_ICONS[c.key] || ''}</span>
+        <span class="home-nav-text">
+          <span class="home-nav-label home-ab-title">${escapeHtml(c.title)}</span>
+          <span class="home-nav-desc">${escapeHtml(c.desc)}</span>
+        </span>
+      </div>`;
+  }).join('');
+
+  const pillarsHtml = `<div class="home-pillars">${_PILLARS.map(p =>
+    `<div class="home-pillar"><div class="home-pillar-title">${escapeHtml(p.t)}</div>`
+    + `<div class="home-pillar-desc">${escapeHtml(p.d)}</div></div>`).join('')}</div>`;
+
+  return `
+    <div class="home-empty-hero">
+      <span class="home-eyebrow">Local-first research workspace</span>
+      <h1 class="home-empty-hero-brand"><span class="home-empty-hero-mark">◆</span><span class="home-empty-hero-word">Research Companion</span></h1>
+      <p class="home-hero-tagline">Turn the literature into answers you can cite.</p>
+    </div>
+    <div class="home-nav-section home-ab-section">
+      <div class="home-section-eyebrow">${escapeHtml(model.heading)}</div>
+      <p class="home-ab-sub">${escapeHtml(model.subline)}</p>
+      <div class="home-nav-row home-ab-row">${cards}</div>
+    </div>
+    ${pillarsHtml}`;
+}
 
 function _emptyHeroHtml(state) {
   const model = emptyHeroModel(state);
