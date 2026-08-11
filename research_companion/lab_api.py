@@ -224,6 +224,16 @@ try:
         direction_type: str = ""
         citations: list[dict] = []
 
+    class _BriefBody(_BaseModel):
+        """POST /api/brief body -- Brainstorm Brief (grounded bullet outline).
+        Read-only compute (like _DirectionsBody/_NoveltyBody): synthesizes a
+        brief from the topic + the session's papers (+ an optional chosen
+        direction). session_paper_ids scopes grounding to this session's papers
+        when provided (falls back to the whole library on no match)."""
+        topic: str = ""
+        direction: dict | None = None
+        session_paper_ids: list[str] = []
+
     class _BrainstormSessionBody(_BaseModel):
         """PUT /api/brainstorm/session body -- persists the Brainstorm tab's
         session blob (topic, discovered papers, directions, novelty verdicts,
@@ -890,6 +900,65 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     "error": f"Directions generation failed: {llm_error}"}
 
         return {"directions": result.get("directions", []), "topic": result.get("topic", topic)}
+
+    # -----------------------------------------------------------------
+    # POST /api/brief  (Brainstorm Brief -- grounded bullet outline. Read-only
+    # compute like /api/directions: NOT guarded, NEVER 500. Returns
+    # {ok, brief, error?}; the frontend persists the brief into the session.)
+    # -----------------------------------------------------------------
+    @app.post("/api/brief")
+    async def post_brief(body: _BriefBody) -> dict:
+        from research_companion import brief as brief_mod
+        from research_companion import store
+        from research_companion.prompts import extraction_prompt_sha256
+
+        topic = (body.topic or "").strip()
+        direction = body.direction if isinstance(body.direction, dict) else None
+        wanted = {str(x) for x in (body.session_paper_ids or []) if x}
+
+        def _session_papers() -> list:
+            prompt_sha = extraction_prompt_sha256()
+            draft_id = store.get_draft_paper_id()
+            allp, scoped = [], []
+            for meta in store.list_papers():
+                if meta.paper_id == draft_id:
+                    continue  # never ground the brief in the draft itself
+                ext = store.load_extraction(meta.paper_id, prompt_sha=prompt_sha)
+                concepts = [c.get("name", "") for c in (ext or {}).get("concepts", [])
+                            if c.get("name")]
+                rec = {"paper_id": meta.paper_id, "title": meta.title, "year": meta.year,
+                       "abstract": meta.abstract, "concepts": concepts}
+                allp.append(rec)
+                if meta.paper_id in wanted:
+                    scoped.append(rec)
+            # Scope to this session's papers when the ids match; otherwise fall
+            # back to the whole library (id-format drift must not empty the brief).
+            return scoped if (wanted and scoped) else allp
+
+        try:
+            resolved_llm = app.state.llm
+            if resolved_llm is None:
+                resolved_llm = _resolve_llm(json_mode=True)
+            session_papers = await asyncio.to_thread(_session_papers)
+            result = await asyncio.to_thread(
+                brief_mod.synthesize_brief,
+                topic, session_papers,
+                direction=direction,
+                llm=resolved_llm,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "brief": None, "error": f"Brief generation failed: {exc}"}
+
+        llm_error = result.get("llm_error")
+        if llm_error:
+            return {"ok": False, "brief": None,
+                    "error": f"Brief generation failed: {llm_error}"}
+
+        return {"ok": True, "brief": {
+            "brief_id": result.get("brief_id"),
+            "topic": result.get("topic", topic),
+            "sections": result.get("sections", []),
+        }}
 
     # -----------------------------------------------------------------
     # POST /api/novelty  (Novelty Gate -- Brainstorm 2c. Synchronous/ephemeral
