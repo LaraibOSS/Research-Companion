@@ -974,6 +974,26 @@ def test_home_view_has_quicknav_and_product_pillars():
     assert 'pathLength="1"' in js
 
 
+def test_home_first_run_ab_chooser():
+    """First-run Home shows the two-path A/B chooser: Brainstorm (route) and
+    I-have-a-draft (the existing guarded upload flow), gated on isFirstRun."""
+    js = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    helpers = (STATIC_DIR / "js" / "homeHelpers.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    # the pure model defines the two entry paths (route literal lives here,
+    # home.js reads c.route dynamically)
+    assert "abChooserModel" in helpers
+    assert "#/brainstorm" in helpers and "open-ab-draft" in helpers
+    # home.js gates on the stricter first-run guard + renders the chooser
+    assert "isFirstRun" in js and "abChooserModel" in js
+    # entry A → Brainstorm route (data-ab-route); entry B → the existing guarded upload
+    assert "data-ab-route" in js and "data-ab-action" in js
+    assert "ensureActiveResearch(() => _addDraftWithNudge())" in js
+    # reuses the approved nav-card visual + a 2-up chooser row
+    assert "home-ab-card" in js and "home-nav-card home-ab-card" in js
+    assert ".home-ab-row" in css
+
+
 def test_next_action_js_exports_select_next_actions():
     """nextAction.js must export selectNextActions."""
     js = (STATIC_DIR / "js" / "nextAction.js").read_text(encoding="utf-8")

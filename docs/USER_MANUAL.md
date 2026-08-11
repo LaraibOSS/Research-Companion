@@ -175,6 +175,23 @@ time you open it after upgrading, from "Main" to "My research" (your papers,
 draft, and history are untouched). You can rename or delete it from the
 Researches screen the same way as any other research you create.
 
+### First-run: pick how you want to start
+
+On a genuinely empty workspace — no draft, no papers, and no active research
+— the **Home** tab greets you with a two-path chooser instead of the usual
+dashboard, so a first-time user is never left guessing where to begin:
+
+- **Brainstorm from an idea** — jumps to the Brainstorm tab, where a rough
+  topic becomes discovered papers, ranked research directions, a novelty
+  check, and a path toward a cited report.
+- **I already have a draft** — opens the same guarded draft-upload flow as
+  **Add your draft** (you'll be asked to name a research first if you don't
+  have one yet), then aligns your draft against the literature.
+
+The chooser is first-run-only: the moment you have a draft, any paper, or an
+active research, Home reverts to its normal adaptive welcome/dashboard and the
+chooser doesn't reappear.
+
 ### Sidebar tab descriptions
 
 Hover any sidebar tab and a short description of what it's for appears
