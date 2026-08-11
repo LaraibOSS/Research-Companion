@@ -457,6 +457,9 @@ function _render() {
                 ${(!hasReport || _scoring || _generating) ? 'disabled' : ''}>
           ${_scoring ? 'Scoring…' : 'Score evidence'}
         </button>
+        <button class="btn btn-secondary report-export-btn" type="button" ${!hasReport ? 'disabled' : ''}>
+          Download (.md)
+        </button>
       </div>
       ${_planError ? `<div class="report-error report-plan-error">${escapeHtml(_planError)}</div>` : ''}
       ${planStatusLine}
@@ -545,6 +548,9 @@ function _bindEvents() {
 
   const scoreBtn = _el.querySelector('.report-score-evidence-btn');
   if (scoreBtn) scoreBtn.addEventListener('click', () => { _scoreEvidence(); });
+
+  const exportBtn = _el.querySelector('.report-export-btn');
+  if (exportBtn) exportBtn.addEventListener('click', () => { _exportReport(); });
 
   const input = _el.querySelector('#report-topic-input');
   if (input) {
@@ -636,4 +642,34 @@ function _bindPlanEvents() {
 
   const runBtn = _el.querySelector('.report-run-btn');
   if (runBtn) runBtn.addEventListener('click', () => { _runReport(); });
+}
+
+// ---------------------------------------------------------------------------
+// Export (2e-5) -- Download (.md). The markdown is downloaded as a file
+// via a Blob + synthetic <a download>, NEVER inserted into the DOM -- no
+// XSS surface. No ensureActiveResearch wrapping: GET /api/report/export
+// is read-only and unguarded, exactly like Notes' own export.
+// ---------------------------------------------------------------------------
+
+async function _exportReport() {
+  try {
+    const data = await api.exportReport();
+    const markdown = (data && typeof data.markdown === 'string') ? data.markdown : '';
+    _downloadMarkdown(markdown);
+  } catch (err) {
+    showToast('Failed to export report', 'error');
+    console.error('[report view] export error', err);
+  }
+}
+
+function _downloadMarkdown(markdown) {
+  const blob = new Blob([markdown], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'research-report.md';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
