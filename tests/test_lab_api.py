@@ -5017,6 +5017,50 @@ class TestScaffoldEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# GET/PUT /api/brainstorm/session  (persist the Brainstorm tab per research)
+# ---------------------------------------------------------------------------
+
+class TestBrainstormSession:
+    def test_store_round_trip(self, isolated_papergraph_dir):
+        from research_companion import store
+        assert store.load_brainstorm_session() is None
+        payload = {"v": 1, "topic": "graph retrieval", "rawResults": [{"paper_id": "arxiv:1"}]}
+        assert store.save_brainstorm_session(payload) is not None
+        assert store.load_brainstorm_session() == payload
+
+    def test_get_session_null_when_none_saved(self, isolated_papergraph_dir):
+        c = _make_client()
+        resp = c.get("/api/brainstorm/session")
+        assert resp.status_code == 200
+        assert resp.json() == {"session": None}
+
+    def test_put_then_get_round_trips(self, isolated_papergraph_dir):
+        c = _make_client()
+        blob = {"v": 1, "topic": "code search", "rawDirections": [{"direction_id": "dir_x"}]}
+        put = c.put("/api/brainstorm/session", json={"session": blob})
+        assert put.status_code == 200
+        assert put.json()["ok"] is True
+        got = c.get("/api/brainstorm/session")
+        assert got.json()["session"] == blob
+
+    def test_put_requires_active_workspace(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "active_workspace_id", lambda: None)
+        c = _make_client()
+        resp = c.put("/api/brainstorm/session", json={"session": {"topic": "x"}})
+        assert resp.status_code == 409
+
+    def test_get_session_never_500s(self, isolated_papergraph_dir, monkeypatch):
+        from research_companion import store
+        monkeypatch.setattr(store, "load_brainstorm_session",
+                            lambda: (_ for _ in ()).throw(RuntimeError("disk gone")))
+        c = _make_client()
+        resp = c.get("/api/brainstorm/session")
+        assert resp.status_code == 200
+        assert resp.json() == {"session": None}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/report + POST /api/report/refresh  (Deep-Research Report, 2e-1)
 # ---------------------------------------------------------------------------
 
