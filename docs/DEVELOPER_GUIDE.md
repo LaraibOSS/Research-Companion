@@ -2451,3 +2451,41 @@ The 2e-4 change is **purely additive** — a plain `refresh({topic})` call (with
 - **Re-running clears prior RCS scores** — this behavior predates 2e-4 and is not new: when a report is regenerated, all sections are rebuilt from scratch, which erases prior RCS (evidence-scoring) results. The user must re-run "Score evidence" if they want the badges refreshed. This is documented in the USER_MANUAL and accepted as a soft limitation (not re-engineered).
 - **One-shot path is byte-for-byte identical to 2e-1** — the plain "Generate report" button invokes the exact same `refresh({topic})` call with no `questions` parameter, hitting the unchanged 2e-1 code path, tested with an exploding stub to prove `generate_questions` is never skipped.
 - **No new staleness machinery** — the design explicitly rejected plan-time library staleness and focused on the answering-time retrieval, matching the Ask and Brainstorm features' own staleness model.
+
+## 36. Report Export — report_export.py and GET /api/report/export
+
+Slice 2e-5 adds a **markdown export** of a saved deep-research report — a one-click **Download (.md)** the researcher can save, paste, or share, carrying the exact same honesty caveats the live Report view shows.
+
+### The pipeline (`research_companion/report_export.py`)
+
+- `report_to_markdown(report: dict) -> str` is a **pure, never-raising** serializer, mirroring `notes_store.notes_to_markdown`'s list-of-lines → `"\n".join` shape — isinstance-guarded on every nested field, so a malformed/partial/`None` report degrades to a best-effort (or empty) string rather than raising.
+- Builds, in order: `# {topic}` (fallback `# Deep-Research Report`); an overall `> **Coverage:** ...` line when `report["coverage"]` is a dict; per section a `## {question}` heading, the answer, a `**Citations**` bullet list (`paper_title` + a `section_id`/char-range locator, plus an inline `_[relevance NN%, stance]_` badge-as-text when `citation["rcs"]` is present — the same two fields, `relevance*100` + `stance`, `views/report.js`'s badge renders), a per-section coverage line, an "Unverified quote(s) (not found verbatim in your library): …" callout, and an error line; a footer with the RCS caveat (only if any citation anywhere carries `rcs`), the coverage caveat (only if report-level `coverage` is present), and a generic "AI judgments … are heuristics, not ground truth" line.
+- `report_export.py` has **no import from `research_companion`** — it is entirely self-contained, taking only a plain dict and returning a plain string, exactly like `notes_store.notes_to_markdown`.
+
+### Why markdown-only, not HTML
+
+`report.py`'s `render_report_html` is hard-wired to the paper-*review*-lane shape (`{paper_id, title, lanes}`) with ~16 lane renderers — none match the deep-research `{topic, sections}` shape, so it isn't reusable. A self-contained-HTML renderer for the deep-research shape was considered and rejected as a whole new component for marginal benefit over a `.md` file; markdown is deferred-friendly and covers the "save/share" need.
+
+### The endpoint (`research_companion/lab_api.py`)
+
+- `GET /api/report/export` mirrors `GET /api/notes/export`: **unguarded** (no `require_active_workspace` — read-only), loads the report via `store.load_report()`, and returns `{"markdown": report_export.report_to_markdown(report) if isinstance(report, dict) else ""}`. The whole handler body is wrapped in `try/except Exception` → `{"markdown": ""}`, so it **never 500s** — no saved report, no active workspace, or even a hypothetical serializer failure all degrade to empty markdown, never an error response.
+- Registered immediately after `GET /api/report` (before `POST /api/report/plan`) — there is no `/api/report/{id}` path-capture route to collide with.
+- Purely additive: no change to `GET /api/report`'s own return shape, `deep_research.build_report`, or any 2e-1..2e-4 behavior.
+
+### The frontend (`research_companion/lab/static/js/api.js`, `views/report.js`)
+
+- `api.exportReport()` — a one-line `GET /api/report/export` wrapper, identical in shape to `api.exportNotes`.
+- `views/report.js` adds a **Download (.md)** button to the existing `report-controls` row, disabled until `hasReport` (the same boolean the Score-evidence button already gates on). Its click handler calls `api.exportReport()` then a duplicated `_downloadMarkdown` helper — `Blob([markdown], {type:'text/markdown'})` → `URL.createObjectURL` → a synthetic `<a download="research-report.md">` click → `URL.revokeObjectURL`. This is the exact same pattern `views/notes.js` already uses for its own Export button; there is no shared download-helper module, so it is duplicated locally rather than introducing one for a single extra caller.
+- **Static filename, no `Date.now()`** — `Date.now()`/`new Date()` is unavailable in some execution contexts; the Notes precedent already sidesteps this with a static name, so Report export follows suit (`research-report.md`).
+- **No XSS**: the markdown is downloaded as a file via a Blob, never interpolated into `innerHTML` or otherwise inserted into the DOM.
+
+### The honesty contract
+
+- The export **fabricates nothing** — `report_to_markdown` only reproduces fields already present in the saved report (topic, questions, answers, citations, rcs, coverage, unverified quotes, errors).
+- RCS badges are written as plain text explicitly labeled a judgment (`_[relevance NN%, stance]_`), and the footer states outright that relevance/stance are AI judgments, not independently verified — reusing the same caveat wording `views/report.js`'s `hasRcs` caption already shows the live UI.
+- Coverage is captioned as a BM25 heuristic relative to the search's own relevance set, not ground truth — reusing the same wording `views/report.js`'s coverage caption shows.
+- Per-section unverified-quote callouts are carried over verbatim, so a downloaded/shared file never reads as more "verified" than the app itself.
+
+### Design reference
+
+See `docs/superpowers/specs/2026-08-10-report-export-design.md`.
