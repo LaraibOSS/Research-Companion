@@ -3333,3 +3333,44 @@ def test_report_view_original_2e1_generate_report_flow_is_preserved():
 def test_report_view_uses_report_plan_model():
     text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
     assert "reportPlanModel" in text
+
+
+# ---------------------------------------------------------------------------
+# feat/report-export: Download (.md) button + Blob download (2e-5)
+# ---------------------------------------------------------------------------
+
+def test_api_js_has_export_report_client():
+    api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
+    assert "/api/report/export" in api_js
+    assert "export const exportReport" in api_js or "export function exportReport" in api_js
+
+
+def test_report_view_has_download_button_disabled_until_has_report():
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-export-btn" in text
+    assert "Download (.md)" in text
+    assert "!hasReport" in text
+
+
+def test_report_view_exports_markdown_via_blob_download():
+    """views/report.js Download button must build a Blob + anchor download
+    named research-report.md from api.exportReport()'s {markdown} payload
+    -- the markdown is NEVER inserted into the DOM (no XSS on the
+    download)."""
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "new Blob(" in text, "report.js must construct a Blob for the markdown download"
+    assert "research-report.md" in text, "report.js must download the file as research-report.md"
+    assert "api.exportReport(" in text
+    assert "_downloadMarkdown" in text
+
+
+def test_report_view_original_render_preserved_alongside_export_button():
+    """2e-5 is purely additive -- the existing report-controls row (topic
+    input, Generate report, Generate plan, Score evidence) must remain
+    intact alongside the new Download button."""
+    text = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    assert "report-topic-input" in text
+    assert "report-generate-btn" in text
+    assert "report-generate-plan-btn" in text
+    assert "report-score-evidence-btn" in text
+    assert "report-export-btn" in text

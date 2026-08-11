@@ -292,6 +292,12 @@ export const refreshGaps = () => post('/api/gaps/refresh');
 export const getReport = () => get('/api/report');
 
 /**
+ * GET /api/report/export — returns { markdown } (Deep-Research Report
+ * export, 2e-5). Unguarded, read-only — mirrors exportNotes.
+ */
+export const exportReport = () => get('/api/report/export');
+
+/**
  * POST /api/report/plan { topic } — Editable Research Plan (2e-4).
  * MUTATING (saves a draft plan) + guarded (409 with no active workspace,
  * like refreshReport) but SYNCHRONOUS -- one LLM call, like

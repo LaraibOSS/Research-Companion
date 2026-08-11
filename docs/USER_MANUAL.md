@@ -1215,6 +1215,22 @@ When you run the report (whether via the one-shot "Generate report" button or by
 
 ---
 
+## 32. Report Export — save or share your report as markdown
+
+Once you've generated a report, a **Download (.md)** button next to "Score evidence" lets you save the whole report — topic, every question and answer, its citations, relevance/stance badges (where scored), coverage (where computed), and unverified-quote notes — as a single plain-text markdown file you can open, paste into a note, or share with a collaborator.
+
+**How to use it:**
+
+1. Generate a report (and optionally run **Score evidence** / let coverage compute).
+2. Click **Download (.md)**. Your browser downloads a file named `research-report.md`.
+3. Open it in any text or markdown editor — it reads as a clean literature-review document: a `#` title, an overall coverage line (if computed), then each question as a `##` heading with its answer, a **Citations** list, and any unverified-quote or error notes.
+
+**Honesty carries into the file:** the export is not a "cleaner" or "more certain" version of the report — it repeats exactly what the app already told you. Relevance/stance badges are written as plain text like `_[relevance 80%, supports]_` and the file's footer explicitly states these are AI judgments, not independently verified. Coverage numbers are followed by a note that coverage is a BM25 heuristic relative to your own library search, not a ground-truth measure. Unverified quotes keep their "not found verbatim in your library" caveat. Nothing in the file is fabricated — it only ever repeats what's already in your saved report.
+
+**Before you've generated a report**, the Download button is disabled — there is nothing to export yet.
+
+---
+
 ### Roadmap (what's next)
 
 The MCP trust-layer server shipped in 0.7.0 (`research-companion mcp serve`, four

@@ -3193,6 +3193,21 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     "coverage": None, "coverage_generated_from": None, "plan": None}
 
     # -----------------------------------------------------------------
+    # GET /api/report/export  (Deep-Research Report Export, 2e-5)
+    # UNGUARDED, read-only, never-500 -- mirrors GET /api/notes/export.
+    # No active workspace / no saved report both degrade to {"markdown": ""},
+    # never a 409/500. Additive: no change to GET /api/report's own shape.
+    # -----------------------------------------------------------------
+    @app.get("/api/report/export")
+    async def export_report_endpoint() -> dict:
+        from research_companion import report_export, store
+        try:
+            report = await asyncio.to_thread(store.load_report)
+            return {"markdown": report_export.report_to_markdown(report) if isinstance(report, dict) else ""}
+        except Exception:  # noqa: BLE001 — read-only export must never 500
+            return {"markdown": ""}
+
+    # -----------------------------------------------------------------
     # POST /api/report/plan  (Editable Research Plan, 2e-4)
     # SYNCHRONOUS -- one LLM call, seconds, like /api/directions -- NOT a
     # background job. Guarded (MUTATING: saves a draft plan). Never 500s:
