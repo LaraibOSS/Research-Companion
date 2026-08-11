@@ -4678,6 +4678,75 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
  * W3-F7: Explainer banners
  * --------------------------------------------------------------------------- */
 
+/* Persistent per-page help: a "?" the router attaches to every view, and the
+   panel it opens (what the page does / what it uses / verification note). */
+.rc-help-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 84px;            /* clears the converse launcher */
+  z-index: 40;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elev, var(--color-bg));
+  color: var(--color-fg-dim);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+.rc-help-fab:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.rc-help-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 122px;
+  z-index: 41;
+  width: min(380px, calc(100vw - 36px));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--space-4);
+  background: var(--color-bg-elev, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+}
+.rc-help-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.rc-help-title { margin: 0; font-size: var(--text-md); font-weight: 700; }
+.rc-help-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-fg-dim); font-size: var(--text-lg); line-height: 1; padding: 0 2px;
+}
+.rc-help-close:hover { color: var(--color-fg); }
+.rc-help-what, .rc-help-based, .rc-help-disclaimer {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-dim);
+  line-height: 1.55;
+}
+.rc-help-label {
+  margin-top: var(--space-4);
+  font-size: var(--text-xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--color-fg-dim);
+  opacity: .8;
+}
+.rc-help-disclaimer.is-ai {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-warn);
+  background: rgba(var(--accent-rgb), 0.06);
+  border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
+}
+
 .rc-explainer {
   display: flex;
   align-items: center;
