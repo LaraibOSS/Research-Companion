@@ -227,6 +227,14 @@ try:
         direction_type: str = ""
         citations: list[dict] = []
 
+    class _BrainstormSessionBody(_BaseModel):
+        """PUT /api/brainstorm/session body -- persists the Brainstorm tab's
+        session blob (topic, discovered papers, directions, novelty verdicts,
+        the brief, session paper ids) so the tab survives revisits/reloads.
+        MUTATING (writes brainstorm_session.json) -- guarded. Shape is owned by
+        the frontend; the server stores it as-is."""
+        session: dict = {}
+
     class _ReportBody(_BaseModel):
         """POST /api/report/refresh body -- Deep-Research Report (2e-1).
         MUTATING (writes research_report.json) -- unlike _DirectionsBody/
@@ -989,6 +997,32 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             "section_count": len(outline.get("sections", [])),
             "replaced_draft": replaced,
         }
+
+    # -----------------------------------------------------------------
+    # GET/PUT /api/brainstorm/session — persist the Brainstorm tab per research
+    # so it survives revisits/reloads (was in-memory only). GET is read-only
+    # and unguarded (returns {session: null} when nothing saved / no research);
+    # PUT is MUTATING and guarded. Both never-500.
+    # -----------------------------------------------------------------
+    @app.get("/api/brainstorm/session")
+    async def get_brainstorm_session() -> dict:
+        from research_companion import store
+        try:
+            session = await asyncio.to_thread(store.load_brainstorm_session)
+        except Exception:  # noqa: BLE001
+            session = None
+        return {"session": session}
+
+    @app.put("/api/brainstorm/session",
+             dependencies=[Depends(require_active_workspace)])
+    async def put_brainstorm_session(body: _BrainstormSessionBody) -> dict:
+        from research_companion import store
+        session = body.session if isinstance(body.session, dict) else {}
+        try:
+            saved = await asyncio.to_thread(store.save_brainstorm_session, session)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"Could not save session: {exc}"}
+        return {"ok": saved is not None}
 
     # -----------------------------------------------------------------
     # POST /api/papers  (add a paper)

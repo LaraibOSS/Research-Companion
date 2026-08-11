@@ -30,6 +30,7 @@ import {
 import { directionResultModel, sortDirections } from '../directionsHelpers.js';
 import { noveltyResultModel } from '../noveltyHelpers.js';
 import { scaffoldPanelModel } from '../scaffoldHelpers.js';
+import { serializeSession, hydrateSession, sessionHasContent } from '../brainstormSessionHelpers.js';
 import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,9 @@ let _directionsSortCol = 'score';
 let _directionsSortDir = 'desc';
 let _noveltyByDirectionId = new Map(); // directionId -> {loading, error, result} — survives full _render()
 let _scaffoldByDirectionId = new Map(); // directionId -> {loading, error, result} — survives full _render()
+let _topic = '';            // last searched/typed topic — persisted so the box refills on revisit
+let _hydrating = false;     // true while restoring a saved session (suppresses re-save)
+let _persistTimer = null;   // debounce handle for _persist()
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -78,11 +82,74 @@ export function mount(el) {
   _directionsSortDir = 'desc';
   _noveltyByDirectionId = new Map();
   _scaffoldByDirectionId = new Map();
+  _topic = '';
   _render();
+  _hydrate();
 }
 
 export function unmount() {
+  if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
   _el = null;
+}
+
+// ---------------------------------------------------------------------------
+// Session persistence (per research; survives revisits/reloads)
+// ---------------------------------------------------------------------------
+
+// Restore a saved Brainstorm session on mount. Non-fatal: any failure just
+// leaves the fresh empty tab. Never re-saves what it just loaded.
+async function _hydrate() {
+  let payload = null;
+  try {
+    const data = await api.getBrainstormSession();
+    payload = data && data.session;
+  } catch {
+    payload = null;
+  }
+  if (!_el || !sessionHasContent(payload)) return;
+
+  _hydrating = true;
+  const s = hydrateSession(payload);
+  _topic = s.topic;
+  _rawResults = s.rawResults;
+  _queriesUsed = s.queriesUsed;
+  _expandedFlag = s.expandedFlag;
+  _hasSearched = s.hasSearched || s.rawResults.length > 0;
+  _rawDirections = s.rawDirections;
+  _directionsHasGenerated = s.directionsHasGenerated || s.rawDirections.length > 0;
+  _libraryIds = new Set(s.libraryIds);
+  _noveltyByDirectionId = new Map(
+    Object.entries(s.novelty).map(([id, result]) => [id, { loading: false, error: null, result }]),
+  );
+  _hydrating = false;
+  _render();
+}
+
+// Serialize the tab's state and persist it (debounced). PUT is workspace-
+// guarded; with no active research it simply fails and is ignored — the
+// session saves once a research exists (adding a paper creates one).
+function _persist() {
+  if (_hydrating) return;
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    const novelty = {};
+    for (const [id, entry] of _noveltyByDirectionId) {
+      if (entry && entry.result) novelty[id] = entry.result;
+    }
+    const payload = serializeSession({
+      topic: _topic,
+      queriesUsed: _queriesUsed,
+      expandedFlag: _expandedFlag,
+      rawResults: _rawResults,
+      rawDirections: _rawDirections,
+      hasSearched: _hasSearched,
+      directionsHasGenerated: _directionsHasGenerated,
+      novelty,
+      libraryIds: [..._libraryIds],
+    });
+    api.putBrainstormSession(payload).catch(() => {});
+  }, 500);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +197,7 @@ async function _search() {
   _loading = true;
   _error = null;
   _hasSearched = true;
+  _topic = trimmed;
   _render();
 
   try {
@@ -145,6 +213,7 @@ async function _search() {
   } finally {
     _loading = false;
     _render();
+    _persist();
   }
 }
 
@@ -155,6 +224,7 @@ async function _addOne(model) {
       for (const id of _modelIds(model)) _libraryIds.add(id);
       showToast(`Added "${_unescapeForToast(model.title)}"`, 'info');
       _render();
+      _persist();
     } catch (err) {
       showToast(err.message || 'Failed to add paper', 'error');
     }
@@ -177,6 +247,7 @@ async function _addAll() {
     }
     showToast(`Added ${added} paper${added === 1 ? '' : 's'}`, 'info');
     _render();
+    _persist();
   });
 }
 
@@ -202,6 +273,7 @@ async function _generateDirections() {
   _directionsLoading = true;
   _directionsError = null;
   _directionsHasGenerated = true;
+  if (topic) _topic = topic;
   _render();
 
   try {
@@ -214,6 +286,7 @@ async function _generateDirections() {
   } finally {
     _directionsLoading = false;
     _render();
+    _persist();
   }
 }
 
@@ -235,6 +308,7 @@ function _render() {
       </div>
       <div class="brainstorm-controls">
         <input id="brainstorm-search-input" type="text" class="brainstorm-search-input"
+               value="${escapeHtml(_topic)}"
                placeholder="e.g. graph neural networks for code" aria-label="Topic to search">
         <input id="brainstorm-year-min" type="number" class="brainstorm-year-input"
                placeholder="Year from" aria-label="Year from">
@@ -416,6 +490,7 @@ async function _checkNovelty(directionId) {
     panel.innerHTML = _noveltyPanelHtml(directionId, _noveltyByDirectionId.get(directionId));
     _bindNoveltyPanelEvents(panel, directionId);
   }
+  _persist();
 }
 
 function _bindNoveltyPanelEvents(panel, directionId) {

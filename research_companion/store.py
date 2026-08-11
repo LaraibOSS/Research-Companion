@@ -1140,6 +1140,44 @@ def load_gap_synthesis() -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Brainstorm session artifact (Phase 2 — persist the Brainstorm tab per research
+# so it survives revisits/reloads instead of resetting to empty).
+# ---------------------------------------------------------------------------
+
+def brainstorm_session_path() -> Path | None:
+    """Return papergraph_dir()/brainstorm_session.json, or None when none active."""
+    return workspace_path("brainstorm_session.json")
+
+
+def save_brainstorm_session(payload: dict) -> Path | None:
+    """Persist the Brainstorm tab's session blob as-is (topic, discovered
+    papers, directions, novelty verdicts, the brief, session paper ids).
+
+    Mirrors save_gap_synthesis: the caller (the frontend, via the endpoint)
+    owns the shape and any version field; this writes it verbatim. Returns None
+    when no workspace is active."""
+    p = brainstorm_session_path()
+    if p is None:
+        return None
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_brainstorm_session() -> dict | None:
+    """Load brainstorm_session.json. Returns None if missing, unparseable, not
+    a dict, or no active workspace — mirrors load_gap_synthesis."""
+    p = brainstorm_session_path()
+    if p is None or not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Deep-Research Report artifact (Phase 2, slice 2e-1)
 # ---------------------------------------------------------------------------
 

@@ -960,6 +960,11 @@ rather than a paper you already have. Open it from the left-hand nav (it
 sits near the top, next to Home) and type a rough topic or working title —
 anything from a single phrase to a half-formed working title works.
 
+Your Brainstorm session is **saved to the research** as you go — your topic,
+the papers you found, the research directions, and any novelty verdicts. Leave
+the tab and come back (or reload) and it's all still there, so you never have
+to start the search over. Each research keeps its own separate session.
+
 - **Search** runs a free, keyless literature search (Semantic Scholar,
   falling back to OpenAlex, plus any domain connectors you've enabled in
   Settings) against exactly what you typed.

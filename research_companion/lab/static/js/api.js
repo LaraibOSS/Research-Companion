@@ -514,6 +514,17 @@ export function directions(params = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Brainstorm session persistence (per research; survives revisits/reloads)
+// ---------------------------------------------------------------------------
+
+/** GET /api/brainstorm/session -> { session: <blob>|null }. Never errors. */
+export const getBrainstormSession = () => get('/api/brainstorm/session');
+
+/** PUT /api/brainstorm/session { session } -> { ok }. Guarded (needs an active research). */
+export const putBrainstormSession = (session) =>
+  _fetch('PUT', '/api/brainstorm/session', { session });
+
+// ---------------------------------------------------------------------------
 // Novelty Gate endpoint (feat/brainstorm-novelty, Brainstorm 2c)
 // ---------------------------------------------------------------------------
 
