@@ -184,6 +184,15 @@ export const scanFolder = (folder) => post('/api/ingest/scan', { folder });
 export const align = (paperId, against, force = false) =>
   post('/api/align', { paper_id: paperId, against: against || null, force });
 
+/**
+ * POST /api/draft/analyze — "Analyze this draft": bulk-align every analyzed
+ * library paper against the current draft as a background job. Returns
+ * { ok: true, job_id, total } on start, or { ok: false, error } when there is
+ * no draft / no model / nothing to analyze (never a 500).
+ */
+export const analyzeDraft = (force = false) =>
+  post('/api/draft/analyze', { force });
+
 /** POST /api/ask — body: { question, section_id? } */
 export const ask = (question, sectionId) =>
   post('/api/ask', { question, section_id: sectionId || null });

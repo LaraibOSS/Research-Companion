@@ -17,6 +17,7 @@ import { stanceIcon, strengthColor, escapeHtml, authorsLine } from '../format.js
 import { explainerBanner } from '../components/explainer.js';
 import { tip } from '../glossary.js';
 import { opportunityModel } from '../opportunityHelpers.js';
+import { draftSectionModel } from '../draftHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
@@ -24,6 +25,10 @@ let _el = null;
 let _unsub = null;
 let _selectedSectionId = null;
 let _alignment = null;   // cached { sections: [...] }
+// True when the section list is the draft's OWN outline (no alignment computed
+// yet) rather than per-paper alignment — drives the "Analyze this draft"
+// affordance. See draftSectionModel().
+let _fromOutline = false;
 // Evidence quotes for the currently-rendered detail, indexed by data-quote-idx.
 // Kept out of HTML attributes (quotes may contain quotes/newlines).
 let _evidenceQuotes = [];
@@ -72,7 +77,7 @@ const OPP_FOCUS_HINTS = {
 
 export function mount(el) {
   _el = el;
-  _unsub = store.subscribe(['papers', 'alignment'], () => _render());
+  _unsub = store.subscribe(['papers', 'alignment', 'activity'], () => _render());
   _render();
   // Explainer banner (shown once until dismissed)
   const banner = explainerBanner(
@@ -86,6 +91,7 @@ export function unmount() {
   if (_unsub) { _unsub(); _unsub = null; }
   _el = null;
   _alignment = null;
+  _fromOutline = false;
   _selectedSectionId = null;
   _opportunities = null;
   _oppExpandedSections = new Set();
@@ -168,7 +174,24 @@ async function _render() {
 
   if (!_el) return;
 
-  const sections = (_alignment && _alignment.sections) || [];
+  // Section list = per-paper alignment when it exists; otherwise fall back to
+  // the draft's OWN outline (GET /api/sections) so a freshly-created or
+  // just-set draft shows its sections instead of "No sections found."
+  let sections = (_alignment && _alignment.sections) || [];
+  _fromOutline = false;
+  if (sections.length === 0) {
+    let outline = [];
+    try {
+      outline = await api.getSections();
+    } catch {
+      outline = [];
+    }
+    const model = draftSectionModel(sections, outline);
+    sections = model.sections;
+    _fromOutline = model.fromOutline;
+  }
+
+  if (!_el) return;
 
   // Default to first section
   if (!_selectedSectionId && sections.length > 0) {
@@ -226,14 +249,89 @@ function _renderNoDraft(papers) {
 
 function _renderColumns(sections) {
   _el.innerHTML = `
+    ${_toolbarHtml()}
     <div class="draft-layout">
       <div class="draft-section-list" id="draft-section-list"></div>
       <div class="draft-detail" id="draft-detail"></div>
     </div>
   `;
 
+  _wireToolbar();
   _renderSectionList(sections);
   _renderDetail(sections);
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar: "Analyze this draft" (bulk-align every library paper against the
+// current draft). Alignment normally runs at ingest time; a draft created or
+// set afterwards has none, so this is the one-click, opt-in way to (re)run it.
+// ---------------------------------------------------------------------------
+
+// Count non-draft library papers that finished analysis (can be aligned).
+function _analyzablePaperCount() {
+  const { draftId, papers } = store.getState();
+  let n = 0;
+  for (const p of papers.values()) {
+    if (p.paper_id !== draftId && p.status === 'done') n += 1;
+  }
+  return n;
+}
+
+// True while the bulk-align job is in flight — derived from the shared active-
+// jobs map (set by JobStarted, cleared by JobFinished) rather than a local flag,
+// so the button auto-resets when the job ends even across re-renders.
+function _analyzeJobRunning() {
+  const { activeJobs } = store.getState();
+  if (!activeJobs) return false;
+  for (const job of activeJobs.values()) {
+    if (job.kind === 'analyze') return true;
+  }
+  return false;
+}
+
+function _toolbarHtml() {
+  const count = _analyzablePaperCount();
+  const running = _analyzeJobRunning();
+  const hint = (_fromOutline && !running)
+    ? `<span class="draft-toolbar-hint muted">This draft hasn't been analyzed against your library yet.</span>`
+    : '';
+  const label = running ? 'Analyzing…' : 'Analyze this draft';
+  const disabled = (running || count === 0) ? 'disabled' : '';
+  const titleAttr = count === 0
+    ? 'title="Add and analyze papers first"'
+    : `title="Aligns all ${count} analyzed paper${count !== 1 ? 's' : ''} in your library against this draft (uses your model)"`;
+  return `
+    <div class="draft-toolbar">
+      ${hint}
+      <button class="btn btn-sm btn-accent draft-analyze-btn" id="draft-analyze-btn" ${disabled} ${titleAttr}>
+        ${escapeHtml(label)}
+      </button>
+    </div>`;
+}
+
+function _wireToolbar() {
+  const btn = _el.querySelector('#draft-analyze-btn');
+  if (btn) btn.addEventListener('click', _analyzeDraft);
+}
+
+async function _analyzeDraft() {
+  if (_analyzeJobRunning()) return;
+  const btn = _el && _el.querySelector('#draft-analyze-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Analyzing…'; }  // optimistic until JobStarted arrives
+  try {
+    const res = await api.analyzeDraft();
+    if (res && res.ok) {
+      showToast(`Analyzing ${res.total} paper${res.total !== 1 ? 's' : ''} against your draft…`, 'info');
+      // The bulk-align job publishes AlignmentReady per paper (repaints as
+      // sections populate) and JobStarted/JobFinished (drives the button state).
+    } else {
+      showToast((res && res.error) || 'Could not start analysis.', 'error');
+      if (btn) { btn.disabled = _analyzablePaperCount() === 0; btn.textContent = 'Analyze this draft'; }
+    }
+  } catch (err) {
+    showToast(`Analysis failed to start: ${err.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Analyze this draft'; }
+  }
 }
 
 // ---------------------------------------------------------------------------

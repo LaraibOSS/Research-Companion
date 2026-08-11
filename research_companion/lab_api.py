@@ -132,6 +132,9 @@ try:
         against: str | None = None
         force: bool = False
 
+    class _AnalyzeDraftBody(_BaseModel):
+        force: bool = False
+
     class _AskBody(_BaseModel):
         question: str = ""
         section_id: str | None = None
@@ -450,6 +453,13 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
             paper_id, prompt_sha=prompt_sha) is not None:
         status = "done"
 
+    # A scaffolded draft ("Draft this direction") is a materialized outline with
+    # text + sections but no extraction — it never runs the ingest pipeline, so
+    # the extraction check above leaves it "pending" forever. It is nonetheless a
+    # ready, usable draft: report it done. (Real papers are unaffected.)
+    if status == "pending" and getattr(meta, "parse_source", "") == "scaffold":
+        status = "done"
+
     strength_payload = store.load_strength(paper_id)
     if strength_payload is not None:
         strength = {
@@ -660,6 +670,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # "Simplify further" (reader tab) job seam -- mirrors retry_override: a
     # full coroutine(paper_id) replacement so tests never hit a real LLM.
     app.state.simplify_override = None
+    # "Analyze this draft" bulk-align seam: a callable(draft_id, candidate_id, *,
+    # llm, force) -> alignment payload, injected in tests so the analyze job never
+    # hits a real LLM. None ⇒ the real alignment.align_papers.
+    app.state.aligner_override = None
+    # Single-flight guard so overlapping Analyze clicks don't double-run.
+    app.state.analyze_draft_running = False
 
     # Pipeline-stage seams for add/retry tasks — mirrors LAB_INGEST_OVERRIDES style.
     # Tests inject counting/spying fakes here; production code leaves these None
@@ -2118,6 +2134,112 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         draft_id = store.get_draft_paper_id()
         return await asyncio.to_thread(build_opportunities, draft_id)
+
+    # -----------------------------------------------------------------
+    # POST /api/draft/analyze  ("Analyze this draft") — bulk-align every
+    # analyzable library paper against the CURRENT draft as a background job.
+    # The ingest pipeline aligns papers against the draft that was active at
+    # ingest time; a draft set/created later (e.g. "Draft this direction")
+    # has no alignments, leaving the Draft tab empty. This is the one-click,
+    # opt-in way to (re)run alignment against the current draft.
+    #
+    # never-500: friendly 200 {"ok": False, "error"} + NO job when there is no
+    # draft, no LLM, or nothing to analyze; a per-paper failure never aborts the
+    # job. Reuses the AlignmentReady event so the Draft view refreshes with no
+    # new frontend plumbing.
+    # -----------------------------------------------------------------
+    @app.post("/api/draft/analyze",
+              dependencies=[Depends(require_active_workspace)])
+    async def analyze_draft(body: _AnalyzeDraftBody) -> dict:
+        from research_companion import store
+
+        draft_id = store.get_draft_paper_id()
+        if draft_id is None:
+            return {"ok": False, "error": "No draft set. Set a draft first."}
+
+        resolved_llm = app.state.llm
+        if resolved_llm is None:
+            try:
+                resolved_llm = _resolve_llm()
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"No model configured: {exc}"}
+        if resolved_llm is None:
+            return {"ok": False,
+                    "error": "No model configured. Add an API key in Settings."}
+
+        # Analyzable = every non-draft paper that finished ingest (has an
+        # extraction). Pending/failed papers cannot be aligned.
+        from research_companion.prompts import extraction_prompt_sha256
+        papers = await asyncio.to_thread(store.list_papers)
+        prompt_sha = extraction_prompt_sha256()
+        candidates = []
+        for meta in papers:
+            if meta.paper_id == draft_id:
+                continue
+            if await asyncio.to_thread(
+                    store.load_extraction, meta.paper_id, prompt_sha=prompt_sha
+            ) is not None:
+                candidates.append(meta.paper_id)
+
+        if not candidates:
+            return {"ok": False,
+                    "error": "No analyzed papers to align. Add and analyze "
+                             "papers first."}
+
+        if app.state.analyze_draft_running:
+            return {"ok": False, "error": "An analysis is already running."}
+
+        force = bool(body.force)
+        aligner = app.state.aligner_override
+        if aligner is None:
+            from research_companion.alignment import align_papers as aligner
+
+        total = len(candidates)
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Analyzing draft (0/{total})"
+        app.state.analyze_draft_running = True
+        app.state.jobs[job_id] = {"status": "running", "detail": None,
+                                  "kind": "analyze", "label": label, "target": ""}
+
+        async def _run_analyze():
+            from research_companion.agents.events import AlignmentReady
+            await _announce_start(job_id, "analyze", label)
+            done = 0
+            failed = 0
+            try:
+                for cand_id in candidates:
+                    detail = f"Analyzing draft ({done}/{total})"
+                    app.state.jobs[job_id] = {
+                        "status": "running", "detail": detail, "kind": "analyze",
+                        "label": detail, "target": ""}
+                    try:
+                        payload = await asyncio.to_thread(
+                            aligner, draft_id, cand_id,
+                            llm=resolved_llm, force=force)
+                        with suppress(Exception):
+                            await bus.publish(AlignmentReady(
+                                paper_id=cand_id,
+                                draft_paper_id=draft_id,
+                                verdict=str(payload.get("verdict", "")),
+                                score=float(payload.get("score", 0.0) or 0.0)))
+                    except Exception:  # noqa: BLE001 — one paper must not abort the run
+                        failed += 1
+                    done += 1
+                final = f"Analyzed {done - failed}/{total} papers"
+                app.state.jobs[job_id] = {
+                    "status": "done", "detail": final, "kind": "analyze",
+                    "label": final, "target": ""}
+            except Exception as exc:  # noqa: BLE001
+                app.state.jobs[job_id] = {
+                    "status": "failed", "detail": str(exc), "kind": "analyze",
+                    "label": label, "target": ""}
+            finally:
+                app.state.analyze_draft_running = False
+                await _announce_finish(job_id, "analyze")
+
+        asyncio.create_task(_run_analyze())
+        return {"ok": True, "job_id": job_id, "total": total}
 
     # -----------------------------------------------------------------
     # Citation placement — is each cited paper in the right section?
