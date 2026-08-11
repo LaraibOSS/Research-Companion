@@ -31,6 +31,10 @@ import { directionResultModel, sortDirections } from '../directionsHelpers.js';
 import { noveltyResultModel } from '../noveltyHelpers.js';
 import { scaffoldPanelModel } from '../scaffoldHelpers.js';
 import { serializeSession, hydrateSession, sessionHasContent } from '../brainstormSessionHelpers.js';
+import {
+  briefModel, setBulletText, deleteBullet, addBullet, deleteSection, moveBullet,
+} from '../briefHelpers.js';
+import { buildNoteRecord } from '../noteRecord.js';
 import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
@@ -58,6 +62,11 @@ let _scaffoldByDirectionId = new Map(); // directionId -> {loading, error, resul
 let _topic = '';            // last searched/typed topic — persisted so the box refills on revisit
 let _hydrating = false;     // true while restoring a saved session (suppresses re-save)
 let _persistTimer = null;   // debounce handle for _persist()
+let _brief = null;          // raw brief {brief_id, topic, sections:[...]} | null — persisted
+let _briefLoading = false;
+let _briefError = null;
+let _briefEditing = null;   // {si, bi} of the bullet being inline-edited, or null
+let _briefNoteFor = null;   // {si, bi} of the bullet with an open note form, or null
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -83,6 +92,11 @@ export function mount(el) {
   _noveltyByDirectionId = new Map();
   _scaffoldByDirectionId = new Map();
   _topic = '';
+  _brief = null;
+  _briefLoading = false;
+  _briefError = null;
+  _briefEditing = null;
+  _briefNoteFor = null;
   _render();
   _hydrate();
 }
@@ -121,6 +135,7 @@ async function _hydrate() {
   _noveltyByDirectionId = new Map(
     Object.entries(s.novelty).map(([id, result]) => [id, { loading: false, error: null, result }]),
   );
+  _brief = s.brief;
   _hydrating = false;
   _render();
 }
@@ -147,6 +162,7 @@ function _persist() {
       directionsHasGenerated: _directionsHasGenerated,
       novelty,
       libraryIds: [..._libraryIds],
+      brief: _brief,
     });
     api.putBrainstormSession(payload).catch(() => {});
   }, 500);
@@ -331,6 +347,7 @@ function _render() {
           </button>
         </div>` : ''}
       ${_directionsSectionHtml()}
+      ${_briefSectionHtml()}
     </div>`;
 
   _bindEvents();
@@ -631,4 +648,223 @@ function _bindEvents() {
   _el.querySelectorAll('.brainstorm-scaffold-btn, .brainstorm-scaffold-retry-btn').forEach(btn => {
     btn.addEventListener('click', () => _scaffoldDraft(btn.dataset.directionId));
   });
+
+  _bindBriefEvents();
+}
+
+// Parse {si, bi} from a data-attribute element (bi optional).
+function _briefIdx(el) {
+  return { si: Number(el.dataset.si), bi: el.dataset.bi != null ? Number(el.dataset.bi) : -1 };
+}
+
+function _bindBriefEvents() {
+  const briefBtn = _el.querySelector('#brainstorm-brief-btn');
+  if (briefBtn) briefBtn.addEventListener('click', () => _generateBrief());
+  const briefRetry = _el.querySelector('#brainstorm-brief-retry-btn');
+  if (briefRetry) briefRetry.addEventListener('click', () => _generateBrief());
+
+  // Edit a bullet: swap to an inline editor.
+  _el.querySelectorAll('[data-brief-edit]').forEach(b => b.addEventListener('click', () => {
+    _briefNoteFor = null; _briefEditing = _briefIdx(b); _render();
+    const inp = _el.querySelector('.brief-edit-input');
+    if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+  }));
+  _el.querySelectorAll('[data-brief-save]').forEach(b => b.addEventListener('click', () => {
+    const inp = _el.querySelector('.brief-edit-input');
+    const { si, bi } = _briefIdx(b);
+    _brief = setBulletText(_brief, si, bi, inp ? inp.value : '');
+    _briefEditing = null; _render(); _persist();
+  }));
+  _el.querySelectorAll('[data-brief-cancel]').forEach(b => b.addEventListener('click', () => {
+    _briefEditing = null; _render();
+  }));
+  _el.querySelectorAll('[data-brief-del-bullet]').forEach(b => b.addEventListener('click', () => {
+    const { si, bi } = _briefIdx(b); _brief = deleteBullet(_brief, si, bi); _render(); _persist();
+  }));
+  _el.querySelectorAll('[data-brief-up]').forEach(b => b.addEventListener('click', () => {
+    const { si, bi } = _briefIdx(b); _brief = moveBullet(_brief, si, bi, -1); _render(); _persist();
+  }));
+  _el.querySelectorAll('[data-brief-down]').forEach(b => b.addEventListener('click', () => {
+    const { si, bi } = _briefIdx(b); _brief = moveBullet(_brief, si, bi, 1); _render(); _persist();
+  }));
+  _el.querySelectorAll('[data-brief-add-bullet]').forEach(b => b.addEventListener('click', () => {
+    const { si } = _briefIdx(b);
+    _brief = addBullet(_brief, si, '');
+    // open the new (last) bullet for editing straight away
+    const secs = (_brief && _brief.sections) || [];
+    _briefEditing = { si, bi: (secs[si] && secs[si].bullets ? secs[si].bullets.length - 1 : 0) };
+    _render();
+    const inp = _el.querySelector('.brief-edit-input');
+    if (inp) inp.focus();
+  }));
+  _el.querySelectorAll('[data-brief-del-section]').forEach(b => b.addEventListener('click', () => {
+    const { si } = _briefIdx(b); _brief = deleteSection(_brief, si); _render(); _persist();
+  }));
+
+  // Notes: toggle a small inline note form, save via the shared notes store.
+  _el.querySelectorAll('[data-brief-note]').forEach(b => b.addEventListener('click', () => {
+    const idx = _briefIdx(b);
+    _briefEditing = null;
+    _briefNoteFor = (_briefNoteFor && _briefNoteFor.si === idx.si && _briefNoteFor.bi === idx.bi) ? null : idx;
+    _render();
+    const ta = _el.querySelector('.brief-note-input');
+    if (ta) ta.focus();
+  }));
+  _el.querySelectorAll('[data-brief-note-cancel]').forEach(b => b.addEventListener('click', () => {
+    _briefNoteFor = null; _render();
+  }));
+  _el.querySelectorAll('[data-brief-note-save]').forEach(b => b.addEventListener('click', () => _saveBriefNote(b)));
+
+  // Citation chip -> open that paper in the Library.
+  _el.querySelectorAll('.brief-cite[data-paper-id]').forEach(chip => chip.addEventListener('click', () => {
+    const paperId = chip.dataset.paperId;
+    if (!paperId) return;
+    window.__rcPendingPaper = paperId;
+    window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
+    window.location.hash = '#/library';
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Brief — grounded bullet outline (session-level). Editable, note-able.
+// ---------------------------------------------------------------------------
+
+function _briefButtonEnabled() {
+  const topic = ((_el.querySelector('#brainstorm-search-input') || {}).value || '').trim() || _topic;
+  const { papers, draftId } = store.getState();
+  let hasPapers = false;
+  for (const p of papers.values()) { if (p.paper_id !== draftId) { hasPapers = true; break; } }
+  return topic.length > 0 || hasPapers || _libraryIds.size > 0;
+}
+
+async function _generateBrief() {
+  if (!_el || _briefLoading) return;
+  const topic = ((_el.querySelector('#brainstorm-search-input') || {}).value || '').trim() || _topic;
+  if (topic) _topic = topic;
+  _briefLoading = true;
+  _briefError = null;
+  _briefEditing = null;
+  _briefNoteFor = null;
+  _render();
+
+  try {
+    const data = await api.brief({ topic, sessionPaperIds: [..._libraryIds] });
+    if (data && data.ok && data.brief) {
+      _brief = data.brief;
+      _briefError = (data.brief.sections || []).length === 0
+        ? 'No grounded bullets yet — add a few papers to your library first, then generate.'
+        : null;
+    } else {
+      _briefError = (data && data.error) || 'Could not generate a brief.';
+    }
+  } catch (err) {
+    _briefError = err.message || 'Could not generate a brief.';
+  } finally {
+    _briefLoading = false;
+    _render();
+    _persist();
+  }
+}
+
+async function _saveBriefNote(btn) {
+  const { si, bi } = _briefIdx(btn);
+  const ta = _el.querySelector('.brief-note-input');
+  const comment = (ta ? ta.value : '').trim();
+  if (!comment) { _briefNoteFor = null; _render(); return; }
+  const secs = (_brief && _brief.sections) || [];
+  const bullet = secs[si] && secs[si].bullets ? secs[si].bullets[bi] : null;
+  const excerpt = bullet ? String(bullet.text || '') : '';
+  try {
+    await api.saveNote(buildNoteRecord('freeform', { comment, sourceExcerpt: excerpt }));
+    showToast('Saved to Notes', 'info');
+  } catch (err) {
+    showToast(err.message || 'Could not save note', 'error');
+  }
+  _briefNoteFor = null;
+  _render();
+}
+
+// --- brief rendering (model fields are pre-escaped by briefModel) ----------
+
+function _briefSectionHtml() {
+  const enabled = _briefButtonEnabled();
+  const btnLabel = _briefLoading ? 'Generating…' : (_brief ? 'Regenerate brief' : 'Generate brief');
+  let body;
+  if (_briefLoading) {
+    body = '<div class="brainstorm-brief-loading muted">Generating a grounded brief from your papers&hellip;</div>';
+  } else if (_briefError && !_brief) {
+    body = `<div class="brainstorm-brief-error">${escapeHtml(_briefError)}
+      <button id="brainstorm-brief-retry-btn" class="btn btn-sm">Retry</button></div>`;
+  } else if (_brief) {
+    const model = briefModel(_brief);
+    if (model.isEmpty) {
+      body = `<div class="brainstorm-brief-empty muted">${escapeHtml(_briefError
+        || 'No grounded bullets — add a few papers, then regenerate.')}</div>`;
+    } else {
+      body = `<p class="brainstorm-brief-caption muted">AI-suggested from your brainstorm &mdash; grounded in your papers, edit freely.</p>
+        <div class="brief-sections">${model.sections.map(_briefSectionCardHtml).join('')}</div>`;
+    }
+  } else {
+    body = '<div class="brainstorm-brief-empty muted">Generate a brief to turn your papers into headings with cited bullet points you can edit and note.</div>';
+  }
+  return `
+    <div class="brainstorm-brief-section">
+      <div class="brainstorm-brief-head">
+        <h3>Brief</h3>
+        <button id="brainstorm-brief-btn" class="btn btn-accent btn-sm"${(enabled && !_briefLoading) ? '' : ' disabled'}>${escapeHtml(btnLabel)}</button>
+      </div>
+      ${body}
+    </div>`;
+}
+
+function _briefSectionCardHtml(sec) {
+  const bullets = sec.bullets.map(b => _briefBulletHtml(sec.index, b)).join('');
+  return `
+    <div class="brief-section" data-si="${sec.index}">
+      <div class="brief-section-head">
+        <span class="brief-section-title">${sec.title}</span>
+        <button class="brief-icon-btn brief-del-section" data-brief-del-section data-si="${sec.index}" title="Remove section">Remove</button>
+      </div>
+      <ul class="brief-bullets">${bullets}</ul>
+      <button class="btn btn-xs brief-add-bullet" data-brief-add-bullet data-si="${sec.index}">+ bullet</button>
+    </div>`;
+}
+
+function _briefBulletHtml(si, b) {
+  const editing = _briefEditing && _briefEditing.si === si && _briefEditing.bi === b.index;
+  if (editing) {
+    return `<li class="brief-bullet brief-bullet-editing" data-si="${si}" data-bi="${b.index}">
+      <input class="brief-edit-input" type="text" value="${escapeHtml(b.rawText)}" aria-label="Edit bullet">
+      <button class="btn btn-xs" data-brief-save data-si="${si}" data-bi="${b.index}">Save</button>
+      <button class="btn btn-xs btn-ghost" data-brief-cancel>Cancel</button>
+    </li>`;
+  }
+  const noting = _briefNoteFor && _briefNoteFor.si === si && _briefNoteFor.bi === b.index;
+  const cites = b.citations.map(c =>
+    `<span class="brief-cite" data-paper-id="${c.paperId}" title="Open ${c.label}">${c.label}</span>`).join('');
+  const citesHtml = cites
+    ? `<span class="brief-cites">${cites}</span>`
+    : (b.userAdded ? '<span class="brief-cite brief-cite-yours">your note</span>' : '');
+  const noteForm = noting ? `
+    <div class="brief-note-form">
+      <textarea class="brief-note-input" rows="2" placeholder="Add a note to frame this point&hellip;"></textarea>
+      <div class="brief-note-actions">
+        <button class="btn btn-xs" data-brief-note-save data-si="${si}" data-bi="${b.index}">Save note</button>
+        <button class="btn btn-xs btn-ghost" data-brief-note-cancel>Cancel</button>
+      </div>
+    </div>` : '';
+  return `<li class="brief-bullet" data-si="${si}" data-bi="${b.index}">
+    <div class="brief-bullet-main">
+      <span class="brief-bullet-text">${b.text}</span>
+      ${citesHtml}
+    </div>
+    <div class="brief-bullet-actions">
+      <button class="brief-icon-btn" data-brief-edit data-si="${si}" data-bi="${b.index}" title="Edit">Edit</button>
+      <button class="brief-icon-btn" data-brief-up data-si="${si}" data-bi="${b.index}" title="Move up">&uarr;</button>
+      <button class="brief-icon-btn" data-brief-down data-si="${si}" data-bi="${b.index}" title="Move down">&darr;</button>
+      <button class="brief-icon-btn" data-brief-note data-si="${si}" data-bi="${b.index}" title="Add note">+ note</button>
+      <button class="brief-icon-btn" data-brief-del-bullet data-si="${si}" data-bi="${b.index}" title="Delete">&times;</button>
+    </div>
+    ${noteForm}
+  </li>`;
 }
