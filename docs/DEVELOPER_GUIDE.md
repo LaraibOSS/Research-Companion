@@ -2045,6 +2045,37 @@ mid-flight, so drafting one direction never disturbs another's in-flight
 request. An error renders an inline retry button, rebound after each DOM
 mutation, exactly like 2c's novelty panel.
 
+### The Brainstorm Brief + session persistence
+
+- **Session persistence.** `store.save_brainstorm_session` /
+  `load_brainstorm_session` (`brainstorm_session.json`, mirrors
+  `gap_synthesis`). `GET /api/brainstorm/session` (read-only, unguarded,
+  never-500 → `{session:null}`) and `PUT /api/brainstorm/session`
+  (workspace-guarded) store the frontend blob verbatim. `views/brainstorm.js`
+  hydrates on `mount()` via the pure, node-tested
+  `brainstormSessionHelpers.js` (`serializeSession`/`hydrateSession`,
+  versioned, tolerant) and debounce-`_persist()`s after each mutation.
+  Loading/error UI flags are never persisted.
+- **The Brief.** `brief.py` mirrors `directions.py`: pure
+  `_collect_paper_grounding` (papers-only index, grounding scope = the
+  session's papers) → one LLM call → pure `_assemble_brief`. Honesty guard:
+  a bullet whose `grounded_in` keys all drop, or that cites nothing, is
+  DROPPED (unlike a direction, an uncited brief bullet is never shown).
+  Prompt scaffolding: `BRIEF_PROMPT` / `format_brief_prompt` /
+  `brief_prompt_sha256`. `POST /api/brief` is read-only compute (unguarded,
+  never-500, like `/api/directions`); it gathers each non-draft library
+  paper's metadata + extraction concepts, scopes to `session_paper_ids` when
+  they match (falls back to the whole library otherwise), and NEVER grounds
+  the brief in the draft paper itself.
+- **Frontend.** `briefHelpers.js` is the pure layer (escaping contract like
+  `directionsHelpers.js`): `briefModel(brief)` returns pre-escaped
+  sections/bullets/citation-chips; the edit ops (`setBulletText`,
+  `deleteBullet`, `addBullet`, `deleteSection`, `moveBullet`) each return a
+  NEW brief and are total (out-of-range = no-op). `views/brainstorm.js`
+  renders an editable, note-able Brief panel; `+ note` reuses
+  `buildNoteRecord('freeform', …)` + `api.saveNote`; the brief is carried in
+  the persisted session.
+
 ## 32. Deep-Research Report — `POST /api/report/refresh`, `deep_research.py`, and the frontend helpers
 
 The **Report** tab (slice 2e-1 of the ideation arc) turns a topic into a
