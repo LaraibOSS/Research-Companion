@@ -111,7 +111,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 - **Ask & Compare** — token‑efficient, section‑scoped Q&A, and a structured head‑to‑head of any two papers.
 
 ### ✍️ Your draft, reviewed
-- **Draft alignment** — every paper scored against the paper you're writing (`strengthens / challenges / alternative`) with verified evidence quotes and a strong / moderate / weak strength colour.
+- **Draft alignment** — every paper scored against the paper you're writing (`strengthens / challenges / alternative`) with verified evidence quotes and a strong / moderate / weak strength colour. A draft set or created after its library was ingested shows its own outline immediately; one click on **Analyze this draft** aligns every library paper against it in the background (opt‑in, since it uses your model).
 - **Agentic review** — a team of lanes (citation, prior‑art, novelty, statistical soundness, reproducibility, ethics, overlap, venue‑fit, compliance) topped by a single **submission‑readiness verdict** and a cross‑lane "fix this first" list.
 - **Integrity checks** — desk‑reject compliance linter, p‑value/GRIM statistics recompute, and near‑duplicate/paraphrase overlap detection — deterministic and LLM‑free at the core.
 - **Rebuttal assistant** — grounded, point‑by‑point replies to reviewers; any span the model can't ground is flagged `CHECK` rather than shipped.

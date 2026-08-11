@@ -2076,6 +2076,39 @@ mutation, exactly like 2c's novelty panel.
   `buildNoteRecord('freeform', …)` + `api.saveNote`; the brief is carried in
   the persisted session.
 
+### Seeing the outline + `POST /api/draft/analyze` ("Analyze this draft")
+
+A scaffolded (or any freshly set) draft has **no per-paper alignment** —
+alignment is computed at *ingest* time against whatever draft was active
+then (`lab/__init__.py` Stage 5), so `GET /api/draft/alignment` returns
+`{sections: []}` for it. Two additive pieces close the gap:
+
+- **Outline fallback (frontend).** `research_companion/lab/static/js/draftHelpers.js`
+  exposes the pure, node-tested `draftSectionModel(alignmentSections,
+  outlineSections)` → `{sections, fromOutline}`: alignment sections when
+  present, else the draft's own outline (from `GET /api/sections`, i.e.
+  `store.load_sections(draft_id)`) mapped to `{section_id, title, level,
+  alignments: []}` with `fromOutline: true`. `views/draft.js` calls it in
+  `_render()` whenever alignment is empty, so the Draft view lists the
+  outline instead of "No sections found."
+- **`POST /api/draft/analyze` (backend).** Guarded
+  (`require_active_workspace`), **never 500s**: friendly `200 {"ok": False,
+  "error"}` with **no** job when there is no draft, no model, or no analyzed
+  papers; otherwise a background job (gaps-refresh pattern:
+  `asyncio.create_task`, `app.state.jobs[job_id]`,
+  `_announce_start`/`_announce_finish`) that runs `align_papers(draft_id,
+  cand_id, llm=…, force=…)` for every non-draft paper with an extraction,
+  publishing the existing `AlignmentReady` per paper (so the Draft view
+  refreshes with no new plumbing) and *Analyzing N/M* progress. A per-paper
+  failure is counted, never aborts the run. `app.state.aligner_override` is
+  the test seam; `analyze_draft_running` is a single-flight guard. The
+  frontend button (`views/draft.js` toolbar, `api.analyzeDraft()`) derives
+  its running state from the shared active-jobs map (kind `analyze`), not a
+  local flag, so it auto-resets on `JobFinished`.
+- **Scaffold status.** `_build_paper_summary` reports a `parse_source ==
+  "scaffold"` draft as `status="done"` (it has text+sections but no
+  extraction), so it is not stuck "pending" in the Library.
+
 ## 32. Deep-Research Report — `POST /api/report/refresh`, `deep_research.py`, and the frontend helpers
 
 The **Report** tab (slice 2e-1 of the ideation arc) turns a topic into a

@@ -444,6 +444,19 @@ paper **verified verbatim** against its text (✓ verified / unverified badge
 when the quote cannot be found). The Draft view shows your section tree with
 stance chips; "view in graph" jumps to that section's subgraph.
 
+**Seeing your outline before any analysis, and the "Analyze this draft"
+button.** Alignment normally runs when a paper is ingested, against whatever
+draft was active then. A draft you set or create *afterwards* — most often via
+**Draft this direction** — has no alignments yet, so the Draft view would once
+have shown only "No sections found." It now falls back to your draft's **own
+outline**: every section is listed immediately, just without stance chips. To
+fill them in, click **Analyze this draft** in the Draft view's toolbar — a
+one-click, opt-in pass that aligns every analyzed paper in your library against
+the current draft (this uses your model, so it's never run automatically). It
+runs in the background with live *Analyzing N/M* progress, and the sections
+populate with stance chips as each paper completes. Re-run it any time you've
+added papers or reworked the draft.
+
 ## 11. Reading papers and sections
 
 The Lab has a built-in **reader** so the source text is always one click from
@@ -1083,7 +1096,10 @@ the direction's own rationale and the real papers it cited.
 - The new draft becomes your **active draft** immediately, flowing
   straight into the same alignment, opportunities, and citation-coverage
   tools every other draft uses — open the Draft tab and you'll see the
-  sections there, ready for library papers to be matched against them.
+  outline sections there right away. They start without stance chips (no
+  library paper has been aligned against this brand-new draft yet); click
+  **Analyze this draft** in the Draft toolbar (§10) to align your library
+  against it and fill them in.
 - Nothing is invented: the outline's descriptions are grounded only in the
   direction's rationale and the grounding papers you already saw on its
   card. It is clearly a scaffold to fill in, not a finished paper.
