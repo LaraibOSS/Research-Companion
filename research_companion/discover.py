@@ -18,7 +18,7 @@ from research_companion.store import list_papers
 
 S2_SEARCH = "https://api.semanticscholar.org/graph/v1/paper/search"
 S2_PAPER = "https://api.semanticscholar.org/graph/v1/paper"
-S2_FIELDS = "title,authors,year,abstract,citationCount,externalIds,url"
+S2_FIELDS = "title,authors,year,abstract,citationCount,externalIds,url,venue,publicationVenue"
 S2_REF_FIELDS = "title,authors,year,citationCount,externalIds,url"
 USER_AGENT = "research-companion/0.1 (https://github.com/azizur100389/research-companion)"
 
@@ -41,6 +41,7 @@ class DiscoveredPaper:
     source: str = ""  # how it was discovered: "search", "reference", "citation"
     pmid: str | None = None
     pmcid: str | None = None
+    venue: str = ""   # publication venue as reported by the source ("" when unknown)
 
     @property
     def add_cmd(self) -> str:
@@ -68,6 +69,7 @@ class DiscoveredPaper:
             "pmcid": self.pmcid,
             "url": self.url,
             "abstract": self.abstract,
+            "venue": self.venue,
             "source": self.source,
             "add_cmd": self.add_cmd,
         }
@@ -91,8 +93,20 @@ def _parse_s2_paper(data: dict, *, source: str = "") -> DiscoveredPaper | None:
         url=data.get("url") or "",
         abstract=(data.get("abstract") or "").strip(),
         source=source,
+        venue=_s2_venue(data),
     )
 
+
+
+def _s2_venue(data: dict) -> str:
+    """Venue name from a Semantic Scholar record. `publicationVenue.name` is the
+    curated form; `venue` is the free-text fallback. "" when neither is set."""
+    pv = data.get("publicationVenue")
+    if isinstance(pv, dict):
+        name = str(pv.get("name") or "").strip()
+        if name:
+            return name
+    return str(data.get("venue") or "").strip()
 
 # ---------------------------------------------------------------------------
 # Existing paper IDs — used to filter out papers already in the store
@@ -338,6 +352,8 @@ def _parse_openalex_work(w: dict) -> DiscoveredPaper | None:
         url=(w.get("ids") or {}).get("openalex", ""),
         abstract=_reconstruct_abstract(w.get("abstract_inverted_index")),
         source="openalex",
+        venue=str(((w.get("primary_location") or {}).get("source") or {})
+                  .get("display_name") or ""),
     )
 
 
