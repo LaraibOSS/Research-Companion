@@ -20,6 +20,7 @@ import { layoutTimeline } from '../timeline/layout.js';
 import { showToast }      from '../components/toast.js';
 import { explainerBanner } from '../components/explainer.js';
 import { tip } from '../glossary.js';
+import { TIMELINE_HOWTO, TIMELINE_KINDS, hiddenPapersNote } from '../timelineGuide.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -243,6 +244,27 @@ function _applyKindFilter() {
 // HTML builders
 // ---------------------------------------------------------------------------
 
+// How to read the grid. The gap-diamond legend above explains the overlay, but
+// nothing explained the grid itself -- what a row, a column or a dot is -- so
+// the page read as decoration rather than data.
+function _guideHtml() {
+  const swatches = TIMELINE_KINDS.map(k =>
+    `<span class="tl-guide-kind">
+       <span class="tl-guide-dot" style="background:${KIND_COLORS[k.kind]}"></span>${escapeHtml(k.label)}
+     </span>`).join('');
+  const skipped = (_temporal && _temporal.skipped_papers_without_year) || 0;
+  const hidden = hiddenPapersNote(skipped);
+  const hiddenHtml = hidden.note
+    ? `<div class="tl-guide-hidden">${escapeHtml(hidden.note)}</div>`
+    : '';
+  return `
+    <div class="tl-guide">
+      <p class="tl-guide-text">${escapeHtml(TIMELINE_HOWTO)}</p>
+      <div class="tl-guide-key">${swatches}</div>
+      ${hiddenHtml}
+    </div>`;
+}
+
 function _skeletonHtml() {
   return `
     <div class="tl-root">
@@ -275,6 +297,7 @@ function _skeletonHtml() {
         </div>
         <button class="tl-refresh-gaps-btn btn-sm btn-secondary">Refresh gaps</button>
       </div>
+      ${_guideHtml()}
       <div class="tl-body tl-skeleton">
         <div class="tl-skel-lane"></div>
         <div class="tl-skel-lane"></div>
