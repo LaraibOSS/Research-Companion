@@ -390,7 +390,8 @@ def synthesize_directions(
     )
 
     if not topic_str and not index:
-        return {"directions": [], "generated_from_sha": sha, "topic": topic_str, "llm_error": None}
+        return {"directions": [], "generated_from_sha": sha, "topic": topic_str,
+                "llm_error": None, "grounding": _grounding_counts(index)}
 
     prompt = format_directions_prompt(topic=topic_str, grounding_block=grounding_block)
 
@@ -417,4 +418,26 @@ def synthesize_directions(
         "generated_from_sha": sha,
         "topic": topic_str,
         "llm_error": llm_error,
+        "grounding": _grounding_counts(index),
     }
+
+
+def _grounding_counts(index: dict[str, dict]) -> dict:
+    """Count what the suggestions were actually grounded in, by kind.
+
+    Surfaced to the user so "Generate directions" is never a black box: the UI
+    can state exactly how many real papers / concepts / open gaps fed the call.
+    Counts come from the same index the prompt was built from, so they can never
+    drift from what the model actually saw.
+    """
+    counts = {"papers": 0, "concepts": 0, "gaps": 0}
+    for item in (index or {}).values():
+        kind = (item or {}).get("kind")
+        if kind == "paper":
+            counts["papers"] += 1
+        elif kind == "concept":
+            counts["concepts"] += 1
+        elif kind == "gap":
+            counts["gaps"] += 1
+    counts["total"] = counts["papers"] + counts["concepts"] + counts["gaps"]
+    return counts
