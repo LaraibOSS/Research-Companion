@@ -1028,6 +1028,30 @@ Research Directions is the second surface of the ideation arc — a novelty
 check ("has anyone done this already?") and a full deep-research report are
 on the roadmap and will grow inside this same tab.
 
+### The Brief — headings with cited bullet points to write around
+
+Below Research Directions sits a **Brief** panel. Click **Generate brief** and
+the AI turns your topic and **the papers you added this session** into a
+structured outline: 6–10 section headings, each seeded with a few concrete
+**bullet points**, every bullet **cited** to one of your papers. It's
+scaffolding to frame your writing around — points, not prose, and never a
+finished draft.
+
+The brief is yours to shape:
+
+- **Edit** any bullet inline, **delete** it, **reorder** it (↑ / ↓), or **add**
+  your own bullet under any heading (your own bullets aren't cited — they're
+  marked *your note*). **Remove** a whole section you don't need.
+- Click a **citation chip** to open that paper in the Library.
+- **+ note** on any bullet saves a note (into the Notes tab) so you can capture
+  how you'll use that point.
+
+Every AI bullet is grounded only in your real papers and carries its citation —
+nothing is invented; a point the model couldn't cite is never shown. Add more
+papers and **Regenerate** to refresh it. The brief is saved with your session,
+so it's still here when you come back. (Prefer to jump straight to a draft
+outline instead? **Draft this direction** (§27) still does that.)
+
 ---
 
 ## 26. Novelty Gate — has anyone already done this?

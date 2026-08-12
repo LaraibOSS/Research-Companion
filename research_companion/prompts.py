@@ -1047,6 +1047,59 @@ def directions_prompt_sha256() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Brainstorm Brief (grounded bullet outline) — turns a topic + the session's
+# papers into section headings, each seeded with cited bullet points to frame
+# writing around. Scaffolding, NOT a finished draft.
+# ---------------------------------------------------------------------------
+
+BRIEF_PROMPT = """You are a research writing assistant. Turn a topic and a set of papers into a structured BRIEF: an outline of section headings, each seeded with a few concrete, citation-grounded bullet points the researcher can frame their writing around. This is scaffolding to fill in, NOT a finished draft — do not write prose, write points.
+
+Topic: <<TOPIC>>
+<<DIRECTION_BLOCK>>
+Below are the papers you may ground bullets in. Each is tagged with a stable key in brackets ([p:...]).
+
+<<GROUNDING_BLOCK>>
+
+Produce 6 to 10 section headings appropriate to this topic (adapt them to the work — e.g. Introduction, Background, Method, Evaluation, Discussion — do not force a fixed template), and under each heading 3 to 6 concise bullet points. Every bullet MUST be grounded in and cite one or more of the papers above by copying their [p:...] keys EXACTLY. Do NOT invent a key or a paper, and do NOT emit a bullet you cannot cite.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "sections": [
+    {
+      "title": "section heading",
+      "bullets": [
+        {"text": "one concrete point to frame writing around", "grounded_in": ["key copied exactly from the list above", "..."]}
+      ]
+    }
+  ]
+}
+
+Rules:
+- Each bullet is ONE concrete, actionable point grounded ONLY in its cited papers — add no facts not present in them.
+- Every grounded_in key MUST be copied EXACTLY from a [p:...] key above. Inventing a key is forbidden. Never emit a bullet with an empty or invented grounded_in.
+- 6-10 sections, 3-6 bullets each. Headings adapt to the topic; do not number them.
+- Return ONLY valid JSON. Output starts with { and ends with }.
+
+JSON output:"""
+
+
+def format_brief_prompt(*, topic: str, grounding_block: str, direction_block: str = "") -> str:
+    """Substitute placeholders in BRIEF_PROMPT. `direction_block` is an
+    optional 'Chosen direction: ...' line when the brief is generated from a
+    specific research direction; "" for a session-level brief."""
+    return (
+        BRIEF_PROMPT
+        .replace("<<TOPIC>>", topic)
+        .replace("<<DIRECTION_BLOCK>>", direction_block)
+        .replace("<<GROUNDING_BLOCK>>", grounding_block)
+    )
+
+
+def brief_prompt_sha256() -> str:
+    return hashlib.sha256(BRIEF_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Draft-scaffold outline prompt (scaffold.py generate_outline). SHA-cached.
 # Turns one chosen Research Direction (2b) into a research-paper section
 # outline tailored to it. Honest: grounded ONLY in the direction's own

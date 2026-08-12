@@ -4724,7 +4724,11 @@ class TestDirectionsEndpoint:
         c = _make_client()
         resp = c.post("/api/directions", json={"topic": "", "seeds": []})
         assert resp.status_code == 200
-        assert resp.json() == {"directions": [], "topic": ""}
+        assert resp.json() == {
+            "directions": [], "topic": "",
+            # provenance counts are always reported, even when nothing grounded
+            "grounding": {"papers": 0, "concepts": 0, "gaps": 0, "total": 0},
+        }
 
     def test_post_directions_happy_path_with_library_and_seeds(self, isolated_papergraph_dir):
         _make_paper(isolated_papergraph_dir, "arxiv:2401.00001", "Library Paper", year=2022)
@@ -5058,6 +5062,93 @@ class TestBrainstormSession:
         resp = c.get("/api/brainstorm/session")
         assert resp.status_code == 200
         assert resp.json() == {"session": None}
+
+
+    def test_directions_returns_real_grounding_counts(self, isolated_papergraph_dir):
+        """POST /api/directions reports what it actually grounded on, so the UI
+        can show provenance instead of an unexplained list."""
+        _make_paper(isolated_papergraph_dir, "arxiv:1", "Grounding Paper")
+
+        def fake_llm(prompt: str) -> str:
+            return json.dumps({"directions": []})
+
+        c = _make_client(llm=fake_llm)
+        resp = c.post("/api/directions", json={"topic": "graph retrieval"})
+        assert resp.status_code == 200
+        g = resp.json()["grounding"]
+        assert g["papers"] >= 1
+        assert g["total"] == g["papers"] + g["concepts"] + g["gaps"]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/brief  (Brainstorm Brief — grounded bullet outline)
+# ---------------------------------------------------------------------------
+
+class TestBriefEndpoint:
+    def test_brief_happy_path_grounded_and_cited(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:1", "Zep: Temporal KG")
+
+        def fake_llm(prompt: str) -> str:
+            assert "[p:" in prompt  # grounding block present
+            return json.dumps({"sections": [
+                {"title": "Background", "bullets": [
+                    {"text": "TKGs store episodic memory", "grounded_in": ["p:arxiv:1"]},
+                    {"text": "invented", "grounded_in": ["p:nope"]},
+                ]},
+            ]})
+
+        c = _make_client(llm=fake_llm)
+        resp = c.post("/api/brief", json={"topic": "temporal knowledge graphs"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        secs = data["brief"]["sections"]
+        assert len(secs) == 1
+        # only the grounded bullet survives; its citation resolves to a real paper
+        assert [b["text"] for b in secs[0]["bullets"]] == ["TKGs store episodic memory"]
+        assert secs[0]["bullets"][0]["citations"][0]["paper_id"] == "arxiv:1"
+
+    def test_brief_no_papers_returns_empty_ok(self, isolated_papergraph_dir):
+        # No library papers -> nothing to ground on -> empty brief, no LLM call.
+        called = []
+        c = _make_client(llm=lambda p: called.append(1) or "{}")
+        resp = c.post("/api/brief", json={"topic": "anything"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["brief"]["sections"] == []
+        assert called == []
+
+    def test_brief_llm_failure_never_500s(self, isolated_papergraph_dir):
+        _make_paper(isolated_papergraph_dir, "arxiv:1", "A Paper")
+
+        def boom(prompt: str) -> str:
+            raise RuntimeError("model down")
+
+        c = _make_client(llm=boom)
+        resp = c.post("/api/brief", json={"topic": "t"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "model down" in data["error"]
+
+    def test_brief_excludes_the_draft_paper_from_grounding(self, isolated_papergraph_dir):
+        from research_companion import store
+        _make_paper(isolated_papergraph_dir, "arxiv:1", "Grounding Paper")
+        _make_paper(isolated_papergraph_dir, "arxiv:draft", "The Draft")
+        store.set_draft_paper_id("arxiv:draft")
+
+        seen_keys = {}
+
+        def fake_llm(prompt: str) -> str:
+            seen_keys["draft_in_prompt"] = "The Draft" in prompt
+            return json.dumps({"sections": []})
+
+        c = _make_client(llm=fake_llm)
+        resp = c.post("/api/brief", json={"topic": "t"})
+        assert resp.status_code == 200
+        # the draft manuscript is never used to ground its own brief
+        assert seen_keys["draft_in_prompt"] is False
 
 
 # ---------------------------------------------------------------------------
