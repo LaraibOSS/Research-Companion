@@ -76,6 +76,8 @@ let _briefNoteFor = null;   // {si, bi} of the bullet with an open note form, or
 let _askedForResearch = false;  // the up-front 'name your research' prompt fires once per mount
 let _addReceipt = null;     // {queued, skipped, failed} from the last Add — dismissible
 let _wsLoaded = false;      // workspaces snapshot fetched (never judge before this)
+let _limit = 20;            // how many results to fetch (20/30/40/50)
+let _rank = 'balanced';     // balanced | citations | venue
 let _unsubWs = null;        // workspaces subscription
 
 // ---------------------------------------------------------------------------
@@ -111,6 +113,8 @@ export function mount(el) {
   _askedForResearch = false;
   _addReceipt = null;
   _wsLoaded = false;
+  _limit = 20;
+  _rank = 'balanced';
   _render();
   _hydrate();
   _unsub = store.subscribe(['papers', 'activity'], () => _refreshIngestNotice());
@@ -309,6 +313,8 @@ async function _search() {
   const yearMin = (_el.querySelector('#brainstorm-year-min') || {}).value || '';
   const yearMax = (_el.querySelector('#brainstorm-year-max') || {}).value || '';
   const expand = !!(_el.querySelector('#brainstorm-expand-toggle') || {}).checked;
+  _limit = Number((_el.querySelector('#brainstorm-limit') || {}).value) || 20;
+  _rank = (_el.querySelector('#brainstorm-rank') || {}).value || 'balanced';
 
   _loading = true;
   _error = null;
@@ -317,7 +323,9 @@ async function _search() {
   _render();
 
   try {
-    const data = await api.discover({ q: trimmed, yearMin, yearMax, expand });
+    const data = await api.discover({
+      q: trimmed, yearMin, yearMax, expand, limit: _limit, rank: _rank,
+    });
     _rawResults = Array.isArray(data.results) ? data.results : [];
     _queriesUsed = Array.isArray(data.queries_used) ? data.queries_used : [];
     _expandedFlag = !!data.expanded;
@@ -444,6 +452,15 @@ function _render() {
                placeholder="Year from" aria-label="Year from">
         <input id="brainstorm-year-max" type="number" class="brainstorm-year-input"
                placeholder="Year to" aria-label="Year to">
+        <select id="brainstorm-limit" class="brainstorm-select" aria-label="Number of results">
+          ${[20, 30, 40, 50].map(n =>
+            `<option value="${n}"${n === _limit ? ' selected' : ''}>${n} results</option>`).join('')}
+        </select>
+        <select id="brainstorm-rank" class="brainstorm-select" aria-label="Rank results by">
+          ${[['balanced', 'Balanced'], ['citations', 'Most cited'], ['venue', 'Top venues']]
+            .map(([v, label]) =>
+              `<option value="${v}"${v === _rank ? ' selected' : ''}>${label}</option>`).join('')}
+        </select>
         <label class="brainstorm-expand-label">
           <input id="brainstorm-expand-toggle" type="checkbox">
           Expand my topic with AI
@@ -503,6 +520,9 @@ function _rowHtml(m) {
         <div class="brainstorm-row-meta muted">
           ${m.authorsText}${m.year != null ? ` &middot; ${escapeHtml(String(m.year))}` : ''}
           &middot; ${escapeHtml(String(m.citationCount))} citations
+          ${m.isTopVenue
+            ? `<span class="brainstorm-venue-badge" title="Recognized top venue">${m.topVenue}</span>`
+            : (m.venue ? `<span class="brainstorm-venue">${m.venue}</span>` : '')}
           &middot; <span class="chip brainstorm-source-chip">${m.sourceLabel}</span>
         </div>
         ${m.abstractShort ? `<div class="brainstorm-row-abstract muted">${m.abstractShort}</div>` : ''}
