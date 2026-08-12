@@ -4508,13 +4508,12 @@ class TestSimplified:
             assert got["rewrite"]["groups"] == groups
 
     def test_simplify_falls_back_to_raw_text_without_sections(
-        self, isolated_papergraph_dir, monkeypatch
+        self, isolated_papergraph_dir
     ):
         """A paper with stored text but no sections.json (e.g. ingested before
         the sectioner ran, or a stale/partial ingest) must still simplify:
         the prompt falls back to the raw text[:budget] slice rather than an
         empty sections_block."""
-        import research_companion.lab_api as la
         from research_companion import store
 
         paper_id = "arxiv:simplify_no_sections"
@@ -4526,17 +4525,18 @@ class TestSimplified:
 
         captured_prompts = []
 
-        def fake_resolve_llm(*, json_mode=True):
-            def fake_llm(prompt: str) -> str:
-                captured_prompts.append(prompt)
-                return json.dumps({"groups": [
-                    {"title": "Key claims", "bullets": [{"text": "t", "section_id": None}]},
-                ]})
-            return fake_llm
+        def fake_llm(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            return json.dumps({"groups": [
+                {"title": "Key claims", "bullets": [{"text": "t", "section_id": None}]},
+            ]})
 
-        monkeypatch.setattr(la, "_resolve_llm", fake_resolve_llm)
-
-        _, c = self._client()
+        # Inject through the app-level seam rather than patching the module
+        # function: the simplify job runs in the background, so a monkeypatch
+        # could be torn down mid-run and let it reach a real provider (the
+        # cause of this test's CI flakiness).
+        app, c = self._client()
+        app.state.llm = fake_llm
         with c:
             resp = c.post(f"/api/papers/{paper_id}/simplify")
             assert resp.status_code == 202
