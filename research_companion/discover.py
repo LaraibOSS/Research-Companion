@@ -357,6 +357,53 @@ def _parse_openalex_work(w: dict) -> DiscoveredPaper | None:
     )
 
 
+def _polite_params() -> dict[str, str]:
+    """OpenAlex serves anonymous traffic from a shared, aggressively-throttled
+    pool; adding `mailto` moves requests into the far more generous "polite
+    pool". Uses the contact_email setting when the user has set one — we never
+    invent an address. Never raises."""
+    try:
+        from research_companion.settings import get_settings
+        email = str(get_settings().get("contact_email", "") or "").strip()
+    except Exception:  # noqa: BLE001 — discovery must not depend on settings loading
+        email = ""
+    return {"mailto": email} if email else {}
+
+
+def _get_with_backoff(client, url, *, params=None, attempts: int = 3):
+    """GET that retries on 429/503 instead of failing the whole search.
+
+    Public catalogues rate-limit bursts (adding 20 papers, then searching, is a
+    burst). Honors `Retry-After` when the server sends it, else backs off
+    1s, 2s. Raises the final error only after the retries are spent.
+    """
+    import time as _time
+
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            resp = client.get(url, params=params)
+            if resp.status_code in (429, 503) and attempt < attempts - 1:
+                retry_after = resp.headers.get("Retry-After", "")
+                try:
+                    delay = min(float(retry_after), 10.0)
+                except (TypeError, ValueError):
+                    delay = float(2 ** attempt)
+                _time.sleep(max(0.5, delay))
+                continue
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            if exc.response is not None and exc.response.status_code in (429, 503)                     and attempt < attempts - 1:
+                _time.sleep(float(2 ** attempt))
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("request failed")
+
+
 def search_topic_openalex(
     query: str,
     *,
@@ -367,6 +414,7 @@ def search_topic_openalex(
 ) -> list[DiscoveredPaper]:
     """Search OpenAlex works (generous rate limits, no key required)."""
     params: dict[str, Any] = {"search": query, "per-page": min(limit, 50)}
+    params.update(_polite_params())
     filters = []
     if year_min:
         filters.append(f"from_publication_date:{year_min}-01-01")
@@ -375,8 +423,7 @@ def search_topic_openalex(
     if filters:
         params["filter"] = ",".join(filters)
     with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
-        resp = client.get(OPENALEX_SEARCH, params=params)
-        resp.raise_for_status()
+        resp = _get_with_backoff(client, OPENALEX_SEARCH, params=params)
     known = _existing_ids()
     out = []
     for w in resp.json().get("results", []):
@@ -419,10 +466,23 @@ def search_topic_with_fallback(
 
     s2 = s2_search or search_topic
     oa = openalex_search or search_topic_openalex
+    # Try Semantic Scholar, fall back to OpenAlex. If BOTH are unavailable
+    # (both are public services that throttle bursts), re-raise the LAST error
+    # so the caller can explain what happened -- but never let a failure in one
+    # source discard results the other already returned.
+    base: list[DiscoveredPaper] = []
+    errors: list[Exception] = []
     try:
         base = s2(query, limit=limit, year_min=year_min, year_max=year_max)
-    except Exception:
-        base = oa(query, limit=limit, year_min=year_min, year_max=year_max)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(exc)
+    if not base:
+        try:
+            base = oa(query, limit=limit, year_min=year_min, year_max=year_max)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+    if not base and errors:
+        raise errors[-1]
 
     names = _settings_connector_names() if connectors is None else list(connectors)
     if not names:
