@@ -65,6 +65,20 @@ function _renderButton() {
   const { list, activeId } = workspaces;
   const active = Array.isArray(list) ? list.find(w => w.id === activeId) : null;
 
+  // Defensive: a research IS active but has no record in the list (e.g. an
+  // older server that does not emit env-pinned workspaces). Name it by its id
+  // rather than claiming "none" — the top bar must never contradict the fact
+  // that a research is being served.
+  if (!active && activeId) {
+    _btn.innerHTML = `<span class="ws-switcher-name">${escapeHtml(activeId)}</span>`
+      + `<span class="ws-switcher-chevron" aria-hidden="true">&#9662;</span>`;
+    _btn.setAttribute('aria-haspopup', 'menu');
+    _btn.setAttribute('aria-expanded', _open ? 'true' : 'false');
+    _btn.title = 'Active research';
+    _btn.style.display = '';
+    return;
+  }
+
   if (!active) {
     _btn.innerHTML = `<span class="ws-switcher-name ws-switcher-none">Research: none</span>`
       + `<span class="ws-switcher-chevron" aria-hidden="true">&#9662;</span>`;
