@@ -3538,6 +3538,22 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 }
 
 /* Hero card */
+/* Home identity bar: product wordmark + the active research, so Home always
+   says what this is and which research is open (dashboard state included). */
+.home-brandbar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+.home-brandbar-mark { color: var(--color-accent); }
+.home-brandbar-word { font-weight: 700; letter-spacing: -.01em; }
+.home-brandbar-sep { color: var(--color-fg-dim); opacity: .6; }
+.home-brandbar-research { color: var(--color-accent); font-weight: 600; }
+.home-brandbar-research.is-none { color: var(--color-fg-dim); font-weight: 400; font-style: italic; }
+
 .home-hero {
   background: var(--color-panel);
   border: 1px solid var(--color-border);
@@ -6716,6 +6732,20 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 /* ---------------------------------------------------------------------- */
 /* Research Directions section (feat/brainstorm-directions, Brainstorm 2b) */
 /* ---------------------------------------------------------------------- */
+
+.brainstorm-research-gate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  background: rgba(var(--accent-rgb), 0.07);
+  font-size: var(--text-sm);
+}
 
 .brainstorm-directions-section {
   margin-top: var(--space-6);

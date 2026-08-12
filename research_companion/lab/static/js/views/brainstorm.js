@@ -152,6 +152,35 @@ function _persist() {
   }, 500);
 }
 
+
+// Brainstorming produces papers, directions and a brief that all have to live
+// *somewhere*. Ask for the research name on arrival rather than ambushing the
+// user at their first Add — and if they dismiss it, leave a visible way back
+// instead of silently letting them work into nowhere.
+function _hasActiveResearch() {
+  const { workspaces } = store.getState();
+  return !!(workspaces && workspaces.activeId);
+}
+
+async function _promptForResearchOnce() {
+  if (_askedForResearch || _hasActiveResearch()) return;
+  _askedForResearch = true;
+  await ensureActiveResearch(() => {});
+  if (_el) _render();
+}
+
+function _researchGateHtml() {
+  if (_hasActiveResearch()) return '';
+  return `
+    <div class="brainstorm-research-gate">
+      <div>
+        <strong>Name your research project to get started.</strong>
+        <span class="muted"> Everything you find and add here is saved into it.</span>
+      </div>
+      <button id="brainstorm-name-research" class="btn btn-accent btn-sm">Name your research</button>
+    </div>`;
+}
+
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
@@ -302,6 +331,7 @@ function _render() {
 
   _el.innerHTML = `
     <div class="brainstorm-view">
+      ${_researchGateHtml()}
       <div class="brainstorm-header">
         <h2>Brainstorm</h2>
         <p class="muted">Start from just a topic &mdash; find real papers, add what you want.</p>
@@ -584,6 +614,14 @@ function _citationChipHtml(c) {
 
 function _bindEvents() {
   if (!_el) return;
+
+  const nameBtn = _el.querySelector('#brainstorm-name-research');
+  if (nameBtn) {
+    nameBtn.addEventListener('click', async () => {
+      await ensureActiveResearch(() => {});
+      if (_el) _render();
+    });
+  }
 
   const searchBtn = _el.querySelector('#brainstorm-search-btn');
   if (searchBtn) searchBtn.addEventListener('click', () => _search());

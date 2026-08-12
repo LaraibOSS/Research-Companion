@@ -974,6 +974,24 @@ def test_home_view_has_quicknav_and_product_pillars():
     assert 'pathLength="1"' in js
 
 
+def test_research_identity_is_always_visible():
+    """The active research must never be misreported: the topbar names it even
+    when it has no registry record, Home keeps the wordmark + research name in
+    the dashboard state, and Brainstorm asks for a project name up front."""
+    sw = (STATIC_DIR / "js" / "components" / "workspaceSwitcher.js").read_text(encoding="utf-8")
+    home = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    bs = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    # topbar: an active id with no record is still named, never "none"
+    assert "if (!active && activeId)" in sw
+    # Home: wordmark + active research survive into the dashboard hero
+    assert "_brandBarHtml" in home and "home-brandbar" in home
+    assert ".home-brandbar" in css
+    # Brainstorm: research-first entry, with a visible way back if dismissed
+    assert "_promptForResearchOnce" in bs and "_researchGateHtml" in bs
+    assert ".brainstorm-research-gate" in css
+
+
 def test_brainstorm_session_persistence():
     """The Brainstorm tab persists its session per research (GET/PUT
     /api/brainstorm/session) and hydrates on mount instead of resetting empty."""

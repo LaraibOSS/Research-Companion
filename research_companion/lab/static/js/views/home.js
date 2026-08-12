@@ -238,6 +238,25 @@ function _render() {
 // Hero card
 // ---------------------------------------------------------------------------
 
+// Product wordmark + the active research name. Home is where a user orients
+// themselves, so it must always say what the product is and which research is
+// open — including once a draft exists and the dashboard takes over.
+function _brandBarHtml() {
+  const { workspaces } = store.getState();
+  const list = (workspaces && Array.isArray(workspaces.list)) ? workspaces.list : [];
+  const activeId = workspaces && workspaces.activeId;
+  const active = list.find(w => w.id === activeId) || null;
+  const label = active ? (active.name || active.id) : (activeId || 'No research selected');
+  const isNone = !activeId;
+  return `
+    <div class="home-brandbar">
+      <span class="home-brandbar-mark">&#9670;</span>
+      <span class="home-brandbar-word">Research Companion</span>
+      <span class="home-brandbar-sep" aria-hidden="true">/</span>
+      <span class="home-brandbar-research${isNone ? ' is-none' : ''}">${escapeHtml(label)}</span>
+    </div>`;
+}
+
 function _heroHtml(draft, papers, suggestions, suggestionCounts, journey) {
   const title = escapeHtml(draft.title || draft.paper_id || 'Untitled');
 
@@ -276,6 +295,7 @@ function _heroHtml(draft, papers, suggestions, suggestionCounts, journey) {
   const total = Array.isArray(suggestions) ? suggestions.length : 0;
 
   return `
+    ${_brandBarHtml()}
     <div class="home-hero">
       <div class="home-hero-main">
         <div class="home-hero-title">${title}</div>
