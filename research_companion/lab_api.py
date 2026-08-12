@@ -443,6 +443,32 @@ class _SeqRecorder:
         return self._seq
 
 
+
+def _discover_error_message(exc: Exception) -> str:
+    """Turn a search failure into something a user can act on.
+
+    A raw "Client error '429 Too Many Requests' for url ..." tells the reader
+    nothing about what to do. Rate limiting is by far the most common failure
+    (the catalogues are free, keyless and shared), and the answer is simply to
+    wait or to set a contact email for the polite pool.
+    """
+    text = str(exc)
+    if "429" in text or "Too Many Requests" in text:
+        msg = ("Search is rate-limited right now — the paper catalogues are free "
+               "and shared, so they throttle bursts. Wait a minute and try again.")
+        try:
+            from research_companion.settings import get_settings
+            if not str(get_settings().get("contact_email", "") or "").strip():
+                msg += (" Setting a contact email in Settings raises your limit "
+                        "considerably (OpenAlex's \"polite pool\").")
+        except Exception:  # noqa: BLE001
+            pass
+        return msg
+    if "timed out" in text.lower() or "timeout" in text.lower():
+        return "Search timed out. Check your connection and try again."
+    return f"Discovery search failed: {exc}"
+
+
 def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> dict:
     """Build the per-paper dict served by GET /api/papers (and returned by
     PATCH /api/papers/{id}). Factored so the two stay identical in shape."""
@@ -861,7 +887,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         except Exception as exc:
             return {
                 "results": [], "queries_used": queries, "expanded": expand_requested,
-                "rank": rank_mode, "error": f"Discovery search failed: {exc}",
+                "rank": rank_mode, "error": _discover_error_message(exc),
             }
 
         return {"results": results, "queries_used": queries,

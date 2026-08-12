@@ -76,3 +76,75 @@ def test_unknown_mode_falls_back_and_never_raises():
     assert rank_results(None, "citations") == []
     assert rank_results([{"title": "x"}, "junk", None], "venue")  # non-dicts dropped
     assert DEFAULT_RANK in RANK_MODES
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit resilience (the 429 that killed a whole search)
+# ---------------------------------------------------------------------------
+
+def test_polite_params_uses_contact_email_when_set(monkeypatch):
+    from research_companion import discover
+
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: {"contact_email": "me@example.org"})
+    assert discover._polite_params() == {"mailto": "me@example.org"}
+
+    # never invent an address
+    monkeypatch.setattr("research_companion.settings.get_settings",
+                        lambda: {"contact_email": "   "})
+    assert discover._polite_params() == {}
+
+
+def test_get_with_backoff_retries_429_then_succeeds():
+    from research_companion import discover
+
+    class _Resp:
+        def __init__(self, status):
+            self.status_code = status
+            self.headers = {"Retry-After": "0.5"}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise AssertionError("should not be reached on success")
+
+    class _Client:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, params=None):
+            self.calls += 1
+            return _Resp(429 if self.calls == 1 else 200)
+
+    c = _Client()
+    resp = discover._get_with_backoff(c, "http://x", attempts=3)
+    assert resp.status_code == 200
+    assert c.calls == 2   # retried once rather than failing the search
+
+
+def test_fallback_keeps_results_when_only_one_source_fails():
+    from research_companion import discover
+
+    def boom(*a, **kw):
+        raise RuntimeError("429 Too Many Requests")
+
+    def ok(*a, **kw):
+        return [discover.DiscoveredPaper(
+            title="From OpenAlex", authors=[], year=2024, citation_count=1,
+            arxiv_id=None, doi=None, s2_id=None, url="", source="openalex")]
+
+    out = discover.search_topic_with_fallback(
+        "q", s2_search=boom, openalex_search=ok, connectors=[])
+    assert [p.title for p in out] == ["From OpenAlex"]
+
+
+def test_fallback_raises_only_when_every_source_fails():
+    import pytest
+
+    from research_companion import discover
+
+    def boom(*a, **kw):
+        raise RuntimeError("429 Too Many Requests")
+
+    with pytest.raises(RuntimeError):
+        discover.search_topic_with_fallback(
+            "q", s2_search=boom, openalex_search=boom, connectors=[])
