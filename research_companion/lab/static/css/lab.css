@@ -6752,6 +6752,39 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   padding-top: var(--space-5);
   border-top: 1px solid var(--color-border);
 }
+.brainstorm-directions-intro {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  max-width: 78ch;
+  line-height: 1.55;
+}
+.brainstorm-directions-provenance {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.brainstorm-directions-disclaimer {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-xs);
+  max-width: 78ch;
+  line-height: 1.5;
+}
+.brainstorm-ingest-notice {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-md, 6px);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-fg-dim);
+  background: rgba(127, 127, 127, .06);
+}
+.brainstorm-ingest-notice.is-busy {
+  border-left-color: var(--color-warn);
+  color: var(--color-warn);
+}
+.brainstorm-ingest-notice[hidden] { display: none; }
+
 .brainstorm-directions-header {
   display: flex;
   align-items: center;
@@ -6773,6 +6806,82 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   border-radius: var(--radius-lg);
   color: var(--color-warn);
 }
+/* Brainstorm Brief — grounded bullet outline (editable + note-able). */
+.brainstorm-brief-section {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+.brainstorm-brief-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.brainstorm-brief-caption { font-size: var(--text-sm); margin: 0 0 var(--space-4); }
+.brainstorm-brief-loading, .brainstorm-brief-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.brainstorm-brief-error {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warn);
+  border-radius: var(--radius-lg);
+  color: var(--color-warn);
+}
+.brief-sections { display: flex; flex-direction: column; gap: var(--space-4); }
+.brief-section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--color-bg-elev, var(--color-bg));
+}
+.brief-section-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.brief-section-title { font-weight: 650; font-size: var(--text-md, 1rem); }
+.brief-bullets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.brief-bullet {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-md, 6px);
+  flex-wrap: wrap;
+}
+.brief-bullet:hover { background: var(--color-bg-hover, rgba(127,127,127,.06)); }
+.brief-bullet-main { flex: 1; min-width: 12rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
+.brief-bullet-text::before { content: "•"; color: var(--color-accent); margin-right: var(--space-2); }
+.brief-cites { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.brief-cite {
+  font-size: var(--text-xs, .75rem);
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-accent); cursor: pointer;
+  white-space: nowrap;
+}
+.brief-cite-yours { color: var(--color-fg-dim, #888); cursor: default; }
+.brief-bullet-actions { display: inline-flex; gap: 2px; opacity: 0; }
+.brief-bullet:hover .brief-bullet-actions, .brief-bullet:focus-within .brief-bullet-actions { opacity: 1; }
+.brief-icon-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-fg-dim, #888); font-size: var(--text-xs, .75rem);
+  padding: 2px 5px; border-radius: 4px;
+}
+.brief-icon-btn:hover { background: var(--color-bg-hover, rgba(127,127,127,.12)); color: var(--color-fg, inherit); }
+.brief-edit-input, .brief-note-input {
+  flex: 1; min-width: 12rem;
+  font: inherit; font-size: var(--text-sm);
+  padding: var(--space-2); border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md, 6px); background: var(--color-bg);
+  color: var(--color-fg, inherit);
+}
+.brief-note-form { flex-basis: 100%; margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2); }
+.brief-note-actions { display: flex; gap: var(--space-2); }
+.brief-add-bullet { margin-top: var(--space-2); }
+
 .brainstorm-direction-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
