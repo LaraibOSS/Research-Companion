@@ -248,4 +248,40 @@ def list_workspaces(*, with_stats: bool = True) -> dict:
         out.append(item)
     # Effective active id (honors $RESEARCH_COMPANION_WORKSPACE), not just the
     # registry field — the UI must label the workspace actually being served.
-    return {"active": store.active_workspace_id(), "workspaces": out}
+    active = store.active_workspace_id()
+
+    # A workspace pinned via $RESEARCH_COMPANION_WORKSPACE is served but is NOT
+    # in the registry, so "active" would name an id absent from `workspaces`.
+    # The UI looks the active id up in that list, finds nothing, and renders
+    # "Research: none" while a research is genuinely active. Emit a record for
+    # it so the active workspace can always be named.
+    if active and not any(w.get("id") == active for w in out):
+        rec = {
+            "id": active,
+            "name": _env_workspace_name(active),
+            "created_at": "",
+            "archived": False,
+            "external": True,   # not registry-managed (env-pinned)
+        }
+        if with_stats:
+            rec["stats"] = workspace_stats(active)
+        out.append(rec)
+
+    return {"active": active, "workspaces": out}
+
+
+def _env_workspace_name(active_id: str) -> str:
+    """Display name for an env-pinned workspace: the directory's own name when
+    $RESEARCH_COMPANION_WORKSPACE is set, else the slug itself. Never raises."""
+    import os
+    from pathlib import Path
+
+    env_ws = os.environ.get("RESEARCH_COMPANION_WORKSPACE", "").strip()
+    if env_ws:
+        try:
+            name = Path(env_ws).name or Path(env_ws).parent.name
+            if name:
+                return name
+        except (OSError, ValueError):
+            pass
+    return active_id

@@ -308,3 +308,21 @@ class TestListActiveHonorsEnvOverride:
         monkeypatch.setenv("RESEARCH_COMPANION_WORKSPACE", "other")
         store._reset_workspace_caches()
         assert workspaces.list_workspaces(with_stats=False)["active"] == "other"
+
+
+def test_env_pinned_workspace_is_listed_so_ui_can_name_it(tmp_path, monkeypatch):
+    """A workspace pinned via $RESEARCH_COMPANION_WORKSPACE is served but is not
+    in the registry. It must still appear in list_workspaces, otherwise the UI
+    looks up `active` in `workspaces`, finds nothing, and renders
+    "Research: none" while a research is genuinely active."""
+    from research_companion import workspaces
+
+    monkeypatch.setenv("RESEARCH_COMPANION_WORKSPACE", str(tmp_path / "my-cool-research"))
+    data = workspaces.list_workspaces(with_stats=False)
+
+    active = data["active"]
+    assert active, "an env-pinned workspace must report an active id"
+    match = [w for w in data["workspaces"] if w["id"] == active]
+    assert match, "active workspace must appear in the list"
+    assert match[0]["name"] == "my-cool-research"
+    assert match[0]["external"] is True
