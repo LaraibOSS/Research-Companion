@@ -905,7 +905,8 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 llm=resolved_llm,
             )
         except Exception as exc:
-            return {"directions": [], "topic": topic, "error": f"Directions generation failed: {exc}"}
+            return {"directions": [], "topic": topic, "grounding": None,
+                    "error": f"Directions generation failed: {exc}"}
 
         # An LLM call/parse failure is swallowed inside synthesize_directions
         # (it never raises); surface it here as the same never-500 error shape
@@ -913,9 +914,15 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         llm_error = result.get("llm_error")
         if llm_error:
             return {"directions": [], "topic": result.get("topic", topic),
+                    "grounding": result.get("grounding"),
                     "error": f"Directions generation failed: {llm_error}"}
 
-        return {"directions": result.get("directions", []), "topic": result.get("topic", topic)}
+        # `grounding` is what the suggestions were actually built from (real
+        # counts from the prompt's own index) so the UI can show provenance
+        # instead of presenting directions as if they came from nowhere.
+        return {"directions": result.get("directions", []),
+                "topic": result.get("topic", topic),
+                "grounding": result.get("grounding")}
 
     # -----------------------------------------------------------------
     # POST /api/brief  (Brainstorm Brief -- grounded bullet outline. Read-only
