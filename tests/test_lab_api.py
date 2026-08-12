@@ -4537,6 +4537,13 @@ class TestSimplified:
         # cause of this test's CI flakiness).
         app, c = self._client()
         app.state.llm = fake_llm
+        # This test's whole point is a paper with NO sections.json. The one-shot
+        # metadata backfill fires from the app's lifespan as a background task and
+        # re-ingests weak-metadata papers -- on a slow CI runner it wins the race
+        # and writes sections.json, so the raw-text fallback never runs and the
+        # prompt says "[s1] Full Text" instead. Mark the workspace as already
+        # backfilled: that pass is irrelevant to what this test asserts.
+        app.state._backfilled_workspaces.add(store.active_workspace_id())
         with c:
             resp = c.post(f"/api/papers/{paper_id}/simplify")
             assert resp.status_code == 202
