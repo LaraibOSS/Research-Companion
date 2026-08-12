@@ -67,6 +67,7 @@ function _shortAbstract(abstract) {
  *   full refetch) — ORed with raw.in_library.
  * @returns {{title:string, authorsText:string, year:(number|null),
  *   citationCount:number, source:string, sourceLabel:string,
+ *   venue:string, topVenue:string, isTopVenue:boolean,
  *   abstractShort:string, inLibrary:boolean, addTarget:string, url:string,
  *   arxivId:(string|null), doi:(string|null), s2Id:(string|null),
  *   pmid:(string|null), pmcid:(string|null)}}
@@ -92,6 +93,11 @@ export function discoverResultModel(raw, libraryIds) {
     citationCount: typeof r.citation_count === 'number' ? r.citation_count : 0,
     source: typeof r.source === 'string' ? r.source : '',
     sourceLabel: escapeHtml(_sourceLabel(r.source)),
+    // Venue as reported by the source, plus whether it matched the curated
+    // venue KB server-side. Pre-escaped, like the other display fields.
+    venue: escapeHtml(String(r.venue || '')),
+    topVenue: escapeHtml(String(r.top_venue || '')),
+    isTopVenue: !!r.is_top_venue,
     abstractShort: _shortAbstract(r.abstract),
     inLibrary: Boolean(inLibrary),
     addTarget: _addTarget(r),

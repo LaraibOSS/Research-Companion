@@ -474,16 +474,17 @@ export const exportNotes = (groupBy = 'section') =>
  * rejections. Returns { results, queries_used, expanded, error? }.
  *
  * @param {{q?:string, yearMin?:number|string, yearMax?:number|string,
- *   limit?:number, expand?:boolean}} params
+ *   limit?:number, expand?:boolean, rank?:'balanced'|'citations'|'venue'}} params
  */
 export function discover(params = {}) {
-  const { q, yearMin, yearMax, limit, expand } = params;
+  const { q, yearMin, yearMax, limit, expand, rank } = params;
   const usp = new URLSearchParams();
   if (q) usp.set('q', q);
   if (yearMin) usp.set('year_min', String(yearMin));
   if (yearMax) usp.set('year_max', String(yearMax));
   if (limit) usp.set('limit', String(limit));
   if (expand) usp.set('expand', '1');
+  if (rank) usp.set('rank', String(rank));
   return get(`/api/discover?${usp.toString()}`);
 }
 

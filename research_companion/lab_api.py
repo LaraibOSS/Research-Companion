@@ -807,16 +807,20 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         year_max: int | None = None,
         limit: int = 20,
         expand: int = 0,
+        rank: str = "",
     ) -> dict:
         from research_companion import discover
         from research_companion.connectors.identity import alt_ids
+        from research_companion.discover_rank import DEFAULT_RANK, rank_results
 
         query = (q or "").strip()
         limit = max(1, min(limit, 50))
+        rank_mode = (rank or "").strip().lower() or DEFAULT_RANK
         expand_requested = bool(expand)
 
         if not query:
-            return {"results": [], "queries_used": [], "expanded": expand_requested}
+            return {"results": [], "queries_used": [], "expanded": expand_requested,
+                    "rank": rank_mode}
 
         # `queries` is seeded before the try so the except handler can report
         # queries_used even if a failure happens before/during expansion.
@@ -844,20 +848,24 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             deduped = _dedup_discovered(all_results)
             library_ids = await asyncio.to_thread(_library_identity_ids)
 
-            results = []
-            for p in deduped[:limit]:
+            items = []
+            for p in deduped:
                 rec = {"doi": p.doi, "arxiv_id": p.arxiv_id, "pmid": p.pmid, "pmcid": p.pmcid}
                 ids = alt_ids(rec)
                 item = p.to_dict()
                 item["in_library"] = bool(ids & library_ids)
-                results.append(item)
+                items.append(item)
+            # Rank BEFORE truncating: the chosen ordering must decide which
+            # papers survive the limit, not just how the first N are arranged.
+            results = rank_results(items, rank_mode)[:limit]
         except Exception as exc:
             return {
                 "results": [], "queries_used": queries, "expanded": expand_requested,
-                "error": f"Discovery search failed: {exc}",
+                "rank": rank_mode, "error": f"Discovery search failed: {exc}",
             }
 
-        return {"results": results, "queries_used": queries, "expanded": expand_requested}
+        return {"results": results, "queries_used": queries,
+                "expanded": expand_requested, "rank": rank_mode}
 
     # -----------------------------------------------------------------
     # POST /api/directions  (Research Directions -- Brainstorm 2b.

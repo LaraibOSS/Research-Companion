@@ -4573,7 +4573,49 @@ class TestDiscoverEndpoint:
         resp = c.get("/api/discover")
         assert resp.status_code == 200
         data = resp.json()
-        assert data == {"results": [], "queries_used": [], "expanded": False}
+        assert data == {"results": [], "queries_used": [], "expanded": False,
+                        # the active ranking is always reported back
+                        "rank": "balanced"}
+
+    def test_discover_carries_venue_and_ranks_by_it(self, isolated_papergraph_dir, monkeypatch):
+        """End-to-end wiring: the venue reported by the source reaches the API
+        response, is matched against the venue KB, and drives the ordering."""
+        def fake_search(query, **kw):
+            return [
+                self._dp("Big Unknown", arxiv_id="2401.00001",
+                         citation_count=5000, year=2015, venue="Some Random Workshop"),
+                self._dp("Small Top", arxiv_id="2401.00002",
+                         citation_count=12, year=2025, venue="NeurIPS"),
+            ]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        c = _make_client()
+
+        # rank=venue -> the recognized venue wins despite far fewer citations
+        data = c.get("/api/discover", params={"q": "x", "rank": "venue"}).json()
+        assert data["rank"] == "venue"
+        assert [r["title"] for r in data["results"]] == ["Small Top", "Big Unknown"]
+        top = data["results"][0]
+        assert top["venue"] == "NeurIPS"
+        assert top["is_top_venue"] is True and top["top_venue"] == "NeurIPS"
+        assert data["results"][1]["is_top_venue"] is False
+
+        # rank=citations -> the raw citation ordering
+        data = c.get("/api/discover", params={"q": "x", "rank": "citations"}).json()
+        assert [r["title"] for r in data["results"]] == ["Big Unknown", "Small Top"]
+
+    def test_discover_limit_is_applied_after_ranking(self, isolated_papergraph_dir, monkeypatch):
+        """The chosen ordering must decide which papers survive the limit."""
+        def fake_search(query, **kw):
+            return [
+                self._dp("cited", arxiv_id="2401.00001", citation_count=9000, venue="Nowhere"),
+                self._dp("venued", arxiv_id="2401.00002", citation_count=1, venue="ICML"),
+            ]
+
+        monkeypatch.setattr("research_companion.discover.search_topic_with_fallback", fake_search)
+        c = _make_client()
+        data = c.get("/api/discover", params={"q": "x", "rank": "venue", "limit": 1}).json()
+        assert [r["title"] for r in data["results"]] == ["venued"]
 
     def test_get_discover_expand_0_searches_only_q(self, isolated_papergraph_dir, monkeypatch):
         calls = []
