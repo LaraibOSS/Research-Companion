@@ -35,6 +35,7 @@ import {
   briefModel, setBulletText, deleteBullet, addBullet, deleteSection, moveBullet,
 } from '../briefHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
+import { addReceiptModel } from '../addReceipt.js';
 import {
   ingestStatus, provenanceLine, DIRECTIONS_INTRO, DIRECTIONS_DISCLAIMER,
 } from '../directionsProvenance.js';
@@ -72,6 +73,10 @@ let _briefLoading = false;
 let _briefError = null;
 let _briefEditing = null;   // {si, bi} of the bullet being inline-edited, or null
 let _briefNoteFor = null;   // {si, bi} of the bullet with an open note form, or null
+let _askedForResearch = false;  // the up-front 'name your research' prompt fires once per mount
+let _addReceipt = null;     // {queued, skipped, failed} from the last Add — dismissible
+let _wsLoaded = false;      // workspaces snapshot fetched (never judge before this)
+let _unsubWs = null;        // workspaces subscription
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -103,14 +108,19 @@ export function mount(el) {
   _briefError = null;
   _briefEditing = null;
   _briefNoteFor = null;
+  _askedForResearch = false;
+  _addReceipt = null;
+  _wsLoaded = false;
   _render();
   _hydrate();
   _unsub = store.subscribe(['papers', 'activity'], () => _refreshIngestNotice());
+  _unsubWs = store.subscribe('workspaces', () => { _wsLoaded = true; if (_el) _render(); });
 }
 
 export function unmount() {
   if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
   if (_unsub) { _unsub(); _unsub = null; }
+  if (_unsubWs) { _unsubWs(); _unsubWs = null; }
   _el = null;
 }
 
@@ -200,14 +210,27 @@ function _hasActiveResearch() {
 }
 
 async function _promptForResearchOnce() {
-  if (_askedForResearch || _hasActiveResearch()) return;
+  if (_askedForResearch) return;
+  // The workspaces snapshot loads asynchronously at boot. Deciding from an
+  // unloaded store would tell a user who already HAS a research to create one,
+  // so refresh it first and only then judge.
+  try {
+    const data = await api.getWorkspaces();
+    store.setWorkspaces(data);
+  } catch {
+    return;   // cannot tell -> never nag
+  }
+  _wsLoaded = true;
+  if (!_el) return;
+  _render();
+  if (_hasActiveResearch()) return;
   _askedForResearch = true;
   await ensureActiveResearch(() => {});
   if (_el) _render();
 }
 
 function _researchGateHtml() {
-  if (_hasActiveResearch()) return '';
+  if (!_wsLoaded || _hasActiveResearch()) return '';
   return `
     <div class="brainstorm-research-gate">
       <div>
@@ -215,6 +238,33 @@ function _researchGateHtml() {
         <span class="muted"> Everything you find and add here is saved into it.</span>
       </div>
       <button id="brainstorm-name-research" class="btn btn-accent btn-sm">Name your research</button>
+    </div>`;
+}
+
+function _activeResearchName() {
+  const { workspaces } = store.getState();
+  const list = (workspaces && Array.isArray(workspaces.list)) ? workspaces.list : [];
+  const activeId = workspaces && workspaces.activeId;
+  const active = list.find(w => w.id === activeId);
+  return active ? (active.name || active.id) : '';
+}
+
+// Adding is async and silent; show an explicit receipt of what happened and
+// what to do about downloads that fail, rather than leaving the user to infer
+// it from a toast.
+function _addReceiptHtml() {
+  if (!_addReceipt) return '';
+  const m = addReceiptModel({ ..._addReceipt, researchName: _activeResearchName() });
+  if (!m.hasContent) return '';
+  return `
+    <div class="brainstorm-add-receipt">
+      <button class="brainstorm-add-receipt-close" id="brainstorm-receipt-close"
+              aria-label="Dismiss">&times;</button>
+      <div class="brainstorm-add-receipt-title">${escapeHtml(m.title)}</div>
+      <p class="brainstorm-add-receipt-detail">${escapeHtml(m.detail)}
+        <a href="#/library">View in Library</a>
+      </p>
+      <p class="brainstorm-add-receipt-note">${escapeHtml(m.disclaimer)}</p>
     </div>`;
 }
 
@@ -288,6 +338,7 @@ async function _addOne(model) {
     try {
       await api.addPaper(model.addTarget);
       for (const id of _modelIds(model)) _libraryIds.add(id);
+      _addReceipt = { queued: 1, skipped: 0, failed: 0 };
       showToast(`Added "${_unescapeForToast(model.title)}"`, 'info');
       _render();
       _persist();
@@ -298,19 +349,29 @@ async function _addOne(model) {
 }
 
 async function _addAll() {
-  const notInLibrary = _models().filter(m => !m.inLibrary);
-  if (notInLibrary.length === 0) return;
+  const all = _models();
+  const notInLibrary = all.filter(m => !m.inLibrary);
+  const skipped = all.length - notInLibrary.length;
+  if (notInLibrary.length === 0) {
+    // Everything on screen is already here — say so instead of doing nothing.
+    _addReceipt = { queued: 0, skipped, failed: 0 };
+    _render();
+    return;
+  }
   await ensureActiveResearch(async () => {
     let added = 0;
+    let failed = 0;
     for (const m of notInLibrary) {
       try {
         await api.addPaper(m.addTarget);
         for (const id of _modelIds(m)) _libraryIds.add(id);
         added += 1;
       } catch (err) {
+        failed += 1;
         showToast(err.message || 'Failed to add a paper', 'error');
       }
     }
+    _addReceipt = { queued: added, skipped, failed };
     showToast(`Added ${added} paper${added === 1 ? '' : 's'}`, 'info');
     _render();
     _persist();
@@ -370,6 +431,7 @@ function _render() {
   _el.innerHTML = `
     <div class="brainstorm-view">
       ${_researchGateHtml()}
+      ${_addReceiptHtml()}
       <div class="brainstorm-header">
         <h2>Brainstorm</h2>
         <p class="muted">Start from just a topic &mdash; find real papers, add what you want.</p>
@@ -676,6 +738,11 @@ function _bindEvents() {
       await ensureActiveResearch(() => {});
       if (_el) _render();
     });
+  }
+
+  const receiptClose = _el.querySelector('#brainstorm-receipt-close');
+  if (receiptClose) {
+    receiptClose.addEventListener('click', () => { _addReceipt = null; _render(); });
   }
 
   const searchBtn = _el.querySelector('#brainstorm-search-btn');

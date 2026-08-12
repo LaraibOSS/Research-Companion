@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs
 Tests:
   - Every file referenced by index.html exists in lab/static
   - index.html contains the module script tag and vendor script tag
@@ -971,6 +971,23 @@ def test_home_view_has_quicknav_and_product_pillars():
     # one-time entrance class + sparkline normalized for the draw-in animation
     assert "home-animate-in" in js
     assert 'pathLength="1"' in js
+
+
+def test_add_papers_gives_a_receipt_and_manual_fallback():
+    """Adding papers is async; the UI must say what was queued, where it went,
+    what was skipped as already-present, and what to do when a PDF cannot be
+    downloaded."""
+    bs = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    helper = (STATIC_DIR / "js" / "addReceipt.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "css" / "lab.css").read_text(encoding="utf-8")
+    assert "addReceiptModel" in bs and "_addReceipt" in bs
+    # duplicates are counted and reported, not silently ignored
+    assert "skipped" in bs and "skipped" in helper
+    # the manual-download fallback is stated
+    assert "manually" in helper and "MANUAL_ADD_DISCLAIMER" in helper
+    # dismissible, and points at the Library
+    assert "brainstorm-receipt-close" in bs and "#/library" in bs
+    assert ".brainstorm-add-receipt" in css
 
 
 def test_research_identity_is_always_visible():
