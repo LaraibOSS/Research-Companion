@@ -167,7 +167,16 @@ class TestCoverageRefreshHooks:
                     break
                 time.sleep(0.05)
             assert in_lib == 1
-        kinds = [type(e).__name__ for e in bus.history]
+            # The event is published AFTER the coverage file is written, so
+            # seeing the file does not mean the event has fired yet. Wait for
+            # the thing actually being asserted rather than assuming ordering.
+            deadline = time.time() + 10
+            kinds = []
+            while time.time() < deadline:
+                kinds = [type(e).__name__ for e in bus.history]
+                if "CitationCoverageUpdated" in kinds:
+                    break
+                time.sleep(0.05)
         assert "CitationCoverageUpdated" in kinds
 
     def test_apply_draft_triggers_coverage(self, isolated_papergraph_dir):
