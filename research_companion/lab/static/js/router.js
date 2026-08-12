@@ -10,6 +10,8 @@
  *   startRouter(document.getElementById('view'));
  */
 
+import { attachHelp } from './components/pageHelp.js';
+
 const _registry = new Map();
 let _currentRoute = null;
 let _previousRoute = null;
@@ -91,6 +93,13 @@ function _render() {
   _currentRoute = route;
   if (handler && typeof handler.mount === 'function' && _viewEl) {
     try { handler.mount(_viewEl); } catch (e) { console.error('[router] mount error', e); }
+  }
+
+  // Every view gets the persistent "?" help affordance (what this page does,
+  // what it is based on, and the verify-before-you-cite disclaimer) without
+  // each view having to remember to add it. Non-fatal.
+  if (_viewEl) {
+    try { attachHelp(_viewEl, route); } catch (e) { console.error('[router] help error', e); }
   }
 }
 

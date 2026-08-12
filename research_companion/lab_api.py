@@ -2539,7 +2539,13 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                     break
             prompt = _SIMPLIFY_PROMPT.replace("{title}", (meta.title if meta else paper_id)) \
                                      .replace("{sections_block}", "".join(blocks) or text[:budget])
-            llm = _resolve_llm(json_mode=True)
+            # Honor the app-level LLM seam like every other endpoint does.
+            # Resolving the module function directly made this background task
+            # depend on monkeypatch timing (it could outlive a test's patch and
+            # reach a real provider), which is what made this job flaky in CI.
+            llm = app.state.llm
+            if llm is None:
+                llm = _resolve_llm(json_mode=True)
             raw = await asyncio.to_thread(llm, prompt)
             if isinstance(raw, str):
                 from research_companion.extract import _strip_code_fences
