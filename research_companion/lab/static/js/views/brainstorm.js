@@ -35,6 +35,9 @@ import {
   briefModel, setBulletText, deleteBullet, addBullet, deleteSection, moveBullet,
 } from '../briefHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
+import {
+  ingestStatus, provenanceLine, DIRECTIONS_INTRO, DIRECTIONS_DISCLAIMER,
+} from '../directionsProvenance.js';
 import * as store from '../store.js';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +58,7 @@ let _directionsLoading = false;
 let _directionsError = null;
 let _rawDirections = [];        // last raw POST /api/directions directions[]
 let _directionsHasGenerated = false;
+let _directionsGrounding = null;  // real counts of what the last generate used
 let _directionsSortCol = 'score';
 let _directionsSortDir = 'desc';
 let _noveltyByDirectionId = new Map(); // directionId -> {loading, error, result} — survives full _render()
@@ -62,6 +66,7 @@ let _scaffoldByDirectionId = new Map(); // directionId -> {loading, error, resul
 let _topic = '';            // last searched/typed topic — persisted so the box refills on revisit
 let _hydrating = false;     // true while restoring a saved session (suppresses re-save)
 let _persistTimer = null;   // debounce handle for _persist()
+let _unsub = null;          // store subscription (ingest notice live-update)
 let _brief = null;          // raw brief {brief_id, topic, sections:[...]} | null — persisted
 let _briefLoading = false;
 let _briefError = null;
@@ -87,6 +92,7 @@ export function mount(el) {
   _directionsError = null;
   _rawDirections = [];
   _directionsHasGenerated = false;
+  _directionsGrounding = null;
   _directionsSortCol = 'score';
   _directionsSortDir = 'desc';
   _noveltyByDirectionId = new Map();
@@ -99,11 +105,26 @@ export function mount(el) {
   _briefNoteFor = null;
   _render();
   _hydrate();
+  _unsub = store.subscribe(['papers', 'activity'], () => _refreshIngestNotice());
 }
 
 export function unmount() {
   if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
+  if (_unsub) { _unsub(); _unsub = null; }
   _el = null;
+}
+
+// Papers finish ingesting in the background; keep the "still being added"
+// notice truthful by patching just that node (a full _render() here would
+// disturb typing and in-flight panels).
+function _refreshIngestNotice() {
+  if (!_el) return;
+  const node = _el.querySelector('#brainstorm-ingest-notice');
+  if (!node) return;
+  const ingest = ingestStatus(store.getState());
+  node.textContent = ingest.message;
+  node.hidden = !ingest.message;
+  node.classList.toggle('is-busy', ingest.busy);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +316,7 @@ async function _generateDirections() {
   try {
     const data = await api.directions({ topic, yearMin, yearMax, seeds: _rawResults });
     _rawDirections = Array.isArray(data.directions) ? data.directions : [];
+    _directionsGrounding = data.grounding || null;
     _directionsError = data.error || null;
   } catch (err) {
     _rawDirections = [];
@@ -399,15 +421,31 @@ function _rowHtml(m) {
 
 function _directionsSectionHtml() {
   const enabled = _directionsButtonEnabled();
+  const ingest = ingestStatus(store.getState());
+  // Advisory, never a hard lock: say plainly that generating now uses only the
+  // papers already analyzed, and offer to wait.
+  const noticeHtml = `<div class="brainstorm-ingest-notice${ingest.busy ? ' is-busy' : ''}"
+       id="brainstorm-ingest-notice"${ingest.message ? '' : ' hidden'}>${escapeHtml(ingest.message)}</div>`;
+  const provenance = provenanceLine(_directionsGrounding);
+  const provHtml = (provenance && _rawDirections.length > 0)
+    ? `<p class="brainstorm-directions-provenance muted">${escapeHtml(provenance)}</p>`
+    : '';
+  const disclaimerHtml = _rawDirections.length > 0
+    ? `<p class="brainstorm-directions-disclaimer muted">${escapeHtml(DIRECTIONS_DISCLAIMER)}</p>`
+    : '';
   return `
     <div class="brainstorm-directions-section">
       <div class="brainstorm-directions-header">
         <h3>Research Directions</h3>
         <button id="brainstorm-directions-btn" class="btn btn-accent"${enabled ? '' : ' disabled'}>Generate directions</button>
       </div>
+      <p class="brainstorm-directions-intro muted">${escapeHtml(DIRECTIONS_INTRO)}</p>
+      ${noticeHtml}
+      ${provHtml}
       <div class="brainstorm-directions-body">
         ${_directionsBodyHtml()}
       </div>
+      ${disclaimerHtml}
     </div>`;
 }
 
