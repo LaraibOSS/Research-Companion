@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: "Research Companion"
+message: "If you use this software in your research, please cite it."
+type: software
+authors:
+  - family-names: Hasan
+    given-names: Laraib
+  - family-names: Rahman
+    given-names: Azizur
+repository-code: "https://github.com/LaraibOSS/Research-Companion"
+abstract: >-
+  A local-first research companion that turns a corpus of papers into a
+  concept-level knowledge graph, answers questions with citations to the exact
+  paper and section, and checks a draft against the literature — alignment
+  scoring, citation verification, gap analysis, and integrity checks. The
+  deterministic core runs with no API key and no network.
+keywords:
+  - literature-review
+  - knowledge-graph
+  - research-tools
+  - citation-verification
+  - academic-writing
+  - retrieval-augmented-generation
+  - local-first
+license: MIT
+version: 0.7.1
