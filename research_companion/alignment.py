@@ -54,6 +54,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 
 from research_companion import store
+from research_companion.locator import anchor_quote
 from research_companion.prompts import alignment_prompt_sha256, format_alignment_prompt
 from research_companion.rebuttal.verify import verify_quote as _verify_quote_fn
 from research_companion.sections import (
@@ -355,10 +356,15 @@ def align_papers(
                 continue
             quote = ev.get("quote", "")
             verified, match_type = _verify_quote_fn(quote, cand_text)
+            # Carry WHERE the quote sits in the source, not just whether it is
+            # there. A verified quote with no locator can be shown but not
+            # re-checked; an anchored one can be fetched and audited later.
+            loc = anchor_quote(candidate_id, quote, cand_text)
             verified_evidence.append({
                 "quote": quote,
                 "verified": verified,
                 "match": match_type if match_type else "none",
+                "locator": loc.to_dict(),
             })
             all_quotes.append(verified)
 
