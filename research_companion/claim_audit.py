@@ -203,3 +203,94 @@ def summarize(results: list[AuditResult]) -> dict:
         "inconclusive": len(results) - conclusive,
         "adverse": counts[AuditOutcome.NOT_SUPPORTED.value],
     }
+
+
+# ---------------------------------------------------------------------------
+# Runners — audit a whole artifact, one claim at a time
+#
+# Each returns the same shape: the artifact's own items annotated with an
+# `audit` block, plus a summary. Nothing is mutated in place, and a failure on
+# one item never aborts the batch (one unreachable source must not blank the
+# whole report).
+# ---------------------------------------------------------------------------
+
+def _locator_from_citation(cit: dict) -> Locator | None:
+    """Build a locator from a stored citation dict.
+
+    Report citations already carry paper/section/char offsets; alignment
+    evidence carries a serialized locator. Anything without a usable range
+    becomes anchorless rather than a fabricated anchor.
+    """
+    from research_companion.locator import LocatorKind
+
+    if not isinstance(cit, dict):
+        return None
+    # alignment evidence: a serialized Locator
+    raw = cit.get("locator")
+    if isinstance(raw, dict) and raw.get("paper_id"):
+        try:
+            return Locator(
+                paper_id=str(raw["paper_id"]),
+                kind=LocatorKind(raw.get("kind", "none")),
+                section_id=raw.get("section_id"),
+                char_start=raw.get("char_start"),
+                char_end=raw.get("char_end"),
+                quote=raw.get("quote", "") or "",
+            )
+        except (ValueError, KeyError):
+            return None
+    # report citation: paper + section + offsets
+    paper_id = str(cit.get("paper_id") or "")
+    if not paper_id:
+        return None
+    start, end = cit.get("char_start"), cit.get("char_end")
+    if isinstance(start, int) and isinstance(end, int) and end > start:
+        return Locator(paper_id=paper_id, kind=LocatorKind.SECTION,
+                       section_id=cit.get("section_id") or None,
+                       char_start=start, char_end=end)
+    from research_companion.locator import anchorless
+    return anchorless(paper_id)
+
+
+def audit_report(report: dict, *, load_text, llm=None) -> dict:
+    """Audit each report answer against the sources it cites.
+
+    The claim under test is the answer text; each citation is checked
+    independently, so a single unsupported source does not condemn the answer.
+    """
+    out_sections = []
+    all_results: list[AuditResult] = []
+    for sec in (report or {}).get("sections", []) or []:
+        if not isinstance(sec, dict):
+            continue
+        claim = str(sec.get("answer") or "").strip()
+        audited = []
+        for cit in sec.get("citations", []) or []:
+            result = audit_claim(claim, _locator_from_citation(cit),
+                                 load_text=load_text, llm=llm)
+            all_results.append(result)
+            audited.append({**cit, "audit": result.to_dict()})
+        out_sections.append({**sec, "citations": audited})
+    return {"sections": out_sections, "summary": summarize(all_results)}
+
+
+def audit_alignment(alignment: dict, *, load_text, llm=None) -> dict:
+    """Audit each piece of alignment evidence against its own quoted passage.
+
+    The claim under test is the alignment's rationale — the assertion the tool
+    made about the paper — checked against the passage it cited for it.
+    """
+    out_sections = []
+    all_results: list[AuditResult] = []
+    for sec in (alignment or {}).get("sections", []) or []:
+        if not isinstance(sec, dict):
+            continue
+        claim = str(sec.get("rationale") or "").strip()
+        audited = []
+        for ev in sec.get("evidence", []) or []:
+            result = audit_claim(claim, _locator_from_citation(ev),
+                                 load_text=load_text, llm=llm)
+            all_results.append(result)
+            audited.append({**ev, "audit": result.to_dict()})
+        out_sections.append({**sec, "evidence": audited})
+    return {"sections": out_sections, "summary": summarize(all_results)}

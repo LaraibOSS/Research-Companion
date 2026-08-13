@@ -166,3 +166,74 @@ def test_claim_audit_is_opt_in():
     from research_companion.settings import DEFAULTS
 
     assert DEFAULTS["claim_audit"] is False
+
+
+# ---------------------------------------------------------------------------
+# Runners over whole artifacts
+# ---------------------------------------------------------------------------
+
+def test_audit_report_annotates_each_citation_without_mutating_the_source():
+    from research_companion.claim_audit import audit_report
+
+    report = {"sections": [{
+        "question": "Does graph retrieval help?",
+        "answer": "Graph retrieval reduces error by 40%.",
+        "citations": [
+            {"paper_id": "p1", "section_id": "s1", "char_start": 0, "char_end": len(TEXT)},
+            {"paper_id": "p2"},   # no offsets -> anchorless, not an accusation
+        ],
+    }]}
+    original = json.loads(json.dumps(report))
+
+    out = audit_report(report, load_text=_load, llm=_llm("not_supported", "no 40% figure"))
+    cits = out["sections"][0]["citations"]
+    assert cits[0]["audit"]["outcome"] == "not_supported"
+    assert cits[1]["audit"]["outcome"] == "anchorless"
+    assert cits[1]["audit"]["is_adverse"] is False
+    # summary counts only the conclusive one
+    assert out["summary"]["checked"] == 1
+    assert out["summary"]["adverse"] == 1
+    # the input artifact is untouched
+    assert report == original
+
+
+def test_audit_alignment_uses_the_stored_locator():
+    from research_companion.claim_audit import audit_alignment
+    from research_companion.locator import anchor_quote
+
+    loc = anchor_quote("p1", QUOTE, TEXT)
+    alignment = {"sections": [{
+        "section_id": "s1",
+        "rationale": "This paper supports the retrieval claim.",
+        "evidence": [{"quote": QUOTE, "verified": True, "locator": loc.to_dict()}],
+    }]}
+
+    out = audit_alignment(alignment, load_text=_load, llm=_llm("supported"))
+    ev = out["sections"][0]["evidence"][0]
+    assert ev["audit"]["outcome"] == "supported"
+    assert ev["verified"] is True          # existing fields preserved
+    assert out["summary"]["checked"] == 1
+
+
+def test_one_broken_source_does_not_abort_the_batch():
+    from research_companion.claim_audit import audit_report
+
+    calls = {"n": 0}
+
+    def flaky_load(paper_id):
+        calls["n"] += 1
+        if paper_id == "bad":
+            raise OSError("unreadable")
+        return TEXT
+
+    report = {"sections": [{
+        "answer": "A claim.",
+        "citations": [
+            {"paper_id": "bad", "char_start": 0, "char_end": len(TEXT)},
+            {"paper_id": "p1", "char_start": 0, "char_end": len(TEXT)},
+        ],
+    }]}
+    out = audit_report(report, load_text=flaky_load, llm=_llm("supported"))
+    outcomes = [c["audit"]["outcome"] for c in out["sections"][0]["citations"]]
+    assert outcomes == ["unverifiable", "supported"]
+    assert out["summary"]["total"] == 2
