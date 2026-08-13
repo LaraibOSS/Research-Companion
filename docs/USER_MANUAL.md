@@ -175,6 +175,26 @@ time you open it after upgrading, from "Main" to "My research" (your papers,
 draft, and history are untouched). You can rename or delete it from the
 Researches screen the same way as any other research you create.
 
+### If search says it is rate-limited
+
+The paper catalogues behind **Brainstorm** search (Semantic Scholar and
+OpenAlex) are free, keyless and shared, so they throttle bursts — adding twenty
+papers and then searching a few times can trip it. The search says so plainly
+and it clears on its own, usually within minutes.
+
+Two settings make it far rarer:
+
+- **Contact email** — sent to OpenAlex, which puts you in its "polite pool"
+  with much higher limits. Nothing else is sent, and it is never used for
+  anything else.
+- **Semantic Scholar API key** — free from
+  <https://www.semanticscholar.org/product/api>. Paste it into Settings and
+  searches use it automatically, raising your limit substantially.
+
+Both are optional: without them search still works, just closer to the shared
+limit. Note that once a limit has already been hit, neither setting lifts it
+immediately — the window has to pass.
+
 ### First-run: pick how you want to start
 
 On a genuinely empty workspace — no draft, no papers, and no active research

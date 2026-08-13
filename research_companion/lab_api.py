@@ -156,6 +156,11 @@ try:
         k_sections: int | None = None
         char_budget: int | None = None
         embed_model: str | None = None
+        # Contact address sent to OpenAlex ("polite pool", far higher rate
+        # limits). settings.py has always accepted it, but it was missing here,
+        # so PUT /api/settings silently dropped it and it could not be set at
+        # all -- while the rate-limit error told users to set it.
+        contact_email: str | None = None
         keys: dict[str, str | None] | None = None
 
     class _RegenerateBody(_BaseModel):

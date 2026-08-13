@@ -27,6 +27,9 @@ SECRET_KEYS: dict[str, str] = {
     "openai_api_key": "OPENAI_API_KEY",
     "hf_token": "HF_TOKEN",
     "ncbi_api_key": "NCBI_API_KEY",
+    # Semantic Scholar issues free keys with far higher rate limits than the
+    # shared anonymous pool, which throttles ordinary Brainstorm use.
+    "s2_api_key": "S2_API_KEY",
 }
 
 DEFAULTS: dict[str, Any] = {

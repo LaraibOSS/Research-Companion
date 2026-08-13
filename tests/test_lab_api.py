@@ -1948,6 +1948,17 @@ class TestSettingsEndpoints:
         for ev in ("RESEARCH_COMPANION_PROVIDER", "RESEARCH_COMPANION_MODEL"):
             monkeypatch.delenv(ev, raising=False)
 
+
+    def test_put_settings_accepts_contact_email(self, isolated_papergraph_dir):
+        """contact_email was missing from the PUT body model, so the API silently
+        dropped it and the setting could not be set at all -- while the
+        rate-limit error told users to set it. It must round-trip."""
+        c = _make_client()
+        resp = c.put("/api/settings", json={"contact_email": "me@example.org"})
+        assert resp.status_code == 200
+        assert resp.json()["contact_email"] == "me@example.org"
+        assert c.get("/api/settings").json()["contact_email"] == "me@example.org"
+
     def test_get_settings_shape(self, isolated_papergraph_dir, monkeypatch):
         """GET /api/settings returns the expected shape with keys block."""
         self._clean_env(monkeypatch)
