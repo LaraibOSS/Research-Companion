@@ -10,6 +10,7 @@ monkeypatch them; the response parsers are pure.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextvars import ContextVar
 
 import httpx
 
@@ -108,6 +109,28 @@ def _best_match(
     return best_record
 
 
+# ---------------------------------------------------------------------------
+# Transport-failure recording
+#
+# Every retriever below swallows network errors and returns None/[] so a lookup
+# never explodes. That is the right behaviour, but it erases a distinction that
+# matters: a resolver that ANSWERED "no record" is evidence, while one that was
+# never reached is the absence of evidence. Callers that need to tell them apart
+# activate this recorder; everything else is unaffected.
+# ---------------------------------------------------------------------------
+
+_transport_failures: ContextVar[list[str] | None] = ContextVar(
+    "refcheck_transport_failures", default=None,
+)
+
+
+def _record_transport_failure(resolver: str, exc: BaseException) -> None:
+    """Note that `resolver` could not be reached, when a caller is listening."""
+    sink = _transport_failures.get()
+    if sink is not None:
+        sink.append(f"{resolver}: {type(exc).__name__}: {exc}")
+
+
 def _crossref_search(query: str, *, rows: int = 5, timeout: float = 30.0) -> list[dict]:
     """Query the CrossRef bibliographic search endpoint. Returns [] on failure."""
     params = {"query.bibliographic": query, "rows": rows}
@@ -117,7 +140,8 @@ def _crossref_search(query: str, *, rows: int = 5, timeout: float = 30.0) -> lis
             resp = client.get(CROSSREF_SEARCH_API, params=params)
             resp.raise_for_status()
         return resp.json().get("message", {}).get("items", [])
-    except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.HTTPError):
+    except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.HTTPError) as exc:
+        _record_transport_failure("crossref", exc)
         return []
 
 
@@ -140,7 +164,8 @@ def _openalex_search(query: str, *, rows: int = 5, timeout: float = 30.0) -> lis
             resp = client.get(OPENALEX_SEARCH_API, params=params)
             resp.raise_for_status()
         return resp.json().get("results", [])
-    except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.HTTPError):
+    except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.HTTPError) as exc:
+        _record_transport_failure("crossref", exc)
         return []
 
 
@@ -165,7 +190,8 @@ def _arxiv_fetch(arxiv_id: str, *, timeout: float = 30.0) -> dict | None:
         with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
             resp = client.get(ARXIV_API, params={"id_list": arxiv_id, "max_results": 1})
             resp.raise_for_status()
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        _record_transport_failure("openalex", exc)
         return None
     feed = feedparser.parse(resp.text)
     if not feed.entries:
@@ -234,3 +260,47 @@ def default_lookup(*, connectors=None) -> Callable[[Reference], dict | None]:
         from research_companion.connectors import enabled_connectors
         retrievers.extend(conn.resolve for conn in enabled_connectors(names))
     return chained_lookup(*retrievers)
+
+
+# ---------------------------------------------------------------------------
+# Reachability-aware lookup
+# ---------------------------------------------------------------------------
+
+class LookupOutcome:
+    """A lookup result that also says whether anything actually answered.
+
+    ``any_reachable`` is False only when every resolver failed to complete —
+    the case that must never be reported to a user as "no matching record
+    found", because nothing was found *out*.
+    """
+
+    __slots__ = ("record", "any_reachable", "errors")
+
+    def __init__(self, record: dict | None, any_reachable: bool,
+                 errors: list[str] | None = None) -> None:
+        self.record = record
+        self.any_reachable = any_reachable
+        self.errors = errors or []
+
+
+def lookup_with_outcome(ref: Reference, *, lookup=None, connectors=None) -> LookupOutcome:
+    """Run a lookup while recording whether any resolver was reachable.
+
+    Existing callers of :func:`default_lookup` are untouched; this is the entry
+    point for code that must distinguish "not found" from "could not check".
+    """
+    fn = lookup or default_lookup(connectors=connectors)
+    sink: list[str] = []
+    token = _transport_failures.set(sink)
+    try:
+        record = fn(ref)
+    except Exception as exc:  # noqa: BLE001 — a lookup must never explode a caller
+        _record_transport_failure("lookup", exc)
+        record = None
+    finally:
+        _transport_failures.reset(token)
+
+    if record is not None:
+        return LookupOutcome(record, True, sink)
+    # No record. Only call it authoritative if at least one resolver answered.
+    return LookupOutcome(None, not sink, sink)

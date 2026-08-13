@@ -67,8 +67,23 @@ def _identifiers_conflict(claimed: str | None, authoritative: str | None) -> boo
 
 
 def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
-    record = lookup(ref)
+    # Distinguish "the sources answered, and none of them has this" from "we
+    # could not reach the sources". Both used to surface as the first message,
+    # which states as fact something an outage cannot establish.
+    from research_companion.refcheck.retrieval import lookup_with_outcome
+
+    outcome = lookup_with_outcome(ref, lookup=lookup)
+    record = outcome.record
     if record is None:
+        if not outcome.any_reachable:
+            return RefVerdict(
+                status="unverified",
+                reasons=[
+                    "Could not verify — no bibliographic source could be "
+                    "reached. This is not evidence the reference is missing; "
+                    "try again shortly."
+                ],
+            )
         return RefVerdict(
             status="unverified",
             reasons=["No matching record found in authoritative sources"],
