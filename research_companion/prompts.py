@@ -1200,3 +1200,54 @@ def format_report_questions_prompt(*, topic: str, grounding_block: str, max_ques
 
 def report_questions_prompt_sha256() -> str:
     return hashlib.sha256(REPORT_QUESTIONS_PROMPT.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Claim-level citation audit — does the cited passage actually support the claim?
+#
+# Deliberately biased toward "unclear". At realistic base rates a noisy auditor
+# is worse than none: a false accusation against a correct citation trains the
+# user to ignore every warning. "unclear" is a cheap, honest outcome; a wrong
+# "not_supported" is expensive.
+# ---------------------------------------------------------------------------
+
+CLAIM_AUDIT_PROMPT = """You are checking whether a passage from a source actually supports a claim that cites it.
+
+CLAIM (as written by the author):
+<<CLAIM>>
+
+PASSAGE (verbatim from the cited source):
+<<PASSAGE>>
+
+Decide which of these the passage does:
+
+- "supported"     - the passage states, or directly entails, the claim.
+- "not_supported" - the passage is about this topic but does NOT establish the claim (e.g. the claim adds a number, a comparison, or a causal direction the passage never makes).
+- "unclear"       - you cannot tell from this passage alone: it may be the wrong excerpt, too short, or missing the context that would settle it.
+
+Rules:
+- Judge ONLY the passage shown. Do not use anything you know about the paper or the field.
+- A claim that merely paraphrases the passage IS supported.
+- A claim that adds a specific figure, percentage, dataset, or comparative result absent from the passage is NOT supported.
+- When you are not confident, answer "unclear". Answering "not_supported" accuses the author of misciting; only do so when the passage clearly fails to establish the claim.
+
+Return ONLY valid JSON, no markdown fences, matching exactly:
+{
+  "verdict": "supported|not_supported|unclear",
+  "reason": "one sentence, referring to what the passage does or does not say"
+}
+
+JSON output:"""
+
+
+def format_claim_audit_prompt(*, claim: str, passage: str) -> str:
+    """Substitute placeholders in CLAIM_AUDIT_PROMPT."""
+    return (
+        CLAIM_AUDIT_PROMPT
+        .replace("<<CLAIM>>", claim)
+        .replace("<<PASSAGE>>", passage)
+    )
+
+
+def claim_audit_prompt_sha256() -> str:
+    return hashlib.sha256(CLAIM_AUDIT_PROMPT.encode("utf-8")).hexdigest()
