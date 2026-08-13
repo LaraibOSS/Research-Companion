@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Companion QA Plan</title>
+<style>
+  :root {
+    --bg:        #f5f7fa;
+    --surface:   #ffffff;
+    --surface-2: #eef1f6;
+    --border:    #d9dfe8;
+    --border-2:  #c3ccd9;
+    --ink:       #161b22;
+    --ink-mid:   #414b59;
+    --ink-dim:   #6b7686;
+    --accent:    #1f6feb;
+    --accent-ink:#0a4fc0;
+    --accent-soft:#e6efff;
+    --warn:      #9a5b06;
+    --warn-soft: #fdf3e3;
+    --crit:      #b3202c;
+    --crit-soft: #fdecee;
+    --ok:        #1a7f37;
+    --shadow:    0 1px 2px rgba(20,30,50,.05), 0 6px 20px rgba(20,30,50,.05);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #0e1116;
+      --surface:   #161b22;
+      --surface-2: #1c222b;
+      --border:    #262d38;
+      --border-2:  #333c4a;
+      --ink:       #e6edf3;
+      --ink-mid:   #b3c0cf;
+      --ink-dim:   #8a97a6;
+      --accent:    #58a6ff;
+      --accent-ink:#8cc2ff;
+      --accent-soft:rgba(88,166,255,.12);
+      --warn:      #e3a13c;
+      --warn-soft: rgba(227,161,60,.10);
+      --crit:      #f85149;
+      --crit-soft: rgba(248,81,73,.10);
+      --ok:        #3fb950;
+      --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:        #0e1116;
+    --surface:   #161b22;
+    --surface-2: #1c222b;
+    --border:    #262d38;
+    --border-2:  #333c4a;
+    --ink:       #e6edf3;
+    --ink-mid:   #b3c0cf;
+    --ink-dim:   #8a97a6;
+    --accent:    #58a6ff;
+    --accent-ink:#8cc2ff;
+    --accent-soft:rgba(88,166,255,.12);
+    --warn:      #e3a13c;
+    --warn-soft: rgba(227,161,60,.10);
+    --crit:      #f85149;
+    --crit-soft: rgba(248,81,73,.10);
+    --ok:        #3fb950;
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 44px 22px 90px; }
+
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 20px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent-ink); font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(28px, 4.4vw, 40px); line-height: 1.08; letter-spacing: -.02em;
+    font-weight: 800; margin: 10px 0 0; text-wrap: balance;
+  }
+  .lede { font-size: 16.5px; color: var(--ink-mid); max-width: 68ch; margin: 12px 0 0; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 16px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+  }
+  .meta b { color: var(--ink-mid); font-weight: 600; }
+
+  h2 {
+    font-size: 20px; font-weight: 750; letter-spacing: -.01em;
+    margin: 0 0 4px; display: flex; align-items: baseline; gap: 10px;
+  }
+  h2 .num {
+    font-family: var(--mono); font-size: 13px; color: var(--accent-ink);
+    font-weight: 700; flex: 0 0 auto;
+  }
+  h3 { font-size: 15px; font-weight: 700; margin: 22px 0 6px; }
+  section { margin-top: 46px; }
+  .sub { color: var(--ink-mid); max-width: 72ch; margin: 0 0 18px; font-size: 15px; }
+  p { max-width: 72ch; }
+
+  /* contents */
+  .toc {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 8px; margin-top: 26px;
+  }
+  .toc a {
+    display: flex; align-items: baseline; gap: 9px; text-decoration: none;
+    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--ink); font-size: 14px;
+    box-shadow: var(--shadow);
+  }
+  .toc a:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .toc .n { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+
+  /* callouts — state carried by stripe + label, not colour alone */
+  .note {
+    border: 1px solid var(--border); border-left: 4px solid var(--accent);
+    background: var(--surface); border-radius: 0 10px 10px 0;
+    padding: 14px 16px; margin: 18px 0; box-shadow: var(--shadow);
+  }
+  .note .tag {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; font-weight: 700; color: var(--accent-ink);
+    display: block; margin-bottom: 5px;
+  }
+  .note p { margin: 0; font-size: 14.5px; color: var(--ink-mid); }
+  .note p + p { margin-top: 8px; }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note.warn .tag { color: var(--warn); }
+  .note.crit { border-left-color: var(--crit); background: var(--crit-soft); }
+  .note.crit .tag { color: var(--crit); }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 14.5px; }
+  thead th {
+    background: var(--surface-2); text-align: left; font-size: 11.5px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim);
+    font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--ink-mid); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.id {
+    font-family: var(--mono); font-size: 12.5px; color: var(--accent-ink);
+    font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600;
+  }
+  td.step { color: var(--ink); }
+  td strong { color: var(--ink); font-weight: 650; }
+
+  /* click-to-cycle result cell */
+  .res {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+    letter-spacing: .06em; cursor: pointer; user-select: none;
+    border: 1px dashed var(--border-2); border-radius: 6px;
+    padding: 3px 9px; color: var(--ink-dim); background: none;
+    white-space: nowrap;
+  }
+  .res:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .res[data-state="pass"] { color: var(--ok); border-color: var(--ok); border-style: solid; }
+  .res[data-state="fail"] { color: var(--crit); border-color: var(--crit); border-style: solid; }
+  .res[data-state="blocked"] { color: var(--warn); border-color: var(--warn); border-style: solid; }
+
+  code, kbd {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 5px; color: var(--ink);
+  }
+  pre {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 1.55; color: var(--ink);
+  }
+  pre code { background: none; border: none; padding: 0; }
+  ul { max-width: 72ch; padding-left: 20px; color: var(--ink-mid); }
+  li { margin: 6px 0; }
+  li strong { color: var(--ink); }
+  a { color: var(--accent-ink); }
+
+  footer {
+    margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border);
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+  }
+
+  @media print {
+    body { background: #fff; color: #000; }
+    .toc, .res { display: none; }
+    .tablewrap, .note { box-shadow: none; break-inside: avoid; }
+    section { break-inside: avoid-page; }
+  }
+  @media (max-width: 640px) {
+    .toc { grid-template-columns: 1fr; }
+    td, thead th { padding: 9px 8px; font-size: 13.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Manual QA · Research Companion</div>
+    <h1>Research Companion QA Plan</h1>
+    <p class="lede">Step-by-step manual tests for the Brainstorm/ideation arc and the clarity &amp; trust work. Written for a tester with no prior knowledge of the codebase — follow it top to bottom.</p>
+    <div class="meta">
+      <span><b>Updated</b> 2026-08-13</span>
+      <span><b>Covers</b> everything merged to main through PR #73</span>
+      <span><b>Time</b> ~60–90 min for a full pass</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <a href="#s1"><span class="n">1</span> Before you start</a>
+    <a href="#s2"><span class="n">2</span> Smoke test</a>
+    <a href="#s3"><span class="n">3</span> Help &amp; AI disclaimer</a>
+    <a href="#s4"><span class="n">4</span> Search &amp; ranking</a>
+    <a href="#s5"><span class="n">5</span> Adding papers</a>
+    <a href="#s6"><span class="n">6</span> Research Directions</a>
+    <a href="#s7"><span class="n">7</span> The Brief</a>
+    <a href="#s8"><span class="n">8</span> Session persistence</a>
+    <a href="#s9"><span class="n">9</span> Research identity</a>
+    <a href="#s10"><span class="n">10</span> Draft tab</a>
+    <a href="#s11"><span class="n">11</span> Timeline</a>
+    <a href="#s12"><span class="n">12</span> Regression sweep</a>
+    <a href="#s13"><span class="n">13</span> Known limitations</a>
+  </nav>
+
+  <section id="s1">
+    <h2><span class="num">1</span> Before you start</h2>
+
+    <h3>Run the app</h3>
+    <pre><code>cd &lt;repo root&gt;
+pip install -e ".[server]"
+research-companion lab serve        # http://127.0.0.1:8765</code></pre>
+    <p class="sub">If that port is taken, use <code>--port 8800</code> and adjust the URLs below.</p>
+
+    <h3>Configure it</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Why it matters</th><th>Needed for</th></tr></thead>
+        <tbody>
+          <tr><td class="step"><strong>Provider + API key</strong> (Anthropic or OpenAI)</td><td>Powers every AI feature</td><td>§3, §6, §7, §10</td></tr>
+          <tr><td class="step"><strong>Contact email</strong></td><td>Raises the OpenAlex rate limit (“polite pool”)</td><td>§4 — fewer failures</td></tr>
+          <tr><td class="step"><strong>Semantic Scholar API key</strong><br><span style="font-size:13px">free from <a href="https://www.semanticscholar.org/product/api">semanticscholar.org/product/api</a></span></td><td>Raises the Semantic Scholar rate limit substantially</td><td>§4 — fewer failures</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Without an AI key the deterministic features (§2, §5, §8, §9, §11) still work. AI features will report a missing model rather than crashing — <strong>that is correct behavior, not a bug.</strong></p>
+
+    <h3>Two test workspaces</h3>
+    <p>Several tests need a <strong>brand-new, empty</strong> research. Create one from <strong>Researches → + New research</strong> (e.g. <code>QA-Empty</code>). Keep a second research that already has papers (e.g. <code>QA-Full</code>) for tests that need data.</p>
+
+    <div class="note warn">
+      <span class="tag">Read before filing a bug</span>
+      <p><strong>Rate limiting is expected.</strong> The paper catalogues (Semantic Scholar, OpenAlex) are free, keyless and shared. Adding 20 papers then searching repeatedly <em>will</em> trip a limit. Correct behavior is a plain-language message: <em>“Search is rate-limited right now — the paper catalogues are free and shared, so they throttle bursts. Wait a minute and try again.”</em></p>
+      <p>A raw <code>Client error '429 Too Many Requests' for url …</code> <strong>is</strong> a bug — report it. Once a limit is hit, setting the email or API key does <em>not</em> lift it immediately; the window has to pass.</p>
+    </div>
+
+    <h3>How to report</h3>
+    <p>For each case record <strong>Pass / Fail / Blocked</strong> (click the result cell to cycle it), plus the browser console output (<kbd>F12</kbd> → Console) if anything looks broken, and a screenshot for visual issues.</p>
+    <div class="note crit">
+      <span class="tag">Always a bug</span>
+      <p>A blank tab, or a red <code>ReferenceError</code> in the console. Report it with the console text — this exact failure has shipped twice before.</p>
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="num">2</span> Smoke test</h2>
+    <p class="sub">Two minutes. Do this before anything else — if it fails, everything downstream will too.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">2.1</td><td class="step">Open the app</td><td>Loads without an error page</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">2.2</td><td class="step">Open <kbd>F12</kbd> → Console</td><td><strong>No red errors</strong> (a favicon 404 is fine)</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">2.3</td><td class="step">Click every left-nav tab: Home, Brainstorm, Researches, Library, Graph, Draft, Timeline, Gaps, Report, Ask, Compare, Citations, Notes</td><td>Every tab renders content. <strong>A blank tab is a bug</strong> — note which, plus the console text</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">2.4</td><td class="step">Look at the top bar</td><td>Shows the active research name — <strong>never</strong> “Research: none” while one is selected</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="num">3</span> Help &amp; AI disclaimer</h2>
+    <p class="sub">Applies to every tab.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">3.1</td><td class="step">On any tab, look bottom-right</td><td>A small round <strong>?</strong> button, above the chat bubble</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">3.2</td><td class="step">Click it</td><td>Panel opens: page name, what the page does, <strong>“What it uses”</strong>, and a reliability section</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">3.3</td><td class="step">Press <kbd>Esc</kbd>, then click <strong>?</strong> again</td><td>Closes, then reopens — it must never disappear permanently</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">3.4</td><td class="step">Repeat on <strong>all 13 tabs</strong></td><td>Every tab has copy specific to that page, not generic filler</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">3.5</td><td class="step">Open <strong>?</strong> on Brainstorm, Draft, Report, Ask, Gaps, Graph, Compare</td><td>Shows an <strong>AI disclaimer</strong>: AI-assisted, can be wrong, verify before citing</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">3.6</td><td class="step">Open <strong>?</strong> on Library, Timeline, Citations, Notes, Researches</td><td>States <strong>no AI is used</strong> and the result is deterministic</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">3.7</td><td class="step">Open <strong>?</strong> on Timeline</td><td>Explains how to read the page <em>and</em> why some papers may be missing (no year)</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s4">
+    <h2><span class="num">4</span> Search, result count &amp; ranking</h2>
+    <p class="sub">Use the <code>QA-Full</code> research.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">4.1</td><td class="step">Go to <strong>Brainstorm</strong>; look beside the search box</td><td>A <strong>count</strong> dropdown (20/30/40/50) and a <strong>rank</strong> dropdown (Balanced / Most cited / Top venues)</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.2</td><td class="step">Search <code>knowledge graph retrieval</code></td><td>Results with title, authors, year, citation count, source badge</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.3</td><td class="step">Set count to <strong>50</strong>, search again</td><td>Noticeably more results than 20 (subject to what the source returns)</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.4</td><td class="step">Rank = <strong>Most cited</strong></td><td>Ordered by citation count, highest first</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.5</td><td class="step">Rank = <strong>Top venues</strong></td><td>Papers from recognized venues (NeurIPS, ICML, ACL, EMNLP, ICLR, AAAI…) appear <strong>first</strong></td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.6</td><td class="step">Look for a <strong>venue badge</strong> on result rows</td><td>Recognized venues show a pill with the venue name; unrecognized show plain text or nothing</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.7</td><td class="step">Rank = <strong>Balanced</strong></td><td>A mix — heavily-cited papers still rank high, but recent top-venue papers aren’t buried</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">4.8</td><td class="step">Search rapidly ~10 times</td><td>Eventually the <strong>friendly</strong> rate-limit message — never a raw HTTP error</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn">
+      <span class="tag">Highest-priority unknown</span>
+      <p><strong>§4.6 has never been verified against live data.</strong> The development machine stayed rate-limited throughout, so no real venue string was ever seen. Please record <strong>how many of ~20 results show a venue badge</strong>. If it is near zero, that is a real finding — report it.</p>
+    </div>
+  </section>
+
+  <section id="s5">
+    <h2><span class="num">5</span> Adding papers</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">5.1</td><td class="step">Search, then <strong>Add</strong> one result</td><td>A confirmation <strong>receipt</strong> appears near the top of the tab</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.2</td><td class="step">Read the receipt</td><td>How many are being added <strong>and into which research by name</strong>; a <strong>View in Library</strong> link; a disclaimer that PDFs which fail must be added manually</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.3</td><td class="step">Click the receipt’s <strong>×</strong></td><td>It dismisses</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.4</td><td class="step">Click <strong>Add all</strong></td><td>Receipt reports the number queued</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.5</td><td class="step">Click <strong>Add all</strong> again immediately</td><td>Says <strong>“Nothing to add”</strong> and reports how many were <strong>skipped as already present</strong> — it must not silently do nothing</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.6</td><td class="step">Go to <strong>Library</strong> while papers are still being added</td><td>Papers show a processing state; the UI stays responsive — navigation is never blocked</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.7</td><td class="step">Wait for ingestion to finish</td><td>Papers reach a finished state; failures are clearly marked</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">5.8</td><td class="step">Inspect a failed paper (if any)</td><td>Marked failed with a reason. Expected for publishers that block downloads — the receipt already said to add those manually</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s6">
+    <h2><span class="num">6</span> Research Directions</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">6.1</td><td class="step">Scroll to <strong>Research Directions</strong></td><td>An intro paragraph explains what it does and what it reads (topic, papers you added, concept graph, open gaps)</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.2</td><td class="step">While papers are still being added, look above the button</td><td><em>“N papers are still being added. Generate now and directions will only use the M already analyzed.”</em></td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.3</td><td class="step">Wait for ingestion to finish; watch that notice</td><td>It updates on its own — must not go stale</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.4</td><td class="step">With papers that were never analyzed (e.g. failed), re-read the notice</td><td>Says they have <strong>not been analyzed yet</strong> and to retry from the Library. It must <strong>not</strong> say “still being added” — that implies waiting for something that will never arrive</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.5</td><td class="step">Click <strong>Generate directions</strong></td><td>Ranked directions, each with a rationale, a type badge, and <strong>citation chips</strong></td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.6</td><td class="step">Look directly under the results</td><td>A <strong>provenance line</strong>: <em>“Grounded in X papers, Y concepts from your graph, and Z open gaps.”</em> Numbers should be plausible for your library</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.7</td><td class="step">Look at the bottom of the section</td><td>A disclaimer: AI-suggested, <strong>not exhaustive</strong>, only from the papers you added</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.8</td><td class="step">Click a citation chip</td><td>Opens that paper in the Library</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">6.9</td><td class="step">Click <strong>Check novelty</strong> on a direction</td><td>A verdict against real prior work, clearly labelled a model judgment</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s7">
+    <h2><span class="num">7</span> The Brief</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">7.1</td><td class="step">Scroll to <strong>Brief</strong> → <strong>Generate brief</strong></td><td>Section headings, each with several bullet points</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.2</td><td class="step">Inspect the bullets</td><td>Every AI bullet carries a <strong>citation chip</strong> to one of your papers. An uncited AI bullet should not exist</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.3</td><td class="step">Read the caption</td><td>States it is AI-suggested, grounded in your papers, free to edit</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.4</td><td class="step">Hover a bullet</td><td>Row actions appear: <strong>Edit, ↑, ↓, + note, ×</strong></td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.5</td><td class="step"><strong>Edit</strong> a bullet, change text, <strong>Save</strong></td><td>Updates and keeps the change</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.6</td><td class="step">Use <strong>↑ / ↓</strong></td><td>Moves within its section; cannot move past first/last</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.7</td><td class="step"><strong>+ bullet</strong>, type text, save</td><td>Added and marked as <strong>your note</strong> — no citation, correct since you wrote it</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.8</td><td class="step"><strong>×</strong> on a bullet; <strong>Remove</strong> on a section</td><td>Both delete</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.9</td><td class="step"><strong>+ note</strong> on a bullet, write, save</td><td>Confirmation; the note appears in the <strong>Notes</strong> tab</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">7.10</td><td class="step">Click a citation chip</td><td>Opens that paper in the Library</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s8">
+    <h2><span class="num">8</span> Session persistence</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">8.1</td><td class="step">In Brainstorm: search, add papers, generate directions, generate a brief</td><td>All present</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">8.2</td><td class="step">Navigate to another tab, then back</td><td><strong>Everything still there</strong> — topic in the box, results, directions, brief</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">8.3</td><td class="step">Reload the browser (<kbd>F5</kbd>), return to Brainstorm</td><td>Still there</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">8.4</td><td class="step">Switch to a <strong>different</strong> research → Brainstorm</td><td>That research’s own session (likely empty). Sessions must not leak between researches</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">8.5</td><td class="step">Switch back to the first research</td><td>Its session is restored</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s9">
+    <h2><span class="num">9</span> Research identity</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">9.1</td><td class="step">With a research selected, check the top bar</td><td>Shows the <strong>research name</strong>. “Research: none” here is a bug</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.2</td><td class="step">Go to <strong>Home</strong> with a draft set</td><td><strong>“◆ Research Companion / &lt;research name&gt;”</strong> — product name <em>and</em> active research, even in dashboard mode</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.3</td><td class="step">Switch research from the top-bar dropdown</td><td>Top bar and Home both update</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.4</td><td class="step">Open <strong>Brainstorm</strong> with no active research (or fresh install)</td><td>You are prompted to <strong>name the research project</strong> up front</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.5</td><td class="step">Dismiss that prompt</td><td>An inline banner remains — <em>“Name your research project to get started”</em> with a button. Work must never land nowhere</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.6</td><td class="step">Click it and name the research</td><td>Prompt disappears; name appears in the top bar</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.7</td><td class="step">On a <strong>brand-new empty</strong> workspace, open <strong>Home</strong></td><td>Two-path chooser: <strong>Brainstorm from an idea</strong> / <strong>I already have a draft</strong></td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.8</td><td class="step">Click each path</td><td>First goes to Brainstorm; second opens the draft-upload flow</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">9.9</td><td class="step">Add a paper, return to Home</td><td>The chooser is gone — it is first-run only</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s10">
+    <h2><span class="num">10</span> Draft tab</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">10.1</td><td class="step">In Brainstorm, click <strong>Draft this direction</strong></td><td>A draft is created and becomes active</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.2</td><td class="step">Open the <strong>Draft</strong> tab</td><td>The outline sections are listed <strong>immediately</strong>. “No sections found” is a bug</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.3</td><td class="step">Look at the toolbar</td><td>A hint that the draft is not analyzed yet, plus an <strong>Analyze this draft</strong> button</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.4</td><td class="step">Click a section</td><td>Detail pane shows it, saying no papers are aligned yet</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.5</td><td class="step">Click <strong>Analyze this draft</strong></td><td>A background job starts with progress; the UI stays usable</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.6</td><td class="step">Wait for it to finish</td><td>Sections populate with stance chips (strengthens / challenges / alternative)</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.7</td><td class="step">Open an alignment card</td><td>Rationale and evidence quotes, with verified/unverified badges</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.8</td><td class="step">With no analyzed papers at all, click <strong>Analyze this draft</strong></td><td>A clear message explaining why it can’t run — never a crash</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">10.9</td><td class="step">Find the draft in <strong>Library</strong></td><td>Not stuck showing as pending/unprocessed</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s11">
+    <h2><span class="num">11</span> Timeline</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Step</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">11.1</td><td class="step">Open <strong>Timeline</strong></td><td>Below the toolbar, an explanation of <strong>how to read the grid</strong>: what a row is, a column is, a dot means</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">11.2</td><td class="step">Read it</td><td>It says what to <em>conclude</em> — long row = enduring idea, recent row = emerging, empty stretch = a period your library misses</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">11.3</td><td class="step">Check the colour key</td><td><strong>Concept / Method / Dataset</strong> swatches whose colours match the dots in the chart</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">11.4</td><td class="step">If any papers lack a year</td><td>A note states how many can’t be placed and to add the year from the Library</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">11.5</td><td class="step">Toggle <strong>Concepts / Methods / Datasets</strong></td><td>Rows filter accordingly</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">11.6</td><td class="step">Toggle <strong>Gap overlay</strong></td><td>Gap diamonds appear/disappear; the legend explains open / partial / addressed / your draft</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s12">
+    <h2><span class="num">12</span> Regression sweep</h2>
+    <p class="sub">These all broke in production before. Verify they stay fixed.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>ID</th><th>Check</th><th>Expected</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="id">12.1</td><td class="step">Open Brainstorm, check the console</td><td>No <code>ReferenceError</code>. This bug blanked the tab twice</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">12.2</td><td class="step">Top bar with a research active</td><td>Never “Research: none”</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">12.3</td><td class="step">Draft tab on a newly created draft</td><td>Outline shows immediately, not “No sections found”</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">12.4</td><td class="step">Trigger a search rate limit</td><td>Friendly message, never a raw <code>429</code> dump</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">12.5</td><td class="step">Settings → set <strong>Contact email</strong>, save, reload</td><td>The value <strong>persists</strong> — it was silently discarded before</td><td><button class="res" data-state="">— —</button></td></tr>
+          <tr><td class="id">12.6</td><td class="step">Settings → set the <strong>Semantic Scholar API key</strong>, save, reload</td><td>Persists (shown masked)</td><td><button class="res" data-state="">— —</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s13">
+    <h2><span class="num">13</span> Known limitations</h2>
+    <p class="sub">Do not file these as defects.</p>
+    <ul>
+      <li><strong>Rate limiting</strong> — expected under bursty use. The settings in §1 reduce but cannot eliminate it, and never lift a limit already hit.</li>
+      <li><strong>Venue recognition is best-effort.</strong> The venue knowledge base holds short names (NeurIPS, ACL…). A source reporting only a long form with no acronym won’t be badged. Still worth reporting <em>how often</em> badges appear — see §4.6.</li>
+      <li><strong>AI output can be wrong.</strong> Directions, briefs, novelty verdicts, alignments and reports are model-generated. Imperfect content is not a bug. Content presented as <em>verified fact</em>, or a citation pointing at a paper you don’t have, <strong>is</strong>.</li>
+      <li><strong>Coverage percentages</strong> in the Report are a keyword-search heuristic, labelled as such — not ground truth.</li>
+    </ul>
+  </section>
+
+  <footer>Research Companion · manual QA · click any result cell to cycle Pass → Fail → Blocked</footer>
+</div>
+
+<script>
+  const CYCLE = [
+    { state: '', label: '— —' },
+    { state: 'pass', label: 'PASS' },
+    { state: 'fail', label: 'FAIL' },
+    { state: 'blocked', label: 'BLOCKED' },
+  ];
+  document.querySelectorAll('.res').forEach(btn => {
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
+      const cur = CYCLE.findIndex(c => c.state === (btn.dataset.state || ''));
+      const next = CYCLE[(cur + 1) % CYCLE.length];
+      btn.dataset.state = next.state;
+      btn.textContent = next.label;
+    });
+  });
+</script>
+</body>
+</html>
