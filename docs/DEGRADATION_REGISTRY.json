@@ -1,0 +1,182 @@
+{
+  "$comment": "Machine-readable INDEX of every graceful-degradation path in Research Companion: what fails or is switched off, what the tool does instead, how a user can tell, and which tests pin that behaviour. This file INDEXES; it never re-authors. Each row points at the code that owns the behaviour via a short verbatim `anchor` (never a line number — anchors survive edits, line numbers do not), so semantics live in exactly one place and this file cannot drift into a second source of truth. Validated by scripts/check_degradation_registry.py in CI. Adding a row: fill every field, cite an anchor that appears verbatim in `authority.file`, and list the tests that pin it.",
+  "registry_version": "1.0.0",
+  "principles": [
+    "A feature that is OFF must degrade to a stated, testable behaviour — never to a silent wrong answer.",
+    "'Not checked' and 'could not check' are never rendered as 'clean'. An outage is not evidence of absence.",
+    "The deterministic core must keep working with no API key and no network."
+  ],
+  "mechanisms": [
+    {
+      "mechanism": "connectors_disabled",
+      "trigger": "settings.connectors == [] (the default)",
+      "degraded_state": "Citation verification and prior-art search use only the general resolvers (arXiv, Crossref, OpenAlex, Semantic Scholar). PubMed/Europe PMC/DBLP are not consulted; a reference resolvable only there stays unresolved rather than being reported as fabricated.",
+      "user_visible_signal": "Unresolved references remain 'unresolved', never 'not found'; the connectors setting is off in Settings.",
+      "authority": [
+        {
+          "file": "research_companion/refcheck/retrieval.py",
+          "anchor": "connectors"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_connectors_base.py",
+        "tests/test_connectors_identity.py"
+      ]
+    },
+    {
+      "mechanism": "semantic_overlap_disabled",
+      "trigger": "settings.semantic_overlap is False (the default)",
+      "degraded_state": "Overlap detection runs the deterministic lexical path only. Paraphrase/near-duplicate detection is not attempted; the report says so rather than implying a clean result.",
+      "user_visible_signal": "Overlap output carries no paraphrase findings and the semantic extra is reported as off.",
+      "authority": [
+        {
+          "file": "research_companion/semoverlap.py",
+          "anchor": "semantic"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_semantic_overlap_degradation.py"
+      ]
+    },
+    {
+      "mechanism": "no_llm_configured",
+      "trigger": "No provider API key set, or _resolve_llm() yields no callable",
+      "degraded_state": "Every model-backed surface (directions, brief, novelty, report, alignment, simplify, claim-level judgements) returns a friendly, explicit 'no model configured' result. The deterministic core — ingest, graph, search, coverage, timeline, citations existence — is unaffected.",
+      "user_visible_signal": "An explicit message naming the missing model; never an empty result presented as 'nothing found'.",
+      "authority": [
+        {
+          "file": "research_companion/lab_api.py",
+          "anchor": "No model configured"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_lab_api.py::TestAnalyzeDraft::test_analyze_no_model_returns_ok_false"
+      ]
+    },
+    {
+      "mechanism": "catalogue_rate_limited",
+      "trigger": "Semantic Scholar and/or OpenAlex return HTTP 429/503 during discovery",
+      "degraded_state": "The request is retried with backoff honouring Retry-After. A failure in one source never discards results the other returned; only a total failure surfaces an error. The error is a plain-language rate-limit message, never a raw HTTP dump.",
+      "user_visible_signal": "'Search is rate-limited right now …' with guidance; results from a surviving source are still shown.",
+      "authority": [
+        {
+          "file": "research_companion/discover.py",
+          "anchor": "def _get_with_backoff"
+        },
+        {
+          "file": "research_companion/lab_api.py",
+          "anchor": "def _discover_error_message"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_discover_rank.py::test_get_with_backoff_retries_429_then_succeeds",
+        "tests/test_discover_rank.py::test_fallback_keeps_results_when_only_one_source_fails"
+      ]
+    },
+    {
+      "mechanism": "paper_pdf_unavailable",
+      "trigger": "A publisher blocks download, or no open-access PDF exists for an added paper",
+      "degraded_state": "The paper is recorded as failed with a reason rather than entering the library silently empty. It is excluded from analysis that needs full text, and the user is told to add the PDF manually.",
+      "user_visible_signal": "Failed status in the Library plus the manual-download note on the add receipt.",
+      "authority": [
+        {
+          "file": "research_companion/lab/static/js/addReceipt.js",
+          "anchor": "MANUAL_ADD_DISCLAIMER"
+        }
+      ],
+      "pinned_by": [
+        "tests/js/addReceipt.test.mjs"
+      ]
+    },
+    {
+      "mechanism": "paper_missing_year",
+      "trigger": "A paper's metadata has no publication year",
+      "degraded_state": "It cannot be placed on the Timeline and is excluded from that view. It is counted and reported, never dropped silently.",
+      "user_visible_signal": "'N papers cannot be placed here — they have no publication year. Add the year from the Library …'",
+      "authority": [
+        {
+          "file": "research_companion/lab/static/js/timelineGuide.js",
+          "anchor": "cannot be placed here"
+        }
+      ],
+      "pinned_by": [
+        "tests/js/timelineGuide.test.mjs"
+      ]
+    },
+    {
+      "mechanism": "draft_not_analyzed",
+      "trigger": "A draft is set or created after its library was ingested, so no paper has been aligned against it",
+      "degraded_state": "The Draft view falls back to the draft's own outline instead of rendering an empty 'No sections found'. Alignment is offered explicitly via 'Analyze this draft' rather than assumed.",
+      "user_visible_signal": "Outline sections listed, plus a stated hint that the draft has not been analysed yet.",
+      "authority": [
+        {
+          "file": "research_companion/lab/static/js/draftHelpers.js",
+          "anchor": "fromOutline"
+        }
+      ],
+      "pinned_by": [
+        "tests/js/drafthelpers.test.mjs"
+      ]
+    },
+    {
+      "mechanism": "papers_unanalyzed_at_generate_time",
+      "trigger": "Research Directions is invoked while papers are still ingesting, or while papers remain unanalysed",
+      "degraded_state": "Generation is never blocked. The UI states how many papers the result will actually use, and distinguishes work genuinely in flight ('still being added') from papers that will never arrive on their own ('not been analyzed yet — retry from the Library').",
+      "user_visible_signal": "The ingest notice above the Generate button, live-updated.",
+      "authority": [
+        {
+          "file": "research_companion/lab/static/js/directionsProvenance.js",
+          "anchor": "not been analyzed yet"
+        }
+      ],
+      "pinned_by": [
+        "tests/js/directionsProvenance.test.mjs"
+      ]
+    },
+    {
+      "mechanism": "brief_no_grounding_papers",
+      "trigger": "A brief is requested with no session papers to ground it in",
+      "degraded_state": "No LLM call is made and an empty brief is returned. The tool does not invent uncited bullets to fill the space.",
+      "user_visible_signal": "An explicit empty state asking the user to add papers first.",
+      "authority": [
+        {
+          "file": "research_companion/brief.py",
+          "anchor": "nothing to ground on"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_brief.py::test_empty_grounding_skips_llm_call"
+      ]
+    },
+    {
+      "mechanism": "contact_email_unset",
+      "trigger": "settings.contact_email is empty (the default)",
+      "degraded_state": "OpenAlex requests omit the mailto parameter and use the shared anonymous pool, which is throttled sooner. No address is ever invented.",
+      "user_visible_signal": "Rate-limit messages point at the setting; nothing else changes.",
+      "authority": [
+        {
+          "file": "research_companion/discover.py",
+          "anchor": "def _polite_params"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_discover_rank.py::test_polite_params_uses_contact_email_when_set"
+      ]
+    },
+    {
+      "mechanism": "s2_api_key_unset",
+      "trigger": "S2_API_KEY is not set (the default)",
+      "degraded_state": "Semantic Scholar requests carry no x-api-key header and use the shared anonymous pool. Search still works, closer to the shared limit.",
+      "user_visible_signal": "Rate-limit messages; the key field is empty in Settings.",
+      "authority": [
+        {
+          "file": "research_companion/discover.py",
+          "anchor": "def _s2_headers"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_discover_rank.py::test_s2_headers_send_the_key_only_when_set"
+      ]
+    }
+  ]
+}
