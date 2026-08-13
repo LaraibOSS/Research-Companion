@@ -177,6 +177,26 @@
       "pinned_by": [
         "tests/test_discover_rank.py::test_s2_headers_send_the_key_only_when_set"
       ]
+    },
+    {
+      "mechanism": "citation_resolver_unreachable",
+      "trigger": "Every bibliographic resolver (arXiv, Crossref, OpenAlex, enabled connectors) fails to complete during citation verification",
+      "degraded_state": "The verdict stays 'unverified' but says the sources could not be REACHED, and states explicitly that this is not evidence the reference is missing. An outage is never reported as 'No matching record found in authoritative sources', which would assert as fact something the tool could not check.",
+      "user_visible_signal": "'Could not verify — no bibliographic source could be reached. This is not evidence the reference is missing; try again shortly.'",
+      "authority": [
+        {
+          "file": "research_companion/refcheck/retrieval.py",
+          "anchor": "def lookup_with_outcome"
+        },
+        {
+          "file": "research_companion/refcheck/validate.py",
+          "anchor": "This is not evidence the reference is missing"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_signals.py::test_validate_does_not_claim_no_record_found_during_an_outage",
+        "tests/test_signals.py::test_lookup_outcome_separates_answered_from_unreachable"
+      ]
     }
   ]
 }
