@@ -47,6 +47,10 @@ DEFAULTS: dict[str, Any] = {
     "semantic_overlap_allow_remote": False,
     "semantic_overlap_threshold": 0.83,
     "readiness_narrative": False,
+    # Claim-level citation auditing: fetch the passage a citation points at and
+    # judge whether it supports the claim. Opt-in — it costs a model call per
+    # claim — and advisory only; it never blocks output.
+    "claim_audit": False,
     "mcp_costed_tools": False,
     "mcp_cost_cap_usd": 1.0,
     "contact_email": "",
@@ -275,7 +279,7 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
     - density must be in {comfortable, compact}
     - 1 <= k_sections <= 20
     - 1000 <= char_budget <= 50000
-    - semantic_overlap / semantic_overlap_allow_remote / readiness_narrative / mcp_costed_tools
+    - semantic_overlap / semantic_overlap_allow_remote / readiness_narrative / mcp_costed_tools / claim_audit
       must be booleans
     - 0.0 <= semantic_overlap_threshold <= 1.0
     - 0.0 <= mcp_cost_cap_usd <= 100.0
@@ -341,7 +345,7 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
                 f"connectors must be a list of {sorted(VALID_CONNECTORS)}, got {v!r}")
 
     for bool_field in ("semantic_overlap", "semantic_overlap_allow_remote",
-                       "readiness_narrative", "mcp_costed_tools"):
+                       "readiness_narrative", "mcp_costed_tools", "claim_audit"):
         if bool_field in regular_patch:
             v = regular_patch[bool_field]
             if not isinstance(v, bool):

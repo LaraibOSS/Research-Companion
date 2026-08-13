@@ -217,6 +217,27 @@
         "tests/test_locator.py::test_a_quote_not_in_the_text_never_gets_invented_offsets",
         "tests/test_locator.py::test_a_section_the_tiling_does_not_have_is_not_faked"
       ]
+    },
+    {
+      "mechanism": "claim_audit_inconclusive",
+      "trigger": "Claim auditing is off, no model is configured, the source text cannot be loaded, the anchored passage is too short, the model errors, or the model answers 'unclear'",
+      "degraded_state": "The audit resolves to NOT_CHECKED / UNVERIFIABLE / ANCHORLESS — never to NOT_SUPPORTED. Only a clear adverse model judgement produces the one outcome that criticises a citation, and even that is carried as a heuristic advisory rather than a deterministic fact. summarize() counts only conclusive audits as 'checked', so an inconclusive run cannot inflate how much was verified.",
+      "user_visible_signal": "outcome is one of not_checked/unverifiable/anchorless with is_adverse=false and a reason; the signal label reads UNRESOLVED, never VERIFIED.",
+      "authority": [
+        {
+          "file": "research_companion/claim_audit.py",
+          "anchor": "Never upgrade that into an accusation"
+        },
+        {
+          "file": "research_companion/claim_audit.py",
+          "anchor": "are failures to\ncheck it"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_claim_audit.py::test_uncertainty_never_becomes_an_accusation",
+        "tests/test_claim_audit.py::test_a_citation_with_no_anchor_is_uncheckable_not_wrong",
+        "tests/test_claim_audit.py::test_summary_does_not_inflate_how_much_was_actually_checked"
+      ]
     }
   ]
 }
