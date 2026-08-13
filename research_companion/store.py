@@ -1213,3 +1213,37 @@ def load_report() -> dict | None:
         return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Claim-audit results (per artifact: "report" | "draft")
+# ---------------------------------------------------------------------------
+
+def claim_audit_path(target: str) -> Path | None:
+    """papergraph_dir()/claim_audit_<target>.json, or None when none active."""
+    safe = "".join(ch for ch in str(target or "") if ch.isalnum() or ch == "_")
+    if not safe:
+        return None
+    return workspace_path(f"claim_audit_{safe}.json")
+
+
+def save_claim_audit(target: str, payload: dict) -> Path | None:
+    """Persist an audit result. Returns None when no workspace is active."""
+    p = claim_audit_path(target)
+    if p is None:
+        return None
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_claim_audit(target: str) -> dict | None:
+    """Load a stored audit. None when missing, unparseable, or no workspace."""
+    p = claim_audit_path(target)
+    if p is None or not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None

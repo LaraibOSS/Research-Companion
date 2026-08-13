@@ -23,6 +23,7 @@ import { showToast } from '../components/toast.js';
 import { ensureActiveResearch } from '../researchGuard.js';
 import { pollDecision } from '../oaLinkHelpers.js';
 import { reportSectionModel, reportCoverageModel, reportPlanModel } from '../reportHelpers.js';
+import { claimAuditBadge, claimAuditSummaryLine, CLAIM_AUDIT_DISCLAIMER } from '../claimAuditHelpers.js';
 import { tip } from '../glossary.js';
 
 // RCS stance vocab (supports/contradicts/neutral, Report Evidence Scoring
@@ -48,6 +49,9 @@ let _error = null;
 let _scoring = false;         // Report Evidence Scoring (RCS, 2e-2)
 let _scoreDetail = '';
 let _scoreError = null;
+let _audit = null;            // last GET /api/claim-audit payload for the report
+let _auditing = false;
+let _auditError = null;
 
 // Editable Research Plan (Phase 2, slice 2e-4). `_plan` is the RAW
 // (unescaped) editable list of question strings -- only ever written into
@@ -80,6 +84,23 @@ export function mount(el) {
 
   el.innerHTML = `<div class="report-view"><div class="report-loading muted">Loading report…</div></div>`;
 
+  // The claim-audit job publishes JobStarted/JobFinished on 'activity'; pull
+  // the stored result once it ends so badges appear without a manual reload.
+  _unsubs.push(store.subscribe(['activity'], async () => {
+    const { activeJobs } = store.getState();
+    const running = activeJobs
+      && [...activeJobs.values()].some(j => j && j.kind === 'claim-audit');
+    if (running || !_auditing) return;
+    _auditing = false;
+    try {
+      const data = await api.getClaimAudit('report');
+      _audit = (data && data.audit) || null;
+    } catch {
+      _audit = null;
+    }
+    _render();
+  }));
+
   _unsubs.push(store.subscribe(['report'], async () => {
     try {
       _report = await api.getReport();
@@ -108,6 +129,13 @@ async function _fetch() {
     _report = await api.getReport();
   } catch (err) {
     console.warn('[report] fetch failed:', err);
+  }
+  // Non-fatal: an absent or failed audit just means no badges.
+  try {
+    const data = await api.getClaimAudit('report');
+    _audit = (data && data.audit) || null;
+  } catch {
+    _audit = null;
   }
   _syncPlanFromReport();
   _render();
@@ -457,10 +485,17 @@ function _render() {
                 ${(!hasReport || _scoring || _generating) ? 'disabled' : ''}>
           ${_scoring ? 'Scoring…' : 'Score evidence'}
         </button>
+        <button class="btn btn-secondary report-audit-btn" type="button"
+                title="Check whether each cited passage actually supports the claim (uses your model)"
+                ${(!hasReport || _auditing || _generating) ? 'disabled' : ''}>
+          ${_auditing ? 'Checking citations…' : 'Check citations'}
+        </button>
         <button class="btn btn-secondary report-export-btn" type="button" ${!hasReport ? 'disabled' : ''}>
           Download (.md)
         </button>
       </div>
+      ${_auditError ? `<div class="report-error">${escapeHtml(_auditError)}</div>` : ''}
+      ${_auditSummaryHtml()}
       ${_planError ? `<div class="report-error report-plan-error">${escapeHtml(_planError)}</div>` : ''}
       ${planStatusLine}
       ${editPlanBtnHtml}
@@ -480,7 +515,7 @@ function _render() {
         <p class="report-coverage-caption muted">${coverageCaption}</p>
       ` : ''}
       <div class="report-body">
-        ${!_generating && models.length === 0 ? _emptyHtml() : models.map(_sectionHtml).join('')}
+        ${!_generating && models.length === 0 ? _emptyHtml() : models.map((m, i) => _sectionHtml(m, i)).join('')}
       </div>
     </div>`;
 
@@ -514,10 +549,64 @@ function _coverageBarHtml(cov) {
     </div>`;
 }
 
-function _sectionHtml(m) {
+
+// Claim-audit badge for one citation. Matched on paper+section within the same
+// report section, so a re-ordered report never mislabels a citation; anything
+// that does not match simply shows no badge rather than a wrong one.
+
+function _auditSummaryHtml() {
+  const line = claimAuditSummaryLine(_audit && _audit.summary);
+  if (!line) return '';
+  return `<div class="report-audit-summary">
+      <span class="report-audit-summary-line">${escapeHtml(line)}</span>
+      <span class="muted report-audit-note">${escapeHtml(CLAIM_AUDIT_DISCLAIMER)}</span>
+    </div>`;
+}
+
+async function _runAudit() {
+  if (_auditing) return;
+  _auditing = true;
+  _auditError = null;
+  _render();
+  try {
+    const res = await api.runClaimAudit('report');
+    if (!res || !res.ok) {
+      _auditError = (res && res.error) || 'Could not start the citation check.';
+      _auditing = false;
+      _render();
+      return;
+    }
+    showToast('Checking citations against their sources…', 'info');
+    // the job publishes JobStarted/JobFinished; refetch when it ends
+  } catch (err) {
+    _auditError = err.message || 'Could not start the citation check.';
+    _auditing = false;
+    _render();
+  }
+}
+
+function _auditFor(sectionIndex, citation) {
+  const sections = (_audit && _audit.sections) || [];
+  const sec = sections[sectionIndex];
+  if (!sec) return null;
+  const hit = (sec.citations || []).find(c =>
+    String(c.paper_id || '') === String(citation.paperId || '')
+    && String(c.section_id || '') === String(citation.sectionId || ''));
+  return hit ? hit.audit : null;
+}
+
+function _auditBadgeHtml(sectionIndex, citation) {
+  const b = claimAuditBadge(_auditFor(sectionIndex, citation));
+  if (!b.show) return '';
+  const detail = b.reason ? `${b.title} — ${b.reason}` : b.title;
+  return `<span class="report-audit-badge audit-${escapeHtml(b.tone)}"
+           title="${escapeHtml(detail)}">${escapeHtml(b.label)}</span>`;
+}
+
+function _sectionHtml(m, sectionIndex) {
   const chips = m.citations.map(c => `
     <button class="chip report-citation-chip" data-paper-id="${escapeHtml(c.paperId)}" data-section-id="${escapeHtml(c.sectionId)}">
-      ${c.label}${_rcsBadgeHtml(c.rcs)}
+      ${c.label}${_rcsBadgeHtml(c.rcs)}${_auditBadgeHtml(sectionIndex, c)}
     </button>`).join('');
 
   const bodyHtml = m.hasError
@@ -548,6 +637,9 @@ function _bindEvents() {
 
   const scoreBtn = _el.querySelector('.report-score-evidence-btn');
   if (scoreBtn) scoreBtn.addEventListener('click', () => { _scoreEvidence(); });
+
+  const auditBtn = _el.querySelector('.report-audit-btn');
+  if (auditBtn) auditBtn.addEventListener('click', () => { _runAudit(); });
 
   const exportBtn = _el.querySelector('.report-export-btn');
   if (exportBtn) exportBtn.addEventListener('click', () => { _exportReport(); });

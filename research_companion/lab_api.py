@@ -135,6 +135,10 @@ try:
     class _AnalyzeDraftBody(_BaseModel):
         force: bool = False
 
+    class _ClaimAuditBody(_BaseModel):
+        """POST /api/claim-audit body. `target` selects the artifact to audit."""
+        target: str = "report"   # "report" | "draft"
+
     class _AskBody(_BaseModel):
         question: str = ""
         section_id: str | None = None
@@ -156,11 +160,23 @@ try:
         k_sections: int | None = None
         char_budget: int | None = None
         embed_model: str | None = None
-        # Contact address sent to OpenAlex ("polite pool", far higher rate
-        # limits). settings.py has always accepted it, but it was missing here,
-        # so PUT /api/settings silently dropped it and it could not be set at
-        # all -- while the rate-limit error told users to set it.
+        # EVERY field in settings.DEFAULTS must appear here. A setting missing
+        # from this model is silently discarded by pydantic: it exists, is
+        # documented, is validated by update_settings -- and cannot be changed.
+        # That shipped for contact_email, claim_audit, and (worse) accent,
+        # connectors and auto_add_citations, which the Settings UI actively
+        # tries to set. Pinned by test_every_documented_setting_is_settable.
+        accent: str | None = None
+        auto_add_citations: bool | None = None
+        connectors: list[str] | None = None
+        semantic_overlap: bool | None = None
+        semantic_overlap_allow_remote: bool | None = None
+        semantic_overlap_threshold: float | None = None
+        readiness_narrative: bool | None = None
+        mcp_costed_tools: bool | None = None
+        mcp_cost_cap_usd: float | None = None
         contact_email: str | None = None
+        claim_audit: bool | None = None
         keys: dict[str, str | None] | None = None
 
     class _RegenerateBody(_BaseModel):
@@ -2355,6 +2371,98 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         asyncio.create_task(_run_analyze())
         return {"ok": True, "job_id": job_id, "total": total}
+
+
+    # -----------------------------------------------------------------
+    # POST /api/claim-audit — does each cited source actually support the
+    # claim citing it? Opt-in (settings.claim_audit), advisory only: it never
+    # blocks or rewrites output. Costs one model call per citation, so it runs
+    # as a background job. NEVER 500s.
+    # -----------------------------------------------------------------
+    @app.post("/api/claim-audit", dependencies=[Depends(require_active_workspace)])
+    async def post_claim_audit(body: _ClaimAuditBody) -> dict:
+        from research_companion import claim_audit as ca
+        from research_companion import store
+        from research_companion.settings import get_settings
+
+        target = (body.target or "report").strip().lower()
+        if target not in ("report", "draft"):
+            return {"ok": False, "error": "target must be 'report' or 'draft'."}
+
+        try:
+            enabled = bool(get_settings().get("claim_audit", False))
+        except Exception:  # noqa: BLE001
+            enabled = False
+        if not enabled:
+            return {"ok": False,
+                    "error": "Claim auditing is off. Turn it on in Settings — "
+                             "it costs one model call per citation."}
+
+        resolved_llm = app.state.llm
+        if resolved_llm is None:
+            try:
+                resolved_llm = _resolve_llm(json_mode=True)
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"No model configured: {exc}"}
+        if resolved_llm is None:
+            return {"ok": False,
+                    "error": "No model configured. Add an API key in Settings."}
+
+        if target == "report":
+            artifact = await asyncio.to_thread(store.load_report)
+            if not (artifact or {}).get("sections"):
+                return {"ok": False, "error": "No report to audit. Generate one first."}
+        else:
+            draft_id = store.get_draft_paper_id()
+            if draft_id is None:
+                return {"ok": False, "error": "No draft set."}
+            artifact = await get_draft_alignment()
+            if not artifact.get("sections"):
+                return {"ok": False,
+                        "error": "This draft has no alignment yet. "
+                                 "Run 'Analyze this draft' first."}
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Auditing citations ({target})"
+        app.state.jobs[job_id] = {"status": "running", "detail": None,
+                                  "kind": "claim-audit", "label": label, "target": target}
+
+        def _load_text(paper_id: str) -> str | None:
+            return store.load_text(paper_id)
+
+        async def _run() -> None:
+            await _announce_start(job_id, "claim-audit", label)
+            try:
+                runner = ca.audit_report if target == "report" else ca.audit_alignment
+                result = await asyncio.to_thread(
+                    runner, artifact, load_text=_load_text, llm=resolved_llm)
+                await asyncio.to_thread(store.save_claim_audit, target, result)
+                s = result["summary"]
+                detail = (f"{s['checked']} of {s['total']} citations checked; "
+                          f"{s['adverse']} unsupported, {s['inconclusive']} inconclusive")
+                app.state.jobs[job_id] = {"status": "done", "detail": detail,
+                                          "kind": "claim-audit", "label": detail,
+                                          "target": target}
+            except Exception as exc:  # noqa: BLE001
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc),
+                                          "kind": "claim-audit", "label": label,
+                                          "target": target}
+            finally:
+                await _announce_finish(job_id, "claim-audit")
+
+        asyncio.create_task(_run())
+        return {"ok": True, "job_id": job_id, "target": target}
+
+    @app.get("/api/claim-audit")
+    async def get_claim_audit(target: str = "report") -> dict:
+        """Last stored audit for an artifact. Never 500s."""
+        from research_companion import store
+        try:
+            data = await asyncio.to_thread(store.load_claim_audit, target)
+        except Exception:  # noqa: BLE001
+            data = None
+        return {"target": target, "audit": data}
 
     # -----------------------------------------------------------------
     # Citation placement — is each cited paper in the right section?

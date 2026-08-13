@@ -530,6 +530,18 @@ export const brief = (params = {}) =>
     session_paper_ids: Array.isArray(params.sessionPaperIds) ? params.sessionPaperIds : [],
   });
 
+/**
+ * POST /api/claim-audit { target } — audit whether each cited source actually
+ * supports the claim citing it. Opt-in and advisory; returns
+ * { ok, job_id, target } or { ok: false, error }.
+ */
+export const runClaimAudit = (target = 'report') =>
+  post('/api/claim-audit', { target });
+
+/** GET /api/claim-audit?target= -> { target, audit: {...}|null }. */
+export const getClaimAudit = (target = 'report') =>
+  get(`/api/claim-audit?target=${encodeURIComponent(target)}`);
+
 /** GET /api/brainstorm/session -> { session: <blob>|null }. Never errors. */
 export const getBrainstormSession = () => get('/api/brainstorm/session');
 
