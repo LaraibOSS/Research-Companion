@@ -1949,6 +1949,55 @@ class TestSettingsEndpoints:
             monkeypatch.delenv(ev, raising=False)
 
 
+
+    def test_every_documented_setting_is_settable(self, isolated_papergraph_dir):
+        """A setting in DEFAULTS that is missing from the PUT body model is
+        silently dropped by pydantic -- it exists, is documented, and cannot be
+        changed. That shipped once for contact_email and again for claim_audit,
+        so pin the whole class rather than the two instances."""
+        from research_companion.settings import DEFAULTS
+
+        # Values that satisfy each field's own validation. `keys` is the
+        # secrets channel, handled separately from plain settings.
+        valid = {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "theme": "light",
+            "accent": "teal",
+            "density": "compact",
+            "k_sections": 4,
+            "char_budget": 4000,
+            "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "auto_add_citations": False,
+            "connectors": ["pubmed"],
+            "semantic_overlap": True,
+            "semantic_overlap_allow_remote": True,
+            "semantic_overlap_threshold": 0.9,
+            "readiness_narrative": True,
+            "mcp_costed_tools": True,
+            "mcp_cost_cap_usd": 2.0,
+            "contact_email": "me@example.org",
+            "claim_audit": True,
+        }
+        c = _make_client()
+        unsettable = []
+        for name in DEFAULTS:
+            if name == "keys" or name not in valid:
+                continue
+            resp = c.put("/api/settings", json={name: valid[name]})
+            if resp.status_code != 200 or resp.json().get(name) != valid[name]:
+                unsettable.append(name)
+
+        assert not unsettable, (
+            f"settings that cannot be changed through the API: {unsettable} — "
+            "they are probably missing from _SettingsPatchBody"
+        )
+
+        # every plain setting must be covered by this test, so a NEW setting
+        # cannot be added without either a value here or a deliberate skip
+        uncovered = [n for n in DEFAULTS if n != "keys" and n not in valid]
+        assert not uncovered, f"new settings not covered by this test: {uncovered}"
+
     def test_put_settings_accepts_contact_email(self, isolated_papergraph_dir):
         """contact_email was missing from the PUT body model, so the API silently
         dropped it and the setting could not be set at all -- while the
@@ -5354,6 +5403,82 @@ class TestAnalyzeDraft:
         papers = c.get("/api/papers").json()
         rec = next(p for p in papers if p["paper_id"] == pid)
         assert rec["status"] == "done"
+
+
+
+# ---------------------------------------------------------------------------
+# POST/GET /api/claim-audit
+# ---------------------------------------------------------------------------
+
+class TestClaimAudit:
+    def test_off_by_default_returns_ok_false_and_starts_no_job(self, isolated_papergraph_dir):
+        c = _make_client(llm=lambda p: "{}")
+        resp = c.post("/api/claim-audit", json={"target": "report"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "off" in data["error"].lower()
+        assert not any(j.get("kind") == "claim-audit" for j in c.app.state.jobs.values())
+
+    def test_rejects_an_unknown_target(self, isolated_papergraph_dir):
+        c = _make_client(llm=lambda p: "{}")
+        data = c.post("/api/claim-audit", json={"target": "nonsense"}).json()
+        assert data["ok"] is False
+        assert "report" in data["error"]
+
+    def test_no_report_to_audit(self, isolated_papergraph_dir):
+        from research_companion.settings import update_settings
+        update_settings({"claim_audit": True})
+        c = _make_client(llm=lambda p: "{}")
+        data = c.post("/api/claim-audit", json={"target": "report"}).json()
+        assert data["ok"] is False
+        assert "generate one first" in data["error"].lower()
+
+    def test_audits_a_report_and_persists_the_result(self, isolated_papergraph_dir):
+        from research_companion import store
+        from research_companion.settings import update_settings
+
+        update_settings({"claim_audit": True})
+        text = ("Background. Graph retrieval reduces error on multi-hop questions "
+                "across three evaluated datasets. Discussion follows.")
+        _make_paper(isolated_papergraph_dir, "arxiv:src1", "Source Paper")
+        store.save_text("arxiv:src1", text)
+        store.save_report({"topic": "t", "sections": [{
+            "question": "q", "answer": "Graph retrieval reduces error by 40%.",
+            "citations": [{"paper_id": "arxiv:src1", "section_id": "s1",
+                           "char_start": 0, "char_end": len(text)}],
+        }]})
+
+        def fake_llm(prompt: str) -> str:
+            assert "PASSAGE" in prompt
+            return json.dumps({"verdict": "not_supported",
+                               "reason": "The passage states no 40% figure."})
+
+        bus = Bus()
+        app = create_lab_app(bus, llm=fake_llm)
+        with TestClient(app) as c:
+            data = c.post("/api/claim-audit", json={"target": "report"}).json()
+            assert data["ok"] is True
+            job_id = data["job_id"]
+            import time
+            for _ in range(60):
+                job = c.get(f"/api/jobs/{job_id}").json()
+                if job["status"] != "running":
+                    break
+                time.sleep(0.05)
+            assert job["status"] == "done", job
+
+            stored = c.get("/api/claim-audit", params={"target": "report"}).json()
+            audit = stored["audit"]
+            assert audit["summary"]["adverse"] == 1
+            cit = audit["sections"][0]["citations"][0]
+            assert cit["audit"]["outcome"] == "not_supported"
+            assert cit["audit"]["is_adverse"] is True
+
+    def test_get_returns_none_when_nothing_audited(self, isolated_papergraph_dir):
+        c = _make_client()
+        data = c.get("/api/claim-audit", params={"target": "draft"}).json()
+        assert data == {"target": "draft", "audit": None}
 
 
 # ---------------------------------------------------------------------------
