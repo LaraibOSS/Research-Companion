@@ -197,6 +197,26 @@
         "tests/test_signals.py::test_validate_does_not_claim_no_record_found_during_an_outage",
         "tests/test_signals.py::test_lookup_outcome_separates_answered_from_unreachable"
       ]
+    },
+    {
+      "mechanism": "citation_anchorless",
+      "trigger": "A cited quote cannot be located in the source text (paraphrased, OCR drift, or the wrong paper), or a named section is absent from the tiling",
+      "degraded_state": "The locator degrades to paper-level with is_anchored=False rather than inventing character offsets. The citation can still be shown, but it is marked as not re-checkable instead of being silently treated as verified-and-locatable.",
+      "user_visible_signal": "The evidence carries locator.is_anchored == false; nothing claims a passage that could not be found.",
+      "authority": [
+        {
+          "file": "research_companion/locator.py",
+          "anchor": "never a QUOTE anchor with invented offsets"
+        },
+        {
+          "file": "research_companion/locator.py",
+          "anchor": "def anchorless"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_locator.py::test_a_quote_not_in_the_text_never_gets_invented_offsets",
+        "tests/test_locator.py::test_a_section_the_tiling_does_not_have_is_not_faked"
+      ]
     }
   ]
 }
