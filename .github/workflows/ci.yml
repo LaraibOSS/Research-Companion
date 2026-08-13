@@ -49,6 +49,15 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -e ".[dev]"
       - run: ruff check research_companion tests examples
+      # The degradation registry documents what happens when a feature is off.
+      # A registry that has drifted from the code is worse than none, because
+      # it is trusted — so CI fails when an anchor or pinned test disappears.
+      - name: degradation registry matches the code
+        run: python scripts/check_degradation_registry.py
+      # Coverage can be deleted silently: a refactor drops a file, a flaky test
+      # is removed instead of fixed. Removing tests must be a visible decision.
+      - name: test count has not shrunk
+        run: python scripts/check_test_count.py
       - uses: actions/setup-node@v7
         with:
           node-version: '20'
