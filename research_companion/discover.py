@@ -26,6 +26,18 @@ _HEADERS = {"User-Agent": USER_AGENT}
 _TIMEOUT = 30.0
 
 
+def _s2_headers() -> dict[str, str]:
+    """Request headers for Semantic Scholar, including the API key when the
+    user has set one. S2's anonymous pool is shared and throttles bursts; a
+    free key raises the limit substantially. Never raises."""
+    headers = dict(_HEADERS)
+    import os as _os
+    key = _os.environ.get("S2_API_KEY", "").strip()
+    if key:
+        headers["x-api-key"] = key
+    return headers
+
+
 @dataclass
 class DiscoveredPaper:
     """A paper found via discovery (not yet in the local store)."""
@@ -173,9 +185,8 @@ def search_topic(
         params["year"] = f"{lo}-{hi}"
 
     try:
-        with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
-            resp = client.get(S2_SEARCH, params=params)
-            resp.raise_for_status()
+        with httpx.Client(timeout=_TIMEOUT, headers=_s2_headers()) as client:
+            resp = _get_with_backoff(client, S2_SEARCH, params=params)
     except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
         raise RuntimeError(f"Semantic Scholar search failed: {e}") from e
 
@@ -220,7 +231,7 @@ def _fetch_references(s2_key: str) -> list[DiscoveredPaper]:
     url = f"{S2_PAPER}/{s2_key}/references"
     params = {"fields": S2_REF_FIELDS, "limit": "100"}
     try:
-        with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        with httpx.Client(timeout=_TIMEOUT, headers=_s2_headers()) as client:
             resp = client.get(url, params=params)
             resp.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TimeoutException):
@@ -242,7 +253,7 @@ def _fetch_citations(s2_key: str) -> list[DiscoveredPaper]:
     url = f"{S2_PAPER}/{s2_key}/citations"
     params = {"fields": S2_REF_FIELDS, "limit": "100"}
     try:
-        with httpx.Client(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        with httpx.Client(timeout=_TIMEOUT, headers=_s2_headers()) as client:
             resp = client.get(url, params=params)
             resp.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TimeoutException):

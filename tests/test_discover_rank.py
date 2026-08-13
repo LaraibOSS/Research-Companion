@@ -148,3 +148,34 @@ def test_fallback_raises_only_when_every_source_fails():
     with pytest.raises(RuntimeError):
         discover.search_topic_with_fallback(
             "q", s2_search=boom, openalex_search=boom, connectors=[])
+
+
+# ---------------------------------------------------------------------------
+# Semantic Scholar API key (free, much higher limits than the anonymous pool)
+# ---------------------------------------------------------------------------
+
+def test_s2_api_key_is_a_registered_secret():
+    from research_companion.settings import SECRET_KEYS
+
+    assert SECRET_KEYS.get("s2_api_key") == "S2_API_KEY"
+
+
+def test_s2_headers_send_the_key_only_when_set(monkeypatch):
+    from research_companion.discover import USER_AGENT, _s2_headers
+
+    monkeypatch.delenv("S2_API_KEY", raising=False)
+    anon = _s2_headers()
+    assert "x-api-key" not in anon
+    assert anon["User-Agent"] == USER_AGENT
+
+    monkeypatch.setenv("S2_API_KEY", "  secret-key  ")
+    keyed = _s2_headers()
+    assert keyed["x-api-key"] == "secret-key"      # trimmed
+    assert keyed["User-Agent"] == USER_AGENT       # UA preserved alongside
+
+
+def test_s2_headers_ignore_a_blank_key(monkeypatch):
+    from research_companion.discover import _s2_headers
+
+    monkeypatch.setenv("S2_API_KEY", "   ")
+    assert "x-api-key" not in _s2_headers()
