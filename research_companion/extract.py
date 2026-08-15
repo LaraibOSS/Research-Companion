@@ -291,16 +291,24 @@ def _call_anthropic(prompt: str, *, model: str, max_output_tokens: int = 2048) -
     return text, usage
 
 
-def _openai_request_kwargs(*, model: str, max_output_tokens: int, json_mode: bool) -> dict:
+def _openai_request_kwargs(*, model: str, max_output_tokens: int, json_mode: bool,
+                           prompt: str = "") -> dict:
     """Request kwargs for the OpenAI chat call. json_mode forces a JSON object
     response (extraction/novelty/alignment need it); prose callers (qa, compare
-    narrative) must pass json_mode=False or the model mangles free text."""
+    narrative) must pass json_mode=False or the model mangles free text.
+
+    Safety net: OpenAI REJECTS `response_format=json_object` outright (HTTP 400)
+    unless the messages contain the word "json". A prose prompt routed here in
+    JSON mode is a wiring mistake, and forcing the format would fail the whole
+    request; dropping it degrades to a working prose call instead. `prompt=""`
+    (callers that do not pass it) keeps the previous behavior.
+    """
     kwargs = {
         "model": model,
         "max_tokens": max_output_tokens,
         "temperature": 0.0,
     }
-    if json_mode:
+    if json_mode and (not prompt or "json" in prompt.lower()):
         kwargs["response_format"] = {"type": "json_object"}
     return kwargs
 
@@ -312,7 +320,7 @@ def _call_openai(prompt: str, *, model: str, max_output_tokens: int = 2048,
     resp = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         **_openai_request_kwargs(model=model, max_output_tokens=max_output_tokens,
-                                 json_mode=json_mode),
+                                 json_mode=json_mode, prompt=prompt),
     )
     text = (resp.choices[0].message.content or "").strip()
     usage = {
