@@ -3694,6 +3694,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 if resolved_llm is None:
                     resolved_llm = _resolve_llm(json_mode=True)
 
+                # Answering is PROSE (QA_PROMPT ends "Answer (cite [S#] ...)"),
+                # so it must not run under a forced JSON response format:
+                # OpenAI rejects json_object mode outright unless the message
+                # contains the word "json", and even where it is accepted the
+                # format mangles the cited free text. Question generation above
+                # stays in JSON mode; only the answering path is prose.
+                answer_llm = app.state.llm
+                if answer_llm is None:
+                    answer_llm = _resolve_llm(json_mode=False)
+
                 library_papers = await asyncio.to_thread(_library_papers)
                 loaded_graph = await asyncio.to_thread(load_graph)
 
@@ -3733,7 +3743,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 def _answer_fn(q: str):
                     progress["i"] += 1
                     app.state.jobs[job_id]["detail"] = f"Answering {progress['i']}/{n}"
-                    return qa_answer_fn(q, llm=resolved_llm, paper_ids=None)
+                    return qa_answer_fn(q, llm=answer_llm, paper_ids=None)
 
                 all_papers = await asyncio.to_thread(store.list_papers)
                 p_sha = _papers_sha([m.paper_id for m in all_papers])
