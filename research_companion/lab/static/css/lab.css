@@ -7161,6 +7161,24 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   text-align: center;
   border: 1px dashed var(--color-border);
   border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.report-empty-headline {
+  font-size: var(--text-md);
+  color: var(--color-text);
+  margin: 0;
+}
+.report-empty p { margin: 0; }
+/* A missing prerequisite, not a caveat: the user must add papers before
+   Generate can do anything, so it reads as an instruction rather than dressing. */
+.report-empty--blocked { border-style: solid; border-color: var(--color-warn); }
+.report-empty--blocked .report-empty-headline { color: var(--color-warn); }
+.report-empty-tip { font-style: italic; }
+.report-cost-line {
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-2);
 }
 .report-section {
   border: 1px solid var(--color-border);

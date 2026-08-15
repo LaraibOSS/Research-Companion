@@ -95,7 +95,9 @@ const _HELP = {
     title: 'Report',
     what: 'A structured, cited literature review of your own library. It writes investigation '
       + 'questions for your topic, answers each one from your papers with citations, and lets '
-      + 'you edit that question list before the expensive answering pass runs.',
+      + 'you edit that question list before the expensive answering pass runs. Generate a plan '
+      + 'first: planning is one model call and editing it is free, while answering costs one '
+      + 'call per question.',
     basedOn: 'Only the papers in your library — never the open web. Coverage percentages are a '
       + 'keyword-search heuristic, not ground truth.',
     aiUsed: true,
