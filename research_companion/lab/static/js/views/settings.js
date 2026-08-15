@@ -220,6 +220,16 @@ function _render(s) {
     <span class="settings-hint">Each downloaded paper costs one model extraction call
       (~$0.02&ndash;$0.10). Anything that cannot be fetched stays listed in the
       Citations panel.</span>
+    <label class="settings-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:12px">
+      <input type="checkbox" id="s-claim-audit" ${s.claim_audit === true ? 'checked' : ''}>
+      Check whether cited sources actually support the claim
+    </label>
+    <span class="settings-hint">Fetches the passage each citation points at and judges
+      whether it supports the claim citing it &mdash; the failure a verbatim quote check
+      cannot catch. Costs one model call per citation, so it runs only when you press
+      <strong>Check citations</strong> in the Report. Advisory: it never blocks or edits
+      anything, and &ldquo;could not check&rdquo; is reported separately from
+      &ldquo;not supported&rdquo;.</span>
   </div>
 
   <!-- 4c. Connectors -->
@@ -375,6 +385,23 @@ function _wireEvents(s) {
       const errors = validateSettings({ k_sections: kSections, char_budget: charBudget });
       if (errors.length) { showToast(errors[0], 'error'); return; }
       await _savePatch(formState, s, saveRetrieval);
+    });
+  }
+
+  // Claim-audit toggle — saves immediately on change
+  const claimAudit = _el.querySelector('#s-claim-audit');
+  if (claimAudit) {
+    claimAudit.addEventListener('change', async () => {
+      try {
+        const updated = await api.putSettings({ claim_audit: claimAudit.checked });
+        store.setSettings(updated);
+        showToast(claimAudit.checked
+          ? 'Citation claim checks on — run them from the Report'
+          : 'Citation claim checks off', 'info');
+      } catch (err) {
+        claimAudit.checked = !claimAudit.checked;
+        showToast(`Save failed: ${err.message}`, 'error');
+      }
     });
   }
 

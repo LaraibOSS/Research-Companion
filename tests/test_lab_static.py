@@ -973,6 +973,27 @@ def test_home_view_has_quicknav_and_product_pillars():
     assert 'pathLength="1"' in js
 
 
+def test_user_facing_toggles_have_a_settings_control():
+    """A setting the backend accepts but the UI never renders is unreachable:
+    it exists, it is documented, and a user cannot turn it on. claim_audit
+    shipped that way -- the API accepted it while the Settings page had no
+    control for it at all."""
+    settings_js = (STATIC_DIR / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+
+    # Toggles a user is expected to operate from the Settings page.
+    for name in ("auto_add_citations", "connectors", "claim_audit"):
+        assert name in settings_js, (
+            f"setting {name!r} has no control in the Settings UI — "
+            "a user cannot change it"
+        )
+
+    # the claim-audit control must state its cost and its advisory nature,
+    # because it spends a model call per citation
+    assert "s-claim-audit" in settings_js
+    assert "per citation" in settings_js
+    assert "Advisory" in settings_js or "advisory" in settings_js
+
+
 def test_report_surfaces_claim_audit_without_overclaiming():
     """The Report must be able to run a claim audit and show per-citation
     outcomes, with 'could not check' visually distinct from 'not supported'."""
