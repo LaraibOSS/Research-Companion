@@ -53,9 +53,10 @@ docling = [
     "docling>=2",
 ]
 mcp = [
-    # Upper-bounded: mcp 2.0.0 removed `mcp.server.fastmcp` (which mcp_server.py
-    # imports FastMCP from); the 1.x line still ships it. Revisit when the code
-    # is ported to the 2.x SDK layout.
+    # mcp 2.0.0 removed `mcp.server.fastmcp` and renamed FastMCP to MCPServer.
+    # mcp_server.py resolves either layout, so this bound is a support policy
+    # (which SDK versions we test against), NOT a code limitation -- widening it
+    # to <3 is safe on the code side.
     "mcp>=1.0,<2",
 ]
 semantic = [
