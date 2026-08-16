@@ -22,7 +22,10 @@ import { escapeHtml } from '../format.js';
 import { showToast } from '../components/toast.js';
 import { ensureActiveResearch } from '../researchGuard.js';
 import { pollDecision } from '../oaLinkHelpers.js';
-import { reportSectionModel, reportCoverageModel, reportPlanModel } from '../reportHelpers.js';
+import {
+  reportSectionModel, reportCoverageModel, reportPlanModel,
+  reportEmptyState, reportCostLine, reportPlanStatus,
+} from '../reportHelpers.js';
 import { claimAuditBadge, claimAuditSummaryLine, CLAIM_AUDIT_DISCLAIMER } from '../claimAuditHelpers.js';
 import { tip } from '../glossary.js';
 
@@ -99,6 +102,17 @@ export function mount(el) {
       _audit = null;
     }
     _render();
+  }));
+
+  // The empty state's advice depends on how many papers exist. Boot hydrates
+  // papers before the router mounts anything, so the first render is already
+  // accurate — but a workspace switch re-snapshots the library underneath a
+  // live view, and adding a paper changes the count. Re-render on both so the
+  // advice never contradicts what the Library tab shows.
+  _unsubs.push(store.subscribe(['papers'], () => {
+    if (!_report || !Array.isArray(_report.sections) || _report.sections.length === 0) {
+      _render();
+    }
   }));
 
   _unsubs.push(store.subscribe(['report'], async () => {
@@ -459,8 +473,15 @@ function _render() {
   // status line, no "Edit plan / re-run" button, exactly as 2e-1/2e-2/2e-3.
   const planModel = reportPlanModel(_report && _report.plan);
   const planStatusLine = planModel
-    ? `<p class="report-plan-status muted">Plan: ${planModel.questions.length} question${planModel.questions.length === 1 ? '' : 's'} (${planModel.status}).</p>`
+    ? `<p class="report-plan-status muted">${escapeHtml(reportPlanStatus(planModel))}</p>`
     : '';
+
+  // What a run costs, in the unit the user is billed in. Shown before the
+  // click, not after: an unexpected bill is the fastest way to lose trust in
+  // an opt-in AI feature. Exact once a plan pins the question count.
+  const costLine = reportCostLine({
+    questionCount: planModel ? planModel.questions.length : null,
+  });
   const editPlanBtnHtml = (planModel && !_planMode)
     ? `<button class="btn btn-secondary report-edit-plan-btn" type="button" ${(_generating || _scoring) ? 'disabled' : ''}>Edit plan / re-run</button>`
     : '';
@@ -474,12 +495,15 @@ function _render() {
       <div class="report-controls">
         <input type="text" id="report-topic-input" class="report-topic-input"
                placeholder="e.g. graph-based retrieval for code search" value="${escapeHtml(topic)}" />
-        <button class="btn btn-primary report-generate-btn" ${_generating ? 'disabled' : ''}>
-          ${_generating ? 'Generating…' : 'Generate report'}
-        </button>
-        <button class="btn btn-secondary report-generate-plan-btn" type="button"
+        <button class="btn ${_planMode ? 'btn-secondary' : 'btn-primary'} report-generate-plan-btn" type="button"
+                title="${_planMode
+                  ? 'Replace the plan below with a freshly generated one'
+                  : 'Write the question list first — free to edit before you pay to answer it'}"
                 ${(_planGenerating || _generating) ? 'disabled' : ''}>
           ${_planGenerating ? 'Generating plan…' : 'Generate plan'}
+        </button>
+        <button class="btn btn-secondary report-generate-btn" ${_generating ? 'disabled' : ''}>
+          ${_generating ? 'Generating…' : 'Generate report'}
         </button>
         <button class="btn btn-secondary report-score-evidence-btn"
                 ${(!hasReport || _scoring || _generating) ? 'disabled' : ''}>
@@ -494,6 +518,7 @@ function _render() {
           Download (.md)
         </button>
       </div>
+      <p class="report-cost-line muted">${escapeHtml(costLine)}</p>
       ${_auditError ? `<div class="report-error">${escapeHtml(_auditError)}</div>` : ''}
       ${_auditSummaryHtml()}
       ${_planError ? `<div class="report-error report-plan-error">${escapeHtml(_planError)}</div>` : ''}
@@ -523,7 +548,15 @@ function _render() {
 }
 
 function _emptyHtml() {
-  return `<div class="report-empty muted">Enter a topic and generate a report from your library.</div>`;
+  // Distinguishes a missing prerequisite (no papers -> Generate cannot help)
+  // from a caveat about quality (few papers -> it will work, but read thin).
+  const { papers } = store.getState();
+  const s = reportEmptyState({ paperCount: papers ? papers.size : 0 });
+  return `<div class="report-empty${s.blocked ? ' report-empty--blocked' : ''}">
+      <p class="report-empty-headline">${escapeHtml(s.headline)}</p>
+      <p class="muted">${escapeHtml(s.detail)}</p>
+      <p class="muted report-empty-tip">${escapeHtml(s.tip)}</p>
+    </div>`;
 }
 
 function _rcsBadgeHtml(rcs) {

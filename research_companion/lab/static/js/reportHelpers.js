@@ -170,3 +170,91 @@ export function reportPlanModel(rawPlan) {
     : [];
   return { status, questions };
 }
+
+// ---------------------------------------------------------------------------
+// Page copy (empty state, cost expectation, plan status).
+//
+// These return PLAIN, UNESCAPED text — unlike the display models above, which
+// pre-escape. Nothing here interpolates server text; the only variable parts
+// are integers we format ourselves. The caller escapes at the interpolation
+// site, so the two conventions never have to be told apart at a glance.
+// ---------------------------------------------------------------------------
+
+/** Below this, a report is technically fine but will read thin. */
+export const REPORT_MIN_USEFUL_PAPERS = 10;
+
+/**
+ * What to say when there is no report yet. The distinction that matters is
+ * "you have nothing to review" vs "you have little to review" — the first is a
+ * missing prerequisite the user must act on, the second is a caveat about
+ * quality. Conflating them sends people to a Generate button that cannot help.
+ *
+ * @param {{paperCount?: number}} opts
+ * @returns {{headline: string, detail: string, tip: string, blocked: boolean}}
+ *   `blocked` is true when generating cannot produce anything useful at all.
+ */
+export function reportEmptyState({ paperCount = 0 } = {}) {
+  const n = Number.isFinite(paperCount) && paperCount > 0 ? Math.floor(paperCount) : 0;
+
+  if (n === 0) {
+    return {
+      headline: 'Your library is empty, so there is nothing to review yet.',
+      detail: 'A report is written from the papers you have added — never from the '
+        + 'open web. Add a few papers first, then name a topic here.',
+      tip: 'Use Discover to find papers on a topic, or Add paper if you already have one.',
+      blocked: true,
+    };
+  }
+
+  const thin = n < REPORT_MIN_USEFUL_PAPERS;
+  return {
+    headline: 'Name a topic and we will write a cited review of your library.',
+    detail: thin
+      ? `You have ${n} paper${n === 1 ? '' : 's'}. Reports work best with `
+        + `${REPORT_MIN_USEFUL_PAPERS} or more on the topic — with fewer, expect thin `
+        + 'coverage rather than a wrong answer.'
+      : `You have ${n} papers. Only the ones relevant to your topic will be used.`,
+    tip: 'Generate a plan first so you can edit the questions before the expensive '
+      + 'answering pass runs.',
+    blocked: false,
+  };
+}
+
+/**
+ * What a run will cost, in the only unit the user is billed in: model calls.
+ *
+ * Generating from scratch is ONE call to plan the questions plus one per
+ * answer. With a plan already on screen the question count is known, so the
+ * estimate becomes exact rather than a range.
+ *
+ * @param {{questionCount?: number|null}} opts
+ * @returns {string} plain text; '' is never returned (there is always a cost).
+ */
+export function reportCostLine({ questionCount = null } = {}) {
+  const n = Number.isFinite(questionCount) && questionCount > 0
+    ? Math.floor(questionCount) : null;
+  if (n === null) {
+    return 'Generating uses one model call to plan the questions, then one per '
+      + 'answer — usually 5 to 9 calls in total. Editing a plan is free.';
+  }
+  return `Answering this plan uses ${n} model call${n === 1 ? '' : 's'}, one per `
+    + 'question. Editing the plan is free.';
+}
+
+/**
+ * The plan's status, written so the free action and the costed one are
+ * distinguishable. "draft" is not a quality judgement — it means not yet run.
+ *
+ * @param {{status: string, questions: string[]}|null} planModel
+ * @returns {string} '' when there is no plan to describe.
+ */
+export function reportPlanStatus(planModel) {
+  if (!planModel || !Array.isArray(planModel.questions)) return '';
+  const n = planModel.questions.length;
+  const q = `${n} question${n === 1 ? '' : 's'}`;
+  if (planModel.status === 'answered') {
+    return `Plan: ${q}, answered. Edit and re-run to change the report.`;
+  }
+  return `Plan: ${q}, not yet run. Edit them below, then run — changing the plan `
+    + 'is free; answering is not.';
+}
