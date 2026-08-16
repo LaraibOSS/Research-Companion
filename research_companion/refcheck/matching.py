@@ -24,6 +24,38 @@ def title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, na, nb).ratio()
 
 
+def title_is_cited(cited: str, authoritative: str) -> bool:
+    """Does *cited* refer to the *authoritative* title?
+
+    ``title_similarity`` compares two titles. A bibliography line parsed from a
+    paper's own text is not a title -- it carries the authors, venue and pages
+    around one, which drags the ratio well below the threshold. "Vaswani et al.
+    Attention is all you need. NeurIPS" scores 0.69 against "Attention Is All
+    You Need" and would be reported as a title mismatch: a false accusation
+    against a perfectly correct citation.
+
+    So: a match is either a high similarity ratio, OR the authoritative title
+    appearing whole inside the cited string. Containment is real evidence the
+    right work was cited, not a relaxation of the check -- a genuinely wrong
+    title still fails both tests.
+    """
+    na, nb = normalize_title(cited), normalize_title(authoritative)
+    if not nb:
+        return False
+    if title_similarity(cited, authoritative) >= 0.9:
+        return True
+
+    # Otherwise measure the longest CONTIGUOUS run the two share. This is the
+    # only test that survives both ways a real bibliography deviates from the
+    # authoritative record:
+    #   extra text  - "Vaswani et al. <title>. NeurIPS 2017"
+    #   truncation  - "BERT: pre-training of deep bidirectional transformers"
+    #                 for a record ending "...for Language Understanding"
+    # A different paper shares no long run, so this does not weaken the check.
+    match = SequenceMatcher(None, na, nb).find_longest_match(0, len(na), 0, len(nb))
+    return match.size >= 20 and (match.size / len(nb)) >= 0.4
+
+
 def _last_name(author: str) -> str:
     """Best-effort surname extraction, normalized to lowercase alphanumerics.
 
