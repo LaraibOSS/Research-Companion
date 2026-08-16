@@ -52,8 +52,13 @@ def title_is_cited(cited: str, authoritative: str) -> bool:
     #   truncation  - "BERT: pre-training of deep bidirectional transformers"
     #                 for a record ending "...for Language Understanding"
     # A different paper shares no long run, so this does not weaken the check.
+    # The floor is on the SHARED RUN, not the title: it stops a short generic
+    # phrase ("deep learning", 13 chars) matching a longer record that merely
+    # starts with it. It must stay below a real short title though -- "Layer
+    # Normalization" normalises to 19 chars and was a 100% match rejected by a
+    # 20-char floor.
     match = SequenceMatcher(None, na, nb).find_longest_match(0, len(na), 0, len(nb))
-    return match.size >= 20 and (match.size / len(nb)) >= 0.4
+    return match.size >= 15 and (match.size / len(nb)) >= 0.4
 
 
 def _last_name(author: str) -> str:
