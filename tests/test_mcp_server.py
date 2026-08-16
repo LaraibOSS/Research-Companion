@@ -1,5 +1,6 @@
 """Tests for the MCP server wiring — no live server, SDK-optional."""
 import argparse
+import importlib
 import importlib.util
 import io
 import json
@@ -63,6 +64,64 @@ def test_cli_mcp_serve_reports_missing_sdk():
 def test_create_server_builds_when_sdk_present():
     server = mcp_server.create_server()
     assert server is not None
+
+
+# ---------------------------------------------------------------------------
+# SDK version compatibility
+#
+# mcp 2.0 removed `mcp.server.fastmcp` and renamed FastMCP to MCPServer. The
+# surface we use is unchanged, so both are supported. A dependency bump that
+# widened the bound to <3 failed CI on exactly this, which is what these pin.
+# ---------------------------------------------------------------------------
+
+def test_both_known_sdk_layouts_are_tried_newest_first():
+    paths = dict(mcp_server._SERVER_CLASS_PATHS)
+    assert paths["mcp.server.mcpserver"] == "MCPServer"   # mcp >= 2.0
+    assert paths["mcp.server.fastmcp"] == "FastMCP"       # mcp 1.x
+    # newest first, so a dual-provider SDK resolves to the supported class
+    assert mcp_server._SERVER_CLASS_PATHS[0][0] == "mcp.server.mcpserver"
+
+
+def test_resolve_falls_through_to_the_older_layout(monkeypatch):
+    """With only the 1.x layout importable, resolution must still succeed."""
+    real = importlib.import_module
+
+    def only_1x(name, *a, **kw):
+        if name == "mcp.server.mcpserver":
+            raise ImportError("no such module")
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(importlib, "import_module", only_1x)
+    if _HAS_MCP:
+        assert mcp_server._resolve_server_class() is not None
+
+
+def test_an_unrecognised_sdk_is_not_reported_as_a_missing_one(monkeypatch):
+    """The install hint would send the user to install what they already have.
+
+    "pip install research-companion[mcp]" is the wrong instruction when the SDK
+    is present but too new — the fix is a version bound, and the message has to
+    say so or the user loops on a command that changes nothing.
+    """
+    monkeypatch.setattr(importlib, "import_module",
+                        lambda name, *a, **kw: (_ for _ in ()).throw(ImportError(name)))
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+
+    with pytest.raises(ImportError) as ei:
+        mcp_server._resolve_server_class()
+    msg = str(ei.value)
+    assert "research-companion[mcp]" not in msg
+    assert "mcp.server.mcpserver" in msg and "mcp.server.fastmcp" in msg
+
+
+def test_a_genuinely_missing_sdk_still_gets_the_install_hint(monkeypatch):
+    monkeypatch.setattr(importlib, "import_module",
+                        lambda name, *a, **kw: (_ for _ in ()).throw(ImportError(name)))
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    with pytest.raises(ImportError) as ei:
+        mcp_server._resolve_server_class()
+    assert "research-companion[mcp]" in str(ei.value)
 
 
 COSTED_TOOLS = {"ask_library", "review_draft"}

@@ -117,17 +117,53 @@ def active_tool_names() -> list[str]:
     return names
 
 
-def create_server(name: str = "research-companion"):
-    """Build a FastMCP server with the base tools, plus costed tools when gated on.
+#: Where the server class lives, newest SDK first. ``mcp`` 2.0 dropped
+#: ``mcp.server.fastmcp`` and renamed ``FastMCP`` to ``MCPServer``; the surface
+#: we use (constructor name, ``add_tool(fn, name=, description=)``, ``run
+#: (transport=)``) is unchanged, so supporting both is an import detail rather
+#: than a fork.
+_SERVER_CLASS_PATHS = (
+    ("mcp.server.mcpserver", "MCPServer"),   # mcp >= 2.0
+    ("mcp.server.fastmcp", "FastMCP"),       # mcp 1.x
+)
 
-    Raises ImportError (with an install hint) if the optional ``mcp`` SDK is absent.
+
+def _resolve_server_class():
+    """The SDK's server class, whichever version is installed.
+
+    Distinguishes "no SDK" from "SDK present but not one we know": the first is
+    fixed by installing an extra, the second by a version bound. Telling a user
+    to install a package they already have sends them down the wrong path.
     """
-    try:
-        from mcp.server.fastmcp import FastMCP
-    except ImportError as exc:  # pragma: no cover - exercised without the SDK installed
-        raise ImportError(_MISSING_SDK_MSG) from exc
+    # importlib.util is a submodule: `import importlib` alone does not bind it.
+    import importlib.util
 
-    server = FastMCP(name)
+    for module_name, attr in _SERVER_CLASS_PATHS:
+        try:
+            return getattr(importlib.import_module(module_name), attr)
+        except (ImportError, AttributeError):
+            continue
+
+    if importlib.util.find_spec("mcp") is None:
+        raise ImportError(_MISSING_SDK_MSG)
+    raise ImportError(
+        "The installed 'mcp' SDK does not expose a server class this version "
+        "knows about (tried: "
+        + ", ".join(f"{m}.{a}" for m, a in _SERVER_CLASS_PATHS)
+        + "). This usually means the SDK is newer than this release of "
+          "research-companion; pin an older 'mcp' or upgrade research-companion."
+    )
+
+
+def create_server(name: str = "research-companion"):
+    """Build an MCP server with the base tools, plus costed tools when gated on.
+
+    Raises ImportError (with an install hint) if the optional ``mcp`` SDK is
+    absent, or a version hint if it is present but unrecognised.
+    """
+    server_class = _resolve_server_class()
+
+    server = server_class(name)
     for tool_name, handler in TOOL_HANDLERS.items():
         server.add_tool(handler, name=tool_name, description=TOOL_DESCRIPTIONS[tool_name])
 
