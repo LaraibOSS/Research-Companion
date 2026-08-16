@@ -7224,38 +7224,6 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 .report-audit-summary-line { font-weight: 600; }
 .report-audit-note { font-size: var(--text-xs); line-height: 1.5; }
 
-/* Draft claim audit -- same visual vocabulary as the Report's badges, so a
-   verdict means the same thing wherever the user meets it. */
-.draft-audit-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  border: 1px solid currentColor;
-}
-.draft-audit-badge.audit-ok    { color: var(--color-ok, #3fb950); }
-.draft-audit-badge.audit-warn  { color: var(--color-warn); }
-.draft-audit-badge.audit-muted { color: var(--color-fg-dim); font-weight: 400; }
-.draft-audit-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: var(--space-2) 0;
-  padding: var(--space-2) var(--space-3);
-  border-left: 3px solid var(--color-border);
-  font-size: var(--text-sm);
-}
-.draft-audit-note { font-size: var(--text-xs); line-height: 1.5; }
-.draft-audit-error {
-  margin: var(--space-2) 0;
-  padding: var(--space-2) var(--space-3);
-  border-left: 3px solid var(--color-warn);
-  color: var(--color-warn);
-  font-size: var(--text-sm);
-}
-
 .report-citations {
   display: flex;
   flex-wrap: wrap;
