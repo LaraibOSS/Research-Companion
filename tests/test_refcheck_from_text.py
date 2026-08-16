@@ -97,3 +97,86 @@ def test_empty_and_malformed_input_never_raises():
         refs, unparsed = references_from_text(bad)
         assert refs == [] and unparsed == []
     assert split_reference_entries(None) == ([], [])
+
+
+# ---------------------------------------------------------------------------
+# A bibliography line is not a title
+#
+# Feeding text-parsed references into a validator tuned for clean, LLM-extracted
+# titles produced "suspect" verdicts on perfectly correct citations. At the base
+# rate this tool targets, false accusations are the failure that makes people
+# stop reading the warnings -- so the matcher has to tolerate the two ways real
+# bibliographies deviate, without excusing a genuinely wrong citation.
+# ---------------------------------------------------------------------------
+
+from research_companion.refcheck.matching import title_is_cited  # noqa: E402
+
+ATTENTION = "Attention Is All You Need"
+BERT = ("BERT: Pre-training of Deep Bidirectional Transformers for Language "
+        "Understanding")
+
+
+def test_surrounding_authors_and_venue_do_not_break_the_match():
+    assert title_is_cited("Vaswani et al. Attention is all you need. NeurIPS 2017",
+                          ATTENTION)
+
+
+def test_a_truncated_title_still_matches():
+    """Bibliographies routinely shorten long titles; that is not a miscitation."""
+    assert title_is_cited(
+        "Devlin et al. BERT: pre-training of deep bidirectional transformers. 2018",
+        BERT)
+    assert title_is_cited("Lee. Dense passage retrieval. ACL",
+                          "Dense Passage Retrieval for Open-Domain Question Answering")
+
+
+def test_an_exact_title_still_matches():
+    assert title_is_cited(ATTENTION, ATTENTION)
+
+
+def test_a_different_paper_is_still_caught():
+    assert not title_is_cited("Smith. A completely different paper about frogs. 2020",
+                              ATTENTION)
+
+
+def test_a_short_generic_overlap_is_not_a_match():
+    """"Deep learning" appears in thousands of titles; matching on it would
+    verify almost anything."""
+    assert not title_is_cited("Jones. Deep learning. 2019",
+                              "Deep Learning for Molecular Property Prediction")
+
+
+def test_an_empty_authoritative_title_never_matches():
+    assert not title_is_cited("Anything at all", "")
+
+
+def test_the_validator_compares_against_the_whole_cited_line():
+    """The fix only works if validate_reference passes ref.raw, not ref.title."""
+    import pathlib
+
+    src = pathlib.Path("research_companion/refcheck/validate.py").read_text(encoding="utf-8")
+    assert "title_is_cited(" in src
+    assert "ref.raw or ref.title" in src
+
+
+def test_a_page_number_is_not_glued_onto_the_previous_citation():
+    """Extracted text carries page artifacts. Treating a bare "9" as a
+    continuation corrupts that reference's title AND hides it from the unparsed
+    count, so coverage looks complete when it is not."""
+    text = ("References\n"
+            "[1] Vaswani et al. Attention is all you need. NeurIPS 2017.\n"
+            "9\n"
+            "[2] Lee. Dense passage retrieval for open-domain QA. ACL 2020.\n")
+    refs, unparsed = references_from_text(text)
+    assert len(refs) == 2
+    assert unparsed == ["9"]
+    assert "9" not in refs[0].raw.split()[-1:]
+
+
+def test_page_artifact_shapes():
+    from research_companion.refcheck.parse import _PAGE_ARTIFACT_RE
+
+    for stray in ("9", " 12 ", "Page 7", "- 7 -", "  1234"):
+        assert _PAGE_ARTIFACT_RE.match(stray), f"{stray!r} should be a page artifact"
+    for real in ("2020. A paper.", "Smith, A.", "1706.03762"):
+        assert not _PAGE_ARTIFACT_RE.match(real), f"{real!r} is not a page artifact"
