@@ -180,3 +180,133 @@ def test_page_artifact_shapes():
         assert _PAGE_ARTIFACT_RE.match(stray), f"{stray!r} should be a page artifact"
     for real in ("2020. A paper.", "Smith, A.", "1706.03762"):
         assert not _PAGE_ARTIFACT_RE.match(real), f"{real!r} is not a page artifact"
+
+
+# ---------------------------------------------------------------------------
+# The format the parser ACTUALLY produces
+#
+# Every test above passed while the parser found no bibliography at all in a
+# real paper. The fixtures were hand-written plain text; the default parser
+# emits MARKDOWN. Tests written against an assumed input format verify the
+# assumption, not the system. These use the real shape, taken verbatim from
+# docling output for arXiv:1706.03762.
+# ---------------------------------------------------------------------------
+
+MARKDOWN_REAL = """## Acknowledgements
+
+We are grateful for their fruitful comments.
+
+## References
+
+- [1] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization.
+  arXiv preprint arXiv:1607.06450, 2016.
+- [2] Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio. Neural machine
+  translation by jointly learning to align and translate. CoRR, abs/1409.0473, 2014.
+- [3] Denny Britz, Anna Goldie, Minh-Thang Luong, and Quoc V. Le. Massive
+  exploration of neural machine translation architectures. CoRR, abs/1703.03906, 2017.
+
+## Attention Visualizations
+"""
+
+
+def test_a_markdown_heading_starts_the_bibliography():
+    """"## References" is what the default parser emits. Matching only a bare
+    "References" finds nothing on the most common real input."""
+    section = bibliography_section(MARKDOWN_REAL)
+    assert section, "no bibliography found in real parser output"
+    assert "Jimmy Lei Ba" in section
+
+
+def test_markdown_list_bullets_do_not_hide_entry_markers():
+    """Entries arrive as "- [1] ..." not "[1] ...". Missing the bullet collapses
+    the whole bibliography into one giant reference."""
+    refs, unparsed = references_from_text(MARKDOWN_REAL)
+    assert len(refs) == 3, f"expected 3 entries, got {len(refs)}"
+    assert unparsed == []
+
+
+def test_identifiers_survive_the_real_format():
+    refs, _ = references_from_text(MARKDOWN_REAL)
+    assert refs[0].arxiv_id == "1607.06450"
+    assert refs[0].year == 2016
+    assert refs[1].year == 2014
+
+
+def test_a_markdown_section_after_the_bibliography_ends_it():
+    section = bibliography_section(MARKDOWN_REAL)
+    assert "Attention Visualizations" not in section
+
+
+def test_bold_and_numbered_heading_variants():
+    for heading in ("## References", "### REFERENCES", "**References**",
+                    "## 6. References", "# Bibliography"):
+        text = f"{heading}\n- [1] Smith, A. A sufficiently long reference title here. 2020.\n"
+        refs, _ = references_from_text(text)
+        assert len(refs) == 1, f"{heading!r} not recognised"
+
+
+def test_a_short_real_title_is_not_rejected_by_the_length_floor():
+    """"Layer Normalization" normalises to 19 chars and matched its record
+    100%, but a 20-char floor rejected it -- an arbitrary threshold turning a
+    perfect match into a "suspect" verdict on a real paper."""
+    assert title_is_cited(
+        "Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization",
+        "Layer Normalization")
+
+
+def test_the_floor_still_blocks_a_short_generic_phrase():
+    assert not title_is_cited("Jones. Deep learning. 2019", "Deep Learning")
+    assert not title_is_cited("Jones. Deep learning. 2019",
+                              "Deep Learning for Molecular Property Prediction")
+
+
+# ---------------------------------------------------------------------------
+# probable_title: the lookup query
+# ---------------------------------------------------------------------------
+
+from research_companion.refcheck.parse import probable_title  # noqa: E402
+
+REAL_ENTRIES = [
+    ("Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual "
+     "learning for image recognition. In Proceedings of the IEEE Conference, 2016",
+     "Deep residual learning for image recognition"),
+    ("Sepp Hochreiter and Jurgen Schmidhuber. Long short-term memory. Neural "
+     "computation, 9(8):1735-1780, 1997",
+     "Long short-term memory"),
+    ("Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization",
+     "Layer normalization"),
+    ("Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio. Neural machine "
+     "translation by jointly learning to align and translate. CoRR, 2014",
+     "Neural machine translation by jointly learning to align and translate"),
+]
+
+
+def test_probable_title_extracts_the_title_from_real_entries():
+    """Searching a catalogue with the whole line found nothing: on a real
+    40-reference paper that alone put 18 well-known papers in "not found"."""
+    for raw, expected in REAL_ENTRIES:
+        assert probable_title(raw) == expected, raw[:60]
+
+
+def test_a_three_word_title_beats_a_longer_author_list():
+    """Scoring by length prefers the authors here; scoring by lowercase ratio
+    does not."""
+    assert probable_title(
+        "Sepp Hochreiter and Jurgen Schmidhuber. Long short-term memory. "
+        "Neural computation, 9(8):1735-1780, 1997") == "Long short-term memory"
+
+
+def test_a_bare_title_survives_unchanged():
+    assert probable_title("Attention Is All You Need") == "Attention Is All You Need"
+    assert probable_title("") == ""
+
+
+def test_the_lookup_queries_the_extracted_title():
+    """The fix only works if retrieval searches with probable_title."""
+    import pathlib
+
+    src = pathlib.Path("research_companion/refcheck/retrieval.py").read_text(encoding="utf-8")
+    assert "probable_title(ref.raw or ref.title)" in src
+    assert "items = search(ref.title)" not in src
+    # and candidate acceptance must use the whole-line comparison too
+    assert "title_is_cited(cited" in src
