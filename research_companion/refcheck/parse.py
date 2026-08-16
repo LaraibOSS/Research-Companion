@@ -91,6 +91,11 @@ _POST_BIB_HEADING_RE = re.compile(
 #: A numbered entry marker: "[12]" or "12." at the start of a line.
 _ENTRY_MARKER_RE = re.compile(r"^\s*(?:\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+")
 
+#: A page number or running-header artifact left in the extracted text: a line
+#: that is nothing but digits (optionally "Page 7" / "- 7 -").
+_PAGE_ARTIFACT_RE = re.compile(r"^\s*(?:page\s+)?[-–—\s]*\d{1,4}[-–—\s]*\s*$",
+                               re.IGNORECASE)
+
 #: Below this an "entry" is a stray fragment (a page number, a running header)
 #: rather than a bibliography line worth looking up.
 MIN_ENTRY_CHARS = 25
@@ -137,16 +142,22 @@ def split_reference_entries(section: str) -> tuple[list[str], list[str]]:
 
     lines = section.splitlines()
     if any(_ENTRY_MARKER_RE.match(ln) for ln in lines):
-        blocks, current = [], []
+        blocks, current, strays = [], [], []
         for ln in lines:
             if _ENTRY_MARKER_RE.match(ln):
                 if current:
                     blocks.append(" ".join(current))
                 current = [_ENTRY_MARKER_RE.sub("", ln).strip()]
+            elif _PAGE_ARTIFACT_RE.match(ln):
+                # A bare page number between entries is not a continuation.
+                # Gluing it onto the previous citation corrupts that title AND
+                # hides it from the unparsed count, so coverage looks complete.
+                strays.append(ln.strip())
             elif current:
                 current.append(ln.strip())
         if current:
             blocks.append(" ".join(current))
+        blocks.extend(strays)
     else:
         blocks = [" ".join(b.split()) for b in re.split(r"\n\s*\n", section)]
 
