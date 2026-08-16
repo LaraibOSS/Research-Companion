@@ -19,12 +19,16 @@ import { tip } from '../glossary.js';
 import { opportunityModel } from '../opportunityHelpers.js';
 import { draftSectionModel } from '../draftHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
+import { claimAuditBadge, claimAuditSummaryLine, CLAIM_AUDIT_DISCLAIMER } from '../claimAuditHelpers.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
 let _unsub = null;
 let _selectedSectionId = null;
 let _alignment = null;   // cached { sections: [...] }
+let _audit = null;       // last GET /api/claim-audit?target=draft payload
+let _auditing = false;
+let _auditError = null;
 // True when the section list is the draft's OWN outline (no alignment computed
 // yet) rather than per-paper alignment — drives the "Analyze this draft"
 // affordance. See draftSectionModel().
@@ -77,7 +81,18 @@ const OPP_FOCUS_HINTS = {
 
 export function mount(el) {
   _el = el;
-  _unsub = store.subscribe(['papers', 'alignment', 'activity'], () => _render());
+  _unsub = store.subscribe(['papers', 'alignment', 'activity'], () => {
+    // The claim-audit job publishes JobStarted/JobFinished on 'activity'.
+    // Clearing the in-flight flag first lets the _render below fetch the
+    // stored result, so badges appear without a manual reload.
+    if (_auditing) {
+      const { activeJobs } = store.getState();
+      const stillRunning = activeJobs
+        && [...activeJobs.values()].some(j => j && j.kind === 'claim-audit');
+      if (!stillRunning) _auditing = false;
+    }
+    _render();
+  });
   _render();
   // Explainer banner (shown once until dismissed)
   const banner = explainerBanner(
@@ -98,6 +113,9 @@ export function unmount() {
   _oppExpandedInitialized = false;
   _oppRegistry = [];
   _alignRegistry = [];
+  _audit = null;
+  _auditing = false;
+  _auditError = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +148,18 @@ async function _render() {
         </div>
       </div>
     `;
+  }
+
+  // Load / refresh the stored claim audit. Non-fatal: an absent or failed
+  // audit just means no badges, never a blocked alignment view. Skipped while
+  // a check is in flight so an in-progress run does not clear the last result.
+  if (!_auditing) {
+    try {
+      const data = await api.getClaimAudit('draft');
+      _audit = (data && data.audit) || null;
+    } catch {
+      _audit = null;
+    }
   }
 
   // Load / refresh alignment
@@ -300,18 +330,85 @@ function _toolbarHtml() {
   const titleAttr = count === 0
     ? 'title="Add and analyze papers first"'
     : `title="Aligns all ${count} analyzed paper${count !== 1 ? 's' : ''} in your library against this draft (uses your model)"`;
+  // Claim audit is opt-in and costs a model call per cited passage, so it is
+  // a separate action from Analyze rather than part of it.
+  const hasAlignments = (_alignment && (_alignment.sections || [])
+    .some(s => (s.alignments || []).length > 0));
+  const auditLabel = _auditing ? 'Checking citations…' : 'Check citations';
+  const auditDisabled = (!hasAlignments || _auditing || running) ? 'disabled' : '';
+  const summaryLine = claimAuditSummaryLine(_audit && _audit.summary);
+
   return `
     <div class="draft-toolbar">
       ${hint}
       <button class="btn btn-sm btn-accent draft-analyze-btn" id="draft-analyze-btn" ${disabled} ${titleAttr}>
         ${escapeHtml(label)}
       </button>
-    </div>`;
+      <button class="btn btn-sm btn-secondary draft-audit-btn" id="draft-audit-btn" type="button"
+              title="Check whether each cited passage actually supports what we said about it (uses your model)"
+              ${auditDisabled}>
+        ${escapeHtml(auditLabel)}
+      </button>
+    </div>
+    ${_auditError ? `<div class="draft-audit-error">${escapeHtml(_auditError)}</div>` : ''}
+    ${summaryLine ? `<div class="draft-audit-summary">
+        <span>${escapeHtml(summaryLine)}</span>
+        <span class="muted draft-audit-note">${escapeHtml(CLAIM_AUDIT_DISCLAIMER)}</span>
+      </div>` : ''}`;
 }
 
 function _wireToolbar() {
   const btn = _el.querySelector('#draft-analyze-btn');
   if (btn) btn.addEventListener('click', _analyzeDraft);
+  const auditBtn = _el.querySelector('#draft-audit-btn');
+  if (auditBtn) auditBtn.addEventListener('click', _runAudit);
+}
+
+// ---------------------------------------------------------------------------
+// Claim audit (opt-in; NOT_SUPPORTED is the only adverse outcome)
+// ---------------------------------------------------------------------------
+
+/** Match a stored audit back to the evidence it was computed for.
+ *  Keyed on section + paper + quote so a re-ordered alignment never labels
+ *  the wrong passage; anything that does not match shows no badge at all. */
+function _auditFor(sectionId, paperId, quote) {
+  const sections = (_audit && _audit.sections) || [];
+  const sec = sections.find(s => String(s.section_id || '') === String(sectionId || ''));
+  if (!sec) return null;
+  const align = (sec.alignments || []).find(a => String(a.paper_id || '') === String(paperId || ''));
+  if (!align) return null;
+  const hit = (align.evidence || []).find(e => String(e.quote || '') === String(quote || ''));
+  return hit ? hit.audit : null;
+}
+
+function _auditBadgeHtml(sectionId, paperId, quote) {
+  const b = claimAuditBadge(_auditFor(sectionId, paperId, quote));
+  if (!b.show) return '';
+  const detail = b.reason ? `${b.title} — ${b.reason}` : b.title;
+  return `<span class="draft-audit-badge audit-${escapeHtml(b.tone)}"
+           title="${escapeHtml(detail)}">${escapeHtml(b.label)}</span>`;
+}
+
+async function _runAudit() {
+  if (_auditing) return;
+  _auditing = true;
+  _auditError = null;
+  _render();
+  try {
+    const res = await api.runClaimAudit('draft');
+    if (!res || !res.ok) {
+      _auditError = (res && res.error) || 'Could not start the citation check.';
+      _auditing = false;
+      _render();
+      return;
+    }
+    showToast('Checking citations against their sources…', 'info');
+    // the job publishes JobStarted/JobFinished on 'activity'; _render refetches
+  } catch (err) {
+    _auditError = err.message || 'Could not start the citation check.';
+    _auditing = false;
+    _render();
+  }
 }
 
 async function _analyzeDraft() {
@@ -803,7 +900,7 @@ function _renderAlignCard(a, relation, sectionId, sectionTitle) {
                   data-paper-id="${escapeHtml(a.paper_id)}" data-quote-idx="${quoteIdx}"
                   title="Open in source paper">
         <p>${escapeHtml(ev.quote || '')}</p>
-        <footer>${verifiedBadge}<span class="ev-open-hint muted">&#8599; open in source</span></footer>
+        <footer>${verifiedBadge}${_auditBadgeHtml(sectionId, a.paper_id, ev.quote || '')}<span class="ev-open-hint muted">&#8599; open in source</span></footer>
       </blockquote>
       <button class="draft-align-save-btn btn btn-sm btn-secondary" type="button" data-align-idx="${alignIdx}">Save note</button>
     `;
