@@ -237,3 +237,94 @@ def test_one_broken_source_does_not_abort_the_batch():
     outcomes = [c["audit"]["outcome"] for c in out["sections"][0]["citations"]]
     assert outcomes == ["unverifiable", "supported"]
     assert out["summary"]["total"] == 2
+
+
+# ---------------------------------------------------------------------------
+# The draft view nests one level deeper than a per-paper alignment
+# ---------------------------------------------------------------------------
+
+def _draft_payload(evidence):
+    return {"draft_id": "d1", "sections": [{
+        "section_id": "s1", "title": "Intro",
+        "alignments": [{
+            "paper_id": "p1", "paper_title": "T", "relation": "strengthens",
+            "relevance": 0.8, "rationale": "This paper supports the retrieval claim.",
+            "evidence": evidence,
+        }],
+    }]}
+
+
+def _anchored_evidence():
+    loc = anchor_quote("p1", QUOTE, TEXT)
+    return [{"quote": QUOTE, "verified": True, "locator": loc.to_dict()}]
+
+
+def test_the_wrong_runner_reports_zero_rather_than_failing_loudly():
+    """Why a separate runner exists at all.
+
+    GET /api/draft/alignment groups sections -> alignments -> evidence.
+    audit_alignment looks for `evidence` on the section, finds none, and
+    returns a summary of zero -- indistinguishable from a document with
+    nothing to check. This pins the trap so it cannot be reintroduced.
+    """
+    from research_companion.claim_audit import audit_alignment
+
+    out = audit_alignment(_draft_payload(_anchored_evidence()),
+                          load_text=_load, llm=_llm("supported"))
+    assert out["summary"]["total"] == 0
+
+
+def test_audit_draft_alignment_reaches_evidence_through_alignments():
+    from research_companion.claim_audit import audit_draft_alignment
+
+    out = audit_draft_alignment(_draft_payload(_anchored_evidence()),
+                                load_text=_load, llm=_llm("supported"))
+    ev = out["sections"][0]["alignments"][0]["evidence"][0]
+    assert ev["audit"]["outcome"] == "supported"
+    assert out["summary"]["total"] == 1
+    assert out["summary"]["checked"] == 1
+
+
+def test_audit_draft_alignment_preserves_the_shape_the_view_renders():
+    from research_companion.claim_audit import audit_draft_alignment
+
+    payload = _draft_payload(_anchored_evidence())
+    original = json.loads(json.dumps(payload))
+    out = audit_draft_alignment(payload, load_text=_load, llm=_llm("supported"))
+
+    assert out["draft_id"] == "d1"                       # top-level fields kept
+    sec = out["sections"][0]
+    assert sec["section_id"] == "s1" and sec["title"] == "Intro"
+    align = sec["alignments"][0]
+    for field in ("paper_id", "paper_title", "relation", "relevance", "rationale"):
+        assert field in align, f"{field} dropped; the view renders it"
+    assert payload == original                           # input untouched
+
+
+def test_draft_evidence_without_a_locator_is_uncheckable_not_wrong():
+    from research_companion.claim_audit import audit_draft_alignment
+
+    out = audit_draft_alignment(_draft_payload([{"quote": "q", "verified": False}]),
+                                load_text=_load, llm=_llm("supported"))
+    audit = out["sections"][0]["alignments"][0]["evidence"][0]["audit"]
+    assert audit["outcome"] == "anchorless"
+    assert audit["is_adverse"] is False
+
+
+def test_audit_draft_alignment_survives_malformed_input():
+    from research_companion.claim_audit import audit_draft_alignment
+
+    for payload in ({}, {"sections": None}, {"sections": ["nope"]},
+                    {"sections": [{"alignments": None}]},
+                    {"sections": [{"alignments": ["nope"]}]}):
+        out = audit_draft_alignment(payload, load_text=_load, llm=_llm("supported"))
+        assert out["summary"]["total"] == 0
+
+
+def test_the_draft_endpoint_uses_the_draft_runner():
+    """A shape mismatch here is silent, so the wiring is pinned in source."""
+    import pathlib
+
+    src = pathlib.Path("research_companion/lab_api.py").read_text(encoding="utf-8")
+    assert "ca.audit_draft_alignment" in src
+    assert "else ca.audit_alignment" not in src
