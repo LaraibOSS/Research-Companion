@@ -1454,16 +1454,37 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_check_stats(args: argparse.Namespace) -> int:
-    from research_companion.statcheck import check_stats
-    from research_companion.store import load_text
+def _text_or_report(paper_id: str) -> str | None:
+    """Text for a deterministic check, parsed on demand, or None with a reason.
 
-    text = load_text(args.paper_id)
+    Every message here goes to STDERR: these commands support --json, and a
+    progress line on stdout would corrupt output the caller is parsing.
+    """
+    from research_companion.extract import ensure_text
+    from research_companion.store import load_text, pdf_path
+
+    if load_text(paper_id) is None and pdf_path(paper_id) is not None:
+        # Parsing a PDF can take a while (the default parser loads OCR models),
+        # so say what is happening rather than appearing to hang.
+        print(f"research-companion: extracting text from {paper_id} "
+              "(local parse, no model calls)...", file=sys.stderr)
+
+    text = ensure_text(paper_id)
     if text is None:
         print(
-            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
+            f"research-companion: no text for {paper_id} and none could be "
+            "extracted. Add the paper first, or check the PDF is not a scan "
+            "(the default parser does no OCR on scanned pages).",
             file=sys.stderr,
         )
+    return text
+
+
+def _cmd_check_stats(args: argparse.Namespace) -> int:
+    from research_companion.statcheck import check_stats
+
+    text = _text_or_report(args.paper_id)
+    if text is None:
         return 1
 
     report = check_stats(text)
@@ -1549,12 +1570,8 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
     )
     from research_companion.store import list_papers, load_text
 
-    target = load_text(args.paper_id)
+    target = _text_or_report(args.paper_id)
     if target is None:
-        print(
-            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
-            file=sys.stderr,
-        )
         return 1
 
     corpus = [

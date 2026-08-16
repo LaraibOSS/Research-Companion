@@ -61,6 +61,43 @@ def pdf_to_text(pdf_file: Path) -> str:
     return get_parser().parse(pdf_file).text
 
 
+def ensure_text(paper_id: str) -> str | None:
+    """Stored text for a paper, parsing it from the PDF if it is not there yet.
+
+    Extracting text is a LOCAL parse -- no model, no network, no cost. But only
+    the ingest path saved it, so the deterministic checks that need nothing but
+    text (statcheck/GRIM, self-overlap) failed on a freshly added local PDF with
+    "no text for <id>", pointing the user at an LLM-costing ingest to satisfy a
+    free check.
+
+    Returns None only when there is genuinely nothing to work from: no stored
+    text and no PDF on disk. A parse that fails or yields nothing also returns
+    None rather than caching an empty string, so a scanned PDF is retried next
+    time instead of being remembered as "checked, empty".
+    """
+    from research_companion.store import load_text, pdf_path, save_text
+
+    cached = load_text(paper_id)
+    if cached is not None:
+        return cached
+
+    pdf = pdf_path(paper_id)
+    if pdf is None or not pdf.exists():
+        return None
+
+    try:
+        from research_companion.parsers import get_parser
+
+        text = get_parser().parse(pdf).text or ""
+    except Exception:  # noqa: BLE001 - an unparseable PDF is not a crash
+        return None
+
+    if not text.strip():
+        return None
+    save_text(paper_id, text)
+    return text
+
+
 def get_paper_text(meta: PaperMetadata, *, force: bool = False) -> str:
     """Cached text extraction. Re-extracts if `force` is True."""
     if not force:
