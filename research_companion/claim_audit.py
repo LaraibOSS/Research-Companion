@@ -274,43 +274,6 @@ def audit_report(report: dict, *, load_text, llm=None) -> dict:
     return {"sections": out_sections, "summary": summarize(all_results)}
 
 
-def audit_draft_alignment(payload: dict, *, load_text, llm=None) -> dict:
-    """Audit the draft's cross-paper alignment view.
-
-    ``GET /api/draft/alignment`` groups by DRAFT section and then by candidate
-    paper -- ``sections[] -> alignments[] -> evidence[]`` -- one level deeper
-    than the per-paper shape :func:`audit_alignment` walks. Running the wrong
-    runner over this does not raise: it finds no ``evidence`` on the section,
-    audits nothing, and reports a summary of zero, which reads exactly like a
-    document with no citations to check. Hence a separate runner.
-
-    The claim under test is each alignment's rationale -- the assertion the
-    tool made about that paper -- checked against the passage it cited for it.
-    """
-    out_sections = []
-    all_results: list[AuditResult] = []
-    for sec in (payload or {}).get("sections", []) or []:
-        if not isinstance(sec, dict):
-            continue
-        out_alignments = []
-        for align in sec.get("alignments", []) or []:
-            if not isinstance(align, dict):
-                out_alignments.append(align)
-                continue
-            claim = str(align.get("rationale") or "").strip()
-            audited = []
-            for ev in align.get("evidence", []) or []:
-                result = audit_claim(claim, _locator_from_citation(ev),
-                                     load_text=load_text, llm=llm)
-                all_results.append(result)
-                audited.append({**ev, "audit": result.to_dict()})
-            out_alignments.append({**align, "evidence": audited})
-        out_sections.append({**sec, "alignments": out_alignments})
-    # Preserve draft_id and any other top-level fields the view relies on.
-    return {**(payload or {}), "sections": out_sections,
-            "summary": summarize(all_results)}
-
-
 def audit_alignment(alignment: dict, *, load_text, llm=None) -> dict:
     """Audit each piece of alignment evidence against its own quoted passage.
 

@@ -2434,10 +2434,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run() -> None:
             await _announce_start(job_id, "claim-audit", label)
             try:
-                # The draft view nests one level deeper than a per-paper
-                # alignment (sections -> alignments -> evidence); audit_alignment
-                # would silently audit nothing and report a total of 0.
-                runner = ca.audit_report if target == "report" else ca.audit_draft_alignment
+                runner = ca.audit_report if target == "report" else ca.audit_alignment
                 result = await asyncio.to_thread(
                     runner, artifact, load_text=_load_text, llm=resolved_llm)
                 await asyncio.to_thread(store.save_claim_audit, target, result)
