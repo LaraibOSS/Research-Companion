@@ -23,6 +23,7 @@ Drop in arXiv URLs, DOIs, or PDFs → get a concept‑level knowledge graph and 
 - [Quickstart](#quickstart)
 - [A look inside](#a-look-inside)
 - [Features](#features)
+- [Claude Code skills](#claude-code-skills)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Documentation](#documentation)
@@ -121,6 +122,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 - **Domain connectors** — opt‑in **PubMed**, **Europe PMC**, and **DBLP** so biomedical and CS references verify and prior‑art reaches beyond the general databases.
 - **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
 - **MCP trust‑layer server** — four deterministic, key‑free verification tools for any MCP‑capable agent (plus two opt‑in costed tools behind an explicit setting and cost cap).
+- **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code, on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
 
 ### 🧪 Research Lab (browser)
 - **Live‑growing graph** over SSE, section‑wise subgraphs that keep retrieval focused, a built‑in reader (Text + original‑PDF tabs), a **Simplified** plain‑English reader, **Notes** you can capture anywhere and export as a revision checklist, an adaptive **Home** dashboard (a genuinely empty workspace opens on a two‑path first‑run chooser — *Brainstorm from an idea* or *I already have a draft* — then a product intro with quick‑nav to every tab, then a compact journey view with next‑steps and a timeline once you have a draft), and a **Researches** tab: a sortable table tracking every research — papers/analyzed/failed, draft + version count, citation coverage, strength mix, open items, and draft‑updated / last‑activity / created — with a persistent **+ New research** button plus rename / archive / delete.
@@ -132,6 +134,34 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 <sub>📄 Full version history lives in the release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)</sub>
 
 ---
+
+## Claude Code skills
+
+The checks that need no model also need no UI. Two [Claude Code](https://claude.com/claude-code)
+skills live in [`skills/`](skills/) and answer a question directly on a PDF:
+
+| skill | question | cost |
+|---|---|---|
+| [`/submission-check`](skills/submission-check/SKILL.md) | Would this get desk-rejected? Venue rules, statcheck/GRIM, self-overlap. | free |
+| [`/refcheck`](skills/refcheck/SKILL.md) | Do these references actually exist? CrossRef / OpenAlex / arXiv. | free (network only) |
+
+```bash
+cp -r skills/refcheck skills/submission-check ~/.claude/skills/
+```
+
+```
+/refcheck paper.pdf
+/submission-check paper.pdf --venue neurips
+```
+
+They also trigger on the question phrased naturally — "are these citations real?",
+"will this get desk-rejected?".
+
+Both default to a **scratch workspace**, so an agent invoked from any directory
+cannot write into whichever research you last had open. And both follow the same
+reporting rule as the rest of the tool: a check that did not run is never shown
+as a check that passed, and a reference that could not be found is reported as
+*not found*, never as fabricated. Details and the rationale: [`skills/README.md`](skills/README.md).
 
 ## Installation
 
@@ -297,11 +327,15 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `PAPERGRAPH_DIR` | Where papers + graph are stored | `~/.research-companion/` |
+| `RESEARCH_COMPANION_DIR` | Where papers + graph are stored | `~/.research-companion/` |
+| `RESEARCH_COMPANION_WORKSPACE` | Force a research (workspace) for one command | active workspace |
 | `ANTHROPIC_API_KEY` | Required for `--provider anthropic` (default) | – |
 | `OPENAI_API_KEY` | Required for `--provider openai` | – |
+| `RESEARCH_COMPANION_PROVIDER` | Default provider (`anthropic` / `openai`) | `anthropic` |
+| `RESEARCH_COMPANION_MODEL` | Override the model id | provider default |
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
+| `NCBI_EMAIL` / `NCBI_API_KEY` | Optional — raises PubMed/E-utilities rate limits | – |
 
 Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `research-companion cost-estimate` to project costs before building.
 
