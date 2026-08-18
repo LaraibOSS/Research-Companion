@@ -144,3 +144,69 @@ def test_env_example_covers_the_keys_a_new_user_needs():
     assert "RESEARCH_COMPANION_DIR" in example
     # it must not ship a real-looking secret
     assert not re.search(r"=\s*sk-[A-Za-z0-9_-]{10,}", example)
+
+
+# ---------------------------------------------------------------------------
+# Unpublished material must stay unpublished
+#
+# The paper/ directory is an EMNLP submission and the competitor/ARS analyses
+# are internal teardowns of named projects. They are kept local. A file that
+# re-enters tracking is easy to miss in a diff and impossible to recall once the
+# repository is public.
+# ---------------------------------------------------------------------------
+
+PRIVATE_PATHS = (
+    "paper",
+    "docs/COMPETITOR_ARCHITECTURES.md",
+    "docs/ARS_COMPARATIVE_ANALYSIS.md",
+    "docs/ARS_INTEGRATION_STUDY.md",
+)
+
+
+def _tracked_files() -> set[str]:
+    import subprocess
+
+    out = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True,
+                         text=True, check=False)
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    return set(out.stdout.split())
+
+
+def test_unpublished_material_is_not_tracked():
+    tracked = _tracked_files()
+    leaked = sorted(f for f in tracked
+                    if any(f == p or f.startswith(p + "/") for p in PRIVATE_PATHS))
+    assert not leaked, f"private material is tracked again: {leaked}"
+
+
+def test_gitignore_still_covers_the_private_paths():
+    ignore = (REPO / ".gitignore").read_text(encoding="utf-8")
+    for path in PRIVATE_PATHS:
+        needle = path + "/" if path == "paper" else path
+        assert needle in ignore, f".gitignore no longer covers {path}"
+
+
+def test_nothing_public_links_to_private_material():
+    """A dead link in shipped docs advertises that the material exists and
+    points readers at a 404."""
+    import re
+    import subprocess
+
+    names = ("COMPETITOR_ARCHITECTURES", "ARS_COMPARATIVE_ANALYSIS",
+             "ARS_INTEGRATION_STUDY", "PAPER_DRAFT")
+    out = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True,
+                         text=True, check=False)
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    this_file = pathlib.Path(__file__).relative_to(REPO).as_posix()
+    offenders = []
+    for rel in out.stdout.split():
+        if not rel.endswith((".md", ".py", ".json", ".cff")):
+            continue
+        if rel == this_file:
+            continue          # this guard necessarily names them
+        text = (REPO / rel).read_text(encoding="utf-8", errors="ignore")
+        if any(re.search(rf"\b{n}\b", text) for n in names):
+            offenders.append(rel)
+    assert not offenders, f"tracked files link to private material: {offenders}"
