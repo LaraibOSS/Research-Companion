@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-companion"
-version = "0.7.1"
+version = "0.8.0"
 description = "An agentic research companion that verifies what it claims"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -37,7 +37,7 @@ dependencies = [
 Homepage = "https://github.com/LaraibOSS/Research-Companion"
 Repository = "https://github.com/LaraibOSS/Research-Companion"
 Documentation = "https://github.com/LaraibOSS/Research-Companion/blob/main/docs/DOCUMENTATION.md"
-Changelog = "https://github.com/LaraibOSS/Research-Companion/blob/main/docs/RELEASE_0.7.md"
+Changelog = "https://github.com/LaraibOSS/Research-Companion/blob/main/docs/RELEASE_0.8.md"
 Issues = "https://github.com/LaraibOSS/Research-Companion/issues"
 
 [project.optional-dependencies]

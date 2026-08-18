@@ -94,10 +94,10 @@ def test_pyproject_has_server_extra():
 
 
 def test_pyproject_version_is_0_7_1():
-    """pyproject.toml version must be 0.7.1."""
+    """pyproject.toml version must be 0.8.0."""
     data = _load_pyproject()
-    assert data["project"]["version"] == "0.7.1", (
-        f"Expected version 0.7.1, got {data['project']['version']!r}"
+    assert data["project"]["version"] == "0.8.0", (
+        f"Expected version 0.8.0, got {data['project']['version']!r}"
     )
 
 
@@ -345,3 +345,51 @@ def test_readme_clone_cd_and_import_are_valid():
     assert "cd research-companion" not in text, "cd must match cloned dir Research-Companion"
     assert "import research-companion" not in text, "hyphenated import is invalid Python"
     assert "research-companion." not in text, "no hyphenated module attribute access in examples"
+
+
+def test_version_is_declared_identically_everywhere():
+    """Three files declare the version and two more state it in prose. A release
+    tag is verified against pyproject alone, so a stale CITATION.cff or
+    __init__ ships a package that misreports itself."""
+    import re
+
+    version = _load_pyproject()["project"]["version"]
+    cff = (REPO_ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    init = (REPO_ROOT / "research_companion" / "__init__.py").read_text(encoding="utf-8")
+
+    assert re.search(rf"^version: {re.escape(version)}$", cff, re.M), "CITATION.cff drifted"
+    assert f'__version__ = "{version}"' in init, "__init__ drifted"
+
+    for name in ("README.md", "SECURITY.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert version in text, f"{name} does not state the current version"
+
+
+def test_the_changelog_url_points_at_notes_that_exist():
+    """pyproject advertises a Changelog URL; a bump that forgets the notes
+    publishes a dead link on the PyPI listing."""
+    url = _load_pyproject()["project"]["urls"]["Changelog"]
+    rel = url.split("/blob/main/", 1)[1]
+    assert (REPO_ROOT / rel).is_file(), f"Changelog URL points at missing {rel}"
+
+
+def test_packaging_and_citation_authorship_differ_deliberately():
+    """These two lists are intentionally NOT the same, so neither should be
+    "corrected" to match the other.
+
+    pyproject `authors` is the package maintainer shown on the PyPI listing --
+    one name. CITATION.cff is academic credit for the software, which carries
+    both contributors. Collapsing the second is a credit change, not tidying.
+    """
+    import re
+
+    authors = _load_pyproject()["project"]["authors"]
+    assert len(authors) == 1, f"pyproject should name one maintainer, got {authors}"
+    assert authors[0]["name"] == "Laraib Hasan"
+
+    cff = (REPO_ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    surnames = re.findall(r"^\s+- family-names:\s*(\S+)", cff, re.M)
+    assert surnames == ["Hasan", "Rahman"], (
+        f"CITATION.cff authorship changed: {surnames}. This is academic credit "
+        "-- change it only on purpose."
+    )

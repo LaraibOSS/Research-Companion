@@ -33,7 +33,7 @@ def test_security_md_points_to_private_reporting():
 def test_security_md_states_precise_version_status():
     text = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert "| Version" in text or "|Version" in text, "SECURITY.md needs a version-status table"
-    assert "0.5.14" in text and "0.7.1" in text, "must disclose PyPI 0.5.14 vs source 0.7.1"
+    assert "0.5.14" in text and "0.8.0" in text, "must disclose PyPI 0.5.14 vs source 0.8.0"
     assert "legacy" in text.lower() or "not equivalent" in text.lower()
 
 
