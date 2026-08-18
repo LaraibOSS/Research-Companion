@@ -83,7 +83,7 @@ python examples/demo_offline.py        # agentic review pipeline (6 lanes + rebu
 python examples/demo_lab_offline.py    # Research Lab event replay (papers, graph, strength)
 ```
 
-> **Note on versions:** the source tree is at `0.7.1`; the latest PyPI release is `0.5.14` (publishing is currently held), so an editable install from source is ahead of PyPI.
+> **Note on versions:** the source tree is at `0.8.0`; the latest PyPI release is `0.5.14`, so an editable install from source is ahead of PyPI until `0.8.0` ships.
 
 ---
 
@@ -131,7 +131,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 - **Report tab** — turn a topic into a structured, cited literature review over your own library: 4–6 LLM-generated investigation sub-questions grounded in your library's own concepts and papers, each answered by the same grounded, quote-verified Q&A engine behind Ask — with citation chips back to the exact paper/section — run as a background job with live "Answering N/M" progress; scope is explicitly your library, never the open web. Before running the (more expensive) answering pass, an editable **research plan** lets you review, edit, add, remove, and reorder the generated investigation questions — then **Run report** answers exactly the set you approved; the original one-click "Generate report" one-shot flow still works unchanged for anyone who wants to skip the checkpoint. An opt-in **Score evidence** pass rates each citation for relevance to its question and stance (supports/contradicts/neutral) toward its answer — an honest, clearly-labeled AI judgment, never presented as "verified". Every report also carries a free, LLM-free **coverage** signal — a per-question and overall bar showing how much of the library material our own search judged relevant actually made it into the citations, always labeled a BM25 heuristic (not ground truth) with auditable raw counts. A one-click **Download (.md)** lets you save or share the whole report as a plain markdown file — the same citations, badges, and honesty caveats, never stripped of context.
 - **Honest "no research selected" state** — fresh installs and fully‑emptied libraries show a plain **Research: none** in the top bar instead of a hidden default workspace; `main` is now an ordinary, renamable research like any other.
 
-<sub>📄 Full version history lives in the release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)</sub>
+<sub>📄 Full version history lives in the release notes: [0.8](docs/RELEASE_0.8.md) · [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)</sub>
 
 ---
 
