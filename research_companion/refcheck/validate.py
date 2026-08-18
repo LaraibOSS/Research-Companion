@@ -90,7 +90,11 @@ def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
         )
 
     reasons: list[str] = []
-    if matching.title_similarity(ref.title, record.get("title", "")) < TITLE_MATCH_THRESHOLD:
+    # Compare against the FULL cited line, not just the parsed title: a
+    # reference read from a paper's bibliography carries authors and venue
+    # around the title (see matching.title_is_cited).
+    cited_text = ref.raw or ref.title
+    if not matching.title_is_cited(cited_text, record.get("title", "")):
         reasons.append("Title does not match the authoritative record")
     if ref.authors and (
         matching.author_overlap(ref.authors, record.get("authors", [])) < AUTHOR_OVERLAP_THRESHOLD

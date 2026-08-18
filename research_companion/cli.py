@@ -1406,15 +1406,38 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     from research_companion.refcheck.validate import validate_bibliography
     from research_companion.store import load_extraction
 
+    # An existing extraction still wins, so a built paper behaves exactly as
+    # before. Only the previously-fatal path changed: verifying that citations
+    # exist is deterministic and network-only, so it must not require a build
+    # that costs model calls.
     ext = load_extraction(args.paper_id, prompt_sha=extraction_prompt_sha256())
-    if ext is None:
-        print(
-            f"research-companion: no extraction for {args.paper_id}. Run `research-companion build` first.",
-            file=sys.stderr,
-        )
-        return 1
+    source, unparsed = "extraction", []
+    if ext is not None:
+        refs = references_from_extraction(ext)
+    else:
+        from research_companion.extract import ensure_text
+        from research_companion.refcheck.parse import references_from_text
 
-    refs = references_from_extraction(ext)
+        text = ensure_text(args.paper_id)
+        if text is None:
+            print(
+                f"research-companion: no extraction and no readable text for "
+                f"{args.paper_id}. Add the paper first, or check the PDF is not "
+                "a scan (the default parser does no OCR on scanned pages).",
+                file=sys.stderr,
+            )
+            return 1
+        refs, unparsed = references_from_text(text)
+        source = "text"
+        if not refs:
+            print(
+                f"research-companion: no bibliography found in {args.paper_id}. "
+                "Looked for a References/Bibliography heading in the extracted "
+                "text. Run `research-companion build` to use the model-extracted "
+                "reference list instead.",
+                file=sys.stderr,
+            )
+            return 1
     conns = _parse_connectors_arg(getattr(args, "connectors", None))
     lookup = default_lookup(connectors=conns) if conns is not None else default_lookup()
     report = validate_bibliography(refs, lookup)
@@ -1423,6 +1446,11 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     if args.json:
         payload = {
             "paper_id": args.paper_id,
+            # Callers need to know the denominator: which list was checked, and
+            # how much of the bibliography could not be read at all.
+            "source": source,
+            "unparsed_count": len(unparsed),
+            "unparsed": unparsed,
             "counts": counts,
             "references": [
                 {
@@ -1451,6 +1479,19 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
         f"{counts['suspect']} suspect, {counts['unverified']} unverified "
         f"({len(report.entries)} references)"
     )
+    if source == "text":
+        print("References read from the paper's bibliography (no model call).")
+    # State what was NOT read. Without this the summary counts read as the whole
+    # bibliography, and entries never looked up are invisible.
+    if unparsed:
+        print(
+            f"{len(unparsed)} line(s) could not be parsed as references and "
+            "were NOT checked:"
+        )
+        for line in unparsed[:5]:
+            print(f"        - {line[:90]}")
+        if len(unparsed) > 5:
+            print(f"        ... and {len(unparsed) - 5} more")
     return 0
 
 
