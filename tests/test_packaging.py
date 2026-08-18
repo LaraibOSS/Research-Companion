@@ -373,7 +373,23 @@ def test_the_changelog_url_points_at_notes_that_exist():
     assert (REPO_ROOT / rel).is_file(), f"Changelog URL points at missing {rel}"
 
 
-def test_the_package_declares_a_single_author():
+def test_packaging_and_citation_authorship_differ_deliberately():
+    """These two lists are intentionally NOT the same, so neither should be
+    "corrected" to match the other.
+
+    pyproject `authors` is the package maintainer shown on the PyPI listing --
+    one name. CITATION.cff is academic credit for the software, which carries
+    both contributors. Collapsing the second is a credit change, not tidying.
+    """
+    import re
+
     authors = _load_pyproject()["project"]["authors"]
-    assert len(authors) == 1, f"expected one author, got {authors}"
+    assert len(authors) == 1, f"pyproject should name one maintainer, got {authors}"
     assert authors[0]["name"] == "Laraib Hasan"
+
+    cff = (REPO_ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    surnames = re.findall(r"^\s+- family-names:\s*(\S+)", cff, re.M)
+    assert surnames == ["Hasan", "Rahman"], (
+        f"CITATION.cff authorship changed: {surnames}. This is academic credit "
+        "-- change it only on purpose."
+    )

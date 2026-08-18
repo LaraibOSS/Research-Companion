@@ -5,6 +5,8 @@ type: software
 authors:
   - family-names: Hasan
     given-names: Laraib
+  - family-names: Rahman
+    given-names: Azizur
 repository-code: "https://github.com/LaraibOSS/Research-Companion"
 abstract: >-
   A local-first research companion that turns a corpus of papers into a
