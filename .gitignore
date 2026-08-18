@@ -47,3 +47,9 @@ graphify-out/
 paper/.edge-cdp-profile*/
 paper-review/
 paper/draft_for_review.pdf
+
+# Unpublished research material — kept local, never published
+paper/
+docs/COMPETITOR_ARCHITECTURES.md
+docs/ARS_COMPARATIVE_ANALYSIS.md
+docs/ARS_INTEGRATION_STUDY.md
