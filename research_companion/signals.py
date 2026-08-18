@@ -24,7 +24,7 @@ separately so a caller cannot infer one from the other.
 
 Prior art: the epistemic-class contract in ARS (`academic-research-skills`,
 CC BY-NC 4.0). The idea is theirs; this is an independent implementation — no
-ARS code or text is used here. See docs/ARS_COMPARATIVE_ANALYSIS.md.
+ARS code or text is used here.
 """
 from __future__ import annotations
 
