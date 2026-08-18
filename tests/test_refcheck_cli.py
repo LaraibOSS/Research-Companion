@@ -82,10 +82,40 @@ def test_refcheck_cli_suspect_uses_standard_warn_glyph(monkeypatch: pytest.Monke
     assert "??" not in out
 
 
-def test_refcheck_cli_errors_when_no_extraction(capsys):
+def test_refcheck_cli_errors_when_there_is_nothing_to_read(capsys):
+    """No extraction AND no text is still a failure -- but the message must not
+    send the user to `build`. Verifying that citations exist is deterministic
+    and network-only; it never needed a step that costs model calls."""
     rc = cli.main(["refcheck", "local:doesnotexist"])
     assert rc == 1
-    assert "build" in capsys.readouterr().err.lower()
+    err = capsys.readouterr().err.lower()
+    assert "no readable text" in err
+    assert "run `research-companion build` first" not in err
+
+
+def test_refcheck_falls_back_to_the_bibliography_when_unbuilt(monkeypatch, capsys):
+    """The behaviour change: a paper with text but no extraction now works."""
+    from research_companion import store
+    from research_companion.refcheck.validate import RefVerdict
+
+    store.PaperMetadata(paper_id="local:nb", title="T", authors=["A"],
+                        added_at="2026-01-01T00:00:00Z").save()
+    store.save_text("local:nb", (
+        "Intro\n\nReferences\n"
+        "[1] Vaswani et al. Attention is all you need. NeurIPS 2017.\n"
+        "9\n"
+    ))
+    monkeypatch.setattr(
+        "research_companion.refcheck.validate.validate_reference",
+        lambda ref, lookup=None: RefVerdict(status="verified", reasons=[]),
+    )
+
+    assert cli.main(["refcheck", "local:nb", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source"] == "text"
+    assert len(payload["references"]) == 1
+    # the stray page number was NOT silently dropped
+    assert payload["unparsed_count"] == 1
 
 
 def test_parse_connectors_flag():

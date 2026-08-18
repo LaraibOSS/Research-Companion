@@ -15,6 +15,7 @@ from contextvars import ContextVar
 import httpx
 
 from research_companion.refcheck import matching
+from research_companion.refcheck.parse import probable_title
 from research_companion.refcheck.validate import Reference
 
 USER_AGENT = "research-companion/0.1 (https://github.com/LaraibOSS/Research-Companion)"
@@ -97,11 +98,17 @@ def _best_match(
     Returns None if there are no candidates or the best title similarity is
     below `floor` (no plausible match).
     """
+    # Compare against the WHOLE cited line, not ref.title: a line read from a
+    # bibliography carries authors and venue around the title, and scoring that
+    # against a clean catalogue title rejects correct matches.
+    cited = ref.raw or ref.title
     best_record: dict | None = None
     best_score = -1.0
     for item in items:
         record = parser(item)
         score = matching.title_similarity(ref.title, record["title"])
+        if matching.title_is_cited(cited, record["title"]):
+            score = max(score, floor)
         if score > best_score:
             best_score, best_record = score, record
     if best_record is None or best_score < floor:
@@ -151,7 +158,9 @@ def crossref_lookup(
     search: Callable[..., list[dict]] = _crossref_search,
 ) -> dict | None:
     """Resolve a Reference to an authoritative CrossRef record, or None."""
-    items = search(ref.title)
+    # Search with the title alone; the full line finds nothing (see
+    # parse.probable_title).
+    items = search(probable_title(ref.raw or ref.title))
     return _best_match(ref, items, parse_crossref_item)
 
 
@@ -175,7 +184,9 @@ def openalex_lookup(
     search: Callable[..., list[dict]] = _openalex_search,
 ) -> dict | None:
     """Resolve a Reference to an authoritative OpenAlex record, or None."""
-    items = search(ref.title)
+    # Search with the title alone; the full line finds nothing (see
+    # parse.probable_title).
+    items = search(probable_title(ref.raw or ref.title))
     return _best_match(ref, items, parse_openalex_item)
 
 
