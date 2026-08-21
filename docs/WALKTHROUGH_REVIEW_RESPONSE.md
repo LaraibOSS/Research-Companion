@@ -1,12 +1,16 @@
 # Evidence semantics — architecture decision record
 
 Began as a response to an external review of [`WALKTHROUGH.md`](WALKTHROUGH.md) and
-became a decision record for the product's evidence model, which is where three rounds
+became a decision record for the product's evidence model, which is where four rounds
 of review converged.
 
 Organised by topic, not by round. Each section states the decision reached, not the
 path to it. Every claim about current behaviour was verified against source — which is
 why successive rounds reached different conclusions.
+
+**If you are implementing this:** §1 is the schema and must be settled first; the
+backlog at the end is ordered by dependency, not by value. Where this record and the
+code disagree, the code has been right every time so far — check before changing.
 
 ---
 
@@ -26,11 +30,14 @@ Two models exist, both good, and **they do not reference each other**:
 | model | file | adoption |
 |---|---|---|
 | epistemic state — did it run, what did it conclude | `signals.py` | **1 of ~8** checkers |
-| provenance — which paper, section, character offsets | `locator.py` | not linked to signals |
+| document provenance — paper, section, character offsets | `locator.py` | not linked to signals |
+| prompt provenance — which prompt produced a heuristic result | `prompts.py` `*_prompt_sha256()` | not carried on signals |
 
-`claim_audit.py` is the only module using both, and it drops the link. Connecting them
-turns the model from *finding + execution state* into *finding + execution state +
-provenance*, which is what an audit trail requires.
+`claim_audit.py` is the only module using the first two, and it drops the link.
+Connecting them turns the model from *finding + execution state* into *finding +
+execution state + provenance*, which is what an audit trail requires — with the
+caveat that provenance generalises past documents (§1, Change 3): a catalogue record,
+a query, a venue rule are all evidence.
 
 **The theme for the next iteration is consistency, not capability:** make the type
 system, the checker outputs, the UI language and the documentation express one
@@ -74,6 +81,9 @@ the graph, check citations mid-draft, return to discovery after choosing a direc
 | "Say corpus density, not field crowdedness" | **Product overclaims too** | `helpContent.js`: "where the field clusters" |
 | "Soften Gaps' *real open problem*" | **Product already careful** | `open / partially / addressed`; unverified downgraded |
 | "82% reads as confidence" | **Product already labels it** | "AI judgements — not independently verified" |
+| "`Finding` is too claim-specific" | **Partly — `name` carries the proposition** | `claim_audit` sets `name = "claim_supported"` |
+| "Is no-anchor `NOT_CHECKED` or `DEGRADED`?" | **`DEGRADED` — code already correct** | anchorless routes through `signals.could_not_check()` |
+| "Heuristic results need version provenance" | **Mechanism exists, unattached** | `prompts.py`: `extraction_/novelty_/claim_audit_prompt_sha256()` |
 
 ---
 
@@ -619,3 +629,28 @@ ledger that would have undermined the product's central principle.
 between known, inferred, not found and not checked. It is modelled precisely in one
 file and expressed ad hoc nearly everywhere else. Closing that gap is worth more than
 any single feature on the list.
+
+### The pattern underneath all of it: built, correct, unconnected
+
+Four rounds of review looking for missing capability kept finding the same thing
+instead — a capability that **exists, is well designed, and is wired to nothing**.
+
+| capability | where it lives | what it is not connected to |
+|---|---|---|
+| epistemic state model | `signals.py` | 7 of 8 checkers |
+| document provenance | `locator.py` | `signals.py` — never referenced |
+| prompt versioning | `prompts.py` `*_prompt_sha256()` | the signals whose reproducibility depends on it |
+| signal rendering | `claimAuditHelpers.js` | every surface except claim audit |
+| graded novelty outcomes | `novelty_check.py` | the documentation, which described it as binary |
+| gap status downgrade | gaps pipeline | the documentation, which called a theme "a real open problem" |
+
+Six instances, found by reading source rather than by reasoning about the product.
+None is a missing feature. Every one is a missing connection.
+
+That explains why the backlog contains no new research capability and why it is
+ordered the way it is. The components are good; what is absent is the wiring between
+them, and — in two cases — between the software and its own description of itself.
+
+The failure mode is specific and worth naming, because it is invisible from outside:
+**a system can be architecturally coherent and still present as incoherent**, because
+coherence lives in connections and users only ever see surfaces.
