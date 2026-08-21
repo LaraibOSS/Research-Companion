@@ -27,6 +27,36 @@ that already exists in `signals.py`, adopted by exactly one module.
 
 ---
 
+## What the review concluded
+
+Round 2 separated the assessment into three things the first round had treated as
+one. The separation is the useful part; the numbers are the reviewer's.
+
+| area | assessment |
+|---|---|
+| core feature architecture | 9 / 10 |
+| epistemic design / research integrity | 9 / 10 |
+| research workflow concept | 8.5–9 / 10 |
+| product UX / information architecture | 8 / 10 |
+| walkthrough **before** these fixes | 6.5–7 / 10 |
+| walkthrough **after** these fixes | 8.5–9 / 10 |
+
+The original headline — *"the feature set is stronger than the flow"* — held for the
+document and not for the software. That distinction is the whole result of the
+exchange.
+
+Round 2 also produced a better one-line description of the architecture than either
+side started with:
+
+> **A non-linear research workspace with a recommended research lifecycle.**
+
+Recommended journey: discovery → understanding → opportunity → development →
+verification. Everything remains reachable at any time. A researcher must be able to
+compare papers before opening the graph, check citations mid-draft, return to
+discovery after choosing a direction, or read a paper at any point.
+
+---
+
 ## Verified against source
 
 | claim | verdict | evidence |
@@ -191,6 +221,133 @@ flagging phrases that require human review:
 
 Every one of these has already been violated once — four of them by the walkthrough,
 before review caught them. That is the argument for mechanising it.
+
+---
+
+## Specifications for the accepted work
+
+Recorded concretely so the backlog can be executed without re-reading the exchange.
+
+### Venue rule versioning
+
+`venues.json` entries gain provenance. A deterministic check is only as trustworthy
+as the vintage of its rules, and conference requirements change annually.
+
+```yaml
+slug: aaai-2027-main
+name: AAAI-27 Main Technical Track
+venue: AAAI
+year: 2027
+track: Main Technical Track
+rules_version: 2026-08-01
+source: official CFP            # url or citation
+last_verified: 2026-08-15
+```
+
+Surfaced in output as `AAAI-27 Main Technical Track · rules verified 15 Aug 2026`,
+so a stale rule set is visible rather than silently trusted.
+
+Checks additionally report a **tier**, because not everything is machine-checkable:
+
+| tier | example |
+|---|---|
+| hard requirement | page limit, required sections |
+| recommendation | suggested structure |
+| cannot check automatically | anonymity, formatting fidelity |
+
+`cannot check automatically` must render as *check manually*, never as a pass.
+
+### Status vocabulary — adopt `signals.py`, do not invent one
+
+Target: every deterministic checker emits `Signal`s instead of an ad-hoc shape.
+
+| checker | current | target |
+|---|---|---|
+| `claim_audit` | `Signal` | unchanged (reference implementation) |
+| `refcheck` | `verified / suspect / unverified` + reasons | `Signal` per reference |
+| `statcheck` | findings + summary text | `Signal` per test |
+| `check-compliance` | `ok / finding / skipped` + severity | `Signal` + tier |
+| `check-overlap` | findings + summary | `Signal` per passage |
+| report coverage | `pct / cited / relevant_available` | `Signal` + raw counts |
+
+One addition to the model:
+
+```python
+class CheckStatus(str, Enum):
+    CHECKED = "checked"
+    NOT_CHECKED = "not_checked"        # never attempted
+    NOT_APPLICABLE = "not_applicable"  # NEW - meaningless for this input
+    DEGRADED = "degraded"              # attempted, could not finish
+    UNKNOWN = "unknown"
+```
+
+`NOT_APPLICABLE` must join `INCOMPLETE_STATUSES`, so the existing invariant keeps
+holding: a check that did not conclude cannot carry a finding.
+
+### Novelty class definitions
+
+Each outcome gets a stated definition rather than a bare label:
+
+| outcome | definition |
+|---|---|
+| **novel** | no substantively similar work found within the searched sources |
+| **incremental** | prior work substantially overlaps, but a meaningful extension appears present |
+| **overlaps** | major components of the proposed contribution already exist |
+| **anticipated** | existing work appears to contain essentially the proposed contribution |
+
+Every result retains **search scope, sources queried, retrieval date, and closest
+matches**. Those are what make it a screen rather than an opinion.
+
+### Corpus coverage indicator
+
+Persistent, e.g. `18 papers · exploratory corpus`.
+
+| label | meaning |
+|---|---|
+| **seed** | a handful of starting papers |
+| **exploratory** | searched, not expanded |
+| **expanded** | citation / reference traversal performed |
+
+Deliberately **not** "systematic" — that is a methodological term of art, and
+claiming it without reproducible search protocols would be the exact kind of
+overclaim the rest of the product avoids.
+
+The label must be **computed** from observable state (seed count, expansion rounds,
+traversal performed), never self-declared. A label the user picks is a preference
+wearing a measurement's clothes. Caption it: *descriptive, not a guarantee of
+exhaustiveness.*
+
+### Submission Readiness
+
+One view, five cards, **no single green/red verdict**:
+
+```
+Citation integrity · Claim grounding · Statistical checks
+Originality · Venue compliance
+
+4 issues requiring attention
+2 checks could not be completed
+31 checks passed
+```
+
+Reporting counts rather than a score preserves the distinction the product is built
+on: *could not complete* never collapses into *passed*.
+
+### Evidence Map
+
+Navigation over existing data. **No aggregate truth column.**
+
+| research claim | sources | supporting | challenging | unclear | coverage |
+|---|---|---|---|---|---|
+| KV compression reduces memory | 7 | 4 | 1 | 2 | 7 papers |
+
+Every number clicks through to the passages and their individual audit states. The
+counts are navigation, not a verdict — which is the difference between this and the
+rejected ledger.
+
+Cost note: the underlying results already exist in claim audit, alignment evidence
+and report citations. The work is **keying** — those results are stored per artifact,
+not per claim.
 
 ---
 
