@@ -53,3 +53,6 @@ paper/
 docs/COMPETITOR_ARCHITECTURES.md
 docs/ARS_COMPARATIVE_ANALYSIS.md
 docs/ARS_INTEGRATION_STUDY.md
+
+# cached by scripts/build_doc_pdf.py
+scripts/.mermaid.min.js
