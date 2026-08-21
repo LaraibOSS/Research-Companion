@@ -313,7 +313,7 @@ No embedding step: the graph topology is the relevance signal. For research pape
 
 ## Documentation
 
-- **[Walkthrough](docs/WALKTHROUGH.md)** — start here. One researcher, one topic, every feature in order: create a research, brainstorm it into a library, build the graph, and take a draft through to submission checks. Diagrams at each stage.
+- **[Walkthrough](docs/WALKTHROUGH.md)** ([PDF](docs/WALKTHROUGH.pdf)) — start here. One researcher, one topic, every feature in order: create a research, brainstorm it into a library, build the graph, and take a draft through to submission checks. Diagrams at each stage.
 - **[Full Documentation](docs/DOCUMENTATION.md)** ([PDF](docs/DOCUMENTATION.pdf)) — the single consolidated reference: overview, architecture, every feature, CLI, agents, Lab UI, tech stack, and roadmap.
 - **[User Manual](docs/USER_MANUAL.md)** ([PDF](docs/USER_MANUAL.pdf)) — every feature, how to use it, and how to read outputs honestly.
 - **[Developer Guide](docs/DEVELOPER_GUIDE.md)** — how the ingestion pipeline works end to end and how to extend or test it.
