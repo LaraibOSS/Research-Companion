@@ -1,204 +1,230 @@
-# Review response — the walkthrough as a research workflow
+# Review response — decision record
 
-A decision record. An external reviewer read [`WALKTHROUGH.md`](WALKTHROUGH.md) as a
-research workflow rather than as documentation, rated the feature set ~8.5/10 and the
-end-to-end flow ~6.5–7/10, and proposed a restructure into six phases plus a set of
-wording and feature changes.
+An external reviewer read [`WALKTHROUGH.md`](WALKTHROUGH.md) as a research workflow
+rather than as documentation, proposed a restructure and a set of feature changes;
+that response was reviewed in turn against the source, and the reviewer then revised
+their assessment. This records what two rounds settled, what was declined, and why.
 
-This records what was verified, what was accepted, what was declined, and why.
+Every checkable claim was verified against the implementation before being accepted
+or rejected. That is the reason the two rounds reached different conclusions.
 
 ---
 
 ## Verdict
 
-**The review is high quality and largely correct — but it misattributes most of the
-problem. A substantial share of it is a review of the documentation, not the
-software.**
+**Most of what the first round identified as architectural problems were
+documentation problems.** The product is more epistemically careful than the
+walkthrough made it look — in four places the document undersold behaviour that was
+already implemented.
 
-The reviewer's own closing line is the accurate diagnosis:
+The reviewer reached the same conclusion independently in round 2 and withdrew the
+recommendations that were already built. What survives is a short list of real gaps,
+and one finding that neither round started with.
 
-> the technical architecture appears more coherent than the user journey currently
-> communicates
-
-What they could not see, without code access, is how much of that incoherence the
-walkthrough itself introduced. In four places the shipped product is **more**
-epistemically careful than the document made it look.
-
-The correct response was therefore mostly to fix the documentation, not to
-restructure working code.
+**The highest-leverage remaining work is not a feature.** It is making the evidence
+semantics consistent across code, CLI, UI and docs — and the canonical vocabulary for
+that already exists in `signals.py`, adopted by exactly one module.
 
 ---
 
-## Method
+## Verified against source
 
-Every claim that could be checked against the source was checked before being
-accepted or rejected. The reviewer had only the document; the point of this pass was
-to establish which criticisms survive contact with the implementation.
-
-| review claim | verdict from source | evidence |
+| claim | verdict | evidence |
 |---|---|---|
-| "Does novelty only search my library?" | **No — it searches externally** | `novelty_check.py` calls `discover.search_topic_with_fallback` (Semantic Scholar / OpenAlex / arXiv) |
+| "Does novelty only search my library?" | **No — searches externally** | `novelty_check.py` → `discover.search_topic_with_fallback` (S2 / OpenAlex / arXiv) |
 | "Stop using binary Novel / Not Novel" | **Already graded** | `_VERDICTS = {novel, incremental, overlaps, anticipated}` |
-| "Venue rules need year versioning" | **Confirmed gap** | `venues.json` has no `year`, `updated`, or `source` field |
+| "Venue rules need year versioning" | **Confirmed gap** | `venues.json` has no `year`, `updated` or `source` field |
 | "Say corpus density, not field crowdedness" | **Product overclaims too** | `helpContent.js`: "where the field clusters" |
-| "Soften Gaps' *real open problem*" | **Product already careful** | statuses `open / partially / addressed`; `addressed + unverified` is downgraded to `partially` |
-| "82% reads as confidence" | **Product already labels it** | Report caption: "Relevance & stance are AI judgements — not independently verified" |
+| "Soften Gaps' *real open problem*" | **Product already careful** | `open / partially / addressed`; `addressed + unverified` → `partially` |
+| "82% reads as confidence" | **Product already labels it** | Report caption: "AI judgements — not independently verified" |
+| "Unify status vocabulary across checkers" | **Vocabulary exists, adoption does not** | `signals.py` defines it; imported by `claim_audit.py` **only** |
 
 ---
 
-## A. Correct, and the product needs changing
+## The finding neither round started with
 
-**Venue-year versioning.** Confirmed. A desk-reject checker is only as trustworthy
-as the vintage of its rules, and nothing in the knowledge base records which year a
-venue's requirements were captured or when they were last checked. Conference rules
-change annually. This is the most concrete product gap the review found.
+Round 2 proposed a single status vocabulary for every deterministic checker:
 
-**"Field clusters" in the graph help text.** Six quantisation papers make
-quantisation look dominant regardless of the actual literature. The measurement is
-corpus density; the wording says field.
+> PASS · FAIL · NOT APPLICABLE · COULD NOT PARSE · NOT CHECKED
+>
+> "A researcher learns the epistemic language once and then understands every
+> checker."
 
-**"Verified quote."** The product has a *separate feature* — claim audit — for
-whether a source supports a claim. Naming the verbatim-match check "verified"
-collapses the exact distinction that feature exists to preserve.
+The instinct is right and the payoff is real. Two corrections.
 
-**GRIM applicability.** GRIM applies to means of bounded integer items and rarely to
-ML results. "Not applicable" and "passed" must not be rendered alike.
+**The vocabulary already exists, and is better than the proposal.** `signals.py`
+separates two *orthogonal* axes that the flat list conflates:
 
-**Consolidated Submission Readiness.** Five integrity signals already exist and
-currently end in five separate places. Consolidating them gives the pipeline an
-ending. Accepted as a real addition.
-
----
-
-## B. Correct, but the document was the problem
-
-These were fixed in the documentation. No code changed.
-
-**The open-web contradiction — the reviewer's best catch, and a genuine error.**
-
-The walkthrough asserted:
-
-> It does not read the open web. Every answer comes from your library.
-
-and separately described novelty checking against "real prior work". The reviewer
-spotted the contradiction and asked which was true.
-
-**The absolute was wrong.** Novelty deliberately queries public catalogues, because
-screening novelty against only the papers the researcher already chose would be
-circular. A correct design was flattened into a false rule, and the reviewer then had
-to reason about a contradiction that did not exist in the product.
-
-Replaced with two precise statements:
-
-- nothing is answered from model memory; every claim traces to a document
-- Ask, Compare, Report, Gaps and draft alignment read **only** the library —
-  discovery, novelty and reference checking query public catalogues
-
-**Novelty presented as binary.** The document mentioned only "a novel verdict",
-implying yes/no. The product already grades four outcomes. The document undersold it.
-
-**Gaps overclaimed.** The document said a theme repeated by six papers "is a real
-open problem". Six papers can name a limitation a seventh has since solved. The
-product already tracks `open / partially / addressed` — the document mentioned the
-flags, then wrote a sentence that ignored them.
-
-**Percentages read as confidence.** `82%` is a retrieval relevance score, not a
-probability that a paper supports you. The Report tab already says so on screen; the
-document did not.
-
-**Ordering.** The document numbered 19 steps in an order that put Reader at 9,
-Timeline at 10 and Gaps at 11 — after a direction had been chosen and a draft begun.
-The Directions diagram in the same document showed *gaps feeding directions*. That
-was the clearest inconsistency in the walkthrough, and it was purely a narrative
-artifact: the Lab is tabbed, and nothing in the product enforces an order.
-
----
-
-## C. Declined
-
-**The Evidence Ledger.** The reviewer's flagship new feature, and the one thing here
-worth arguing about.
-
-Proposed shape:
-
-| Claim | Sources | Supporting | Contradicting | Status |
-|---|---|---|---|---|
-| KV compression reduces memory | 7 | 6 | 1 | **Supported** |
-
-Deciding that one passage supports one claim is exactly what `claim_audit` does — at
-a single anchored passage, with an explicit bias toward "unclear", because at
-realistic miscitation rates a confident-but-noisy checker gets ignored and takes the
-real findings down with it.
-
-Aggregating those deliberately hedged judgements into a corpus-wide **Status**
-multiplies the uncertainty and then renders the result as the most authoritative
--looking object in the product. It would contradict the philosophy the review spends
-a page praising.
-
-A ledger of *"this claim is mentioned by 7 papers, here they are"* — no verdict
-column — is defensible and cheap. The verdict column is not.
-
-**Research Scope object.** A container that only pays off once downstream modules
-consume it. Ceremony until then; deferred rather than rejected.
-
-**Weighting the graph by user quality labels.** Labels for *filtering* are fine.
-Turning a researcher's priors into invisible weighting math replaces one bias with a
-less visible one.
-
-**Six phases as a forced wizard.** Accepted as documentation structure and
-information architecture; rejected as enforced product flow. The tab model is a
-strength, which the review implicitly concedes when it argues Ask and Compare are
-cross-cutting utilities rather than stages.
-
----
-
-## Changes made
-
-Documentation only. `WALKTHROUGH.md` restructured into six phases with 17 steps and a
-separate utilities group.
-
-| change | effect |
-|---|---|
-| Reader moved **Step 9 → Step 5** | the researcher inspects what was extracted *before* anything derives from it |
-| Gaps moved **Step 11 → Step 8** | gaps now precede directions, matching how the product actually computes them |
-| Timeline moved **Step 10 → Step 7** | structure of the field, then its evolution, then its open problems |
-| Ask / Compare / Report / skills | regrouped as **anytime utilities**, not chronological stages |
-| Novelty renamed **Novelty screen** | states it searches externally, lists all four graded outcomes |
-| Open-web rule | replaced with two precise, correct statements |
-| Graph section | corpus density, with the six-quantisation-papers illustration |
-| Gaps section | "recurring stated gap" plus the status table already in the product |
-| Alignment section | "verified" defined as *text match*, distinguished from entailment |
-| Relevance figures | `relevance 0.82`, not `82%` |
-| Journey diagram | rebuilt around phases; utilities beside the pipeline, which also resolves the reviewer's "diagram skips steps" note |
-
-Validation: 17 steps, no dangling cross-references, no broken anchors, 23 guard tests
-passing, PDF rebuilt with all 9 diagrams.
-
----
-
-## Remaining, in priority order
-
-| priority | item | why |
+| axis | values | question it answers |
 |---|---|---|
-| **P1** | Venue-year versioning + visible "rules updated" date | a deterministic check is only as reliable as its rule vintage |
-| **P1** | statcheck: applicable / not applicable / could not parse / passed / failed | GRIM rarely applies to ML; silence must not read as a pass |
-| **P1** | "Corpus density" wording in `helpContent.js` | the product makes the same overclaim the document did |
-| **P1** | Rename "verified quote" in the UI | preserves the distinction claim audit exists for |
-| **P2** | Submission Readiness dashboard | gives the pipeline a single ending |
-| **P2** | Corpus coverage indicator (exploratory / broad / systematic) | every downstream signal inherits corpus bias |
-| **P3** | Multi-dimensional direction ranking | more defensible than one opaque score |
-| **—** | Evidence ledger, scope object, graph weighting | declined or deferred, see section C |
+| `CheckStatus` | `CHECKED` · `NOT_CHECKED` · `DEGRADED` · `UNKNOWN` | did the check run? |
+| `Finding` | `SUPPORTED` · `CONTRADICTED` · `UNRESOLVED` | what did it conclude? |
+
+In the flat list, `NOT APPLICABLE` and `COULD NOT PARSE` are *statuses* while `PASS`
+and `FAIL` are *findings*. Collapsing them loses the distinction the whole product is
+built on, and it is currently enforced rather than merely documented — a `Signal`
+whose status is incomplete but whose finding is not `UNRESOLVED` raises `SignalError`
+at construction. A check that did not finish **cannot** report a conclusion.
+
+Adopting the flat list would be a regression. Adopting `signals.py` everywhere is the
+actual work.
+
+**The gap is adoption, not design.** `signals.py` is imported by one module. Reference
+checking, statcheck, compliance, overlap and coverage each report an ad-hoc shape, so
+the same idea — *we could not check this* — is expressed differently five times.
+
+This reframes several round-2 items: statcheck applicability, venue check states and
+Submission Readiness are not five wording fixes but **one adoption pass**, after which
+the dashboard is mostly a rendering of signals that already agree.
+
+**One genuine addition falls out of it.** `CheckStatus` has no `NOT_APPLICABLE`. GRIM
+on a machine-learning paper is not `NOT_CHECKED` (we chose not to run it) and not
+`DEGRADED` (we tried and failed) — the check is *meaningless for this input*. The
+review's GRIM point exposes a real hole in the model.
 
 ---
 
-## The general lesson
+## Settled across both rounds
 
-The review found four places where the documentation was less careful than the code.
-That is a specific failure mode worth naming: **a product can be honest and still be
-misrepresented by its own documentation**, and readers — including expert reviewers —
-will attribute the documentation's overclaims to the product.
+### Accepted — documentation, done
 
-The walkthrough's guard tests now check that commands and venues exist, that every
-tab is covered, and that the not-checked and not-fabricated rules survive edits. They
-do not, and largely cannot, check that a sentence overclaims. That remains a review
-question, which is the argument for having had this one.
+| item | outcome |
+|---|---|
+| Ordering: Reader → graph → timeline → gaps → directions | Reader **9 → 5**, Timeline **10 → 7**, Gaps **11 → 8** |
+| Ask / Compare / Report as utilities, not stages | regrouped; also fixes "the diagram skips steps" |
+| Open-web contradiction | replaced with two precise rules |
+| Novelty presented as binary | renamed **Novelty screen**; all four outcomes documented |
+| Gaps "real open problem" | "recurring stated gap" + the status table already in the product |
+| "field crowdedness" | corpus density, with the six-quantisation-papers illustration |
+| "verified quote" | defined as a *text match*, distinguished from entailment |
+| `82%` | `relevance 0.82` — a retrieval score, not a confidence |
+
+### Accepted — product, outstanding
+
+| item | note |
+|---|---|
+| **Venue year / track / source / last-verified** | plus hard requirement vs recommendation vs cannot-check-automatically |
+| **`NOT_APPLICABLE` status + statcheck states** | GRIM rarely applies to ML; silence must not read as a pass |
+| **`signals.py` adoption across checkers** | the unification round 2 asked for; vocabulary already canonical |
+| **Corpus coverage indicator** | round 2 elevated this to P1, correctly — see below |
+| **Submission Readiness** | and **not** a single green/red score |
+| **"Corpus density" in `helpContent.js`** | the product makes the same overclaim the document did |
+| **Rename "verified quote" in the UI** | text-match badge separate from claim-support verdict |
+
+### Accepted from round 2, revised from round 1
+
+**Evidence Map, not Evidence Ledger.** Round 1 proposed a table with a corpus-wide
+**Status** column. That was declined: aggregating `claim_audit`'s deliberately hedged
+per-passage judgements into one authoritative-looking verdict compresses uncertainty
+precisely where the product's value is refusing to.
+
+Round 2 withdrew the Status column and proposed a navigational version instead —
+supporting / challenging / unclear passage *counts*, each clicking through to the
+passages and their individual audit states. That version exposes the uncertainty
+rather than collapsing it, and is accepted in principle.
+
+Cost note: it is largely a *view* over data that already exists (claim-audit results,
+alignment evidence, report citations). The real work is keying — those results are
+currently per-artifact, not per-claim.
+
+**Corpus coverage elevated, and named more honestly.** Round 2 moved this up on the
+grounds that nearly every downstream signal is conditioned on the corpus, so the
+dominant uncertainty is often not *"was the model right?"* but *"was the evidence
+universe complete?"* — which is correct, and a stronger argument than round 1's.
+
+It also self-corrected the labels: **Seed / Exploratory / Expanded** rather than
+"Systematic", because systematic review is a methodological term of art and claiming
+it without reproducible search protocols would be exactly the kind of overclaim the
+rest of the product avoids. Accepted, including the correction.
+
+Added condition: the label must be *computed* from something observable (seed count,
+expansion rounds, citation/reference traversal), not self-declared. A label a user
+picks is a preference, not a coverage measure.
+
+**Novelty class definitions.** Each of the four outcomes gets an explicit definition,
+and every result retains its search scope, sources, retrieval date and closest
+matches. Accepted — that is what makes a screen defensible rather than an opinion.
+
+---
+
+## Declined
+
+**Invisible graph weighting from subjective quality labels.** Filtering by
+include/exclude, core/peripheral, year, venue or type is fine and useful. Turning a
+researcher's priors into weighting *inside the graph algorithm* replaces a visible
+bias with a hidden one. Round 2 agreed.
+
+**Forced sequential wizard.** The six phases are accepted as mental model, onboarding
+and documentation structure — not as a workflow state machine. The tab model is a
+strength, which round 1 implicitly conceded by arguing Ask and Compare are
+cross-cutting. Round 2 converged on the same framing: *a non-linear research
+workspace with a recommended lifecycle.*
+
+**Research Scope object — deferred, not rejected.** Ceremony until retrieval or
+analysis actually consumes it. It becomes meaningful when the system can say *"this
+paper was retrieved but falls outside your stated scope"* — at which point it is
+worth building.
+
+---
+
+## Epistemic copy invariants
+
+The most useful idea to come out of either round, and it came from the closing lesson
+of the first response rather than from the original review.
+
+Guard tests can check that commands exist, that venues resolve, that every tab is
+covered. They largely **cannot** detect prose that subtly overclaims. That is exactly
+the failure that occurred here: the walkthrough flattened nuanced behaviour into
+simpler language and made the product look less rigorous than it is.
+
+Proposed as a lint over documentation and UI strings — not semantic testing, just
+flagging phrases that require human review:
+
+| never say | when the truth is |
+|---|---|
+| "the field" | measured only over the corpus |
+| "verified" | without stating *what* was verified |
+| "no prior work exists" | no match found in the sources searched |
+| "passed" | no applicable check ran |
+| "fake" / "fabricated" citation | not found in the catalogues searched |
+| "real open problem" | a recurring *stated* gap |
+
+Every one of these has already been violated once — four of them by the walkthrough,
+before review caught them. That is the argument for mechanising it.
+
+---
+
+## Backlog
+
+| priority | item |
+|---|---|
+| **done** | walkthrough ordering, open-web contradiction, novelty framing, corpus-vs-field, gaps wording, quote semantics, relevance figures |
+| **P1** | `signals.py` adoption across checkers + `NOT_APPLICABLE` status |
+| **P1** | venue year / track / source / last-verified, and requirement tiers |
+| **P1** | statcheck applicability states |
+| **P1** | "corpus density" and "text-match verified" in the UI |
+| **P1** | epistemic copy lint |
+| **P2** | corpus coverage indicator (Seed / Exploratory / Expanded, computed) |
+| **P2** | Submission Readiness, reporting counts rather than one verdict |
+| **P2** | direction-ranking dimensions, without a composite truth score |
+| **P3** | Evidence Map — navigation only, no aggregate verdict |
+| **later** | Research Scope, once retrieval consumes it |
+| **rejected** | invisible graph weighting; forced wizard |
+
+---
+
+## Lessons
+
+**A product can be honest and still be misrepresented by its own documentation.** Both
+rounds of review were shaped by wording, not behaviour, and an expert reviewer
+reasonably attributed the document's overclaims to the software. Four of the six
+issues in round 1 dissolved on contact with the source.
+
+**Verify before agreeing.** Accepting round 1 at face value would have produced work
+to add a feature that already existed, restructure a UI that was not at fault, and
+build a ledger that would have undermined the product's central principle.
+
+**The consistency work outranks the feature work.** The system's differentiator is
+that it separates what is known, inferred, not found and not checked. That separation
+is modelled precisely in one file and expressed ad-hoc nearly everywhere else.
+Closing that gap is worth more than any single feature on this list.
