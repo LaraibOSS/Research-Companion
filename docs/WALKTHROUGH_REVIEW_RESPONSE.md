@@ -118,6 +118,60 @@ was proposed and **rejected**: it conflates the two axes. *Parse failed* says no
 about whether a claim is true; *unsupported* says nothing about whether the checker
 completed.
 
+### Is `Finding` too claim-specific to generalise?
+
+The strongest objection raised against this plan: `SUPPORTED / CONTRADICTED /
+UNRESOLVED` reads naturally for claim audit, but does *"DOI and title match the
+catalogue record"* really mean `SUPPORTED`? Does *"page count exceeds the limit"* mean
+`CONTRADICTED`? The worry is that forcing six domains into one vocabulary creates a
+new semantic mismatch at the type level — the very thing the migration is meant to
+remove.
+
+**Mostly resolved by a property the model already has: `Signal.name` is the
+proposition.** `claim_audit` sets `name = "claim_supported"`. The name states *what
+was tested*; `finding` states *whether it holds*. Read that way, the axis generalises
+cleanly:
+
+| checker | proposition (`name`) | adverse outcome |
+|---|---|---|
+| claim audit | `claim_supported` | `CONTRADICTED` |
+| refcheck | `reference_exists` | `CONTRADICTED` |
+| statcheck | `statistics_internally_consistent` | `CONTRADICTED` |
+| compliance | `meets_page_limit` | `CONTRADICTED` |
+| overlap | `passage_is_original` | `CONTRADICTED` |
+
+A proposed alternative — a domain-specific `outcome` plus a common `disposition` —
+was **declined**: it re-introduces per-checker vocabularies one layer down, which is
+what the migration exists to remove.
+
+**Naming discipline this implies:** name the proposition so that `SUPPORTED` always
+means *no problem found*. `passage_is_original`, not `overlap_detected`. Otherwise
+`CONTRADICTED` means "good" in one checker and "bad" in another, and the canonical
+renderer cannot colour anything.
+
+### But measurements are not signals
+
+The objection **does** hold for one case, and the fix is to narrow the model's scope
+rather than widen its vocabulary.
+
+Report coverage produces *"17 of 24 retrieved relevant passages were cited."* There is
+no proposition there — nothing is supported or contradicted. It is a measurement with
+a denominator.
+
+| kind | answers | example |
+|---|---|---|
+| **Signal** | did we establish X? | `reference_exists` → `CONTRADICTED` |
+| **Metric** | how much? | coverage `17/24` |
+
+Forcing a metric into `Signal` would mean an optional `value` field that is null for
+almost every signal, and a `finding` that has to be `UNRESOLVED` forever. **Coverage
+is therefore removed from the migration list** — it stays a metric, reported with its
+raw numerator and denominator, and the honesty rule that already applies to it (a BM25
+heuristic, not ground truth) is a copy concern, not a Signal one.
+
+This is a correction to an earlier version of this record, which listed coverage as
+`Signal + raw counts`.
+
 ### Change 1 — add `NOT_APPLICABLE`
 
 A real conceptual gap, not a UI nicety.
@@ -144,13 +198,30 @@ Everything explaining *why* must not become a status, or the enum grows
 
 ```text
 DEGRADED        + SOURCE_UNAVAILABLE
+DEGRADED        + NO_ANCHOR
 NOT_CHECKED     + USER_DISABLED
-NOT_CHECKED     + NO_ANCHOR
 NOT_APPLICABLE  + STATISTIC_TYPE_UNSUPPORTED
 ```
 
 The UI reasons about status; `reason` is diagnostics. Today this lives in free-text
 `detail`, so nothing can group or count it.
+
+**Formal definitions**, because `NOT_CHECKED` and `DEGRADED` are otherwise easy to
+confuse:
+
+| status | definition |
+|---|---|
+| `CHECKED` | ran to completion and produced a conclusion |
+| `NOT_CHECKED` | never attempted — feature off, no key, not requested |
+| `DEGRADED` | **attempted**, could not produce a valid conclusion |
+| `NOT_APPLICABLE` | does not conceptually apply to this artifact |
+| `UNKNOWN` | state cannot be reconstructed — deserialisation and migration only, never produced by normal execution |
+
+An earlier draft of this record listed `NOT_CHECKED + NO_ANCHOR`, which contradicts
+those definitions: the audit *was* requested and failed on a missing prerequisite.
+**The shipped code already gets this right** — `claim_audit` routes anchorless
+citations through `signals.could_not_check()`, which is `DEGRADED + UNRESOLVED`. The
+spec was wrong, not the implementation.
 
 ### Change 3 — provenance: wire in `locator.py`
 
@@ -164,6 +235,29 @@ is dropped.
 > document the evidence came from*. Adding provenance means redefining that field or
 > adding another. It is the first thing anyone will assume wrongly.
 
+**But provenance is not always a document location.** Once `Signal` is universal, the
+evidence behind it varies by checker:
+
+| checker | evidence is |
+|---|---|
+| claim audit | paper + section + quote offsets |
+| refcheck | a CrossRef / OpenAlex / arXiv catalogue record |
+| novelty | database + query string + retrieved candidate |
+| compliance | a venue rule at a stated version |
+| overlap | **two** document locations |
+
+So the field cannot be `locator: Locator`. It needs a small union — `DocumentLocator`
+(wrapping the existing `locator.py` unchanged), `CatalogueRecord`, `VenueRule`,
+`SearchQuery`, `ExternalMatch` — held as a list, since overlap needs two.
+
+**And the subject is not the evidence.** These are different things and collapsing
+them loses the audit trail:
+
+```text
+subject   bibliography entry #17          evidence  CrossRef 10.xxxx/xxxx
+subject   claim in Introduction ¶3        evidence  Smith et al. §4.2 chars 841–1027
+```
+
 Target:
 
 ```text
@@ -173,10 +267,20 @@ Signal
   check_status    CHECKED
   finding         SUPPORTED
   reason          -
+  subject         EvidenceRef(...)     what was checked
+  evidence        [EvidenceRef(...)]   what it was checked against
   checker         claim-audit
-  locator         Locator(paper_id, kind=QUOTE, char_start, char_end)
+  checker_version 1.4.2
+  prompt_sha      <sha256>
   checked_at      2026-08-22T...
 ```
+
+**Version provenance matters for heuristic signals specifically.** `EpistemicClass`
+already distinguishes deterministic from heuristic; a heuristic result is only
+reproducible if you know which model and prompt produced it. The mechanism already
+exists — `prompts.py` exposes `extraction_prompt_sha256()`, `novelty_prompt_sha256()`,
+`citation_polarity_prompt_sha256()` and others — it is simply not carried on the
+Signal. Another capability present but unconnected.
 
 ### Change 4 — adopt it everywhere
 
@@ -187,7 +291,7 @@ Signal
 | `statcheck` | findings + summary text | `Signal` per test |
 | `check-compliance` | `ok / finding / skipped` + severity | `Signal` + requirement tier |
 | `check-overlap` | findings + summary | `Signal` per passage |
-| report coverage | `pct / cited / relevant_available` | `Signal` + raw counts |
+| report coverage | `pct / cited / relevant_available` | **stays a metric** — see above |
 
 ### Change 5 — one canonical renderer
 
@@ -243,11 +347,17 @@ the source.
 
 ---
 
-## 3. Corpus coverage
+## 3. Discovery depth
 
 Nearly every downstream signal is conditioned on the corpus, so the dominant
 uncertainty is often not *"was the model right?"* but *"was the evidence universe
 complete?"*
+
+**Named "discovery depth", not "coverage".** What is measured is how much discovery
+and expansion work was performed — not what fraction of the relevant literature was
+found. Even `expanded` establishes nothing about completeness. "Coverage" stays
+reserved for places with a real denominator, such as report coverage. This is the
+epistemic-copy rule (EP001) applied to this record's own earlier wording.
 
 Computed from **search actions, never corpus size** — 50 manually added papers are not
 better searched than 15 seeds plus two rounds of citation expansion.
@@ -289,9 +399,19 @@ matches · the query strings themselves**. Results change dramatically with how 
 contribution is translated into queries, so the researcher must be able to audit what
 was actually searched for, not merely which databases.
 
-`novel` remains a stronger word than its own definition. Change the **display label**
-to *No close match found* while keeping the enum value — the internal vocabulary is
-load-bearing in code and tests; the user-facing word is not.
+Internal enum values stay; **display labels change**, because several of them read as
+verdicts rather than as search outcomes:
+
+| enum | display label |
+|---|---|
+| `novel` | No close match found |
+| `incremental` | Extension of close prior work |
+| `overlaps` | Substantial overlap found |
+| `anticipated` | Very close prior work found |
+
+The internal vocabulary is load-bearing in code and tests; the user-facing word is
+not. `anticipated` in particular is opaque to a reader who has not seen the
+definition.
 
 ---
 
@@ -303,11 +423,19 @@ beginning and a fragmented end — citations, stats, overlap, venue, export.
 **No composite score.** `Readiness: 87%` would destroy the epistemic discipline built
 everywhere else. Report counts, grouped by actionability:
 
-| group | contents |
-|---|---|
-| **Needs attention** | problems actually found |
-| **Needs manual review** | not applicable · degraded · not automatable |
-| **Checked, no issue found** | completed checks |
+| group | contents | costs the researcher effort? |
+|---|---|---|
+| **Needs attention** | adverse findings — problems actually found | yes |
+| **Needs manual review** | `DEGRADED`, or not automatable | yes |
+| **Not checked** | relevant, not yet run | maybe |
+| **Not applicable** | `NOT_APPLICABLE` — no meaning for this artifact | **no** |
+| **Checked, no issue found** | completed, nothing adverse | no |
+
+An earlier draft grouped `NOT_APPLICABLE` under *needs manual review*. That was wrong
+and contradicted the reason for adding the status: if GRIM does not apply to an ML
+result, there is nothing for the researcher to review. **`NOT_APPLICABLE` must never
+increase the action count.** The last two groups can share a collapsed section
+visually, but not semantically.
 
 ```text
 Citation integrity · Claim grounding · Statistical checks
@@ -343,6 +471,10 @@ being deliberately withheld in the data. Lead with the landscape:
 ```
 
 The purpose is *show me the evidence landscape*, not *vote on the claim*.
+
+**This is a visual-epistemics requirement, not a copy one, so it belongs in component
+tests.** If a later UI change renders 7 green against 2 red, an aggregate verdict has
+been recreated visually even though the database deliberately contains none.
 
 Cost note: the underlying results already exist in claim audit, alignment evidence and
 report citations. The work is **keying** — they are stored per artifact, not per claim.
@@ -385,6 +517,17 @@ EP006  "real open problem"
 
 Every rule has already been violated once — four of them by the walkthrough, before
 review caught them.
+
+**Advisory, with suppression.** These phrases are legitimate in context: "the field"
+is correct when the statistic really does come from external catalogue results. A
+linter that cannot be overridden gets satisfied by rewriting valid prose, which is
+worse than not having it. Suppression must state a reason, so the exception is
+reviewable:
+
+```text
+<!-- epistemic-lint: allow EP001
+     reason: this count comes from complete OpenAlex results, not the corpus -->
+```
 
 ---
 
@@ -436,21 +579,27 @@ translation layer written only to be deleted.
 | # | work | why here |
 |---|---|---|
 | **done** | documentation fixes above | the bulk of round 1 |
-| **1** | `Signal`: `NOT_APPLICABLE` + structured `reason` | fix the model before anything adopts it |
-| **2** | Adopt `Signal` in refcheck, statcheck, compliance, overlap, coverage | removes the ad-hoc vocabularies |
-| **3** | Canonical renderer, generalised from `claimAuditHelpers.js` | stops the UI re-diverging |
-| **4** | Epistemic-copy lint | stops docs and UI drifting back |
-| **5** | Venue provenance + requirement tiers | highest-risk deterministic checker |
-| **6** | UI wording: corpus density, text-match verified | quick wins, no dependencies |
-| **7** | Corpus coverage state | improves interpretation of everything upstream |
-| **8** | Submission Readiness | cheap after 1–3, expensive before |
-| **9** | Provenance on `Signal` — wire in `locator.py` | the audit trail; needs 1–2 |
-| **10** | Direction-ranking dimensions, no composite score | useful, not foundational |
-| **11** | Evidence Map | needs 9 for per-claim keying |
+| **1** | Settle the outcome model: `name` as proposition, measurements excluded | schema decision — changing it later re-touches every consumer |
+| **2** | Settle the provenance contract: `EvidenceRef` union, subject vs evidence | schema decision — same reason |
+| **3** | `Signal`: `NOT_APPLICABLE`, structured `reason`, formal status definitions | completes the envelope |
+| **4** | Migrate refcheck, statcheck, compliance, overlap | one pass, against a settled schema |
+| **5** | Canonical renderer, generalised from `claimAuditHelpers.js` | stops the UI re-diverging |
+| **6** | Epistemic-copy lint, advisory with suppression | stops docs and UI drifting back |
+| **7** | Venue provenance + requirement tiers | highest-risk deterministic checker |
+| **8** | UI wording: corpus density, text-match verified | quick wins, no dependencies |
+| **9** | Discovery-depth indicator | improves interpretation of everything upstream |
+| **10** | Submission Readiness | cheap after 3–5, expensive before |
+| **11** | Direction-ranking dimensions, no composite score | useful, not foundational |
+| **12** | Evidence Map | needs 2 for per-claim keying |
 | later | Research Scope | only when retrieval consumes it |
-| rejected | graph weighting · forced wizard · aggregate verdicts | see Declined |
+| rejected | graph weighting · forced wizard · aggregate verdicts · domain outcome vocabularies | see Declined |
 
-Items 1–4 are the theme. None is a new research feature, and together they are worth
+**Items 1–2 are schema decisions and must precede migration.** An earlier ordering put
+provenance at #9, after six checkers had already moved to the new envelope — which
+would have meant migrating everything twice. Settle the shape first; individual
+checkers may leave `evidence` empty at first.
+
+Items 1–6 are the theme. None is a new research feature, and together they are worth
 more than anything below them.
 
 ---
