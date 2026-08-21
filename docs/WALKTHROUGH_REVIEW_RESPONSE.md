@@ -25,6 +25,16 @@ and one finding that neither round started with.
 semantics consistent across code, CLI, UI and docs — and the canonical vocabulary for
 that already exists in `signals.py`, adopted by exactly one module.
 
+Round 3 sharpened this further. The epistemic model (`signals.py`) and the provenance
+model (`locator.py`) both exist, are both good, and **do not reference each other**.
+`claim_audit.py` is the only module that uses both, and it drops the link. Connecting
+them turns the model from *finding + execution state* into *finding + execution state
++ provenance*, which is what an audit trail actually requires.
+
+The theme for the next iteration is therefore consistency, not capability: make the
+type system, the checker outputs, the UI language and the documentation express the
+same contract.
+
 ---
 
 ## What the review concluded
@@ -351,24 +361,186 @@ not per claim.
 
 ---
 
-## Backlog
+## Round 3 — the Signal model itself
 
-| priority | item |
-|---|---|
-| **done** | walkthrough ordering, open-web contradiction, novelty framing, corpus-vs-field, gaps wording, quote semantics, relevance figures |
-| **P1** | `signals.py` adoption across checkers + `NOT_APPLICABLE` status |
-| **P1** | venue year / track / source / last-verified, and requirement tiers |
-| **P1** | statcheck applicability states |
-| **P1** | "corpus density" and "text-match verified" in the UI |
-| **P1** | epistemic copy lint |
-| **P2** | corpus coverage indicator (Seed / Exploratory / Expanded, computed) |
-| **P2** | Submission Readiness, reporting counts rather than one verdict |
-| **P2** | direction-ranking dimensions, without a composite truth score |
-| **P3** | Evidence Map — navigation only, no aggregate verdict |
-| **later** | Research Scope, once retrieval consumes it |
-| **rejected** | invisible graph weighting; forced wizard |
+Once `signals.py` became the centre of the review, the remaining discussion was about
+that model rather than about features. Three refinements accepted, one of which
+exposed a further gap in the code.
+
+### Keep `CheckStatus` small; add a reason code
+
+Everything explaining *why* a check did not conclude should not become a status.
+Otherwise the enum grows `PARSE_FAILED`, `DOWNLOAD_FAILED`, `MODEL_FAILED`, `NO_TEXT`,
+`TIMEOUT` and stops being a semantic model.
+
+Split the two questions:
+
+| field | answers | example |
+|---|---|---|
+| `check_status` | what epistemic state are we in? | `DEGRADED` |
+| `reason` | why are we in it? | `PARSE_FAILED` |
+
+```text
+DEGRADED        + SOURCE_UNAVAILABLE
+NOT_CHECKED     + USER_DISABLED
+NOT_CHECKED     + NO_ANCHOR
+NOT_APPLICABLE  + STATISTIC_TYPE_UNSUPPORTED
+```
+
+The UI reasons about `check_status`; `reason` is operational diagnostics and a
+better error message. `Signal` currently has a free-text `detail`, which is where
+this information goes today — unstructured, so nothing can group or count it.
+
+### Provenance is first-class — and the pieces already exist, unconnected
+
+The proposal is that a `Signal` carry or point to its source, artifact, locator,
+method and timestamp, so the model becomes **finding + execution state + provenance**
+rather than finding + execution state.
+
+Checking this against the code turned up something sharper than the proposal.
+
+**`locator.py` already is the provenance model.** It resolves a claim to paper,
+section and character offsets, ranks anchor strength `QUOTE > SECTION > PAPER > NONE`,
+and can re-resolve a passage later. **`signals.py` never references it.** They are two
+halves of one idea that do not know about each other.
+
+`claim_audit.py` is the only module that uses both — and it *drops* the connection.
+`_result()` builds its Signal with `source="claim_audit"`, then the Locator is used to
+resolve the passage text and discarded. The audit trail breaks at exactly the point
+where it would be worth having.
+
+**A trap for whoever implements this:** `Signal.source` today means *which checker
+produced this* (`"claim_audit"`), not *which document the evidence came from*. Adding
+provenance means either redefining that field or adding a separate one. It is the
+first thing anyone will assume wrongly.
+
+Target shape:
+
+```text
+Signal
+  name            claim_supported
+  epistemic_class HEURISTIC_ADVISORY
+  check_status    CHECKED
+  finding         SUPPORTED
+  reason          -
+  checker         claim-audit
+  locator         Locator(paper_id, kind=QUOTE, char_start, char_end)
+  checked_at      2026-08-22T...
+```
+
+### One canonical renderer, or the vocabulary re-diverges in the UI
+
+Unifying the backend is not sufficient. Without a single rendering component, the
+same `Signal` will surface as *Verified* on one screen, *Passed* on another, *Clean*
+on a third and *OK* on a fourth — the exact divergence being removed from the
+backend, reintroduced one view at a time.
+
+Good news: the prototype exists. `claimAuditHelpers.js` already maps one signal type
+to `{label, tone, title, isAdverse}` as a pure, testable module with no DOM, and both
+Report and Draft consume it. Generalising that from claim-audit outcomes to
+`(check_status, finding)` pairs is the work — not a new architecture.
+
+```text
+CHECKERS -> Signal -> canonical renderer -> every surface
+                                            (audit, refs, stats,
+                                             compliance, overlap,
+                                             submission readiness)
+```
 
 ---
+
+## Round 3 refinements to the accepted specs
+
+**Coverage is computed from search *actions*, not corpus size.** 50 manually added
+papers are not better searched than 15 seeds plus two rounds of citation expansion.
+Paper count alone must never move the state.
+
+| label | earned by |
+|---|---|
+| **seed** | manual additions or a single keyword search |
+| **exploratory** | multiple searches or search strategies executed |
+| **expanded** | at least one graph expansion — references, citations, related work |
+
+Expose the raw facts alongside the label, so it is shorthand rather than a hidden
+heuristic: `18 papers · 3 searches · 2 citation-expansion rounds · last discovery 21 Aug`.
+
+**Novelty records the query formulation, not just the databases.** Results change
+dramatically with how a contribution is translated into queries, so the researcher
+must be able to audit *what was actually searched for* — the query strings themselves,
+alongside scope, sources, retrieval date and closest matches.
+
+**`novel` is still a stronger word than its own definition** ("no substantively
+similar work found within the searched sources"). Change the **display label** to
+*No close match found* while keeping the enum value `novel` — the internal vocabulary
+is load-bearing in code and tests, the user-facing word is not. Not urgent: the
+*Novelty screen* framing and retained metadata already carry most of the caveat.
+
+**Evidence Map must not invite arithmetic.** Rendering `4 supporting` green against
+`1 challenging` red makes the reader compute *4 > 1, therefore true* — a verdict
+reached visually after being deliberately withheld in the data. Lead with the
+landscape, then break it down:
+
+```text
+7 relevant passages
+4 supporting · 1 challenging · 2 unresolved
+```
+
+**Submission Readiness is organised by actionability, not by outcome.**
+
+| group | contents |
+|---|---|
+| **Needs attention** | problems actually found |
+| **Needs manual review** | not applicable, degraded, or not automatable |
+| **Checked, no issue found** | completed checks |
+
+That is more useful than emphasising "passed", and it keeps *could not complete*
+visible instead of letting it drift into the pass column.
+
+**The copy lint ships as coded warnings, not a banned-word list**, so contributors
+learn the reasoning rather than memorising forbidden strings:
+
+```text
+EP001  "the field"
+       Potential corpus-to-world overclaim. Confirm the metric is based on
+       external literature rather than the active corpus.
+
+EP002  "verified"
+       Specify what was verified: existence, text match, entailment, metadata.
+
+EP003  "no prior work exists"
+       Prefer "no close prior work found in the sources searched."
+```
+
+---
+
+## Backlog
+
+Ordered by **dependency**, not by value. The correction that matters: *do not build
+Submission Readiness before the Signal migration.* Built first, it becomes an adapter
+that has to understand `verified · suspect · ok · finding · skipped · unverified ·
+coverage_pct · warning` — a translation layer written only to be deleted. Built
+after, it is mostly presentation over signals that already agree.
+
+| # | work | why here |
+|---|---|---|
+| **done** | walkthrough ordering, open-web contradiction, novelty framing, corpus-vs-field, gaps wording, quote semantics, relevance figures | documentation was the bulk of round 1 |
+| **1** | `Signal`: add `NOT_APPLICABLE` (+ into `INCOMPLETE_STATUSES`), add structured `reason` | fix the canonical model before anything adopts it |
+| **2** | Adopt `Signal` in refcheck, statcheck, compliance, overlap, coverage | removes the ad-hoc vocabularies |
+| **3** | Canonical signal renderer, generalised from `claimAuditHelpers.js` | stops the UI re-diverging after the backend converges |
+| **4** | Epistemic-copy lint (EP-coded warnings) | stops docs and UI drifting back |
+| **5** | Venue provenance: year / track / source / last-verified + requirement tiers | highest-risk deterministic checker; schema built for per-rule provenance later |
+| **6** | UI wording: "corpus density", "text-match verified" | quick consistency wins, no dependencies |
+| **7** | Corpus coverage state, computed from search actions | improves interpretation of everything upstream |
+| **8** | Submission Readiness, grouped by actionability | cheap once 1–3 land; expensive before |
+| **9** | Provenance on `Signal` — wire `locator.py` in | the audit trail; needs 1–2 first |
+| **10** | Direction-ranking dimensions, no composite score | useful, not foundational |
+| **11** | Evidence Map — navigation only | needs 9 for per-claim keying |
+| later | Research Scope | only when retrieval consumes it |
+| rejected | invisible graph weighting; forced wizard; aggregate truth verdict | see Declined |
+
+Items 1–4 are the theme: **make the type system, checker outputs, UI language and
+documentation express the same contract.** Nothing in that list is a new research
+feature, and it is worth more than any item below it.
 
 ## Lessons
 
