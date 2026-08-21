@@ -210,3 +210,67 @@ def test_nothing_public_links_to_private_material():
         if any(re.search(rf"\b{n}\b", text) for n in names):
             offenders.append(rel)
     assert not offenders, f"tracked files link to private material: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# The walkthrough tells a newcomer exactly what to type
+#
+# It is the first document a new user reads, so a command that does not exist
+# there is worse than a missing doc: it teaches the wrong thing and fails in
+# front of someone who cannot tell whether they or the tool is broken.
+# ---------------------------------------------------------------------------
+
+WALKTHROUGH = REPO / "docs" / "WALKTHROUGH.md"
+
+
+def test_the_walkthrough_exists_and_is_linked():
+    assert WALKTHROUGH.is_file()
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "docs/WALKTHROUGH.md" in readme, "README does not link the walkthrough"
+
+
+def test_every_command_the_walkthrough_teaches_exists():
+    text = WALKTHROUGH.read_text(encoding="utf-8")
+    referenced = set(re.findall(r"research-companion\s+([a-z][a-z-]+)", text))
+    assert referenced, "no commands found in the walkthrough"
+    unknown = referenced - _cli_subcommands()
+    assert not unknown, f"walkthrough teaches non-existent commands: {sorted(unknown)}"
+
+
+def test_every_venue_the_walkthrough_lists_is_real():
+    import json
+
+    kb = json.loads((REPO / "research_companion" / "data" / "venues.json")
+                    .read_text(encoding="utf-8"))
+    known = {v["slug"] for v in kb["venues"]}
+    text = WALKTHROUGH.read_text(encoding="utf-8")
+    listed = set(re.findall(r"`([a-z][a-z-]{2,})`", text)) & known
+    assert len(listed) >= 10, "venue list looks truncated"
+    assert listed <= known
+
+
+def test_the_walkthrough_covers_every_lab_tab():
+    """A walkthrough that silently omits a tab leaves a feature undiscoverable."""
+    help_js = (REPO / "research_companion" / "lab" / "static" / "js"
+               / "helpContent.js").read_text(encoding="utf-8")
+    tabs = set(re.findall(r"^  ([a-z]+): \{", help_js, re.M))
+    text = WALKTHROUGH.read_text(encoding="utf-8").lower()
+    missing = sorted(t for t in tabs if t not in text)
+    assert not missing, f"walkthrough never mentions these tabs: {missing}"
+
+
+def test_the_walkthrough_states_what_is_free_and_what_costs():
+    """Cost is the thing a new user most needs to know before clicking."""
+    text = WALKTHROUGH.read_text(encoding="utf-8").lower()
+    assert "what it costs" in text
+    assert "no model call" in text
+    assert "cost-estimate" in text
+
+
+def test_the_walkthrough_keeps_the_not_checked_rule_visible():
+    """The reporting rule the whole tool is built on must reach the reader."""
+    text = WALKTHROUGH.read_text(encoding="utf-8").lower()
+    assert "not checked" in text
+    assert "fabricated" in text and "not found" in text, (
+        "the walkthrough must warn that 'not found' does not mean fabricated"
+    )
