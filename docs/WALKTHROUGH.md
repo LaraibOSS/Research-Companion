@@ -15,26 +15,47 @@ no draft, no idea what the open problems are.
 
 - [Before you start](#before-you-start)
 - [The whole journey in one picture](#the-whole-journey-in-one-picture)
-- [Step 1 — Create a research](#step-1--create-a-research)
-- [Step 1b — Home and Researches](#step-1b--home-and-researches-knowing-where-you-are)
-- [Step 2 — Brainstorm: from a topic to a library](#step-2--brainstorm-from-a-topic-to-a-library)
-- [Step 3 — What happens when a paper is added](#step-3--what-happens-when-a-paper-is-added)
-- [Step 4 — The knowledge graph](#step-4--the-knowledge-graph)
-- [Step 5 — Research directions](#step-5--research-directions)
-- [Step 6 — Novelty check](#step-6--novelty-check)
-- [Step 7 — The brief](#step-7--the-brief)
-- [Step 8 — Turn a direction into a draft](#step-8--turn-a-direction-into-a-draft)
-- [Step 9 — Read, and keep notes](#step-9--read-and-keep-notes)
-- [Step 10 — Timeline: how the field moved](#step-10--timeline-how-the-field-moved)
-- [Step 11 — Gaps: what the papers admit is unfinished](#step-11--gaps-what-the-papers-admit-is-unfinished)
-- [Step 12 — Report: a cited literature review](#step-12--report-a-cited-literature-review)
-- [Step 13 — Ask and Compare](#step-13--ask-and-compare)
-- [Step 14 — Analyse your draft against the literature](#step-14--analyse-your-draft-against-the-literature)
-- [Step 15 — Are the cited sources actually saying that?](#step-15--are-the-cited-sources-actually-saying-that)
-- [Step 16 — Citations: does your bibliography hold up?](#step-16--citations-does-your-bibliography-hold-up)
-- [Step 17 — Pre-submission checks](#step-17--pre-submission-checks)
-- [Step 18 — From inside Claude Code](#step-18--from-inside-claude-code)
-- [Step 19 — Export](#step-19--export)
+
+**Phase 1 — Define the research**
+
+- [Step 1 — Create a research](#step-1-create-a-research)
+- [Step 2 — Home and Researches: knowing where you are](#step-2-home-and-researches-knowing-where-you-are)
+
+**Phase 2 — Build the evidence base**
+
+- [Step 3 — Discover papers and build the library](#step-3-discover-papers-and-build-the-library)
+- [Step 4 — What happens when a paper is added](#step-4-what-happens-when-a-paper-is-added)
+- [Step 5 — Read it yourself, before the machine reasons over it](#step-5-read-it-yourself-before-the-machine-reasons-over-it)
+
+**Phase 3 — Understand the field**
+
+- [Step 6 — The knowledge graph](#step-6-the-knowledge-graph)
+- [Step 7 — Timeline: how the field moved](#step-7-timeline-how-the-field-moved)
+- [Step 8 — Gaps: what the papers admit is unfinished](#step-8-gaps-what-the-papers-admit-is-unfinished)
+
+**Phase 4 — Find an opportunity**
+
+- [Step 9 — Research directions](#step-9-research-directions)
+- [Step 10 — Novelty screen](#step-10-novelty-screen)
+- [Step 11 — The brief](#step-11-the-brief)
+
+**Phase 5 — Develop the paper**
+
+- [Step 12 — Turn a direction into a draft](#step-12-turn-a-direction-into-a-draft)
+- [Step 13 — Analyse your draft against the literature](#step-13-analyse-your-draft-against-the-literature)
+- [Step 14 — Are the cited sources actually saying that?](#step-14-are-the-cited-sources-actually-saying-that)
+
+**Phase 6 — Verify and submit**
+
+- [Step 15 — Citations: does your bibliography hold up?](#step-15-citations-does-your-bibliography-hold-up)
+- [Step 16 — Pre-submission checks](#step-16-pre-submission-checks)
+- [Step 17 — Export](#step-17-export)
+
+**Anytime — utilities, not stages**
+
+- [Report: a cited literature review](#report-a-cited-literature-review)
+- [Ask and Compare](#ask-and-compare)
+- [From inside Claude Code](#from-inside-claude-code)
 - [What it costs](#what-it-costs)
 - [What it will never do](#what-it-will-never-do)
 - [Quick reference](#quick-reference)
@@ -66,49 +87,69 @@ also shows the terminal equivalent if you prefer the CLI.
 > **Your papers stay on your machine** except when a step explicitly calls a model
 > or a public catalogue. The deterministic half of the tool — search, graph,
 > timeline, reference checking, statistics checking — runs with no key at all.
-
 ---
 
 ## The whole journey in one picture
 
 ```mermaid
 flowchart TD
-    A["Step 1<br/>Create a research"] --> B["Step 2 - Brainstorm<br/>topic to search to papers"]
-    B --> C["Step 3 - Ingest<br/>PDF to text to extraction"]
-    C --> D["Step 4 - Knowledge graph<br/>concepts, methods, datasets, claims"]
+    subgraph P1["1 - DEFINE"]
+        A["Create a research"]
+    end
+    subgraph P2["2 - BUILD THE EVIDENCE BASE"]
+        B["Discover and add papers"] --> C["Ingest and extract"]
+        C --> R["READ IT YOURSELF<br/>inspect what was extracted"]
+    end
+    subgraph P3["3 - UNDERSTAND THE FIELD"]
+        G["Knowledge graph"] --> TL["Timeline"] --> GP["Gaps"]
+    end
+    subgraph P4["4 - FIND AN OPPORTUNITY"]
+        D["Directions"] --> N["Novelty screen"] --> BR["Brief"]
+    end
+    subgraph P5["5 - DEVELOP THE PAPER"]
+        DR["Draft"] --> AL["Literature alignment"] --> CA["Claim audit"]
+    end
+    subgraph P6["6 - VERIFY AND SUBMIT"]
+        RC["Reference check"] --> PS["Pre-submission checks"] --> EX["Export"]
+    end
+    subgraph U["ANYTIME - UTILITIES"]
+        UT["Report - Ask - Compare<br/>Notes - Claude Code skills"]
+    end
 
-    D --> E["Step 5 - Directions<br/>ranked, citation-backed"]
-    E --> F["Step 6 - Novelty check<br/>has this been done?"]
-    F --> G["Step 7 - Brief<br/>headings plus cited bullets"]
-    G --> H["Step 8 - Draft<br/>an outline you can edit"]
+    A --> B
+    R --> G
+    GP --> D
+    BR --> DR
+    CA --> RC
+    G -.-> UT
+    DR -.-> UT
 
-    D --> I["Step 10 - Timeline"]
-    D --> J["Step 11 - Gaps"]
-    D --> K["Step 12 - Report"]
-    D --> L["Step 13 - Ask / Compare"]
-
-    H --> M["Step 14 - Analyse draft<br/>alignment per section"]
-    M --> N["Step 15 - Claim audit<br/>does the source say it?"]
-    H --> O["Step 16 - Citations<br/>do the references exist?"]
-    O --> P["Step 17 - Pre-submission<br/>venue, statistics, overlap"]
-    P --> Q["Step 19 - Export<br/>markdown, BibTeX, LaTeX"]
-
-    style A fill:#1f6feb,color:#fff
-    style D fill:#8250df,color:#fff
-    style H fill:#1a7f37,color:#fff
-    style Q fill:#9a6700,color:#fff
+    style R fill:#1a7f37,color:#fff
+    style G fill:#8250df,color:#fff
+    style GP fill:#8250df,color:#fff
+    style N fill:#1f6feb,color:#fff
+    style EX fill:#9a6700,color:#fff
+    style U fill:#f6f8fa
 ```
 
-Two things to notice before you begin.
+Three things to notice before you begin.
 
-**The knowledge graph is the hub.** Almost everything downstream reads from it.
-That is why Steps 2–4 matter more than they look: the quality of everything after
-depends on which papers you let in.
+**The order is the point.** You understand the field *before* you pick a direction —
+graph, then timeline, then what the authors say is unfinished. Only then do
+directions and the novelty screen make sense, because by then you can judge them.
+A tool that proposed directions first would be asking you to trust it blindly.
 
-**Nothing is forced.** You can stop after Step 4 and just have a searchable, cited
-library. You can skip Brainstorm entirely and start at Step 8 with a draft you
-already wrote.
+**You read before the machine reasons.** Step 5 sits deliberately between ingestion
+and everything derived from it. What gets extracted from your papers becomes the
+input to the graph, the gaps and every direction — so look at it while it is still
+cheap to correct.
 
+**Nothing is enforced.** These are tabs, not a wizard. Stop after Phase 3 and you
+have a searchable, cited library. Skip Phases 1–4 entirely and start at Step 12
+with a draft you already wrote. The order is advice, not a gate.
+---
+
+# Phase 1 — Define the research
 ---
 
 ## Step 1 — Create a research
@@ -136,10 +177,9 @@ research-companion workspace use "LM inference"
 
 **What you get.** An empty research, now active in the top bar. Every later step
 writes here and nowhere else.
-
 ---
 
-## Step 1b — Home and Researches: knowing where you are
+## Step 2 — Home and Researches: knowing where you are
 
 Two tabs exist to answer "what now?" and "what else am I working on?".
 
@@ -166,10 +206,12 @@ flowchart LR
 Keep one research per project. It is the single most effective thing you can do for
 the quality of directions, gaps and reports, because every one of them reads the
 whole library.
-
 ---
 
-## Step 2 — Brainstorm: from a topic to a library
+# Phase 2 — Build the evidence base
+---
+
+## Step 3 — Discover papers and build the library
 
 You have a topic and nothing else. This step turns it into papers.
 
@@ -211,10 +253,9 @@ research-companion add 2211.17192          # arXiv id, DOI, S2 id, or a local PD
 
 > **Why searching is free.** Catalogue search is a public API call, not a model
 > call. You only start spending when a paper is analysed in Step 3.
-
 ---
 
-## Step 3 — What happens when a paper is added
+## Step 4 — What happens when a paper is added
 
 This is the only step that is mostly invisible, so here is exactly what runs.
 
@@ -238,10 +279,31 @@ what lets later answers cite down to the *section*, not just the paper.
 **Watch for.** Ingestion is asynchronous — keep working while it runs; the Activity
 indicator shows progress. A scanned PDF with no text layer fails loudly rather than
 silently producing an empty paper.
-
 ---
 
-## Step 4 — The knowledge graph
+## Step 5 — Read it yourself, before the machine reasons over it
+
+Everything after this point is computed from what Step 4 extracted: the graph, the
+gaps, the directions, the report. If an extraction is wrong, that error propagates
+silently into every conclusion downstream and looks like analysis. **This is the
+cheapest moment to catch it.**
+
+**Do this.** Open **Library**, click any paper. Read what was pulled out of it —
+the claims, methods and datasets — against the actual paper.
+
+**What you get.** A reader with the original PDF and a text view, plus a
+**Simplified** plain-English view for papers outside your area — useful when you
+are new to a field and the notation is the obstacle.
+
+Save anything you find with **Save note**: from an alignment card, an opportunity,
+the reader, or a brief bullet. The **Notes** tab collects them into one filterable
+list you can export as a revision checklist.
+---
+
+# Phase 3 — Understand the field
+---
+
+## Step 6 — The knowledge graph
 
 **Do this.** Open the **Graph** tab.
 
@@ -274,107 +336,26 @@ flowchart TD
     style M1 fill:#8250df,color:#fff
 ```
 
-**What this tells you at a glance.**
+**What this tells you at a glance — and what it does not.**
 
-- A node touched by **many papers** is the crowded part of the field. Competing
-  there needs a strong argument.
-- A node touched by **one paper** is either a dead end or an opening. Step 11 helps
-  you tell which.
-- Two clusters that **share no nodes** are two conversations that have not met —
-  often where the interesting work is.
+Everything here is **density within your corpus**, not within the field. Load six
+quantisation papers and one on speculative decoding, and quantisation will look
+dominant no matter what the literature actually looks like. Read every observation
+below as *"…among the 18 papers in this research."*
+
+- A node touched by **many of your papers** is dense in your corpus. That is a hint
+  the area is crowded, worth confirming against the Timeline and a wider search.
+- A node touched by **one paper** is either a dead end, an opening, or simply a gap
+  in *your reading*. Step 8 (Gaps) helps you tell which.
+- Two clusters that **share no nodes** are two conversations that have not met in
+  your corpus — often where the interesting work is, and also the first thing to
+  check you have not just under-read one of them.
 
 Click a node to see every paper that touches it. Click a paper to open it in the
 reader at the exact section.
-
 ---
 
-## Step 5 — Research directions
-
-You have a library and a graph. This step proposes what you could actually work on.
-
-**Do this.** In **Brainstorm**, click **Generate directions**.
-
-**What you get.** A ranked list of candidate directions, each carrying the papers
-it came from — so you can check the reasoning rather than trust it.
-
-```mermaid
-flowchart LR
-    A["Your library"] --> D["Generate directions"]
-    B["Knowledge graph<br/>underexplored concepts"] --> D
-    C["Gaps<br/>stated limitations"] --> D
-    D --> E["Ranked directions<br/>each with source papers"]
-    E --> F["Check novelty"]
-    E --> G["Draft this direction"]
-    style D fill:#9a6700,color:#fff
-```
-
-A direction is a *hypothesis about where the work is*, generated by a model from
-your library. It is a starting point for your judgement, not a verdict — the
-citations under each one exist so you can disagree with it.
-
----
-
-## Step 6 — Novelty check
-
-**Do this.** On a direction you like, click **Check novelty**.
-
-**What you get.** A grounded verdict on whether this has already been done, checked
-against real prior work rather than the model's memory, with the papers that
-support the verdict.
-
-**Read it as:** *"here is prior work that looks close — decide for yourself."* A
-"novel" verdict means nothing close was found **in the sources searched**, which is
-not the same as nothing existing.
-
----
-
-## Step 7 — The brief
-
-**Do this.** Click **Generate brief**.
-
-**What you get.** Section headings, each seeded with **cited bullet points** drawn
-from your papers — the raw material of a related-work section. Every bullet links
-back to its source, and you can attach your own notes to any of them.
-
-This is the bridge between reading and writing: instead of a blank page you start
-editing something that already has citations attached.
-
-> Your whole Brainstorm session — topic, papers, directions, brief — is saved per
-> research. Close the tab, come back tomorrow, it is still there.
-
----
-
-## Step 8 — Turn a direction into a draft
-
-**Do this.** On the direction you chose, click **Draft this direction**.
-
-**What you get.** A real, editable draft outline in the **Draft** tab, structured
-into sections, ready to flow into everything below.
-
-Already have a draft? Skip all of the above — put your PDF or text in the Draft tab
-and set it as the draft:
-
-```bash
-research-companion set-draft <paper_id>
-```
-
----
-
-## Step 9 — Read, and keep notes
-
-**Do this.** Open **Library**, click any paper.
-
-**What you get.** A reader with the original PDF and a text view, plus a
-**Simplified** plain-English view for papers outside your area — useful when you
-are new to a field and the notation is the obstacle.
-
-Save anything you find with **Save note**: from an alignment card, an opportunity,
-the reader, or a brief bullet. The **Notes** tab collects them into one filterable
-list you can export as a revision checklist.
-
----
-
-## Step 10 — Timeline: how the field moved
+## Step 7 — Timeline: how the field moved
 
 **Do this.** Open **Timeline**.
 
@@ -393,10 +374,9 @@ flowchart LR
 **Why a newcomer should look here early.** It tells you whether the direction you
 picked in Step 5 joins a *new* conversation or a *long-running* one. Both are fine;
 they need very different framing in a paper.
-
 ---
 
-## Step 11 — Gaps: what the papers admit is unfinished
+## Step 8 — Gaps: what the papers admit is unfinished
 
 **Do this.** Open **Gaps**.
 
@@ -407,12 +387,238 @@ resources, evaluation, application, problem), and flagged open / partial /
 addressed.
 
 This is the most under-used feature for a newcomer. It is not the tool guessing
-where the gaps are — it is **the authors themselves** saying what they could not
-do. A theme repeated by six papers is a real open problem, in their words.
+where the gaps are — it is **the authors themselves** saying what they could not do.
 
+Read a repeated theme as a **recurring stated gap**, not a confirmed open problem.
+Six papers can all name a limitation that a seventh — one you have not added — has
+since solved. That is why each theme carries a status:
+
+| status | meaning |
+|---|---|
+| **open** | nothing in your library addresses it |
+| **partially** | something addresses part of it |
+| **addressed** | a paper in your library claims to solve it |
+
+An `addressed` theme whose supporting quote could not be verified is downgraded to
+`partially` automatically — the tool will not upgrade a gap to solved on evidence
+it could not confirm.
 ---
 
-## Step 12 — Report: a cited literature review
+# Phase 4 — Find an opportunity
+---
+
+## Step 9 — Research directions
+
+You have a library and a graph. This step proposes what you could actually work on.
+
+**Do this.** In **Brainstorm**, click **Generate directions**.
+
+**What you get.** A ranked list of candidate directions, each carrying the papers
+it came from — so you can check the reasoning rather than trust it.
+
+```mermaid
+flowchart LR
+    A["Your library"] --> D["Generate directions"]
+    B["Knowledge graph<br/>underexplored concepts"] --> D
+    C["Gaps<br/>stated limitations"] --> D
+    D --> E["Ranked directions<br/>each with source papers"]
+    E --> F["Novelty screen"]
+    E --> G["Draft this direction"]
+    style D fill:#9a6700,color:#fff
+```
+
+A direction is a *hypothesis about where the work is*, generated by a model from
+your library. It is a starting point for your judgement, not a verdict — the
+citations under each one exist so you can disagree with it.
+---
+
+## Step 10 — Novelty screen
+
+**Do this.** On a direction you like, click **Check novelty**.
+
+**What you get.** The closest prior work it could find, and how close it is. This
+is the one reasoning step that deliberately looks **outside your library** — it
+searches the public catalogues (Semantic Scholar, OpenAlex, arXiv), because
+checking novelty against only the papers you already chose would be circular.
+
+The outcome is graded, not a yes/no:
+
+| outcome | meaning |
+|---|---|
+| **novel** | nothing close found in the sources searched |
+| **incremental** | related work exists; this extends it |
+| **overlaps** | prior work covers part of this |
+| **anticipated** | prior work already does substantially this |
+
+**Read it as a screen, not a verdict.** "Novel" means nothing close was found **in
+the sources searched** — never that nothing exists. If the search returns no prior
+work at all, the tool says so explicitly and makes no model call, because there is
+nothing to compare against. Judge it together with what it screened, not alone.
+---
+
+## Step 11 — The brief
+
+**Do this.** Click **Generate brief**.
+
+**What you get.** Section headings, each seeded with **cited bullet points** drawn
+from your papers — the raw material of a related-work section. Every bullet links
+back to its source, and you can attach your own notes to any of them.
+
+This is the bridge between reading and writing: instead of a blank page you start
+editing something that already has citations attached.
+
+> Your whole Brainstorm session — topic, papers, directions, brief — is saved per
+> research. Close the tab, come back tomorrow, it is still there.
+---
+
+# Phase 5 — Develop the paper
+---
+
+## Step 12 — Turn a direction into a draft
+
+**Do this.** On the direction you chose, click **Draft this direction**.
+
+**What you get.** A real, editable draft outline in the **Draft** tab, structured
+into sections, ready to flow into everything below.
+
+Already have a draft? Skip all of the above — put your PDF or text in the Draft tab
+and set it as the draft:
+
+```bash
+research-companion set-draft <paper_id>
+```
+---
+
+## Step 13 — Analyse your draft against the literature
+
+**Do this.** Open **Draft**, click **Analyze this draft**.
+
+**What you get.** For every section of your draft, the papers that relate to it —
+each with a **stance** (strengthens / weakens / neutral), a relevance score, a
+rationale, and a **verified quote** from the source.
+
+```mermaid
+flowchart LR
+    S["Draft section:<br/>Introduction"] --> A["Alignment"]
+    A --> P1["Paper A - strengthens<br/>relevance 0.82 - located quote"]
+    A --> P2["Paper B - weakens<br/>relevance 0.64 - located quote"]
+    A --> P3["Paper C - neutral<br/>relevance 0.41"]
+    A --> O["Opportunity:<br/>could strengthen this section"]
+    style A fill:#8250df,color:#fff
+```
+
+**What "verified" means here, precisely.** The quote was checked to appear
+**verbatim** in the source, and carries a locator that can find it again. That is a
+*text match* — it is not a check that the source supports the point being made
+around it. Those are different questions, and Step 14 is the one that asks the
+second. A quote that cannot be located is shown as unverified rather than quietly
+dropped.
+
+**And the percentages are relevance, not confidence.** `82%` is a retrieval
+relevance score for how strongly the passage matched the section — not a probability
+that the paper supports you. The Report tab states this on screen: relevance and
+stance are AI judgements, not independently verified.
+---
+
+## Step 14 — Are the cited sources actually saying that?
+
+Existing checks answer two easier questions: does the reference *exist*, and does a
+quote appear *verbatim*. Neither catches the failure that matters most: a real
+citation attached to a claim the source never makes.
+
+**Do this.** Turn on **claim_audit** in Settings, then click **Check citations** in
+Draft or Report.
+
+**What you get.** A verdict per cited passage:
+
+| verdict | meaning |
+|---|---|
+| **Supported** | the passage supports the claim |
+| **Not supported** | it does not — *the only adverse verdict* |
+| **Could not check** | passage unavailable, or the model was unsure |
+| **No anchor** | the citation has no locator to check against |
+| **Not checked** | the audit did not run |
+
+The last three are **failures to check**, not findings against the citation, and
+are shown that way. The auditor is deliberately biased toward "unclear": at the
+rate real miscitation occurs, a noisy checker's warnings would be mostly wrong, and
+people would learn to ignore all of them.
+
+> Costs one model call per cited passage. That is why it is opt-in.
+---
+
+# Phase 6 — Verify and submit
+---
+
+## Step 15 — Citations: does your bibliography hold up?
+
+**Do this.** Open **Citations**, or run:
+
+```bash
+research-companion refcheck <paper_id>
+```
+
+**What you get.** Every reference looked up in CrossRef, OpenAlex and arXiv — with
+**no model calls at all**.
+
+| verdict | meaning |
+|---|---|
+| **verified** | a matching record was found and the details agree |
+| **suspect** | a record was found but something disagrees — often a typo, or a preprint/published mismatch |
+| **not found** | no matching record **in the catalogues searched** |
+
+**"Not found" is not "fabricated."** Books, theses, workshop papers, technical
+reports, very recent preprints and non-English venues land there routinely. Treat
+it as *check this one by hand*. For biomedical work add `--connectors europepmc`,
+or PubMed-only references will look missing for lack of coverage.
+
+The output also reports lines it **could not parse** as references. Those were
+never checked, and they are counted separately so the totals cannot be mistaken for
+the whole bibliography.
+---
+
+## Step 16 — Pre-submission checks
+
+All three are deterministic and cost nothing.
+
+```bash
+research-companion check-compliance <paper_id> --venue neurips
+research-companion check-stats      <paper_id>
+research-companion check-overlap    <paper_id>
+```
+
+| check | catches |
+|---|---|
+| **compliance** | page limit, abstract length, missing required sections (limitations, broader impact, ethics) — the desk-reject list |
+| **statcheck / GRIM** | reported p-values that do not match their test statistic; means impossible for the stated sample size |
+| **overlap** | passages near-duplicating another paper in **your own library** — self-plagiarism, dual submission |
+
+Supported venues: `neurips` `icml` `iclr` `aaai` `acl` `emnlp` `cvpr` `kdd`
+`sigir` `nature` `science` `pnas` `nature-medicine` `nature-physics` `the-lancet`
+`bioinformatics` `prl` `psych-science` `aer`
+
+> **`0 statistical tests found` means nothing was checked** — not that your
+> statistics are sound. The tool separates "clean" from "not checked" everywhere,
+> and so should you when reading it.
+---
+
+## Step 17 — Export
+
+```bash
+research-companion export-bib --format bibtex > refs.bib
+research-companion cite-tex <paper_id>              # a LaTeX cite key
+```
+
+The Report tab has **Download (.md)** — the whole review as markdown, with its
+citations, badges and honesty caveats intact rather than stripped.
+
+Notes export as a revision checklist.
+---
+
+# Anytime — utilities, not stages
+---
+
+## Report: a cited literature review
 
 **Do this.** Open **Report**. Type a topic and click **Generate plan** first.
 
@@ -448,10 +654,9 @@ where every claim carries a citation chip back to the exact paper and section.
 | **Coverage** | how much of the material *our own keyword search* judged relevant actually got cited. A BM25 heuristic, not ground truth. |
 | **Score evidence** | an AI judgement of each citation's relevance and stance (supports / contradicts / neutral). Labelled a judgement, never "verified". |
 | **Check citations** | see Step 15. |
-
 ---
 
-## Step 13 — Ask and Compare
+## Ask and Compare
 
 **Ask** — a question in plain language, answered from your papers with a citation
 after every claim. If your library does not cover it, it says so instead of
@@ -465,116 +670,9 @@ you need to see why.
 research-companion ask "why does KV-cache compression hurt long-context quality?"
 research-companion compare <paper_a> <paper_b>
 ```
-
 ---
 
-## Step 14 — Analyse your draft against the literature
-
-**Do this.** Open **Draft**, click **Analyze this draft**.
-
-**What you get.** For every section of your draft, the papers that relate to it —
-each with a **stance** (strengthens / weakens / neutral), a relevance score, a
-rationale, and a **verified quote** from the source.
-
-```mermaid
-flowchart LR
-    S["Draft section:<br/>Introduction"] --> A["Alignment"]
-    A --> P1["Paper A - strengthens - 82%<br/>quote plus section link"]
-    A --> P2["Paper B - weakens - 64%<br/>quote plus section link"]
-    A --> P3["Paper C - neutral - 41%"]
-    A --> O["Opportunity:<br/>could strengthen this section"]
-    style A fill:#8250df,color:#fff
-```
-
-Quotes are **verified** — checked to appear verbatim in the source, with a locator
-that can find them again. A quote that cannot be located is shown as unverified
-rather than quietly dropped.
-
----
-
-## Step 15 — Are the cited sources actually saying that?
-
-Existing checks answer two easier questions: does the reference *exist*, and does a
-quote appear *verbatim*. Neither catches the failure that matters most: a real
-citation attached to a claim the source never makes.
-
-**Do this.** Turn on **claim_audit** in Settings, then click **Check citations** in
-Draft or Report.
-
-**What you get.** A verdict per cited passage:
-
-| verdict | meaning |
-|---|---|
-| **Supported** | the passage supports the claim |
-| **Not supported** | it does not — *the only adverse verdict* |
-| **Could not check** | passage unavailable, or the model was unsure |
-| **No anchor** | the citation has no locator to check against |
-| **Not checked** | the audit did not run |
-
-The last three are **failures to check**, not findings against the citation, and
-are shown that way. The auditor is deliberately biased toward "unclear": at the
-rate real miscitation occurs, a noisy checker's warnings would be mostly wrong, and
-people would learn to ignore all of them.
-
-> Costs one model call per cited passage. That is why it is opt-in.
-
----
-
-## Step 16 — Citations: does your bibliography hold up?
-
-**Do this.** Open **Citations**, or run:
-
-```bash
-research-companion refcheck <paper_id>
-```
-
-**What you get.** Every reference looked up in CrossRef, OpenAlex and arXiv — with
-**no model calls at all**.
-
-| verdict | meaning |
-|---|---|
-| **verified** | a matching record was found and the details agree |
-| **suspect** | a record was found but something disagrees — often a typo, or a preprint/published mismatch |
-| **not found** | no matching record **in the catalogues searched** |
-
-**"Not found" is not "fabricated."** Books, theses, workshop papers, technical
-reports, very recent preprints and non-English venues land there routinely. Treat
-it as *check this one by hand*. For biomedical work add `--connectors europepmc`,
-or PubMed-only references will look missing for lack of coverage.
-
-The output also reports lines it **could not parse** as references. Those were
-never checked, and they are counted separately so the totals cannot be mistaken for
-the whole bibliography.
-
----
-
-## Step 17 — Pre-submission checks
-
-All three are deterministic and cost nothing.
-
-```bash
-research-companion check-compliance <paper_id> --venue neurips
-research-companion check-stats      <paper_id>
-research-companion check-overlap    <paper_id>
-```
-
-| check | catches |
-|---|---|
-| **compliance** | page limit, abstract length, missing required sections (limitations, broader impact, ethics) — the desk-reject list |
-| **statcheck / GRIM** | reported p-values that do not match their test statistic; means impossible for the stated sample size |
-| **overlap** | passages near-duplicating another paper in **your own library** — self-plagiarism, dual submission |
-
-Supported venues: `neurips` `icml` `iclr` `aaai` `acl` `emnlp` `cvpr` `kdd`
-`sigir` `nature` `science` `pnas` `nature-medicine` `nature-physics` `the-lancet`
-`bioinformatics` `prl` `psych-science` `aer`
-
-> **`0 statistical tests found` means nothing was checked** — not that your
-> statistics are sound. The tool separates "clean" from "not checked" everywhere,
-> and so should you when reading it.
-
----
-
-## Step 18 — From inside Claude Code
+## From inside Claude Code
 
 The free checks also run as [Claude Code](https://claude.com/claude-code) skills,
 so you can ask in plain language instead of learning flags:
@@ -594,21 +692,6 @@ never touch your real research.
 
 For other agents, `research-companion mcp serve` exposes the same deterministic
 verification tools over MCP.
-
----
-
-## Step 19 — Export
-
-```bash
-research-companion export-bib --format bibtex > refs.bib
-research-companion cite-tex <paper_id>              # a LaTeX cite key
-```
-
-The Report tab has **Download (.md)** — the whole review as markdown, with its
-citations, badges and honesty caveats intact rather than stripped.
-
-Notes export as a revision checklist.
-
 ---
 
 ## What it costs
@@ -631,15 +714,19 @@ Before a big build:
 ```bash
 research-companion cost-estimate
 ```
-
 ---
 
 ## What it will never do
 
 Worth knowing before you trust any of it.
 
-- **It does not read the open web.** Every answer comes from *your* library. If you
-  did not add it, it does not exist to the tool.
+- **It does not answer from the model's memory.** Every claim it makes is traced to
+  a document — your library for anything about *your* papers, and public catalogues
+  (Semantic Scholar, OpenAlex, arXiv, CrossRef) for discovery, novelty screening
+  and reference checking. Nothing is asserted because a model recalled it.
+- **It does not silently widen its scope.** Ask, Compare, Report, Gaps and draft
+  alignment read *only* your library. If you did not add it, it does not exist to
+  those features.
 - **It does not judge whether your idea is good.** Directions and novelty checks
   are grounded suggestions, not verdicts.
 - **It does not hide what it could not do.** A check that did not run is never
@@ -648,7 +735,6 @@ Worth knowing before you trust any of it.
   catalogues searched.
 - **It does not spend money without asking.** Every costed action is a button you
   press, priced before you press it.
-
 ---
 
 ## Quick reference
