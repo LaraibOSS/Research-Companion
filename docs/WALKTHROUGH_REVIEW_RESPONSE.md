@@ -625,11 +625,21 @@ native shapes:
 Python computes rather than re-deriving them, so the two cannot drift, and its
 fixtures are serialised from real `Signal`s rather than hand-written.
 
-**Known follow-up:** `claimAuditHelpers.js` still exists alongside it, because the
-claim-audit endpoint emits its domain `outcome` vocabulary rather than a serialised
-Signal. Two renderers is the thing being removed, so migrating that endpoint is the
-next step — after which item 10 (Submission Readiness) is mostly `groupSignals()` plus
-markup.
+**Claim audit migrated too.** `claimAuditHelpers.js` is no longer a second
+implementation — it supplies vocabulary ("Supported" rather than "Verified", plus its
+own disclaimer) while tone and every flag come from `signalHelpers`. One renderer, two
+vocabularies; words vary by surface, meaning cannot.
+
+That migration closed **the locator/signals gap** this record identified as the
+headline finding: verdicts now carry the paper, offsets and quote they judged, plus
+the prompt sha, so a heuristic result is reproducible.
+
+It also surfaced a defect. `_result()` built SUPPORTED with `signals.resolved()` —
+`DETERMINISTIC_FACT`, rendering as **VERIFIED** — while NOT_SUPPORTED used
+`heuristic()`. One model call, two epistemic classes, and the asymmetry favoured the
+tool: agreement spoke with certainty, disagreement hedged. Both are now advisory.
+
+Submission Readiness (item 10) is now mostly `groupSignals()` plus markup.
 
 **Items 1–2 were schema decisions and had to precede migration.** An earlier ordering put
 provenance at #9, after six checkers had already moved to the new envelope — which
