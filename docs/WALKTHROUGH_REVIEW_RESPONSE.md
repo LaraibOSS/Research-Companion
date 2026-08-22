@@ -592,7 +592,7 @@ translation layer written only to be deleted.
 | ~~1~~ | ~~Outcome model: `name` as proposition, measurements excluded~~ | **shipped** — `is_adverse` added; coverage stays a metric |
 | ~~2~~ | ~~Provenance contract: `EvidenceRef` union, subject vs evidence~~ | **shipped** — `DocumentRef` · `CatalogueRef` · `VenueRuleRef` · `QueryRef` |
 | ~~3~~ | ~~`NOT_APPLICABLE`, structured `reason`, formal status definitions~~ | **shipped** — plus `NEEDS_ATTENTION_STATUSES` and 3 invariants |
-| **4** | Migrate refcheck, statcheck, compliance, overlap | one pass, against a settled schema |
+| ~~4~~ | ~~Migrate refcheck, statcheck, compliance, overlap~~ | **shipped** — `checker_signals.py`, additive adapters |
 | **5** | Canonical renderer, generalised from `claimAuditHelpers.js` | stops the UI re-diverging |
 | **6** | Epistemic-copy lint, advisory with suppression | stops docs and UI drifting back |
 | **7** | Venue provenance + requirement tiers | highest-risk deterministic checker |
@@ -604,8 +604,25 @@ translation layer written only to be deleted.
 | later | Research Scope | only when retrieval consumes it |
 | rejected | graph weighting · forced wizard · aggregate verdicts · domain outcome vocabularies | see Declined |
 
-**Items 1–3 shipped** in `signals.py` (3034 tests green). The envelope is settled, so
-item 4 can migrate against a stable schema.
+**Items 1–4 shipped** (3050 tests green). The envelope is settled in `signals.py` and
+all four deterministic checkers now emit it via `checker_signals.py`, additively —
+native shapes untouched, so nothing downstream changed.
+
+Three things the migration surfaced, recorded because they were invisible in the
+native shapes:
+
+- **refcheck asks two questions and reported one status.** `suspect` means the work
+  exists but the details disagree → `reference_exists` SUPPORTED plus
+  `reference_details_match` CONTRADICTED.
+- **compliance spelled two opposite facts "skipped."** A rule the venue does not have
+  is `NOT_APPLICABLE`; a rule we could not evaluate is `NOT_CHECKED`. Unrecognised
+  skip reasons default to needing attention.
+- **Two states that looked clean are not.** statcheck with no parseable statistics and
+  overlap with no other papers are both `NOT_APPLICABLE` — `is_clean` False,
+  `needs_attention` False.
+
+Item 5 (the canonical renderer) is now the natural next step: the backend speaks one
+vocabulary, and without a shared renderer the UI will re-diverge.
 
 **Items 1–2 were schema decisions and had to precede migration.** An earlier ordering put
 provenance at #9, after six checkers had already moved to the new envelope — which
