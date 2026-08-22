@@ -593,7 +593,7 @@ translation layer written only to be deleted.
 | ~~2~~ | ~~Provenance contract: `EvidenceRef` union, subject vs evidence~~ | **shipped** — `DocumentRef` · `CatalogueRef` · `VenueRuleRef` · `QueryRef` |
 | ~~3~~ | ~~`NOT_APPLICABLE`, structured `reason`, formal status definitions~~ | **shipped** — plus `NEEDS_ATTENTION_STATUSES` and 3 invariants |
 | ~~4~~ | ~~Migrate refcheck, statcheck, compliance, overlap~~ | **shipped** — `checker_signals.py`, additive adapters |
-| **5** | Canonical renderer, generalised from `claimAuditHelpers.js` | stops the UI re-diverging |
+| ~~5~~ | ~~Canonical renderer~~ | **shipped** — `signalHelpers.js`; fixtures generated from the Python model |
 | **6** | Epistemic-copy lint, advisory with suppression | stops docs and UI drifting back |
 | **7** | Venue provenance + requirement tiers | highest-risk deterministic checker |
 | **8** | UI wording: corpus density, text-match verified | quick wins, no dependencies |
@@ -621,8 +621,15 @@ native shapes:
   overlap with no other papers are both `NOT_APPLICABLE` — `is_clean` False,
   `needs_attention` False.
 
-Item 5 (the canonical renderer) is now the natural next step: the backend speaks one
-vocabulary, and without a shared renderer the UI will re-diverge.
+**Item 5 shipped** — `signalHelpers.js` (JS suite 1003 green). It consumes the flags
+Python computes rather than re-deriving them, so the two cannot drift, and its
+fixtures are serialised from real `Signal`s rather than hand-written.
+
+**Known follow-up:** `claimAuditHelpers.js` still exists alongside it, because the
+claim-audit endpoint emits its domain `outcome` vocabulary rather than a serialised
+Signal. Two renderers is the thing being removed, so migrating that endpoint is the
+next step — after which item 10 (Submission Readiness) is mostly `groupSignals()` plus
+markup.
 
 **Items 1–2 were schema decisions and had to precede migration.** An earlier ordering put
 provenance at #9, after six checkers had already moved to the new envelope — which
