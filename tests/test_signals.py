@@ -154,3 +154,151 @@ def test_validate_still_reports_a_genuine_miss_as_not_found():
     verdict = validate_reference(_ref(), lambda r: None)
     assert verdict.status == "unverified"
     assert "No matching record found" in " ".join(verdict.reasons)
+
+
+# ---------------------------------------------------------------------------
+# NOT_APPLICABLE — the third way a check can fail to conclude
+#
+# "we did not run it", "we ran it and it failed", and "running it would be
+# meaningless" are three different facts. Collapsing the third into either of
+# the others either invents an outstanding task or hides one.
+# ---------------------------------------------------------------------------
+
+def test_not_applicable_is_not_an_outstanding_task():
+    """GRIM on an ML result: nothing is wrong and nothing needs reviewing."""
+    sig = S.not_applicable(
+        "statistics_internally_consistent",
+        reason=S.Reason.STATISTIC_TYPE_UNSUPPORTED,
+        detail="GRIM applies to means of bounded integer items.",
+        source="statcheck",
+    )
+    assert sig.check_status is S.CheckStatus.NOT_APPLICABLE
+    assert sig.needs_attention is False, "not-applicable must not demand action"
+    assert sig.is_clean is False, "and must not read as a pass either"
+    assert sig.is_adverse is False
+    assert sig.label() == "NOT APPLICABLE"
+
+
+def test_a_degraded_check_does_demand_attention():
+    sig = S.could_not_check("claim_supported", detail="no anchor",
+                                  reason=S.Reason.NO_ANCHOR)
+    assert sig.check_status is S.CheckStatus.DEGRADED
+    assert sig.needs_attention is True
+
+
+def test_not_applicable_must_say_why():
+    """Without a reason the status is unreadable — why does it not apply?"""
+    with pytest.raises(S.SignalError, match="Reason"):
+        S.Signal(
+            name="x", epistemic_class=S.EpistemicClass.PROCESS_ATTESTATION,
+            check_status=S.CheckStatus.NOT_APPLICABLE,
+            finding=S.Finding.UNRESOLVED, detail="d",
+        )
+
+
+def test_not_applicable_cannot_carry_a_conclusion():
+    with pytest.raises(S.SignalError):
+        S.Signal(
+            name="x", epistemic_class=S.EpistemicClass.PROCESS_ATTESTATION,
+            check_status=S.CheckStatus.NOT_APPLICABLE,
+            finding=S.Finding.SUPPORTED,
+            reason=S.Reason.NOT_RELEVANT, detail="d",
+        )
+
+
+def test_a_completed_check_has_no_failure_reason():
+    """"CHECKED + PARSE_FAILED" is two states at once."""
+    with pytest.raises(S.SignalError, match="did not fail"):
+        S.Signal(
+            name="x", epistemic_class=S.EpistemicClass.DETERMINISTIC_FACT,
+            check_status=S.CheckStatus.CHECKED,
+            finding=S.Finding.SUPPORTED,
+            reason=S.Reason.PARSE_FAILED,
+        )
+
+
+def test_reason_is_structured_so_failures_can_be_counted():
+    """Free text cannot be grouped; this is why `reason` is not `detail`."""
+    sigs = [
+        S.could_not_check("a", detail="x", reason=S.Reason.SOURCE_UNAVAILABLE),
+        S.could_not_check("b", detail="x", reason=S.Reason.SOURCE_UNAVAILABLE),
+        S.could_not_check("c", detail="x", reason=S.Reason.PARSE_FAILED),
+    ]
+    from collections import Counter
+    counts = Counter(s.reason for s in sigs)
+    assert counts[S.Reason.SOURCE_UNAVAILABLE] == 2
+
+
+# ---------------------------------------------------------------------------
+# Provenance — what was checked, and what it was checked against
+# ---------------------------------------------------------------------------
+
+def test_evidence_is_not_limited_to_documents():
+    """refcheck cites a catalogue record, novelty a query, compliance a rule.
+    A single `locator` field could not carry any of those."""
+    refs = [
+        S.DocumentRef(paper_id="p1", section_id="s2", char_start=10, char_end=40),
+        S.CatalogueRef(catalogue="crossref", identifier="10.1234/x"),
+        S.VenueRuleRef(venue_slug="neurips", rule_id="page_limit",
+                             rules_version="2026-08-01"),
+        S.QueryRef(query="adaptive recurrent depth", sources=("openalex",)),
+    ]
+    kinds = {r.to_dict()["kind"] for r in refs}
+    assert kinds == {"document", "catalogue", "venue_rule", "query"}
+
+
+def test_subject_and_evidence_are_separate():
+    """"bibliography entry 17" and "CrossRef 10.x" are different facts."""
+    sig = S.resolved(
+        "reference_exists", source="crossref", detail="matched",
+    )
+    sig = S.Signal(
+        name=sig.name, epistemic_class=sig.epistemic_class,
+        check_status=sig.check_status, finding=sig.finding, detail=sig.detail,
+        source=sig.source,
+        subject=S.DocumentRef(paper_id="draft", section_id="refs"),
+        evidence_refs=(S.CatalogueRef(catalogue="crossref", identifier="10.1234/x"),),
+    )
+    d = sig.to_dict()
+    assert d["subject"]["kind"] == "document"
+    assert d["evidence_refs"][0]["kind"] == "catalogue"
+
+
+def test_overlap_can_cite_two_locations():
+    sig = S.heuristic(
+        "passage_is_original", matched=True, detail="near-duplicate",
+    )
+    sig = S.Signal(
+        name=sig.name, epistemic_class=sig.epistemic_class,
+        check_status=sig.check_status, finding=sig.finding, detail=sig.detail,
+        evidence_refs=(S.DocumentRef(paper_id="a", char_start=0, char_end=50),
+                       S.DocumentRef(paper_id="b", char_start=90, char_end=140)),
+    )
+    assert len(sig.to_dict()["evidence_refs"]) == 2
+
+
+def test_heuristic_signals_can_record_what_produced_them():
+    """A model judgement is only re-checkable if you know the model and prompt."""
+    sig = S.Signal(
+        name="claim_supported",
+        epistemic_class=S.EpistemicClass.HEURISTIC_ADVISORY,
+        check_status=S.CheckStatus.CHECKED, finding=S.Finding.SUPPORTED,
+        detail="states it directly", source="claim_audit",
+        checker_version="1.4.2", prompt_sha="abc123", checked_at="2026-08-22T10:00:00Z",
+    )
+    d = sig.to_dict()
+    assert d["prompt_sha"] == "abc123" and d["checked_at"].startswith("2026")
+
+
+def test_timestamps_are_never_auto_filled():
+    """An implicit now() makes signals non-comparable and tests flaky."""
+    assert S.resolved("x", detail="d").checked_at == ""
+
+
+def test_to_dict_keeps_the_existing_keys():
+    """claim_audit and the API already serialise these; adding fields must not
+    remove any."""
+    d = S.resolved("x", source="s", detail="d").to_dict()
+    for key in ("name", "epistemic_class", "check_status", "finding", "detail",
+                "source", "evidence", "is_clean", "label"):
+        assert key in d
