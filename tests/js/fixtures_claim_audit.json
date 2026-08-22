@@ -1,0 +1,159 @@
+{
+  "supported": {
+    "outcome": "supported",
+    "reason": "model said supported",
+    "passage": "Graph retrieval reduces error on multi-hop questions across three public datasets",
+    "is_adverse": false,
+    "is_inconclusive": false,
+    "signal": {
+      "name": "claim_supported",
+      "epistemic_class": "heuristic_advisory",
+      "check_status": "checked",
+      "finding": "supported",
+      "detail": "model said supported",
+      "source": "claim_audit",
+      "evidence": {},
+      "reason": null,
+      "subject": null,
+      "evidence_refs": [
+        {
+          "kind": "document",
+          "paper_id": "p1",
+          "section_id": null,
+          "char_start": 22,
+          "char_end": 103,
+          "quote": "Graph retrieval reduces error on multi-hop questions across three public datasets"
+        }
+      ],
+      "checker_version": "",
+      "prompt_sha": "9dd3c4601220fc7306457870977a02adebbbcc00deb6b8136bbc254c2a24e0b4",
+      "checked_at": "",
+      "is_clean": true,
+      "is_adverse": false,
+      "needs_attention": false,
+      "label": "NO HEURISTIC MATCH \u2014 ADVISORY"
+    }
+  },
+  "not_supported": {
+    "outcome": "not_supported",
+    "reason": "model said not_supported",
+    "passage": "Graph retrieval reduces error on multi-hop questions across three public datasets",
+    "is_adverse": true,
+    "is_inconclusive": false,
+    "signal": {
+      "name": "claim_supported",
+      "epistemic_class": "heuristic_advisory",
+      "check_status": "checked",
+      "finding": "contradicted",
+      "detail": "model said not_supported",
+      "source": "claim_audit",
+      "evidence": {},
+      "reason": null,
+      "subject": null,
+      "evidence_refs": [
+        {
+          "kind": "document",
+          "paper_id": "p1",
+          "section_id": null,
+          "char_start": 22,
+          "char_end": 103,
+          "quote": "Graph retrieval reduces error on multi-hop questions across three public datasets"
+        }
+      ],
+      "checker_version": "",
+      "prompt_sha": "9dd3c4601220fc7306457870977a02adebbbcc00deb6b8136bbc254c2a24e0b4",
+      "checked_at": "",
+      "is_clean": false,
+      "is_adverse": true,
+      "needs_attention": true,
+      "label": "HEURISTIC MATCH \u2014 ADVISORY"
+    }
+  },
+  "unverifiable": {
+    "outcome": "unverifiable",
+    "reason": "model said unclear",
+    "passage": "Graph retrieval reduces error on multi-hop questions across three public datasets",
+    "is_adverse": false,
+    "is_inconclusive": true,
+    "signal": {
+      "name": "claim_supported",
+      "epistemic_class": "process_attestation",
+      "check_status": "degraded",
+      "finding": "unresolved",
+      "detail": "model said unclear",
+      "source": "claim_audit",
+      "evidence": {},
+      "reason": "ambiguous",
+      "subject": null,
+      "evidence_refs": [
+        {
+          "kind": "document",
+          "paper_id": "p1",
+          "section_id": null,
+          "char_start": 22,
+          "char_end": 103,
+          "quote": "Graph retrieval reduces error on multi-hop questions across three public datasets"
+        }
+      ],
+      "checker_version": "",
+      "prompt_sha": "9dd3c4601220fc7306457870977a02adebbbcc00deb6b8136bbc254c2a24e0b4",
+      "checked_at": "",
+      "is_clean": false,
+      "is_adverse": false,
+      "needs_attention": true,
+      "label": "COULD NOT VERIFY \u2014 UNRESOLVED"
+    }
+  },
+  "anchorless": {
+    "outcome": "anchorless",
+    "reason": "This citation has no locator, so the source passage could not be retrieved. Not a finding about the citation itself.",
+    "passage": "",
+    "is_adverse": false,
+    "is_inconclusive": true,
+    "signal": {
+      "name": "claim_supported",
+      "epistemic_class": "process_attestation",
+      "check_status": "degraded",
+      "finding": "unresolved",
+      "detail": "This citation has no locator, so the source passage could not be retrieved. Not a finding about the citation itself.",
+      "source": "claim_audit",
+      "evidence": {},
+      "reason": "no_anchor",
+      "subject": null,
+      "evidence_refs": [],
+      "checker_version": "",
+      "prompt_sha": "9dd3c4601220fc7306457870977a02adebbbcc00deb6b8136bbc254c2a24e0b4",
+      "checked_at": "",
+      "is_clean": false,
+      "is_adverse": false,
+      "needs_attention": true,
+      "label": "COULD NOT VERIFY \u2014 UNRESOLVED"
+    }
+  },
+  "not_checked": {
+    "outcome": "not_checked",
+    "reason": "Claim auditing is switched off or no model is configured.",
+    "passage": "",
+    "is_adverse": false,
+    "is_inconclusive": true,
+    "signal": {
+      "name": "claim_supported",
+      "epistemic_class": "process_attestation",
+      "check_status": "not_checked",
+      "finding": "unresolved",
+      "detail": "Claim auditing is switched off or no model is configured.",
+      "source": "claim_audit",
+      "evidence": {},
+      "reason": "user_disabled",
+      "subject": null,
+      "evidence_refs": [],
+      "checker_version": "",
+      "prompt_sha": "9dd3c4601220fc7306457870977a02adebbbcc00deb6b8136bbc254c2a24e0b4",
+      "checked_at": "",
+      "is_clean": false,
+      "is_adverse": false,
+      "needs_attention": true,
+      "label": "NOT CHECKED \u2014 UNRESOLVED"
+    }
+  }
+}
