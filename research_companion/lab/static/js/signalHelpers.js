@@ -61,12 +61,19 @@ const _REASON = {
 /**
  * Display model for one serialized Signal.
  *
+ * Domain wording may be supplied via `labels` — "Supported" reads better than
+ * "Verified" for a citation. Only the WORDS are overridable: tone, isAdverse,
+ * isClean and needsAttention always come from the backend flags, so vocabulary
+ * can vary by surface while meaning cannot.
+ *
  * @param {object|null} signal — a `Signal.to_dict()` payload
+ * @param {object} [labels] — {clean, adverse, degraded, notChecked,
+ *   notApplicable, heuristicTitle}
  * @returns {{show, label, tone, title, detail, needsAttention, isAdverse,
  *            isClean, isHeuristic}} — `show` false when there is nothing to
  *   render. Never throws.
  */
-export function signalBadge(signal) {
+export function signalBadge(signal, labels = {}) {
   const s = (signal && typeof signal === 'object') ? signal : null;
   const blank = {
     show: false, label: '', tone: 'muted', title: '', detail: '',
@@ -90,7 +97,7 @@ export function signalBadge(signal) {
     return {
       ...blank,
       show: true,
-      label: incomplete.label,
+      label: _override(labels, s.check_status) || incomplete.label,
       tone: 'muted',
       title: why ? `${incomplete.title} (${why})` : incomplete.title,
       detail,
@@ -106,9 +113,10 @@ export function signalBadge(signal) {
     return {
       ...blank,
       show: true,
-      label: isAdverse ? 'Flagged (advisory)' : 'No flag (advisory)',
+      label: (isAdverse ? labels.adverse : labels.clean)
+        || (isAdverse ? 'Flagged (advisory)' : 'No flag (advisory)'),
       tone: isAdverse ? 'warn' : 'ok',
-      title: HEURISTIC_DISCLAIMER,
+      title: labels.heuristicTitle || HEURISTIC_DISCLAIMER,
       detail, needsAttention, isAdverse, isClean, isHeuristic: true,
     };
   }
@@ -116,13 +124,22 @@ export function signalBadge(signal) {
   return {
     ...blank,
     show: true,
-    label: isAdverse ? 'Problem found' : 'Verified',
+    label: (isAdverse ? labels.adverse : labels.clean)
+      || (isAdverse ? 'Problem found' : 'Verified'),
     tone: isAdverse ? 'warn' : 'ok',
     title: isAdverse
       ? 'A completed check established this problem.'
       : 'A completed check established this.',
     detail, needsAttention, isAdverse, isClean,
   };
+}
+
+/** Domain wording for an incomplete state, if the caller supplied any. */
+function _override(labels, status) {
+  if (status === 'degraded') return labels.degraded;
+  if (status === 'not_checked') return labels.notChecked;
+  if (status === 'not_applicable') return labels.notApplicable;
+  return '';
 }
 
 /**

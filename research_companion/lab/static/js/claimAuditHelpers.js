@@ -1,13 +1,21 @@
 /**
- * claimAuditHelpers.js — display model for claim-audit outcomes.
+ * claimAuditHelpers.js — claim-audit wording over the canonical signal renderer.
  *
- * The rendering rule mirrors the backend guarantee: only ONE outcome criticises
- * a citation. Everything else means *we could not check*, and must never be
- * shown in a way that reads as an accusation — or as a clean tick.
+ * This used to be a second implementation of the epistemic rules: its own map
+ * from outcome to label, tone and adverse-ness, sitting alongside the same
+ * logic in Python. Two implementations of one rule drift, and the rule here is
+ * the one the product is built on — that a check which could not run is never
+ * shown as a check that passed.
  *
- * Pure and dependency-free (no DOM, no store) so it is node-testable. Returns
- * RAW strings; the caller escapes at the interpolation site.
+ * It now supplies only VOCABULARY. "Supported" reads better than "Verified" for
+ * a citation, so the words are domain-specific; tone, isAdverse, isClean and
+ * needsAttention all come from `signalHelpers`, which in turn reads the flags
+ * computed and invariant-checked in signals.py.
+ *
+ * Pure and dependency-free. Returns RAW strings; the caller escapes.
  */
+
+import { signalBadge } from './signalHelpers.js';
 
 /** Wording shown wherever an audit result appears. */
 export const CLAIM_AUDIT_DISCLAIMER =
@@ -15,55 +23,50 @@ export const CLAIM_AUDIT_DISCLAIMER =
   + 'claim. They are advisory, can be wrong, and never block anything — open the '
   + 'source and decide for yourself.';
 
-const _BADGES = {
-  supported: {
-    label: 'Supported',
-    tone: 'ok',
-    title: 'The cited passage supports this claim (AI judgement).',
-  },
-  not_supported: {
-    label: 'Not supported',
-    tone: 'warn',
-    title: 'The cited passage does not appear to establish this claim (AI judgement — verify).',
-  },
-  unverifiable: {
-    label: 'Could not check',
-    tone: 'muted',
-    title: 'The passage could not be retrieved or judged. This is NOT a finding about the citation.',
-  },
-  anchorless: {
-    label: 'No anchor',
-    tone: 'muted',
-    title: 'This citation has no locator, so there was nothing to check against.',
-  },
-  not_checked: {
-    label: 'Not checked',
-    tone: 'muted',
-    title: 'Claim auditing did not run for this citation.',
-  },
+/**
+ * Claim-audit wording for each state. Note "Could not check" and "No anchor"
+ * are deliberately distinct from each other and from "Not supported": the
+ * first two are failures to check, and only the third criticises the citation.
+ */
+const CLAIM_AUDIT_LABELS = {
+  heuristicTitle: CLAIM_AUDIT_DISCLAIMER,
+  clean: 'Supported',
+  adverse: 'Not supported',
+  degraded: 'Could not check',
+  notChecked: 'Not checked',
+  notApplicable: 'Not applicable',
 };
+
+/** Outcome -> wording, for the anchorless case the status alone cannot express. */
+const _ANCHORLESS_LABEL = 'No anchor';
 
 /**
  * Display model for one audit result.
- * @param {object|null} audit — the `audit` block stored on a citation
+ *
+ * @param {object|null} audit — the `audit` block stored on a citation. Reads
+ *   `audit.signal`, the canonical payload; falls back to nothing if absent.
  * @returns {{show, label, tone, title, reason, isAdverse}} — `show` is false
  *   when there is nothing to display. Never throws.
  */
 export function claimAuditBadge(audit) {
   const a = (audit && typeof audit === 'object') ? audit : null;
-  if (!a || !a.outcome) {
+  const badge = signalBadge(a ? a.signal : null, CLAIM_AUDIT_LABELS);
+  if (!badge.show) {
     return { show: false, label: '', tone: 'muted', title: '', reason: '', isAdverse: false };
   }
-  const spec = _BADGES[a.outcome] || _BADGES.not_checked;
+
+  // ANCHORLESS and UNVERIFIABLE are both DEGRADED — correctly, since each is a
+  // failure to check rather than a finding — but they are different failures
+  // and the user can act on one of them.
+  const label = a.outcome === 'anchorless' ? _ANCHORLESS_LABEL : badge.label;
+
   return {
     show: true,
-    label: spec.label,
-    tone: spec.tone,
-    title: spec.title,
-    reason: String(a.reason || ''),
-    // trust the backend's own flag rather than re-deriving the rule here, so
-    // the two can never disagree about what counts as an accusation
-    isAdverse: a.is_adverse === true,
+    label,
+    tone: badge.tone,
+    title: badge.title,
+    reason: String(a.reason || badge.detail || ''),
+    isAdverse: badge.isAdverse,
   };
 }
 
