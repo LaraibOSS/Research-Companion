@@ -589,9 +589,9 @@ translation layer written only to be deleted.
 | # | work | why here |
 |---|---|---|
 | **done** | documentation fixes above | the bulk of round 1 |
-| **1** | Settle the outcome model: `name` as proposition, measurements excluded | schema decision — changing it later re-touches every consumer |
-| **2** | Settle the provenance contract: `EvidenceRef` union, subject vs evidence | schema decision — same reason |
-| **3** | `Signal`: `NOT_APPLICABLE`, structured `reason`, formal status definitions | completes the envelope |
+| ~~1~~ | ~~Outcome model: `name` as proposition, measurements excluded~~ | **shipped** — `is_adverse` added; coverage stays a metric |
+| ~~2~~ | ~~Provenance contract: `EvidenceRef` union, subject vs evidence~~ | **shipped** — `DocumentRef` · `CatalogueRef` · `VenueRuleRef` · `QueryRef` |
+| ~~3~~ | ~~`NOT_APPLICABLE`, structured `reason`, formal status definitions~~ | **shipped** — plus `NEEDS_ATTENTION_STATUSES` and 3 invariants |
 | **4** | Migrate refcheck, statcheck, compliance, overlap | one pass, against a settled schema |
 | **5** | Canonical renderer, generalised from `claimAuditHelpers.js` | stops the UI re-diverging |
 | **6** | Epistemic-copy lint, advisory with suppression | stops docs and UI drifting back |
@@ -604,7 +604,10 @@ translation layer written only to be deleted.
 | later | Research Scope | only when retrieval consumes it |
 | rejected | graph weighting · forced wizard · aggregate verdicts · domain outcome vocabularies | see Declined |
 
-**Items 1–2 are schema decisions and must precede migration.** An earlier ordering put
+**Items 1–3 shipped** in `signals.py` (3034 tests green). The envelope is settled, so
+item 4 can migrate against a stable schema.
+
+**Items 1–2 were schema decisions and had to precede migration.** An earlier ordering put
 provenance at #9, after six checkers had already moved to the new envelope — which
 would have meant migrating everything twice. Settle the shape first; individual
 checkers may leave `evidence` empty at first.
