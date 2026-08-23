@@ -1,19 +1,65 @@
 <div align="center">
 
-# Research Companion
+<h1>Research&nbsp;Companion</h1>
 
-**Turn a pile of papers into a knowledge graph you can question — and get a submission‑ready read on your own draft.**
+**Every AI research tool generates. This one checks.**
 
 [![CI](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml/badge.svg)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](pyproject.toml)
 [![Local-first](https://img.shields.io/badge/local--first-no%20cloud%20required-brightgreen)](#configuration--security)
+[![Deterministic core](https://img.shields.io/badge/deterministic%20core-no%20API%20key-8250df)](#what-it-costs)
 
-Drop in arXiv URLs, DOIs, or PDFs → get a concept‑level knowledge graph and a chat that answers **with citations to the exact paper and section**. Runs on your machine. Open source.
+Turn a pile of papers into a knowledge graph you can question — then take your own
+draft through alignment, claim auditing and submission checks.
 
-<img src="docs/images/graph.png" alt="Research Companion — live concept knowledge graph in the browser" width="820">
+**[Walkthrough](docs/WALKTHROUGH.md) · [Quickstart](#quickstart) · [Features](#features) · [Skills](#claude-code-skills)**
+
+<img src="docs/images/graph.png" alt="Research Companion — live concept knowledge graph in the browser" width="840">
 
 </div>
+
+<br>
+
+<table>
+<tr><td width="50%" valign="top">
+
+### The problem
+
+Ask a language model about the literature and it answers fluently. Some of it is
+true. Some of it cites papers that do not exist. You cannot tell which by reading,
+and the confident ones are the dangerous ones.
+
+</td><td width="50%" valign="top">
+
+### The approach
+
+Nothing is asserted because a model recalled it. Every claim traces to a document
+you added, or to a public catalogue. And when a check cannot run, it says so —
+instead of reporting silence as a pass.
+
+</td></tr>
+</table>
+
+<br>
+
+> ### What makes it different
+>
+> Most tools give you one axis: right or wrong, green or red.
+> Research Companion separates **four** states, everywhere, and refuses to collapse them.
+>
+> | | means | shown as |
+> |---|---|---|
+> | **Verified** | a completed check established it | ✓ green |
+> | **Advisory** | a model judged it — not a fact | ⚑ amber |
+> | **Could not check** | attempted, could not finish | – muted |
+> | **Not applicable** | meaningless for this document | – muted |
+>
+> A missing reference is never called *fabricated*. Zero statistics found is never
+> reported as *passed*. An unreachable catalogue is never evidence of absence.
+> That distinction is enforced in the type system, not left to copy discipline.
+
+<br>
 
 ---
 
