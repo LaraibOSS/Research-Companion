@@ -166,6 +166,41 @@ def _parse_pdf(pdf: Path):
 _DOCLING_TIMEOUT_S = 600
 
 
+#: Signatures of an out-of-memory death in the docling child. Native
+#: allocations fail with std::bad_alloc; Python-level ones raise MemoryError;
+#: an OS kill leaves SIGKILL (-9, or 137 through a shell).
+_OOM_MARKERS = ("bad_alloc", "MemoryError", "Cannot allocate memory",
+                "Out of memory", "std::length_error")
+
+
+def _docling_failure_message(proc) -> str:
+    """Say WHY the child died, using its stderr.
+
+    Discarding stderr here cost a real debugging session. Docling exhausted
+    memory, the caller fell back to pypdfium, pypdfium failed for its own
+    unrelated reason, and the recorded failure read "PDFium: Data format error"
+    on a perfectly valid PDF -- sending the user to inspect a file that was
+    fine, and hiding the actual cause completely.
+
+    Out of memory and malformed input need different responses (retry smaller
+    or with OCR off, versus replace the file), so they must not share a message.
+    """
+    err = ""
+    try:
+        err = (proc.stderr or b"").decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - never fail while building an error
+        err = ""
+
+    if any(m in err for m in _OOM_MARKERS) or proc.returncode in (-9, 137):
+        return (f"docling ran out of memory converting this PDF "
+                f"(exit {proc.returncode}). The file is not corrupt -- retry "
+                "with fewer concurrent ingests, or with full-page OCR off.")
+
+    tail = " ".join(err.strip().splitlines()[-2:])[:200]
+    return (f"docling subprocess failed (exit {proc.returncode})"
+            + (f": {tail}" if tail else ""))
+
+
 def _run_docling_subprocess(pdf: Path, *, full_page_ocr: bool = False,
                             timeout: int = _DOCLING_TIMEOUT_S):
     """Run one Docling conversion in a child process and return its ParsedDoc.
@@ -193,8 +228,7 @@ def _run_docling_subprocess(pdf: Path, *, full_page_ocr: bool = False,
         except subprocess.TimeoutExpired as exc:
             raise ParserError(f"docling subprocess timed out after {timeout}s") from exc
         if proc.returncode != 0:
-            raise ParserError(
-                f"docling subprocess failed (exit {proc.returncode})")
+            raise ParserError(_docling_failure_message(proc))
         try:
             data = json.loads(Path(out_path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
