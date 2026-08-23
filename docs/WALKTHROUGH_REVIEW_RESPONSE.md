@@ -541,6 +541,70 @@ reviewable:
 
 ---
 
+## 8. Errors must name their own cause
+
+A worked example of the failure this record keeps circling, found while trying to
+screenshot the Brainstorm tab.
+
+Five real arXiv PDFs were ingested. Four failed. The recorded reason:
+
+```
+Failed to load document (PDFium: Data format error)
+```
+
+The file was fine. Byte-identical in size to a direct `curl`, valid `%PDF-1.5`
+header, and parsing it standalone produced 48,262 characters. **Docling had run out
+of memory** — 26 × `std::bad_alloc` during OCR preprocessing.
+
+### Three defects compounded
+
+| # | defect | effect |
+|---|---|---|
+| 1 | the subprocess wrapper discarded `proc.stderr` and reported only an exit code | the real cause was destroyed at the first hop |
+| 2 | the caller fell back to pypdfium, which aborted the whole document on one bad page | the fallback failed too, for an unrelated reason |
+| 3 | pypdfium's message became the recorded `failure_reason` | the user is sent to inspect a file that is not the problem |
+
+The wrapper's own docstring says it exists to *"isolate Docling's native crashes
+(bad_alloc/segfault)"*. It caught the crash exactly as designed and then threw away
+the evidence, so the mechanism built for this failure could not report it.
+
+### Cost of the misattribution
+
+The wrong message is not a cosmetic problem — it directs the investigation. Two
+hypotheses were pursued and discarded before the file was parsed directly: arXiv
+rate-limiting (the message implied a bad download) and ingest concurrency (five jobs
+at once). Both were wrong. A single paper with nothing else running failed
+identically.
+
+### Fixed
+
+- `_docling_failure_message()` reads the child's stderr and distinguishes **out of
+  memory** from everything else, including the no-stderr case where the OS killer
+  leaves only `-9` / `137`. The OOM message states the file is *not* corrupt and
+  says what to actually do.
+- `PypdfiumParser` indexes pages instead of iterating. pypdfium raises
+  `"Failed to load page"` from **inside** the generator, which aborts the document;
+  one unreadable page in a forty-page paper should cost that page. Under memory
+  pressure the late pages are precisely the ones that fail.
+- Unreadable pages are counted into `meta`, so a partial parse is visible rather
+  than silently short. A genuinely unopenable file still raises — the fix must not
+  swallow the one case where the message was right.
+
+Verified against the original artifact: the PDF that produced the error now parses
+to 48,262 characters with zero unreadable pages. 16 tests pin it, including the
+exact wording that misled the investigation.
+
+### The general rule
+
+**A rescue path must preserve what it rescued you from.** Catching an exception and
+re-raising a different, more plausible-sounding one is worse than not catching it:
+the stack is gone and the new message is confident and wrong. This is the third
+instance in this record — `mcp` reported a present-but-reorganised SDK as *missing*,
+`claim_audit` reported a model judgement as *verified*, and here a memory exhaustion
+was reported as *corrupt data*.
+
+---
+
 ## Declined
 
 **Aggregate truth verdicts.** The original Evidence Ledger carried a corpus-wide
