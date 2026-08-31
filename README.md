@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/logo.png" alt="Research Companion" width="190">
+
 <h1>Research&nbsp;Companion</h1>
 
 **Every AI research tool generates. This one checks.**
@@ -8,66 +10,143 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](pyproject.toml)
 [![Local-first](https://img.shields.io/badge/local--first-no%20cloud%20required-brightgreen)](#configuration--security)
-[![Deterministic core](https://img.shields.io/badge/deterministic%20core-no%20API%20key-8250df)](#what-it-costs)
+[![Deterministic core](https://img.shields.io/badge/deterministic%20core-no%20API%20key-8250df)](#why-research-companion)
 
-Turn a pile of papers into a knowledge graph you can question — then take your own
-draft through alignment, claim auditing and submission checks.
+Drop in papers. Get a knowledge graph you can question, answers with citations to
+the exact page, and a read on your own draft before a reviewer sees it.
 
-**[Walkthrough](docs/WALKTHROUGH.md) · [Quickstart](#quickstart) · [Features](#features) · [Skills](#claude-code-skills)**
-
-<img src="docs/images/graph.png" alt="Research Companion — live concept knowledge graph in the browser" width="840">
+**[Take the tour ↓](#the-tour) · [Walkthrough](docs/WALKTHROUGH.md) · [Install](#installation) · [Skills](#claude-code-skills)**
 
 </div>
 
-<br>
+---
 
-<table>
-<tr><td width="50%" valign="top">
+## The tour
 
-### The problem
-
-Ask a language model about the literature and it answers fluently. Some of it is
-true. Some of it cites papers that do not exist. You cannot tell which by reading,
-and the confident ones are the dangerous ones.
-
-</td><td width="50%" valign="top">
-
-### The approach
-
-Nothing is asserted because a model recalled it. Every claim traces to a document
-you added, or to a public catalogue. And when a check cannot run, it says so —
-instead of reporting silence as a pass.
-
-</td></tr>
-</table>
+Seven steps, each one building on the last. You can stop at any of them and still
+have something useful.
 
 <br>
 
-> ### What makes it different
->
-> Most tools give you one axis: right or wrong, green or red.
-> Research Companion separates **four** states, everywhere, and refuses to collapse them.
->
-> | | means | shown as |
-> |---|---|---|
-> | **Verified** | a completed check established it | ✓ green |
-> | **Advisory** | a model judged it — not a fact | ⚑ amber |
-> | **Could not check** | attempted, could not finish | – muted |
-> | **Not applicable** | meaningless for this document | – muted |
->
-> A missing reference is never called *fabricated*. Zero statistics found is never
-> reported as *passed*. An unreachable catalogue is never evidence of absence.
-> That distinction is enforced in the type system, not left to copy discipline.
+### 1 · Add papers
+
+Paste an arXiv ID, a DOI, a URL, or point it at a folder of PDFs.
+That is the whole setup.
+
+```bash
+research-companion add 1706.03762
+```
+
+<img src="docs/images/library.png" alt="The Library tab: papers added, shown as cards with authors, year and evidence strength">
+
+<br>
+
+### 2 · It builds a map of the ideas
+
+Not a citation network — a **concept** graph. Five papers using one method become
+one node linked to all five, so you see what your corpus is actually made of.
+
+<img src="docs/images/graph.png" alt="The Graph tab: a concept-level knowledge graph of concepts, methods, datasets and claims">
+
+> **What it is honest about:** this is density *within your corpus*, not the field.
+> Load six papers on one method and that method will look dominant.
+
+<br>
+
+### 3 · Ask it anything
+
+Plain language in, an answer out — with a citation after every claim, down to the
+**paper and section**. Click any citation to open the source at that passage.
+
+<img src="docs/images/ask.png" alt="The Ask tab answering a question with inline citation chips to specific papers and sections">
+
+> **What it is honest about:** if your library does not cover the question, it says
+> so rather than guessing. That refusal is the feature.
+
+<br>
+
+### 4 · See what is still unsolved
+
+Every paper's own stated limitations and future work, grouped into themes across the
+whole library. Not the tool guessing where the gaps are — **the authors saying it**.
+
+<img src="docs/images/gaps.png" alt="The Gaps tab: research gaps synthesised across the library, typed, status-marked and citing sources">
+
+And a timeline of when each concept, method and dataset entered your corpus — so
+"this is new" is something you can look at rather than something you assume.
+
+<img src="docs/images/timeline.png" alt="The Timeline tab: concepts and methods plotted by year across the library">
+
+<br>
+
+### 5 · Write, with the literature beside you
+
+Set your draft and every section gets checked against your papers: which strengthen
+it, which weaken it, and the located quote behind each one.
+
+<img src="docs/images/draft.png" alt="The Draft tab: per-section alignment cards showing stance, relevance and supporting quotes">
+
+<br>
+
+### 6 · Get a cited review of your own library
+
+A topic becomes investigation questions you can edit **before** paying to answer
+them — planning is one model call, answering is one per question.
+
+<img src="docs/images/report.png" alt="The Report tab: a cited literature review with per-question coverage bars and citation chips">
+
+> **What it is honest about:** the cost is stated before you click, and coverage is
+> labelled a keyword-search heuristic rather than ground truth.
+
+<br>
+
+### 7 · Check it before anyone else does
+
+The last step costs nothing at all. Every reference looked up in real catalogues,
+every reported statistic recomputed, every venue rule checked.
+
+```bash
+research-companion refcheck   <paper_id>              # do the references exist?
+research-companion check-stats <paper_id>             # do the numbers add up?
+research-companion check-compliance <paper_id> --venue neurips
+```
+
+```text
+OK [verified]   Vaswani et al. Attention is all you need. NeurIPS
+OK [verified]   Devlin et al. BERT: pre-training of deep bidirectional transformers
+XX [unverified] Zzyzx Q. Nonexistent. A paper that was never written anywhere.
+
+Summary: 39 verified, 0 suspect, 1 unverified (40 references)
+```
 
 <br>
 
 ---
 
+## What makes it different
+
+Most tools give you one axis: right or wrong, green or red. Research Companion
+separates **four** states, everywhere, and refuses to collapse them.
+
+| | means | shown as |
+|---|---|---|
+| **Verified** | a completed check established it | ✓ green |
+| **Advisory** | a model judged it — not a fact | ⚑ amber |
+| **Could not check** | attempted, could not finish | – muted |
+| **Not applicable** | meaningless for this document | – muted |
+
+A missing reference is never called *fabricated*. Zero statistics found is never
+reported as *passed*. An unreachable catalogue is never evidence of absence.
+That distinction is enforced in the type system, not left to copy discipline.
+
+---
+
 ## Contents
 
+- [The tour](#the-tour)
+- [What makes it different](#what-makes-it-different)
 - [Why Research Companion](#why-research-companion)
 - [Quickstart](#quickstart)
-- [A look inside](#a-look-inside)
 - [Features](#features)
 - [Claude Code skills](#claude-code-skills)
 - [Installation](#installation)
@@ -130,18 +209,6 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 ```
 
 > **Note on versions:** the source tree is at `0.8.0`; the latest PyPI release is `0.5.14`, so an editable install from source is ahead of PyPI until `0.8.0` ships.
-
----
-
-## A look inside
-
-<table>
-  <tr>
-    <td width="33%" align="center"><img src="docs/images/draft.png" alt="Draft alignment view" width="260"><br><sub><b>Draft alignment</b> — each paper scored strengthens / challenges / alternative, with evidence quotes</sub></td>
-    <td width="33%" align="center"><img src="docs/images/ask.png" alt="Ask — grounded Q&A" width="260"><br><sub><b>Ask</b> — section‑scoped Q&A; every answer cites the exact section it used</sub></td>
-    <td width="33%" align="center"><img src="docs/images/timeline.png" alt="Timeline and gap analysis" width="260"><br><sub><b>Timeline</b> — concepts and methods over time, with gap analysis</sub></td>
-  </tr>
-</table>
 
 ---
 
