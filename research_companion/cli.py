@@ -9,6 +9,7 @@ Subcommands:
     search <query> [--kind K] [--limit N] [--json]
     list
     remove <paper-id>
+    acquire <paper_id> | --all | --list
     stats
     export [--format {markdown,csv,json,obsidian}] [--output DIR]
     discover <topic> [--limit N] [--year-min Y] [--year-max Y] [--add] [--json]
@@ -26,6 +27,8 @@ import time
 from pathlib import Path
 
 from research_companion import __version__
+from research_companion.acquire import acquire
+from research_companion.acquire.copy import reason_headline
 from research_companion.cost import estimate_cost as _estimate_cost
 
 # Consistent status glyphs for terminal output across commands.
@@ -358,6 +361,118 @@ def _cmd_remove(args: argparse.Namespace) -> int:
         print("research-companion: run `research-companion build` to rebuild the graph without it.")
         return 0
     print(f"research-companion: no such paper: {args.paper_id}", file=sys.stderr)
+    return 1
+
+
+def _acquire_meta_for(paper_id: str):
+    """The PaperMetadata to hand to acquire(), even for an id that has no
+    metadata.json yet (a fabricated/target id passed straight on the command
+    line). acquire() only reads .paper_id/.title off it, so a bare stand-in
+    is enough to let the chain run."""
+    from research_companion.store import PaperMetadata
+
+    return PaperMetadata.load(paper_id) or PaperMetadata(
+        paper_id=paper_id, title="", authors=[])
+
+
+def _acquire_human_can_help(info: dict) -> bool:
+    """Whether a person could act on this failure.
+
+    Reads the persisted ``acquisition.human_can_help`` flag -- computed once,
+    in ``Acquisition.human_can_help`` -- rather than re-deriving it from the
+    reason or the attempts a second time. A failure recorded before acquire()
+    existed carries no 'acquisition' key at all; for those older records this
+    falls back to whether a PDF is actually on disk, the same fallback the
+    Lab side uses for the same gap (research_companion/lab_api.py,
+    _failure_human_can_help) -- so a stale record still queues exactly when
+    "a human could help by supplying the missing file" is true, and the CLI
+    and the Lab agree on the same set of papers either way.
+    """
+    acquisition = info.get("acquisition")
+    if isinstance(acquisition, dict):
+        return bool(acquisition.get("human_can_help", True))
+    from research_companion.store import pdf_path
+
+    paper_id = info.get("paper_id") or ""
+    return pdf_path(paper_id) is None if paper_id else True
+
+
+def _acquire_candidates() -> list[tuple[str, str, dict]]:
+    """(failure key, paper_id, failure record) for every failure a person
+    could help with."""
+    from research_companion.store import list_failures
+
+    out = []
+    for key, info in list_failures().items():
+        if not isinstance(info, dict):
+            continue
+        if _acquire_human_can_help(info):
+            out.append((key, info.get("paper_id") or key, info))
+    return out
+
+
+def _acquire_reason_text(info: dict) -> str:
+    """The honest sentence for a queued failure: reason_headline() when a
+    typed Acquisition was recorded, the raw stored error only as a fallback
+    for an older record that predates it."""
+    acquisition = info.get("acquisition")
+    if isinstance(acquisition, dict):
+        from research_companion.acquire import Acquisition
+
+        try:
+            return reason_headline(Acquisition.from_dict(acquisition))
+        except (KeyError, ValueError):
+            pass
+    return info.get("error") or "?"
+
+
+def _acquire_one(paper_id: str) -> tuple[bool, str]:
+    """Retry one paper. Returns (obtained, message) -- the message is always
+    reason_headline() on failure, never a raw exception string."""
+    from research_companion.store import clear_failure, save_pdf
+
+    meta = _acquire_meta_for(paper_id)
+    pdf_bytes, acq = acquire(meta)
+    if pdf_bytes is not None:
+        save_pdf(paper_id, pdf_bytes)
+        clear_failure(paper_id, paper_id=paper_id)
+        return True, f"acquired via {acq.source or 'an open-access source'}"
+    return False, reason_headline(acq)
+
+
+def _cmd_acquire(args: argparse.Namespace) -> int:
+    if args.list:
+        candidates = _acquire_candidates()
+        if not candidates:
+            print("research-companion acquire: nothing waiting")
+            return 0
+        print(f"research-companion acquire: {len(candidates)} paper(s) a person could help with")
+        for _key, paper_id, info in candidates:
+            print(f"  {paper_id}  {_acquire_reason_text(info)}")
+        return 0
+
+    if args.all:
+        candidates = _acquire_candidates()
+        if not candidates:
+            print("research-companion acquire: nothing to retry")
+            return 0
+        failed = 0
+        for _key, paper_id, _info in candidates:
+            obtained, message = _acquire_one(paper_id)
+            print(f"{'+' if obtained else ' '} {paper_id}  {message}")
+            failed += 0 if obtained else 1
+        return 0 if not failed else 1
+
+    if not args.paper_id:
+        print("research-companion: acquire requires a paper_id, or --all/--list",
+              file=sys.stderr)
+        return 1
+
+    obtained, message = _acquire_one(args.paper_id)
+    if obtained:
+        print(f"+ {args.paper_id}  {message}")
+        return 0
+    print(f"{args.paper_id}: {message}")
     return 1
 
 
@@ -2165,6 +2280,15 @@ def _build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("remove", help="Remove a paper from the store")
     pr.add_argument("paper_id", help="Paper ID, e.g. arxiv:2410.05779 or local:abc123")
     pr.set_defaults(func=_cmd_remove)
+
+    p_acq = sub.add_parser("acquire",
+                           help="retry the PDF for a paper that could not be fetched")
+    p_acq.add_argument("paper_id", nargs="?", default=None)
+    p_acq.add_argument("--all", action="store_true",
+                       help="every paper a person could help with")
+    p_acq.add_argument("--list", action="store_true",
+                       help="show what is waiting, and why")
+    p_acq.set_defaults(func=_cmd_acquire)
 
     ps = sub.add_parser("stats", help="Print graph statistics as JSON")
     ps.set_defaults(func=_cmd_stats)
