@@ -109,32 +109,37 @@ def download_pdf(url: str, *, transport=None, sleep=time.sleep,
                               follow_redirects=False) as client:
                 for _ in range(MAX_REDIRECTS + 1):
                     validate_public_url(current)   # re-validate EVERY hop
-                    resp = client.get(current)
-                    if resp.is_redirect:
-                        loc = resp.headers.get("location")
-                        if not loc:
-                            return None, done(resp.status_code, "bad-redirect")
-                        current = str(resp.url.join(loc))
-                        continue
+                    with client.stream("GET", current) as resp:
+                        if resp.is_redirect:
+                            loc = resp.headers.get("location")
+                            if not loc:
+                                return None, done(resp.status_code, "bad-redirect")
+                            current = str(resp.url.join(loc))
+                            continue
 
-                    last_status = resp.status_code
-                    if resp.status_code in RETRYABLE_STATUSES:
-                        retry_after = _retry_after(resp)
-                        break                                    # to the retry loop
-                    if resp.status_code >= 400:
-                        return None, done(resp.status_code,
-                                          str(resp.status_code))  # definitive
-                    declared = resp.headers.get("content-length")
-                    if declared and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
-                        return None, done(resp.status_code, "too-large")
-                    body = resp.content
-                    if len(body) > MAX_DOWNLOAD_BYTES:
-                        return None, done(resp.status_code, "too-large")
-                    if not body:
-                        return None, done(resp.status_code, "empty")
-                    if not body.startswith(b"%PDF-"):
-                        return None, done(resp.status_code, "not-pdf")  # definitive
-                    return body, done(resp.status_code, "pdf")
+                        last_status = resp.status_code
+                        if resp.status_code in RETRYABLE_STATUSES:
+                            retry_after = _retry_after(resp)
+                            break                                    # to the retry loop
+                        if resp.status_code >= 400:
+                            return None, done(resp.status_code,
+                                              str(resp.status_code))  # definitive
+                        declared = resp.headers.get("content-length")
+                        if declared and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+                            return None, done(resp.status_code, "too-large")
+                        chunks: list[bytes] = []
+                        total = 0
+                        for chunk in resp.iter_bytes():
+                            total += len(chunk)
+                            if total > MAX_DOWNLOAD_BYTES:
+                                return None, done(resp.status_code, "too-large")
+                            chunks.append(chunk)
+                        body = b"".join(chunks)
+                        if not body:
+                            return None, done(resp.status_code, "empty")
+                        if not body.startswith(b"%PDF-"):
+                            return None, done(resp.status_code, "not-pdf")  # definitive
+                        return body, done(resp.status_code, "pdf")
                 else:
                     return None, done(last_status, "too-many-redirects")
         except UrlNotAllowed:
@@ -153,5 +158,5 @@ def download_pdf(url: str, *, transport=None, sleep=time.sleep,
             return None, done(last_status,
                               "429" if last_status == 429 else "5xx")
         sleep(retry_after if retry_after is not None else _backoff(i))
-
-    return None, done(last_status, "5xx")
+    # No fallthrough: the last iteration above (i == _MAX_ATTEMPTS - 1) always
+    # returns explicitly, on every branch it can take.
