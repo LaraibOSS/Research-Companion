@@ -27,8 +27,22 @@ function jsFiles(dir) {
   });
 }
 
-// Remove comments and string/template literals so their contents are never
-// mistaken for code.
+/**
+ * Is the `/` about to be read a regex literal rather than a division sign?
+ *
+ * The usual heuristic: division can only follow a value, so if the last thing
+ * emitted was an identifier, a number, or a closing bracket, `/` divides.
+ * `out` is the already-stripped output, which is enough context here.
+ */
+function isRegexStart(out) {
+  const prev = out.replace(/\s+$/, '').slice(-1);
+  if (!prev) return true;
+  if (/[A-Za-z0-9_$)\]]/.test(prev)) return false;
+  return true;
+}
+
+// Remove comments, regex literals and string/template literals so their
+// contents are never mistaken for code.
 function stripLiterals(src) {
   let out = '';
   let i = 0;
@@ -43,6 +57,23 @@ function stripLiterals(src) {
     } else if (c === '/' && next === '/') {
       const end = src.indexOf('\n', i);
       i = end === -1 ? n : end;
+      out += ' ';
+    } else if (c === '/' && isRegexStart(out)) {
+      // A regex literal, not division. Its body must be skipped like a string:
+      // a backtick inside one (e.g. /`([^`]+)`/) would otherwise be read as the
+      // start of a template literal and swallow the rest of the file, silently
+      // hiding every declaration after it.
+      i += 1;
+      let inClass = false;
+      while (i < n) {
+        const ch = src[i];
+        if (ch === '\\') { i += 2; continue; }
+        if (ch === '[') inClass = true;
+        else if (ch === ']') inClass = false;
+        else if (ch === '/' && !inClass) { i += 1; break; }
+        else if (ch === '\n') break;   // unterminated: not a regex after all
+        i += 1;
+      }
       out += ' ';
     } else if (c === '"' || c === "'" || c === '`') {
       const quote = c;
