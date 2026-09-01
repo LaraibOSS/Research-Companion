@@ -22,7 +22,8 @@ ALL_REASONS = list(AcquireReason)
 # Words that assert absence. None of them may describe a refusal.
 # Broadened to catch future rephrasings: unable to, couldn't/could not with
 # action verbs, no copy, nothing found. Each alternation is specific to avoid
-# false positives like "Nothing to try" matching "nothing found".
+# false positives like "The PDF download was never attempted" (NOT_ATTEMPTED's
+# headline) matching "nothing found".
 _ABSENCE = re.compile(
     r"no pdf|not found|missing|does not exist|couldn't (?:find|locate|retrieve|obtain|get)|"
     r"could not (?:find|locate|retrieve|obtain|get)|unavailable file|"
@@ -122,6 +123,19 @@ def test_copy_never_raises_on_an_obtained_acquisition():
     a = Acquisition(obtained=True, reason=None)
     assert reason_headline(a) == ""
     assert reason_detail(a) == ""
+
+
+def test_not_attempted_does_not_claim_the_paper_lacks_an_identifier():
+    """NOT_ATTEMPTED covers two situations: a paper with genuinely no
+    identifier, and a metadata lookup (e.g. a DOI Crossref has no entry for)
+    that failed before acquisition ever began -- an identifier WAS supplied
+    and used in the second case. The message must state only the shared
+    fact (the download was never attempted), never assert a reason it
+    cannot know."""
+    a = _acq(AcquireReason.NOT_ATTEMPTED)
+    text = (reason_headline(a) + " " + reason_detail(a)).lower()
+    assert "no identifier" not in text
+    assert "identifier" not in text
 
 
 def test_the_absence_guard_catches_rephrasings():

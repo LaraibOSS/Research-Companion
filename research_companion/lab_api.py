@@ -1413,6 +1413,30 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 {"label": a.host_class.value.title(), "url": a.url}
                 for a in acq.attempts if a.url
             ]
+            # oa_locator.locate_pdf used to unconditionally append these two
+            # fallback links (a DOI page and a Google Scholar search) after
+            # whatever the providers found -- exactly the manual-search
+            # escape hatch a user needs most on the misses with NO attempts
+            # to derive links from (NO_LOCATION_FOUND, NOT_ATTEMPTED).
+            # Restore them here, deduplicated by URL, appended after any
+            # attempt-derived links.
+            seen_urls = {link["url"] for link in oa_links}
+
+            def _add_fallback_link(label: str, url: str | None) -> None:
+                if url and url not in seen_urls:
+                    oa_links.append({"label": label, "url": url})
+                    seen_urls.add(url)
+
+            if paper_id.startswith("doi:"):
+                _add_fallback_link(
+                    "DOI page", f"https://doi.org/{paper_id[len('doi:'):]}")
+            title = (meta.title or "").strip()
+            if title:
+                from urllib.parse import quote_plus
+                _add_fallback_link(
+                    "Google Scholar",
+                    f"https://scholar.google.com/scholar?q={quote_plus(title)}")
+
             failures = store.list_failures()
             info = dict(failures.get(matched_key) or {})
             info["oa_links"] = oa_links

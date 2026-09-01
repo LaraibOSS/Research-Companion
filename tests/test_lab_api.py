@@ -4097,7 +4097,16 @@ class TestFindPdf:
 
         attempt = Attempt(url="https://example.org/paper", host_class=HostClass.PUBLISHER,
                           status=403, outcome="403")
-        expected_links = [{"label": "Publisher", "url": "https://example.org/paper"}]
+        # _make_paper's default title ("Test Paper") means the Google
+        # Scholar fallback link is added after the attempt-derived one --
+        # see test_miss_with_no_attempts_still_gets_fallback_links below for
+        # the case that regressed (an empty-attempts miss with NO links at
+        # all before this fallback was restored).
+        expected_links = [
+            {"label": "Publisher", "url": "https://example.org/paper"},
+            {"label": "Google Scholar",
+             "url": "https://scholar.google.com/scholar?q=Test+Paper"},
+        ]
 
         def fake_acquire(meta, **kwargs):
             return None, Acquisition(False, AcquireReason.BLOCKED_BY_HOST, (attempt,))
@@ -4112,7 +4121,7 @@ class TestFindPdf:
             job_id = resp.json()["job_id"]
             job = self._poll(c, job_id)
             assert job["status"] == "done", f"a miss must be 'done', not 'failed': {job}"
-            assert job["detail"] == "no open-access PDF found (1 links)"
+            assert job["detail"] == "no open-access PDF found (2 links)"
 
         # The failure record must survive (not cleared) with the ORIGINAL
         # error preserved and oa_links merged in (read-modify-write).
@@ -4132,6 +4141,44 @@ class TestFindPdf:
         failed_events = [e for e in bus.history if isinstance(e, IngestFailed)
                         and e.paper_id == paper_id and e.stage == "find-pdf"]
         assert failed_events, "no IngestFailed event was published for the miss"
+
+    def test_miss_with_no_attempts_still_gets_fallback_links(self, isolated_papergraph_dir, monkeypatch):
+        """NO_LOCATION_FOUND and NOT_ATTEMPTED misses have EMPTY acq.attempts
+        -- exactly the situations where the user has the least else to go
+        on. oa_locator.locate_pdf used to unconditionally append a DOI page
+        link and a Google Scholar search link regardless of what the
+        providers found; deriving oa_links purely from acq.attempts silently
+        dropped both for these two reasons. They must be restored as a
+        fallback."""
+        import research_companion.acquire as acquire_mod
+        from research_companion import store
+        from research_companion.acquire import AcquireReason, Acquisition
+
+        paper_id = "doi:10.1145/findpdf_no_attempts"
+        _make_paper(isolated_papergraph_dir, paper_id,
+                   title="A Paper With No Location", write_extraction=False)
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": f"no PDF on disk for {paper_id}",
+            "paper_id": paper_id,
+        })
+
+        def fake_acquire(meta, **kwargs):
+            return None, Acquisition(False, AcquireReason.NO_LOCATION_FOUND, ())
+
+        monkeypatch.setattr(acquire_mod, "acquire", fake_acquire)
+
+        with TestClient(create_lab_app(Bus())) as c:
+            resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"a miss must be 'done', not 'failed': {job}"
+
+        links = store.list_failures()[paper_id]["oa_links"]
+        assert links, "a DOI+title miss with no attempts must not show an empty oa_links"
+        urls = {link["url"] for link in links}
+        assert "https://doi.org/10.1145/findpdf_no_attempts" in urls
+        assert any(u.startswith("https://scholar.google.com/scholar?q=") for u in urls)
 
     def test_miss_for_unrelated_paper_shows_empty_oa_links(self, isolated_papergraph_dir):
         """A healthy paper with no failure record must show oa_links: []

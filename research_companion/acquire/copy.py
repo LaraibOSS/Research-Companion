@@ -63,7 +63,12 @@ def reason_headline(acq: Acquisition) -> str:
         return "Couldn't reach the source — we'll try again."
     if r is AcquireReason.NOT_A_PDF:
         return "The download was a web page, not a PDF."
-    return "Nothing to try — this paper has no identifier we can look up."
+    # Two situations share NOT_ATTEMPTED: a paper with genuinely no
+    # identifier, and a metadata lookup that failed before acquisition ever
+    # began (an identifier WAS supplied and used). State only the fact both
+    # share -- the download was never attempted -- never the reason, which
+    # this function cannot know.
+    return "The PDF download was never attempted."
 
 
 def reason_detail(acq: Acquisition) -> str:
