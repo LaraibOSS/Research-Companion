@@ -81,6 +81,21 @@ def test_an_abstract_is_enough_to_score():
     assert out["evidence_depth"] == "abstract"
 
 
+def test_a_whitespace_only_abstract_is_treated_as_absent():
+    """A blank-looking abstract must not slip past the refusal as if it
+    were real content -- the .strip() has to actually do its job."""
+    _draft()
+    PaperMetadata(paper_id="doi:10.1109/w", title="Some Title",
+                  authors=["A"], year=2024, abstract="   ").save()
+    llm = _counting_llm()
+    out = alignment.align_papers("local:draft", "doi:10.1109/w", llm=llm,
+                                 persist=False)
+    assert llm.calls == [], "whitespace-only abstract is not content"
+    assert out["skipped"] is True
+    assert out["reason"] == "no_text"
+    assert out["evidence_depth"] == "metadata"
+
+
 def test_a_full_text_paper_is_marked_as_such(monkeypatch):
     _draft()
     PaperMetadata(paper_id="doi:10.1109/z", title="T", authors=[], year=2024).save()

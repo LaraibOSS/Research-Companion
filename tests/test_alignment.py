@@ -938,3 +938,48 @@ class TestCliAlign:
         assert rc == 0
         assert calls
         assert calls[0][0] == "anthropic"
+
+
+# ---------------------------------------------------------------------------
+# CLI: align subcommand, skipped (no-text) payload
+#
+# Regression coverage: align_papers can now return a "skipped" payload with
+# no "verdict"/"score"/"band"/"sections" keys (Task 11). The human-readable
+# branch of _cmd_align used to index those keys unconditionally, which
+# raised a KeyError for exactly the state this task was written to make
+# reachable and safe.
+# ---------------------------------------------------------------------------
+
+class TestCliAlignSkipped:
+    def _seed_no_text_candidate(self, abstract: str = ""):
+        draft_id = _make_paper("local:draft00050", "Draft Paper",
+                               "Introduction text here.\n\nMethods text here.\n")
+        _make_extraction(draft_id)
+        store.set_draft_paper_id(draft_id)
+
+        cand_id = "doi:10.1109/cli-no-text"
+        store.PaperMetadata(paper_id=cand_id, title="No Text Paper", authors=[],
+                            year=2024, abstract=abstract).save()
+        return draft_id, cand_id
+
+    def test_human_output_does_not_crash_and_names_the_reason(self, monkeypatch, capsys):
+        draft_id, cand_id = self._seed_no_text_candidate()
+
+        monkeypatch.setattr(cli, "ALIGN_CONTEXT_OVERRIDES", {"_llm": _make_fake_llm()})
+        rc = cli.main(["align", cand_id])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "no_text" in out or "no readable text" in out.lower()
+        # Must not have fabricated a verdict/score in place of the refusal.
+        assert not any(v in out.lower() for v in ("high", "medium", "low"))
+
+    def test_json_output_passes_the_skipped_payload_through(self, monkeypatch, capsys):
+        draft_id, cand_id = self._seed_no_text_candidate()
+
+        monkeypatch.setattr(cli, "ALIGN_CONTEXT_OVERRIDES", {"_llm": _make_fake_llm()})
+        rc = cli.main(["align", cand_id, "--json"])
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["skipped"] is True
+        assert payload["reason"] == "no_text"
+        assert payload["evidence_depth"] == "metadata"

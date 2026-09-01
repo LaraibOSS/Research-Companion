@@ -1305,6 +1305,21 @@ def _cmd_align(args: argparse.Namespace) -> int:
         return 0
 
     # Human-readable output
+    if payload.get("skipped"):
+        reason = payload.get("reason", "unknown")
+        print(f"\nAlignment: {candidate_id}")
+        print(f"  vs draft: {draft_id}")
+        if reason == "no_text":
+            print(
+                "  skipped: this paper has no readable text and no abstract, "
+                "so it was not scored."
+            )
+            print("  Supply the PDF and it will align like any other paper.")
+        else:
+            print(f"  skipped: {reason}")
+        print()
+        return 0
+
     verdict = payload["verdict"]
     score = payload["score"]
     band = payload["band"]
