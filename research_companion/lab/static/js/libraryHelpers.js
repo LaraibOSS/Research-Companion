@@ -41,37 +41,32 @@ export function needsMetadata(paper) {
 const FAILURE_REASON_MAX_LEN = 80;
 
 /**
- * True when a failure_reason indicates the paper has no PDF on disk — the
- * one failure class an "Upload PDF" action can actually fix. Two wordings
- * can reach here: "no PDF on disk" (extract.py, first ingest) and "PDF not
- * found" (fetch.py's add_local_pdf, the retry path). Shared by
- * formatFailureReason (the inline hint text) and the Library view (which
- * button to render on a failed row/card).
- *
- * @param {string|null|undefined} reason
- * @returns {boolean}
- */
-export function isMissingPdfFailure(reason) {
-  if (!reason) return false;
-  return reason.startsWith('no PDF on disk') || reason.startsWith('PDF not found');
-}
-
-/**
  * Format a paper's failure_reason for short, honest inline display:
- * truncate to ~80 chars, and when the reason is a missing-PDF case, append a
- * plain-language hint telling the user what to do about it.
+ * prefer the backend's own copy (acquisition.headline, computed in
+ * research_companion/acquire/copy.py) when present -- Python already knows
+ * WHY a PDF wasn't acquired and phrases it honestly, so this must not
+ * re-derive or paraphrase that. Otherwise (no acquisition -- e.g. a
+ * parse/extraction failure unrelated to acquiring a PDF at all) fall back
+ * to the raw reason, truncated to ~80 chars.
+ *
+ * Whether a person can help with this failure (and so whether an "Upload
+ * PDF"/"Find PDF" affordance should render at all) is a SEPARATE question,
+ * answered by the stored acquisition.human_can_help flag -- see
+ * views/library.js and components/paperCard.js, which read it directly
+ * rather than through this function.
  *
  * @param {string|null|undefined} reason
+ * @param {object|null|undefined} acquisition — paper.acquisition, if any
  * @returns {string} '' when there is no reason to show
  */
-export function formatFailureReason(reason) {
+export function formatFailureReason(reason, acquisition) {
   if (!reason) return '';
+  if (acquisition && typeof acquisition === 'object' && acquisition.headline) {
+    return String(acquisition.headline);
+  }
   let text = reason;
   if (text.length > FAILURE_REASON_MAX_LEN) {
     text = text.slice(0, FAILURE_REASON_MAX_LEN - 1).trimEnd() + '…';
-  }
-  if (isMissingPdfFailure(reason)) {
-    text += ' — upload the PDF to ingest this paper';
   }
   return text;
 }
@@ -160,6 +155,10 @@ export function buildRows(papersMapOrArray, draftId) {
     // Carried through (not transformed) so the list view can run the same
     // findPdfAffordance/oaLinksLine checks (oaLinkHelpers.js) the grid does.
     oaLinks:      Array.isArray(paper.oa_links) ? paper.oa_links : [],
+    // Carried through so the list view can read acquisition.human_can_help
+    // (the Upload/Find-PDF affordances) and acquisition.headline
+    // (formatFailureReason) the same way the grid's paperCard.js does.
+    acquisition:  paper.acquisition || null,
   });
 
   const draftRow  = papers.filter(p => draftId != null && p.paper_id === draftId).map(toRow);

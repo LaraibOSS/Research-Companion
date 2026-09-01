@@ -1,12 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findPdfAffordance, oaLinksLine, pollDecision } from '../../research_companion/lab/static/js/oaLinkHelpers.js';
+import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../../research_companion/lab/static/js/oaLinkHelpers.js';
 
 test('affordance matrix', () => {
   assert.equal(findPdfAffordance({ status: 'done' }), 'hidden');
+  // No acquisition at all -- a legacy "no PDF on disk"/"PDF not found"
+  // record from before every acquisition attempt carried a typed
+  // Acquisition -- defaults to helpable (mirrors lab_api.py's
+  // _failure_human_can_help), so the affordance still shows.
   assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'no PDF on disk' }), 'button');
   assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'PDF not found: x' , oa_links: [{label:'DOI page', url:'https://doi.org/10.1/x'}]}), 'button-with-links');
-  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'extraction crashed' }), 'hidden');
+  // An acquisition that explicitly says a person can't help (the machine's
+  // problem, e.g. a transient source-unavailable retry) hides it.
+  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'timed out',
+    acquisition: { human_can_help: false } }), 'hidden');
+});
+
+test('acquisitionAllowsHelp: trusts the backend flag, defaults true when absent', () => {
+  assert.equal(acquisitionAllowsHelp(null), true);
+  assert.equal(acquisitionAllowsHelp(undefined), true);
+  assert.equal(acquisitionAllowsHelp({}), true);
+  assert.equal(acquisitionAllowsHelp({ human_can_help: true }), true);
+  assert.equal(acquisitionAllowsHelp({ human_can_help: false }), false);
 });
 
 test('oaLinksLine filters junk and caps at 5', () => {

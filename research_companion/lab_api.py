@@ -95,16 +95,26 @@ class _FindPdfMiss(Exception):
         super().__init__(f"no open-access PDF found ({link_count} links)")
 
 
-def _is_missing_pdf_failure(reason: str | None) -> bool:
-    """True when a failure's error text indicates the paper has no PDF on
-    disk -- the only failure class POST /api/papers/{id}/find-pdf can
-    actually fix. Mirrors research_companion/lab/static/js/libraryHelpers.js's
-    isMissingPdfFailure: two wordings reach here -- "no PDF on disk"
-    (extract.py, first ingest) and "PDF not found" (fetch.py's
-    add_local_pdf, the retry path)."""
-    if not reason:
-        return False
-    return reason.startswith("no PDF on disk") or reason.startswith("PDF not found")
+def _failure_human_can_help(info: dict) -> bool:
+    """Whether a person can do something about this failure -- the only
+    class POST /api/papers/{id}/find-pdf and the batch sweep can actually
+    fix. Reads the SAME acquisition.human_can_help flag GET /api/acquire/queue
+    and _build_paper_summary trust (Acquisition.human_can_help,
+    research_companion/acquire/types.py) rather than re-deriving it from
+    error text a second time -- that re-derivation (matching "no PDF on
+    disk" / "PDF not found" prefixes) is exactly what this replaces.
+
+    A failure recorded with no acquisition at all -- a failure stage that
+    never went through acquire(), e.g. a stale "no PDF on disk" (extract.py)
+    or "PDF not found" (fetch.py's add_local_pdf, the retry path) record
+    from before every acquisition attempt carried a typed Acquisition --
+    defaults to True: this endpoint exists to help with exactly that class
+    of failure, and there is no stored signal here that says otherwise.
+    """
+    acquisition = info.get("acquisition")
+    if isinstance(acquisition, dict):
+        return bool(acquisition.get("human_can_help", True))
+    return True
 
 # ---------------------------------------------------------------------------
 # Request body models (module-level so annotations resolve correctly with
@@ -1529,7 +1539,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         failures = store.list_failures()
         targets: list[tuple[str, str]] = []
         for key, info in failures.items():
-            if not _is_missing_pdf_failure(info.get("error")):
+            if not _failure_human_can_help(info):
                 continue
             targets.append((key, info.get("paper_id") or key))
 
@@ -1603,7 +1613,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if matched_key is None:
             raise HTTPException(status_code=404, detail=f"No failure record for {paper_id!r}")
 
-        if not _is_missing_pdf_failure(matched_info.get("error")):
+        if not _failure_human_can_help(matched_info):
             raise HTTPException(status_code=409,
                                 detail="failure is not a missing-PDF failure")
 

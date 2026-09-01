@@ -10,8 +10,9 @@ import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
-import { buildRows, sortRows, draftActionFor, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
-import { findPdfAffordance, oaLinksLine, pollDecision } from '../oaLinkHelpers.js';
+import { buildRows, sortRows, draftActionFor, formatFailureReason } from '../libraryHelpers.js';
+import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
+import { queueRowModel, needsYouCount } from '../acquireHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -89,6 +90,7 @@ function _render() {
         <button class="chip" data-filter="weak">Weak</button>
         <button class="chip" data-filter="unscored">Unscored</button>
         <button class="chip" data-filter="failed">Failed</button>
+        <button class="chip" data-filter="needs-you">Needs you</button>
       </div>
       <div class="sort-row">
         <label for="lib-sort" class="muted">Sort by:</label>
@@ -433,7 +435,7 @@ function _renderGrid() {
   const findAllBtn = _el.querySelector('#btn-find-all-pdfs');
   if (findAllBtn) {
     const missingCount = [...state.papers.values()]
-      .filter(p => p.status === 'failed' && isMissingPdfFailure(p.failure_reason)).length;
+      .filter(p => p.status === 'failed' && acquisitionAllowsHelp(p.acquisition)).length;
     if (missingCount > 0) {
       findAllBtn.style.display = '';
       findAllBtn.textContent = `Find PDFs for all missing (${missingCount})`;
@@ -443,12 +445,23 @@ function _renderGrid() {
     }
   }
 
+  // "Needs you" chip label — shows the count of papers actually queued for
+  // a person to help with (queueRowModel(p).show, the SAME membership rule
+  // the filter below applies), so the chip's own count never drifts from
+  // what clicking it reveals.
+  const needsYouChip = _el.querySelector('[data-filter="needs-you"]');
+  if (needsYouChip) {
+    const n = needsYouCount([...state.papers.values()]);
+    needsYouChip.textContent = n > 0 ? `Needs you (${n})` : 'Needs you';
+  }
+
   let papers = [...state.papers.values()];
 
   // Filter
   if (_filter !== 'all') {
     papers = papers.filter(p => {
       if (_filter === 'failed') return p.status === 'failed';
+      if (_filter === 'needs-you') return queueRowModel(p).show;
       const band = p.strength ? p.strength.band : null;
       if (_filter === 'unscored') return !band || p.status === 'processing';
       return band === _filter;
@@ -636,19 +649,19 @@ function _renderList(grid, papers, draftId) {
     const retryBtnHtml = row.status === 'failed'
       ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
       : '';
-    const uploadPdfBtnHtml = row.status === 'failed' && isMissingPdfFailure(row.failureReason)
+    const uploadPdfBtnHtml = row.status === 'failed' && acquisitionAllowsHelp(row.acquisition)
       ? `<button class="btn btn-sm btn-upload-pdf lib-upload-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Upload PDF</button>`
       : '';
     const failureReasonHtml = row.status === 'failed' && row.failureReason
-      ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason))}</div>`
+      ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason, row.acquisition))}</div>`
       : '';
 
     // "Find PDF" affordance — mirrors paperCard.js so a failed, missing-PDF
     // row offers the same open-access search + links as the grid card.
     // findPdfAffordance/oaLinksLine take a paper-shaped object; the row uses
-    // camelCase (failureReason/oaLinks) so it's adapted here rather than
-    // renaming the row's own fields.
-    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks });
+    // camelCase (failureReason/oaLinks/acquisition) so it's adapted here
+    // rather than renaming the row's own fields.
+    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks, acquisition: row.acquisition });
     const findPdfBtnHtml = findPdfState !== 'hidden'
       ? `<button class="btn btn-sm btn-find-pdf lib-find-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Find PDF</button>`
       : '';

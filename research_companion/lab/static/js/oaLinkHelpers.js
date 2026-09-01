@@ -6,8 +6,6 @@
  * tested with node --test.
  */
 
-import { isMissingPdfFailure } from './libraryHelpers.js';
-
 // Inline OA links are capped so a locator that returns a long list can't
 // blow out the card/row layout.
 const MAX_OA_LINKS = 5;
@@ -18,14 +16,36 @@ const MAX_OA_LINKS = 5;
 const HTTP_URL_RE = /^https?:\/\//;
 
 /**
+ * Whether a person can do something about a paper's failure -- shared by
+ * findPdfAffordance below and the "Upload PDF" button (components/paperCard.js,
+ * views/library.js). Mirrors research_companion/lab_api.py's
+ * _failure_human_can_help: reads the SAME acquisition.human_can_help flag
+ * (Acquisition.human_can_help, research_companion/acquire/types.py) rather
+ * than re-deriving it, but a failure recorded with NO acquisition at all --
+ * a stage that never went through acquire(), e.g. a stale "no PDF on disk"
+ * (extract.py) or "PDF not found" (fetch.py's add_local_pdf, the retry
+ * path) record from before every acquisition attempt carried a typed
+ * Acquisition -- defaults to true: there is no stored signal here that
+ * says a person can't help.
+ *
+ * @param {object|null|undefined} acquisition
+ * @returns {boolean}
+ */
+export function acquisitionAllowsHelp(acquisition) {
+  if (!acquisition || typeof acquisition !== 'object') return true;
+  return acquisition.human_can_help !== false;
+}
+
+/**
  * Decide which "Find PDF" affordance to render for a paper.
  *
- * - Anything other than a failed, missing-PDF-on-disk failure -> 'hidden'
+ * - Anything other than a failed paper a person can help with -> 'hidden'
  *   (done papers, still-processing papers, and OTHER failure classes like
- *   a parser/extraction crash — the locator can't fix those).
- * - A missing-PDF failure with no usable oa_links yet -> 'button' (offer to
+ *   a parser/extraction crash or a transient source-unavailable retry —
+ *   the locator can't fix those; see acquisitionAllowsHelp above).
+ * - A helpable failure with no usable oa_links yet -> 'button' (offer to
  *   search).
- * - A missing-PDF failure that already carries usable oa_links (a prior
+ * - A helpable failure that already carries usable oa_links (a prior
  *   search came back with a miss but found some links) -> 'button-with-links'
  *   (offer to search again, plus show what was found).
  *
@@ -34,7 +54,7 @@ const HTTP_URL_RE = /^https?:\/\//;
  */
 export function findPdfAffordance(paper) {
   if (!paper || paper.status !== 'failed') return 'hidden';
-  if (!isMissingPdfFailure(paper.failure_reason)) return 'hidden';
+  if (!acquisitionAllowsHelp(paper.acquisition)) return 'hidden';
   return oaLinksLine(paper.oa_links).show ? 'button-with-links' : 'button';
 }
 

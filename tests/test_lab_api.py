@@ -4064,14 +4064,18 @@ class TestFindPdf:
         assert resp.status_code == 404
 
     def test_409_when_failure_is_not_missing_pdf(self, isolated_papergraph_dir):
-        """A failure whose error text is NOT a missing-PDF reason (e.g. a
-        parse error with the PDF already present on disk) is not something
-        find-pdf can fix -- reject it distinctly from the no-record 404."""
+        """A failure whose stored acquisition says a person cannot help
+        (e.g. a parse error with the PDF already present on disk) is not
+        something find-pdf can fix -- reject it distinctly from the
+        no-record 404. The acquisition.human_can_help flag is the SAME one
+        GET /api/acquire/queue trusts -- not re-derived from error text."""
         from research_companion import store
 
         store.record_failure("arxiv:findpdf_parse_err", {
             "stage": "extract", "error": "could not parse PDF",
             "paper_id": "arxiv:findpdf_parse_err",
+            "acquisition": {"obtained": False, "reason": "source_unavailable",
+                            "human_can_help": False, "attempts": [], "source": None},
         })
         c = _make_client()
         resp = c.post("/api/papers/arxiv:findpdf_parse_err/find-pdf")
@@ -4328,13 +4332,15 @@ class TestFindPdf:
         assert resp.json() == {"count": 0}
 
     def test_batch_skips_non_missing_pdf_failures(self, isolated_papergraph_dir):
-        """A failure that isn't a missing-PDF case must not be swept up by
-        the batch endpoint."""
+        """A failure whose stored acquisition says a person cannot help must
+        not be swept up by the batch endpoint."""
         from research_companion import store
 
         store.record_failure("arxiv:findpdf_batch_skip", {
             "stage": "extract", "error": "could not parse PDF",
             "paper_id": "arxiv:findpdf_batch_skip",
+            "acquisition": {"obtained": False, "reason": "source_unavailable",
+                            "human_can_help": False, "attempts": [], "source": None},
         })
         c = _make_client()
         resp = c.post("/api/papers/find-pdfs")

@@ -4,8 +4,8 @@
 
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
-import { needsMetadata, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
-import { findPdfAffordance, oaLinksLine } from '../oaLinkHelpers.js';
+import { needsMetadata, formatFailureReason } from '../libraryHelpers.js';
+import { findPdfAffordance, oaLinksLine, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
 import * as api from '../api.js';
 import { showToast } from './toast.js';
 import { buildNoteRecord } from '../noteRecord.js';
@@ -99,13 +99,13 @@ export function renderPaperCard(paper) {
         ${strengthChipHtml}
       </div>
       ${isFailed && paper.failure_reason
-        ? `<div class="failure-reason muted" title="${escapeHtml(paper.failure_reason)}">${escapeHtml(formatFailureReason(paper.failure_reason))}</div>`
+        ? `<div class="failure-reason muted" title="${escapeHtml(paper.failure_reason)}">${escapeHtml(formatFailureReason(paper.failure_reason, paper.acquisition))}</div>`
         : ''}
       <div class="card-actions">
         ${paper.status === 'failed'
           ? `<button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>`
           : `<button class="btn btn-sm btn-read" data-paper-id="${escapeHtml(paper.paper_id)}">Read</button>`}
-        ${paper.status === 'failed' && isMissingPdfFailure(paper.failure_reason)
+        ${paper.status === 'failed' && acquisitionAllowsHelp(paper.acquisition)
           ? `<button class="btn btn-sm btn-upload-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Upload PDF</button>`
           : ''}
         ${findPdfState !== 'hidden'
