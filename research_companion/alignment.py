@@ -54,6 +54,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 
 from research_companion import store
+from research_companion.extract import get_paper_text
 from research_companion.locator import anchor_quote
 from research_companion.prompts import alignment_prompt_sha256, format_alignment_prompt
 from research_companion.rebuttal.verify import verify_quote as _verify_quote_fn
@@ -246,14 +247,24 @@ def align_papers(
             return cached
 
     # Step 3: Load draft sections and candidate text
-    from research_companion.extract import get_paper_text
     draft_sections = build_and_save_sections(draft_id)
 
-    # Load candidate text (raises FileNotFoundError if no PDF; we treat "" gracefully)
+    # A paper we have not read cannot be scored. This used to fall through to
+    # the model with cand_text = "", producing a confident stance from the
+    # title alone with nothing in the payload marking it.
     try:
         cand_text = get_paper_text(cand_meta)
     except FileNotFoundError:
         cand_text = ""
+    abstract = (getattr(cand_meta, "abstract", "") or "").strip()
+    if not cand_text and not abstract:
+        return {"draft_id": draft_id, "candidate_id": candidate_id,
+                "skipped": True, "reason": "no_text",
+                "relation": None, "score": None,
+                "evidence_depth": "metadata"}
+    evidence_depth = "full_text" if cand_text else "abstract"
+    if not cand_text:
+        cand_text = abstract
 
     # Load candidate extraction (may be None)
     from research_companion.prompts import extraction_prompt_sha256
@@ -414,6 +425,7 @@ def align_papers(
             "lexical_overlap": lx_signal,
         },
         "sections": relevant_sections,
+        "evidence_depth": evidence_depth,
     }
 
     # Step 8: Persist per rules
