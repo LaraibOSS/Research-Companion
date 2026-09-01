@@ -58,3 +58,78 @@ def test_the_queue_lists_only_papers_a_person_can_help_with(lab_client):
     ids = [p["paper_id"] for p in lab_client.get("/api/acquire/queue").json()["papers"]]
     assert "doi:blocked" in ids
     assert "doi:transient" not in ids, "the machine owns transient failures"
+
+
+def test_a_non_positive_ttl_reports_disarmed_honestly(lab_client):
+    """Nothing clamps a ttl of 0 or below to a minimum -- the watcher is
+    genuinely already expired, and the response says so (no hardcoded
+    armed: true) rather than contradicting the very next status check."""
+    r = lab_client.post("/api/acquire/arm", json={"paper_ids": ["a"], "ttl": 0})
+    assert r.json()["armed"] is False
+    assert r.json()["seconds_left"] == 0
+    assert lab_client.get("/api/acquire/status").json()["armed"] is False
+
+    r = lab_client.post("/api/acquire/arm", json={"paper_ids": ["a"], "ttl": -5})
+    assert r.json()["armed"] is False
+
+
+def test_queue_entries_carry_the_same_headline_and_detail_as_the_summary(lab_client):
+    """GET /api/acquire/queue must not return a payload that looks like the
+    paper summary's acquisition dict but is missing the copy -- it reuses
+    the same enrichment _build_paper_summary uses."""
+    from research_companion import store
+    from research_companion.acquire import Acquisition
+    from research_companion.acquire.copy import reason_detail, reason_headline
+
+    acq_dict = {"obtained": False, "reason": "blocked_by_host",
+               "human_can_help": True, "attempts": [], "source": None}
+    store.record_failure("doi:blocked-copy", {
+        "stage": "add", "error": "x", "paper_id": "doi:blocked-copy",
+        "acquisition": acq_dict})
+
+    papers = lab_client.get("/api/acquire/queue").json()["papers"]
+    entry = next(p for p in papers if p["paper_id"] == "doi:blocked-copy")
+
+    acq_obj = Acquisition.from_dict(acq_dict)
+    assert entry["acquisition"]["headline"] == reason_headline(acq_obj)
+    assert entry["acquisition"]["detail"] == reason_detail(acq_obj)
+
+
+def test_enrich_acquisition_falls_back_to_the_raw_dict_on_malformed_data():
+    """A stored acquisition dict that no longer parses (e.g. an unrecognized
+    reason value from an older/foreign record) must not 500 GET /api/papers
+    or GET /api/acquire/queue -- it is served as-is, without headline/detail."""
+    from research_companion.lab_api import _enrich_acquisition
+
+    malformed = {"obtained": False, "reason": "not-a-real-reason",
+                "human_can_help": True, "attempts": [], "source": None}
+    assert _enrich_acquisition(malformed) == malformed
+    assert _enrich_acquisition(None) is None
+
+
+def test_arm_hands_the_watcher_the_same_queue_the_queue_endpoint_reports(lab_client):
+    """The `queued` list ArmedWatcher.arm() receives is not a separate,
+    possibly-diverging computation from GET /api/acquire/queue -- it is the
+    same _acquirable_failures() call."""
+    from research_companion import store
+
+    store.record_failure("doi:blocked-arm", {
+        "stage": "add", "error": "x", "paper_id": "doi:blocked-arm",
+        "acquisition": {"obtained": False, "reason": "blocked_by_host",
+                        "human_can_help": True, "attempts": [], "source": None}})
+
+    watcher = lab_client.app.state.watcher
+    captured = {}
+    original_arm = watcher.arm
+
+    def spy(paper_ids, ttl=600, queued=()):
+        captured["queued"] = list(queued)
+        return original_arm(paper_ids, ttl=ttl, queued=queued)
+
+    watcher.arm = spy
+    lab_client.post("/api/acquire/arm", json={"paper_ids": ["x"]})
+
+    queue_ids = {p["paper_id"] for p in lab_client.get("/api/acquire/queue").json()["papers"]}
+    armed_ids = {q["paper_id"] for q in captured["queued"]}
+    assert queue_ids == armed_ids
+    assert "doi:blocked-arm" in armed_ids

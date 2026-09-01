@@ -289,8 +289,11 @@ try:
     class _AcquireArmBody(_BaseModel):
         """POST /api/acquire/arm body. Arming is additive -- paper_ids union
         with whatever is already armed, and the window extends rather than
-        replaces. `ttl` is clamped server-side to 3600s regardless of what a
-        caller sends, so nothing can arm an unbounded watcher."""
+        replaces. `ttl` is clamped to an UPPER bound of 3600s server-side
+        regardless of what a caller sends, so nothing can arm an unbounded
+        watcher. No lower bound is enforced: a non-positive ttl arms a
+        watcher that is already expired, and the response says so honestly
+        (`armed` reflects real state, never a hardcoded True)."""
         paper_ids: list[str] = []
         ttl: int = 600
 
@@ -499,6 +502,33 @@ def _discover_error_message(exc: Exception) -> str:
     return f"Discovery search failed: {exc}"
 
 
+def _enrich_acquisition(acquisition: dict | None) -> dict | None:
+    """Attach headline/detail (research_companion.acquire.copy) to a stored
+    acquisition dict, EXTENDING it rather than replacing it -- 7B's
+    "acquisition": info.get("acquisition") shape must keep working verbatim.
+
+    The one place that decides what an enriched acquisition dict looks like:
+    both _build_paper_summary (GET /api/papers, PATCH /api/papers/{id}) and
+    GET /api/acquire/queue call this, so a consumer of either endpoint sees
+    the identical shape rather than the queue re-deriving (or omitting) the
+    copy that the summary already computes.
+    """
+    if acquisition is None:
+        return None
+    try:
+        from research_companion.acquire import Acquisition
+        from research_companion.acquire.copy import reason_detail, reason_headline
+
+        acq_obj = Acquisition.from_dict(acquisition)
+        return {
+            **acquisition,
+            "headline": reason_headline(acq_obj),
+            "detail": reason_detail(acq_obj),
+        }
+    except (KeyError, ValueError, TypeError):
+        return acquisition  # malformed stored acquisition -- serve it as-is rather than 500
+
+
 def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> dict:
     """Build the per-paper dict served by GET /api/papers (and returned by
     PATCH /api/papers/{id}). Factored so the two stay identical in shape."""
@@ -517,25 +547,7 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
             acquisition = info.get("acquisition")
             break
 
-    if acquisition is not None:
-        # Extend, don't replace: 7B's "acquisition": info.get("acquisition")
-        # must keep working verbatim. headline/detail come from
-        # acquire.copy so the JS never computes copy either -- it just
-        # reads acquisition.headline / acquisition.detail alongside the
-        # fields 7B already put there (obtained, reason, human_can_help,
-        # attempts, source).
-        try:
-            from research_companion.acquire import Acquisition
-            from research_companion.acquire.copy import reason_detail, reason_headline
-
-            acq_obj = Acquisition.from_dict(acquisition)
-            acquisition = {
-                **acquisition,
-                "headline": reason_headline(acq_obj),
-                "detail": reason_detail(acq_obj),
-            }
-        except (KeyError, ValueError, TypeError):
-            pass  # malformed stored acquisition -- serve it as-is rather than 500
+    acquisition = _enrich_acquisition(acquisition)
 
     if status != "failed" and store.load_extraction(
             paper_id, prompt_sha=prompt_sha) is not None:
@@ -1654,9 +1666,13 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         {paper_id, title, acquisition}. `human_can_help` is computed once, in
         Python (Acquisition.human_can_help) -- this reads that stored flag
         rather than re-deriving it, so there is exactly one source of truth
-        for queue membership. Doubles as the `queued` list the watcher
-        matches a downloaded file against (extra keys are simply ignored by
-        watcher._queued_id / _queued_title)."""
+        for queue membership. The `acquisition` dict returned here is run
+        through `_enrich_acquisition` -- the SAME helper _build_paper_summary
+        uses -- so GET /api/acquire/queue carries headline/detail identically
+        to GET /api/papers rather than a consumer having to recompute them.
+        Doubles as the `queued` list the watcher matches a downloaded file
+        against (extra keys are simply ignored by watcher._queued_id /
+        _queued_title)."""
         from research_companion import store
 
         out: list[dict] = []
@@ -1664,6 +1680,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             if not isinstance(info, dict):
                 continue
             acquisition = info.get("acquisition")
+            # Membership is decided on the RAW stored flag, before
+            # enrichment -- enrichment only adds headline/detail, it never
+            # changes human_can_help, but checking the raw dict keeps this
+            # check obviously independent of what _enrich_acquisition does.
             if not isinstance(acquisition, dict) or not acquisition.get("human_can_help"):
                 continue
             paper_id = info.get("paper_id") or key
@@ -1671,19 +1691,24 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             out.append({
                 "paper_id": paper_id,
                 "title": meta.title if meta is not None else "",
-                "acquisition": acquisition,
+                "acquisition": _enrich_acquisition(acquisition),
             })
         return out
 
     @app.post("/api/acquire/arm")
     async def acquire_arm(body: _AcquireArmBody) -> dict:
-        # Clamp BEFORE arm() -- a caller must not be able to arm an
-        # unbounded watcher no matter what ttl it sends.
+        # Clamp the UPPER bound only -- a caller must not be able to arm an
+        # unbounded watcher no matter what ttl it sends. A non-positive ttl
+        # is deliberately NOT clamped to some minimum: it is passed straight
+        # through to arm(), which makes the watcher expire immediately, and
+        # the response below reports that honestly (armed reads real state,
+        # never a literal) rather than claiming "armed: true" for a watcher
+        # that is already expired.
         ttl = min(int(body.ttl), 3600)
         app.state.watcher.directory = _resolve_downloads_dir()
         app.state.watcher.arm(body.paper_ids, ttl=ttl, queued=_acquirable_failures())
         return {
-            "armed": True,
+            "armed": app.state.watcher.is_armed,
             "seconds_left": app.state.watcher.seconds_left,
             "paper_ids": sorted(app.state.watcher.armed_paper_ids),
         }
