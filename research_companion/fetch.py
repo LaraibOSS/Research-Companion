@@ -28,7 +28,7 @@ from pathlib import Path
 import feedparser
 import httpx
 
-from research_companion.oa_locator import OaLocation, locate_pdf
+from research_companion.acquire import AcquireReason, Acquisition, acquire
 from research_companion.store import (
     PaperMetadata,
     find_existing_paper_for,
@@ -157,8 +157,27 @@ def _download_pdf(url: str, *, timeout: float = 60.0) -> bytes:
         raise FetchError(f"download failed for {url}: {exc}") from exc
 
 
+def _acquire_safely(meta, **kwargs) -> tuple[bytes | None, Acquisition]:
+    """Call acquire(), but never let it take an add down with it.
+
+    acquire() is documented to never raise; this is a defensive boundary
+    only, mirroring the never-crash contract every other seam in this module
+    already keeps (a bad response from a third-party fetcher must not lose
+    the metadata that was already fetched)."""
+    try:
+        return acquire(meta, **kwargs)
+    except Exception:
+        return None, Acquisition(False, AcquireReason.SOURCE_UNAVAILABLE)
+
+
 def _try_download_pdf(url: str, *, timeout: float = 60.0) -> bytes | None:
-    """Attempt to download a PDF, returning None on failure instead of raising."""
+    """Attempt to download a PDF, returning None on failure instead of raising.
+
+    Note: add_doi/add_s2/add_arxiv no longer call this -- they go through
+    acquire() -- but research_companion.lab_api's find-pdf endpoint still
+    imports and calls it directly against an oa_locator-supplied URL, and
+    lab_api.py is out of scope for this change. Kept so that path (and its
+    tests in test_lab_api.py) keeps working."""
     try:
         return _download_pdf(url, timeout=timeout)
     except (httpx.HTTPStatusError, httpx.TimeoutException, FetchError):
@@ -243,29 +262,21 @@ def add_doi(url_or_doi: str) -> PaperMetadata:
 
     paper_id = make_doi_id(doi)
 
-    # Idempotency: if metadata.json already exists, return it.
+    # Idempotency: if metadata.json already exists AND has a PDF, return it.
+    # A metadata-only paper is retried, since the earlier add may simply have
+    # lost the PDF race.
     existing = PaperMetadata.load(paper_id)
-    if existing is not None:
+    if existing is not None and (paper_dir(paper_id) / "paper.pdf").exists():
         return existing
 
     meta_dict = _doi_metadata(doi)
     if not meta_dict:
         raise FetchError(f"Crossref API returned no entry for DOI {doi!r}")
 
-    # Try to download the PDF by following the DOI URL (may be paywalled).
     doi_url = f"https://doi.org/{doi}"
-    pdf_bytes = _try_download_pdf(doi_url)
-    if pdf_bytes is None:
-        # Direct DOI fetch failed (usually a paywalled landing page). Ask the
-        # open-access aggregators before giving up.
-        _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
-                              authors=meta_dict["authors"], year=meta_dict["year"])
-        try:
-            _loc = locate_pdf(_stub)
-        except Exception:
-            _loc = OaLocation()
-        if _loc.pdf_url:
-            pdf_bytes = _try_download_pdf(_loc.pdf_url)
+    _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
+                          authors=meta_dict["authors"], year=meta_dict["year"])
+    pdf_bytes, acq = _acquire_safely(_stub)
     if pdf_bytes is not None:
         save_pdf(paper_id, pdf_bytes)
     else:
@@ -281,6 +292,7 @@ def add_doi(url_or_doi: str) -> PaperMetadata:
         abstract=meta_dict["abstract"],
         source_url=doi_url,
         added_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        last_acquisition=acq.to_dict(),
     )
     meta.save()
     return meta
@@ -336,40 +348,22 @@ def add_s2(url_or_id: str) -> PaperMetadata:
 
     paper_id = make_s2_id(s2_id)
 
-    # Idempotency: if metadata.json already exists, return it.
+    # Idempotency: if metadata.json already exists AND has a PDF, return it.
+    # A metadata-only paper is retried, since the earlier add may simply have
+    # lost the PDF race.
     existing = PaperMetadata.load(paper_id)
-    if existing is not None:
+    if existing is not None and (paper_dir(paper_id) / "paper.pdf").exists():
         return existing
 
     meta_dict = _s2_metadata(s2_id)
     if not meta_dict:
         raise FetchError(f"Semantic Scholar API returned no entry for ID {s2_id!r}")
 
-    # Try to get a PDF: prefer arXiv, then DOI, then give up gracefully.
-    pdf_bytes = None
     source_url = f"https://www.semanticscholar.org/paper/{s2_id}"
-    ext_ids = meta_dict.get("external_ids", {})
 
-    arxiv_ext = ext_ids.get("ArXiv")
-    doi_ext = ext_ids.get("DOI")
-
-    if arxiv_ext:
-        pdf_bytes = _try_download_pdf(ARXIV_PDF_URL.format(arxiv_id=arxiv_ext))
-    if pdf_bytes is None and doi_ext:
-        pdf_bytes = _try_download_pdf(f"https://doi.org/{doi_ext}")
-
-    if pdf_bytes is None:
-        # Direct arXiv/DOI attempts failed. Ask the open-access aggregators
-        # before giving up.
-        _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
-                              authors=meta_dict["authors"], year=meta_dict["year"])
-        try:
-            _loc = locate_pdf(_stub, extra_ids={"doi": doi_ext, "arxiv": arxiv_ext})
-        except Exception:
-            _loc = OaLocation()
-        if _loc.pdf_url:
-            pdf_bytes = _try_download_pdf(_loc.pdf_url)
-
+    _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
+                          authors=meta_dict["authors"], year=meta_dict["year"])
+    pdf_bytes, acq = _acquire_safely(_stub)
     if pdf_bytes is not None:
         save_pdf(paper_id, pdf_bytes)
     else:
@@ -384,6 +378,7 @@ def add_s2(url_or_id: str) -> PaperMetadata:
         abstract=meta_dict["abstract"],
         source_url=source_url,
         added_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        last_acquisition=acq.to_dict(),
     )
     meta.save()
     return meta
@@ -406,8 +401,11 @@ def add_arxiv(url_or_id: str) -> PaperMetadata:
     if not meta_dict:
         raise FetchError(f"arXiv API returned no entry for id {arxiv_id!r}")
 
-    pdf_bytes = _download_pdf(ARXIV_PDF_URL.format(arxiv_id=arxiv_id))
-    save_pdf(paper_id, pdf_bytes)
+    _stub = PaperMetadata(paper_id=paper_id, title=meta_dict["title"],
+                          authors=meta_dict["authors"], year=meta_dict["year"])
+    pdf_bytes, acq = _acquire_safely(_stub)
+    if pdf_bytes is not None:
+        save_pdf(paper_id, pdf_bytes)
 
     meta = PaperMetadata(
         paper_id=paper_id,
@@ -418,6 +416,7 @@ def add_arxiv(url_or_id: str) -> PaperMetadata:
         source_url=f"https://arxiv.org/abs/{arxiv_id}",
         arxiv_categories=meta_dict["arxiv_categories"],
         added_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        last_acquisition=acq.to_dict(),
     )
     meta.save()
     return meta

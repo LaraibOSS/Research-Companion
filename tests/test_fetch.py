@@ -70,7 +70,10 @@ def test_add_local_pdf_rejects_missing(tmp_path: Path):
 
 
 def test_add_arxiv_with_mocked_http(monkeypatch: pytest.MonkeyPatch, fake_pdf_bytes: bytes):
-    """Mock both the arxiv API and the PDF download."""
+    """Mock both the arxiv API and the PDF acquisition (one acquire() call now,
+    not a direct _download_pdf)."""
+    from research_companion.acquire import Acquisition
+
     monkeypatch.setattr(
         fetch, "_arxiv_metadata",
         lambda arxiv_id, timeout=30.0: {
@@ -81,7 +84,11 @@ def test_add_arxiv_with_mocked_http(monkeypatch: pytest.MonkeyPatch, fake_pdf_by
             "arxiv_categories": ["cs.CL"],
         },
     )
-    monkeypatch.setattr(fetch, "_download_pdf", lambda url, timeout=60.0: fake_pdf_bytes)
+    monkeypatch.setattr(
+        fetch, "acquire",
+        lambda meta, **kw: (fake_pdf_bytes,
+                            Acquisition(True, None, source="https://arxiv.org/pdf/2410.05779.pdf")),
+    )
 
     meta = fetch.add_arxiv("https://arxiv.org/abs/2410.05779")
     assert meta.paper_id == "arxiv:2410.05779"
@@ -93,12 +100,17 @@ def test_add_arxiv_with_mocked_http(monkeypatch: pytest.MonkeyPatch, fake_pdf_by
 
 def test_add_paper_routes_arxiv_vs_local(monkeypatch: pytest.MonkeyPatch,
                                           tmp_path: Path, fake_pdf_bytes: bytes):
+    from research_companion.acquire import Acquisition
+
     monkeypatch.setattr(
         fetch, "_arxiv_metadata",
         lambda arxiv_id, timeout=30.0: {"title": "X", "authors": [], "year": None,
                                          "abstract": "", "arxiv_categories": []},
     )
-    monkeypatch.setattr(fetch, "_download_pdf", lambda url, timeout=60.0: fake_pdf_bytes)
+    monkeypatch.setattr(
+        fetch, "acquire",
+        lambda meta, **kw: (fake_pdf_bytes, Acquisition(True, None)),
+    )
 
     # Distinct bytes from the arXiv download: this is a genuinely different paper,
     # so cross-namespace dedup (find_existing_paper_for) must not merge them —
@@ -113,84 +125,87 @@ def test_add_paper_routes_arxiv_vs_local(monkeypatch: pytest.MonkeyPatch,
     assert local_meta.paper_id.startswith("local:")
 
 
-def test_add_doi_uses_oa_locator_when_direct_fails(monkeypatch: pytest.MonkeyPatch,
-                                                     fake_pdf_bytes: bytes):
-    """Direct DOI download fails, but the OA locator finds a PDF elsewhere."""
-    from research_companion.oa_locator import OaLocation
+def test_add_doi_saves_pdf_when_acquire_succeeds(monkeypatch: pytest.MonkeyPatch,
+                                                  fake_pdf_bytes: bytes):
+    """The old direct-download-then-OA-locator-fallback dance inside add_doi
+    is now a single acquire() call; when it comes back with bytes, the PDF
+    is saved exactly as it was when the OA fallback used to find one."""
+    from research_companion.acquire import Acquisition
 
     monkeypatch.setattr(
         fetch, "_doi_metadata",
         lambda doi, timeout=30.0: {"title": "T", "authors": [], "year": 2020, "abstract": ""},
     )
-    calls = []
-
-    def fake_try(url, **kw):
-        calls.append(url)
-        return fake_pdf_bytes if url == "https://oa.org/found.pdf" else None
-
-    monkeypatch.setattr(fetch, "_try_download_pdf", fake_try)
     monkeypatch.setattr(
-        fetch, "locate_pdf",
-        lambda meta_or_stub, **kw: OaLocation(pdf_url="https://oa.org/found.pdf",
-                                               links=[], source="s2"),
+        fetch, "acquire",
+        lambda meta, **kw: (fake_pdf_bytes,
+                            Acquisition(True, None, source="https://oa.org/found.pdf")),
     )
 
     meta = fetch.add_doi("10.9999/oa-test")
 
-    assert store.pdf_path(meta.paper_id) is not None  # PDF saved via locator URL
-    assert calls[0].startswith("https://doi.org/")     # direct attempt still tried first
-    assert calls[-1] == "https://oa.org/found.pdf"
+    assert store.pdf_path(meta.paper_id) is not None      # PDF saved
+    assert meta.last_acquisition["obtained"] is True
+    assert meta.last_acquisition["source"] == "https://oa.org/found.pdf"
 
 
-def test_add_doi_degrades_identically_when_locator_empty(monkeypatch: pytest.MonkeyPatch,
-                                                           capsys: pytest.CaptureFixture):
-    """When both the direct attempt and the locator fail, behavior is unchanged."""
-    from research_companion.oa_locator import OaLocation
+def test_add_doi_saves_metadata_only_when_acquire_finds_nothing(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture):
+    """When acquire() reports no bytes at all (direct attempt and every OA
+    candidate exhausted), add_doi still saves metadata — behavior unchanged
+    from when the locator itself came back empty."""
+    from research_companion.acquire import AcquireReason, Acquisition
 
     monkeypatch.setattr(
         fetch, "_doi_metadata",
         lambda doi, timeout=30.0: {"title": "T", "authors": [], "year": 2020, "abstract": ""},
     )
-    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
-    monkeypatch.setattr(fetch, "locate_pdf", lambda meta, **kw: OaLocation())
+    monkeypatch.setattr(
+        fetch, "acquire",
+        lambda meta, **kw: (None, Acquisition(False, AcquireReason.NO_LOCATION_FOUND)),
+    )
 
     meta = fetch.add_doi("10.9999/paywalled")
 
     assert store.pdf_path(meta.paper_id) is None  # metadata-only, exactly as today
+    assert meta.last_acquisition["reason"] == "no_location_found"
     out = capsys.readouterr().out
     assert ("warning: could not download PDF for DOI 10.9999/paywalled "
             "(likely paywalled). Metadata saved, but text extraction "
             "will not work without a PDF.") in out
 
 
-def test_add_doi_locator_exception_falls_back_to_metadata_only(monkeypatch: pytest.MonkeyPatch,
-                                                                 capsys: pytest.CaptureFixture):
-    """locate_pdf raising must not abort the whole add — same never-crash contract
-    as every other seam in this module (cli.py's add loop only catches FetchError)."""
+def test_add_doi_survives_acquire_raising(monkeypatch: pytest.MonkeyPatch,
+                                           capsys: pytest.CaptureFixture):
+    """acquire() raising must not abort the whole add — same never-crash
+    contract this seam has always kept (cli.py's add loop only catches
+    FetchError). acquire() itself is documented to never raise; this proves
+    add_doi survives even if it did."""
     monkeypatch.setattr(
         fetch, "_doi_metadata",
         lambda doi, timeout=30.0: {"title": "T", "authors": [], "year": 2020, "abstract": ""},
     )
-    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
 
-    def raise_locate(meta, **kw):
+    def raise_acquire(meta, **kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(fetch, "locate_pdf", raise_locate)
+    monkeypatch.setattr(fetch, "acquire", raise_acquire)
 
-    meta = fetch.add_doi("10.9999/locator-crashes")
+    meta = fetch.add_doi("10.9999/acquire-crashes")
 
-    assert store.pdf_path(meta.paper_id) is None  # metadata-only, exactly as today
+    assert store.pdf_path(meta.paper_id) is None   # metadata-only, exactly as today
+    assert meta.last_acquisition is not None        # the crash didn't lose the record
     out = capsys.readouterr().out
-    assert ("warning: could not download PDF for DOI 10.9999/locator-crashes "
+    assert ("warning: could not download PDF for DOI 10.9999/acquire-crashes "
             "(likely paywalled). Metadata saved, but text extraction "
             "will not work without a PDF.") in out
 
 
-def test_add_s2_uses_oa_locator_when_direct_fails(monkeypatch: pytest.MonkeyPatch,
-                                                    fake_pdf_bytes: bytes):
-    """Direct arXiv/DOI attempts fail, but the OA locator finds a PDF elsewhere."""
-    from research_companion.oa_locator import OaLocation
+def test_add_s2_saves_pdf_when_acquire_succeeds(monkeypatch: pytest.MonkeyPatch,
+                                                 fake_pdf_bytes: bytes):
+    """Same contract as the DOI case: add_s2's old arXiv/DOI/locator chain is
+    now one acquire() call, and a hit is still saved."""
+    from research_companion.acquire import Acquisition
 
     monkeypatch.setattr(
         fetch, "_s2_metadata",
@@ -199,33 +214,26 @@ def test_add_s2_uses_oa_locator_when_direct_fails(monkeypatch: pytest.MonkeyPatc
             "external_ids": {"ArXiv": "1234.5678", "DOI": "10.9999/s2-test"},
         },
     )
-    calls = []
-
-    def fake_try(url, **kw):
-        calls.append(url)
-        return fake_pdf_bytes if url == "https://oa.org/s2-found.pdf" else None
-
-    monkeypatch.setattr(fetch, "_try_download_pdf", fake_try)
     monkeypatch.setattr(
-        fetch, "locate_pdf",
-        lambda meta_or_stub, **kw: OaLocation(pdf_url="https://oa.org/s2-found.pdf",
-                                               links=[], source="unpaywall"),
+        fetch, "acquire",
+        lambda meta, **kw: (fake_pdf_bytes,
+                            Acquisition(True, None, source="https://oa.org/s2-found.pdf")),
     )
 
     s2_id = "a" * 40
     meta = fetch.add_s2(s2_id)
 
     assert store.pdf_path(meta.paper_id) is not None
-    # arXiv attempt first, then DOI attempt, then the locator URL last.
-    assert calls[0] == fetch.ARXIV_PDF_URL.format(arxiv_id="1234.5678")
-    assert calls[1] == "https://doi.org/10.9999/s2-test"
-    assert calls[-1] == "https://oa.org/s2-found.pdf"
+    assert meta.last_acquisition["obtained"] is True
+    assert meta.last_acquisition["source"] == "https://oa.org/s2-found.pdf"
 
 
-def test_add_s2_degrades_identically_when_locator_empty(monkeypatch: pytest.MonkeyPatch,
-                                                          capsys: pytest.CaptureFixture):
-    """When arXiv/DOI attempts and the locator all fail, behavior is unchanged."""
-    from research_companion.oa_locator import OaLocation
+def test_add_s2_saves_metadata_only_when_acquire_finds_nothing(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture):
+    """When acquire() reports no bytes, add_s2 still saves metadata —
+    behavior unchanged from when arXiv/DOI attempts and the locator all
+    failed."""
+    from research_companion.acquire import AcquireReason, Acquisition
 
     monkeypatch.setattr(
         fetch, "_s2_metadata",
@@ -234,21 +242,24 @@ def test_add_s2_degrades_identically_when_locator_empty(monkeypatch: pytest.Monk
             "external_ids": {},
         },
     )
-    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
-    monkeypatch.setattr(fetch, "locate_pdf", lambda meta, **kw: OaLocation())
+    monkeypatch.setattr(
+        fetch, "acquire",
+        lambda meta, **kw: (None, Acquisition(False, AcquireReason.NO_LOCATION_FOUND)),
+    )
 
     s2_id = "b" * 40
     meta = fetch.add_s2(s2_id)
 
     assert store.pdf_path(meta.paper_id) is None
+    assert meta.last_acquisition["reason"] == "no_location_found"
     out = capsys.readouterr().out
     assert (f"warning: could not download PDF for S2 paper {s2_id}. "
             f"Metadata saved, but text extraction will not work without a PDF.") in out
 
 
-def test_add_s2_locator_exception_falls_back_to_metadata_only(monkeypatch: pytest.MonkeyPatch,
-                                                                capsys: pytest.CaptureFixture):
-    """Same never-crash contract for add_s2: a locate_pdf exception must not
+def test_add_s2_survives_acquire_raising(monkeypatch: pytest.MonkeyPatch,
+                                          capsys: pytest.CaptureFixture):
+    """Same never-crash contract for add_s2: an acquire() exception must not
     propagate out of add_s2."""
     monkeypatch.setattr(
         fetch, "_s2_metadata",
@@ -257,17 +268,17 @@ def test_add_s2_locator_exception_falls_back_to_metadata_only(monkeypatch: pytes
             "external_ids": {},
         },
     )
-    monkeypatch.setattr(fetch, "_try_download_pdf", lambda url, **kw: None)
 
-    def raise_locate(meta, **kw):
+    def raise_acquire(meta, **kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(fetch, "locate_pdf", raise_locate)
+    monkeypatch.setattr(fetch, "acquire", raise_acquire)
 
     s2_id = "c" * 40
     meta = fetch.add_s2(s2_id)
 
     assert store.pdf_path(meta.paper_id) is None
+    assert meta.last_acquisition is not None
     out = capsys.readouterr().out
     assert (f"warning: could not download PDF for S2 paper {s2_id}. "
             f"Metadata saved, but text extraction will not work without a PDF.") in out

@@ -489,6 +489,7 @@ class PaperMetadata:
     pmid: str | None = None
     pmcid: str | None = None
     full_text_available: bool = False
+    last_acquisition: dict | None = None   # acquire.Acquisition.to_dict()
 
     def save(self) -> None:
         p = paper_dir(self.paper_id) / "metadata.json"
