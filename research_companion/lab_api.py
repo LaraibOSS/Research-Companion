@@ -1718,12 +1718,92 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         app.state.watcher.disarm()
         return {"armed": app.state.watcher.is_armed}
 
+    async def _reingest_caught_pdf(pdf_path: str, paper_id: str) -> str:
+        """Re-run the SAME retry-flow job POST /api/papers/{id}/retry (and
+        upload_paper_pdf, and _find_pdf_for_failure) uses -- no second
+        re-ingest path implemented here. Runs as its own background task
+        (mirrors _run() in every other job-kicking endpoint in this file) so
+        GET /api/acquire/status -- polled continuously to render the arming
+        countdown -- returns immediately rather than blocking on a full
+        pipeline run. Returns the job_id so the caller (and callers' tests)
+        can track completion via GET /api/jobs/{id}."""
+        from research_companion import store
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        retry_label = f"Retrying {paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "retry",
+                                  "label": retry_label, "target": ""}
+
+        if app.state.retry_override is not None:
+            coro = app.state.retry_override(pdf_path, paper_id, bus)
+        else:
+            coro = _retry_paper_task(
+                pdf_path, paper_id, bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
+
+        async def _run() -> None:
+            await _announce_start(job_id, "retry", retry_label)
+            try:
+                await coro
+                # clear_failure only on success -- failure entry kept/updated
+                # on error, same care /retry and upload_paper_pdf take.
+                store.clear_failure(pdf_path, paper_id=paper_id)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry",
+                                          "label": retry_label, "target": ""}
+                _schedule_coverage_refresh()
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry",
+                                          "label": retry_label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "retry")
+
+        asyncio.create_task(_run())
+        return job_id
+
     @app.get("/api/acquire/status")
     async def acquire_status() -> dict:
+        """Polls the click-to-download watcher before answering -- the UI
+        already polls this endpoint to render the arming countdown, so it is
+        the natural tick for ArmedWatcher.poll() (Task 9 built the watcher;
+        nothing called poll() anywhere until this). A caught file that
+        matched a queued paper is saved against it and re-ingested via the
+        SAME retry-flow job every other "a PDF showed up for this paper"
+        endpoint uses; a caught file that matched nothing is reported by
+        filename ONLY -- per the watcher's own privacy invariant, it is never
+        read again, moved, copied, or deleted by this handler.
+
+        Per-file work is wrapped so one bad (vanished/unreadable) file is
+        skipped, not fatal -- this endpoint is polled continuously and must
+        never start throwing over a single stale catch.
+        """
+        from research_companion import store
+
+        matched: list[dict] = []
+        unmatched: list[str] = []
+        for path, paper_id in app.state.watcher.poll():
+            if paper_id is None:
+                unmatched.append(path.name)
+                continue
+            try:
+                pdf_bytes = await asyncio.to_thread(path.read_bytes)
+                pdf_path = await asyncio.to_thread(store.save_pdf, paper_id, pdf_bytes)
+            except OSError:
+                # Vanished or unreadable between the watcher confirming it and
+                # this handler getting to it -- skip, don't fail the request,
+                # and don't let it block the other catches in this poll.
+                continue
+
+            job_id = await _reingest_caught_pdf(str(pdf_path), paper_id)
+            matched.append({"paper_id": paper_id, "filename": path.name, "job_id": job_id})
+
         return {
             "armed": app.state.watcher.is_armed,
             "seconds_left": app.state.watcher.seconds_left,
             "paper_ids": sorted(app.state.watcher.armed_paper_ids),
+            "matched": matched,
+            "unmatched": unmatched,
         }
 
     @app.get("/api/acquire/queue")
