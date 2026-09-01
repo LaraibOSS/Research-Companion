@@ -194,3 +194,29 @@ def test_a_missing_directory_is_survivable(tmp_path):
     w = ArmedWatcher(tmp_path / "nope", read_page1=lambda p: "x")
     w.arm(["a"], ttl=600, queued=QUEUED)
     assert w.poll() == []
+
+
+def test_release_lets_a_later_poll_offer_the_file_again(tmp_path):
+    """A caller (the /api/acquire/status handler) can fail to handle a match
+    poll() already marked claimed -- e.g. the file was mid-write or briefly
+    locked by an antivirus scan. release() must undo the claim so the next
+    poll offers it again, rather than losing it silently for the rest of the
+    arming window."""
+    w = ArmedWatcher(tmp_path, read_page1=lambda p: "10.1145/3676641.3716025")
+    w.arm(["doi:10.1145/3676641.3716025"], ttl=600, queued=QUEUED)
+    f = tmp_path / "3676641.3716025.pdf"
+    f.write_bytes(b"%PDF-1.5 x")
+    assert w.poll() == [], "first sighting only records the size"
+    found = w.poll()
+    assert [r[1] for r in found] == ["doi:10.1145/3676641.3716025"]
+    assert w.poll() == [], "claimed -- not offered again without release()"
+
+    w.release(f)
+    assert w.poll() == [], "released, but treated as a fresh sighting again"
+    found_again = w.poll()
+    assert [r[1] for r in found_again] == ["doi:10.1145/3676641.3716025"]
+
+
+def test_release_of_an_untracked_path_is_a_no_op(tmp_path):
+    w = ArmedWatcher(tmp_path)
+    w.release(tmp_path / "never-seen.pdf")  # must not raise

@@ -176,6 +176,7 @@ def test_polling_while_disarmed_catches_nothing(lab_client, tmp_path):
     assert body["armed"] is False
     assert body["matched"] == []
     assert body["unmatched"] == []
+    assert body["unreadable"] == []
     assert (tmp_path / "anything.pdf").exists()
 
 
@@ -186,7 +187,12 @@ def test_an_unreadable_file_does_not_fail_the_request(lab_client, tmp_path, fake
     reported. Simulated by making Path.read_bytes raise for that one file --
     an actual delete-between-polls never reaches the handler at all, because
     ArmedWatcher.poll() itself would simply omit a file gone from
-    directory.iterdir() (already covered by test_watcher.py)."""
+    directory.iterdir() (already covered by test_watcher.py).
+
+    Also asserts the failure is not silent and not permanent: it is named in
+    the `unreadable` bucket, and once the transient problem clears, a later
+    poll offers the same file again (watcher.release() undoes poll()'s
+    claim) rather than losing it for the rest of the arming window."""
     from pathlib import Path
     from unittest.mock import patch
 
@@ -227,6 +233,22 @@ def test_an_unreadable_file_does_not_fail_the_request(lab_client, tmp_path, fake
     assert other_id in matched_ids
     assert paper_id not in matched_ids
     assert bad_name not in body["unmatched"]
+
+    unreadable_names = {u["filename"] for u in body["unreadable"]}
+    assert bad_name in unreadable_names, "a persistent failure must be reported, not silent"
+    entry = next(u for u in body["unreadable"] if u["filename"] == bad_name)
+    assert entry["error"] == "OSError"
+
+    # The claim was released -- the file is offered again on a later poll,
+    # now that read_bytes is no longer patched to fail. release() drops the
+    # recorded size too, so this is a fresh first-sighting, then a confirm.
+    r3 = lab_client.get("/api/acquire/status")
+    assert r3.status_code == 200
+    r4 = lab_client.get("/api/acquire/status")
+    assert r4.status_code == 200
+    body4 = r4.json()
+    matched_ids_4 = {m["paper_id"] for m in body4["matched"]}
+    assert paper_id in matched_ids_4, "a released claim must be retried on a later poll"
 
 
 def test_armed_and_seconds_left_still_behave_as_before(lab_client, tmp_path):

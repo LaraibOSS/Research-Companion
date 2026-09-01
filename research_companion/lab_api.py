@@ -1776,12 +1776,24 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         Per-file work is wrapped so one bad (vanished/unreadable) file is
         skipped, not fatal -- this endpoint is polled continuously and must
-        never start throwing over a single stale catch.
+        never start throwing over a single stale catch. But "skipped" must
+        not mean "lost": poll() already marked that path claimed before
+        returning it, so without watcher.release() it would never be
+        offered again for the rest of the arming window, silently -- the
+        user would sit watching a countdown that never picks up the very
+        download that triggered this. release() undoes the claim so the
+        next tick retries it (self-limiting: it stops once the window
+        expires), and the failure is reported in `unreadable` rather than
+        going quiet -- ordinary, transient causes (still being flushed by
+        the browser, momentarily locked by an antivirus scan on Windows,
+        this project's primary platform) are exactly what a retry-next-tick
+        recovers from.
         """
         from research_companion import store
 
         matched: list[dict] = []
         unmatched: list[str] = []
+        unreadable: list[dict] = []
         for path, paper_id in app.state.watcher.poll():
             if paper_id is None:
                 unmatched.append(path.name)
@@ -1789,10 +1801,15 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             try:
                 pdf_bytes = await asyncio.to_thread(path.read_bytes)
                 pdf_path = await asyncio.to_thread(store.save_pdf, paper_id, pdf_bytes)
-            except OSError:
+            except OSError as exc:
                 # Vanished or unreadable between the watcher confirming it and
-                # this handler getting to it -- skip, don't fail the request,
-                # and don't let it block the other catches in this poll.
+                # this handler getting to it -- don't fail the request, and
+                # don't let it block the other catches in this poll. Release
+                # the claim so a later tick (still within the arming window)
+                # gets a fresh look at it instead of losing it for good, and
+                # say so in the response rather than going silent.
+                app.state.watcher.release(path)
+                unreadable.append({"filename": path.name, "error": type(exc).__name__})
                 continue
 
             job_id = await _reingest_caught_pdf(str(pdf_path), paper_id)
@@ -1804,6 +1821,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             "paper_ids": sorted(app.state.watcher.armed_paper_ids),
             "matched": matched,
             "unmatched": unmatched,
+            "unreadable": unreadable,
         }
 
     @app.get("/api/acquire/queue")

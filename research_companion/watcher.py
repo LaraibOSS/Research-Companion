@@ -276,3 +276,18 @@ class ArmedWatcher:
             paper_id = identify_pdf(path.name, page1, queued)
             results.append((path, paper_id))
         return results
+
+    def release(self, path: Path) -> None:
+        """Un-claim *path* so a later poll() offers it again.
+
+        For when a caller's own handling of a returned match fails after
+        poll() already marked it claimed (e.g. the file was mid-write or
+        briefly locked by an antivirus scan when the caller tried to read
+        it) -- without this, that claim is permanent and the file is lost
+        for the rest of the arming window, silently, since poll() never
+        offers an already-claimed path again. Dropping the entry entirely
+        (not just flipping ``claimed`` back to False) also drops the
+        recorded size, so the size-stability check runs again from scratch
+        rather than trusting a stale reading of a file that may still have
+        been changing. A no-op if *path* isn't currently tracked."""
+        self._seen.pop(path, None)
