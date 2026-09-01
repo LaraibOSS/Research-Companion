@@ -14,16 +14,9 @@ def acquire(meta, *, settings=None, transport=None, sleep=None,
     """Get this paper's PDF bytes, or say precisely why not.
 
     Order: native identifier first (it has never failed and needs no index),
+    then doi.org (cheap; occasionally redirects straight to a free copy),
     then every candidate the indexes know about, ranked so a repository is
     asked before a publisher.
-
-    The DOI itself is deliberately not tried as its own candidate here: a DOI
-    resolver hop that 404s (the common case for a DOI no index can locate a
-    free copy for) would add a spurious attempt ahead of the real candidates,
-    which breaks both the "no candidates -> attempts is empty" contract and
-    the outcome-set logic in `_classify` that tells a transient failure from
-    absence. `collect_candidates` already asks every index that might resolve
-    the DOI to an actual PDF location.
     """
     import time
 
@@ -54,7 +47,13 @@ def acquire(meta, *, settings=None, transport=None, sleep=None,
         if body:
             return body, Acquisition(True, None, tuple(attempts), attempts[-1].url)
 
-    # 2. every candidate the indexes know, repositories before publishers
+    # 2. the DOI itself, which sometimes redirects to a free copy
+    if doi:
+        body = try_url(f"https://doi.org/{doi}")
+        if body:
+            return body, Acquisition(True, None, tuple(attempts), attempts[-1].url)
+
+    # 3. every candidate the indexes know, repositories before publishers
     for url in rank_candidates(collect_candidates(meta, settings=settings,
                                                   fetchers=fetchers)):
         body = try_url(url)

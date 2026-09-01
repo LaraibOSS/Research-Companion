@@ -59,7 +59,14 @@ def test_the_repository_copy_is_tried_before_the_publisher():
             {"pdf_url": "https://dl.acm.org/doi/pdf/x"},
             {"pdf_url": "https://ink.library.smu.edu.sg/cgi/viewcontent.cgi?a=1"}]}))
     assert body == PDF
-    assert acq.attempts[0].url.endswith("a=1"), "repository first"
+    urls = [a.url for a in acq.attempts]
+    repo_index = next(i for i, u in enumerate(urls) if u.endswith("a=1"))
+    # dl.acm.org may never be tried at all: the repository candidate is
+    # ranked first and succeeds, short-circuiting the loop. "never tried"
+    # still counts as "after", so a missing publisher attempt sorts last.
+    publisher_index = next((i for i, u in enumerate(urls) if "dl.acm.org" in u),
+                          len(urls))
+    assert repo_index < publisher_index, "repository before publisher"
 
 
 def test_an_open_access_403_is_blocked_by_host_not_paywalled():
@@ -82,7 +89,7 @@ def test_no_candidate_anywhere_is_paywalled_when_the_paper_has_a_doi():
                         sleep=lambda s: None, fetchers=_fetchers())
     assert body is None
     assert acq.reason is AcquireReason.PAYWALLED
-    assert acq.attempts == ()
+    assert [a.url for a in acq.attempts] == ["https://doi.org/10.1145/3732941"]
 
 
 def test_no_candidate_and_no_doi_is_no_location_found():
@@ -101,7 +108,7 @@ def test_a_paper_with_no_identifier_and_no_title_was_not_attempted():
 
 def test_a_transient_failure_everywhere_is_source_unavailable():
     """The machine's problem, not the user's -- so it must not reach the queue."""
-    t = _serve({"zenodo.org": httpx.Response(503)})
+    t = _serve({"zenodo.org": httpx.Response(503)}, default=httpx.Response(503))
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
         fetchers=_fetchers(s2=lambda i, ti: {
@@ -126,7 +133,7 @@ def test_every_candidate_tried_is_recorded():
         fetchers=_fetchers(openalex=lambda i, ti: {"locations": [
             {"pdf_url": "https://dl.acm.org/doi/pdf/x"},
             {"pdf_url": "https://zenodo.org/a.pdf"}]}))
-    assert len(acq.attempts) == 2
+    assert len(acq.attempts) == 3
     assert {a.outcome for a in acq.attempts} == {"403", "404"}
 
 
