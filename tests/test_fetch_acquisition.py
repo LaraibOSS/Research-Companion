@@ -90,3 +90,17 @@ def test_the_acquisition_is_saved_on_the_metadata():
         fetch.add_doi("10.1145/3732941")
     reloaded = PaperMetadata.load("doi:10.1145/3732941")
     assert reloaded.last_acquisition["human_can_help"] is True
+
+
+def test_try_download_pdf_is_gone():
+    """It flattened 404, 403, timeout, HTML and the size cap into one None.
+    Leaving it available invites the same bug back."""
+    from research_companion import fetch
+    assert not hasattr(fetch, "_try_download_pdf")
+
+
+def test_oa_locator_is_gone():
+    """Absorbed into acquire.sources so one place decides where a PDF comes
+    from."""
+    with pytest.raises(ImportError):
+        import research_companion.oa_locator  # noqa: F401

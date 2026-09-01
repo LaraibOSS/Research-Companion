@@ -4034,9 +4034,10 @@ class TestUploadPaperPdf:
 
 # ---------------------------------------------------------------------------
 # POST /api/papers/{id}/find-pdf and POST /api/papers/find-pdfs — locate an
-# open-access PDF (research_companion.oa_locator.locate_pdf) for a paper
-# whose ingest failed for lack of one, download it, and re-run the SAME
-# retry-flow job the /retry endpoint uses.
+# open-access PDF (research_companion.acquire.acquire, the same chain
+# add_doi/add_s2/add_arxiv use) for a paper whose ingest failed for lack of
+# one, download it, and re-run the SAME retry-flow job the /retry endpoint
+# uses.
 # ---------------------------------------------------------------------------
 
 class TestFindPdf:
@@ -4076,12 +4077,15 @@ class TestFindPdf:
         assert resp.status_code == 409
 
     def test_miss_persists_oa_links_and_shows_in_listing(self, isolated_papergraph_dir, monkeypatch):
-        """When locate_pdf finds only landing-page links (no downloadable
-        PDF), the job completes as 'done' -- a miss is a completed search,
-        not a failed job -- and the links are persisted onto the failure
-        record (read-modify-write: the original error/stage survive) so
+        """When acquire() finds only a landing-page-shaped attempt (no
+        downloadable PDF), the job completes as 'done' -- a miss is a
+        completed search, not a failed job -- and links derived from the
+        Acquisition's attempts are persisted onto the failure record
+        (read-modify-write: the original error/stage survive) so
         GET /api/papers' listing carries oa_links for the library card."""
-        from research_companion import oa_locator, store
+        import research_companion.acquire as acquire_mod
+        from research_companion import store
+        from research_companion.acquire import AcquireReason, Acquisition, Attempt, HostClass
         from research_companion.agents.events import IngestFailed
 
         paper_id = "arxiv:findpdf_miss"
@@ -4091,12 +4095,14 @@ class TestFindPdf:
             "paper_id": paper_id,
         })
 
-        seeded_links = [{"label": "Publisher page", "url": "https://example.org/paper"}]
+        attempt = Attempt(url="https://example.org/paper", host_class=HostClass.PUBLISHER,
+                          status=403, outcome="403")
+        expected_links = [{"label": "Publisher", "url": "https://example.org/paper"}]
 
-        def fake_locate(meta):
-            return oa_locator.OaLocation(pdf_url=None, links=seeded_links, source="openalex")
+        def fake_acquire(meta, **kwargs):
+            return None, Acquisition(False, AcquireReason.BLOCKED_BY_HOST, (attempt,))
 
-        monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)
+        monkeypatch.setattr(acquire_mod, "acquire", fake_acquire)
 
         bus = Bus()
         app = create_lab_app(bus)
@@ -4113,12 +4119,13 @@ class TestFindPdf:
         failures = store.list_failures()
         assert paper_id in failures, "failure record was incorrectly cleared on a miss"
         assert failures[paper_id]["error"] == "no PDF on disk for arxiv:findpdf_miss"
-        assert failures[paper_id]["oa_links"] == seeded_links
+        assert failures[paper_id]["oa_links"] == expected_links
+        assert failures[paper_id]["acquisition"]["reason"] == "blocked_by_host"
 
         # GET /api/papers must carry oa_links through _build_paper_summary.
         papers = c.get("/api/papers").json()
         mine = next(p for p in papers if p["paper_id"] == paper_id)
-        assert mine["oa_links"] == seeded_links
+        assert mine["oa_links"] == expected_links
         assert mine["status"] == "failed"
 
         # The library card needs an event to re-render with the new links.
@@ -4136,10 +4143,10 @@ class TestFindPdf:
         assert mine["oa_links"] == []
 
     def test_hit_downloads_and_reingests(self, isolated_papergraph_dir, monkeypatch):
-        """When locate_pdf returns a direct pdf_url and the download seam
-        succeeds, the PDF is saved to disk, the SAME retry-flow pipeline the
-        /retry endpoint uses runs (via pipeline_overrides), and the failure
-        record is cleared -- the paper is no longer 'failed'.
+        """When acquire() returns PDF bytes, they are saved to disk, the SAME
+        retry-flow pipeline the /retry endpoint uses runs (via
+        pipeline_overrides), and the failure record is cleared -- the paper
+        is no longer 'failed'.
 
         REGRESSION: the failure record's key is very often NOT a filesystem
         path -- it can be a DOI/target string, or a stale path from an
@@ -4155,7 +4162,9 @@ class TestFindPdf:
         """
         from unittest.mock import patch
 
-        from research_companion import oa_locator, store
+        import research_companion.acquire as acquire_mod
+        from research_companion import store
+        from research_companion.acquire import Acquisition
         from research_companion.fetch import FetchError
         from research_companion.store import PaperMetadata
 
@@ -4175,12 +4184,8 @@ class TestFindPdf:
 
         _fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=False)
 
-        def fake_locate(m):
-            return oa_locator.OaLocation(pdf_url="https://example.org/hit.pdf", links=[],
-                                         source="unpaywall")
-
-        def fake_download(url, *, timeout=60.0):
-            return _UPLOAD_PDF
+        def fake_acquire(m, **kwargs):
+            return _UPLOAD_PDF, Acquisition(True, None, source="https://example.org/hit.pdf")
 
         def fake_add_local_pdf(path):
             p = Path(path)
@@ -4188,14 +4193,13 @@ class TestFindPdf:
                 raise FetchError(f"PDF not found: {p}")
             return meta
 
-        monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)
+        monkeypatch.setattr(acquire_mod, "acquire", fake_acquire)
 
         bus = Bus()
         app = create_lab_app(bus)
         app.state.pipeline_overrides = seam_overrides
 
-        with patch("research_companion.fetch._try_download_pdf", fake_download), \
-             patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), \
+        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), \
              TestClient(app) as c:
             resp = c.post(f"/api/papers/{paper_id}/find-pdf")
             assert resp.status_code == 202

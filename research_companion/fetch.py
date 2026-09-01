@@ -170,20 +170,6 @@ def _acquire_safely(meta, **kwargs) -> tuple[bytes | None, Acquisition]:
         return None, Acquisition(False, AcquireReason.SOURCE_UNAVAILABLE)
 
 
-def _try_download_pdf(url: str, *, timeout: float = 60.0) -> bytes | None:
-    """Attempt to download a PDF, returning None on failure instead of raising.
-
-    Note: add_doi/add_s2/add_arxiv no longer call this -- they go through
-    acquire() -- but research_companion.lab_api's find-pdf endpoint still
-    imports and calls it directly against an oa_locator-supplied URL, and
-    lab_api.py is out of scope for this change. Kept so that path (and its
-    tests in test_lab_api.py) keeps working."""
-    try:
-        return _download_pdf(url, timeout=timeout)
-    except (httpx.HTTPStatusError, httpx.TimeoutException, FetchError):
-        return None
-
-
 def _strip_html_tags(text: str) -> str:
     """Remove HTML/JATS tags from a string (e.g. Crossref abstracts)."""
     return re.sub(r"<[^>]+>", "", text).strip()
