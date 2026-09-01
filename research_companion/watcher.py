@@ -41,6 +41,14 @@ from research_companion.store import (
 # PDF yet, no matter what comes before the suffix.
 _IGNORED_SUFFIXES = (".crdownload", ".part", ".tmp", ".download")
 
+# `_armed_since_wall` (time.time() at arm()) and a file's st_mtime (set by
+# the OS at write time) are two separate clock reads a few microseconds
+# apart; float rounding can make a file written AFTER arming compare as
+# fractionally older. A tolerance well under any real "was this here before
+# arming" gap (which is seconds to minutes, not microseconds) absorbs that
+# noise without letting a genuinely pre-existing file slip through.
+_MTIME_TOLERANCE = 0.05
+
 
 def _ids_from_text(text: str) -> set[str]:
     """arXiv ids and DOIs findable in *text*, as full paper ids."""
@@ -62,6 +70,15 @@ def _queued_title(paper) -> str | None:
     return paper.get("title") if isinstance(paper, dict) else None
 
 
+def _contains_as_whole_token(stem: str, needle: str) -> bool:
+    """Is *needle* present in *stem* as a whole token -- bounded by the start/
+    end of the string or a non-alphanumeric character on each side -- rather
+    than merely as a substring? Guards against a short DOI suffix
+    false-positiving inside an unrelated, longer filename."""
+    pattern = r"(?<![A-Za-z0-9])" + re.escape(needle) + r"(?![A-Za-z0-9])"
+    return re.search(pattern, stem) is not None
+
+
 def _by_filename(filename, queued) -> str | None:
     """Tier 1: an identifier embedded in the filename itself."""
     if not filename:
@@ -81,8 +98,10 @@ def _by_filename(filename, queued) -> str | None:
             suffix = doi.split("/", 1)[1] if "/" in doi else doi
             # ACM's own download names are the bare DOI suffix with no
             # prefix at all ("3676641.3716025.pdf") -- neither regex above
-            # extracts that on its own, so also check plain containment.
-            if suffix and suffix in stem:
+            # extracts that on its own, so also check whole-token containment
+            # (bounded, not a raw substring match -- a short suffix must not
+            # false-positive inside an unrelated, longer filename).
+            if suffix and _contains_as_whole_token(stem, suffix):
                 return pid
     return None
 
@@ -125,15 +144,25 @@ def identify_pdf(filename, page1_text, queued) -> str | None:
 
 
 def _default_read_page1(path: Path) -> str:
-    """Parse *path* locally -- no model, no network -- and return roughly its
-    first page. Mirrors what ``extract.ensure_text`` does under the hood
-    (``get_parser().parse(pdf).text``), but works on a bare filesystem path
-    rather than a library paper id: the file isn't a library entry yet, and
-    identifying it must not write anything to the store."""
+    """Read page index 0 ONLY -- no model, no network, and never the rest of
+    the document. A file this watcher doesn't recognize is, by definition,
+    something the user never asked it to look at (a bank statement, a private
+    preprint); parsing the whole thing before discarding it would betray the
+    one invariant this design exists to provide. ``research_companion.parsers``
+    only exposes whole-document parsing (``get_parser().parse()`` loops over
+    every page before returning), so this calls pypdfium2 directly for random
+    single-page access, mirroring what ``parsers/pypdfium.py`` already does
+    per page inside its own loop -- just for page 0 alone."""
     try:
-        from research_companion.parsers import get_parser
+        import pypdfium2 as pdfium
 
-        text = get_parser().parse(Path(path)).text or ""
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            if len(pdf) == 0:
+                return ""
+            text = pdf[0].get_textpage().get_text_range() or ""
+        finally:
+            pdf.close()
     except Exception:  # noqa: BLE001 - an unparseable PDF is not a crash
         return ""
     return text[:3000]
@@ -147,31 +176,25 @@ class ArmedWatcher:
     no thread -- the caller's own tick calls it.
     """
 
-    # A file discovered this long (per the injected clock) after arming is
-    # trusted on sight: the user was off in their browser downloading it, so
-    # by the time this tick got around to looking, the write was long since
-    # done. A file that shows up in the SAME instant we armed gets no such
-    # benefit of the doubt -- it might still be mid-write -- and has to prove
-    # itself stable across a second poll instead.
-    _SETTLE_GRACE = 0.5
-
     def __init__(self, directory, *, now=time.monotonic, read_page1=None):
         self.directory = Path(directory)
         self._now = now
         self._read_page1 = read_page1 if read_page1 is not None else _default_read_page1
         self._expiry: float | None = None
         self._armed_since_wall: float = 0.0
-        self._armed_at: float = 0.0
         self._paper_ids: set[str] = set()
         self._queued_by_id: dict[str, dict] = {}
         self._seen: dict[Path, dict] = {}
 
     def arm(self, paper_ids, ttl: float = 600, queued=()) -> None:
         """Arm (or re-arm) the watcher. Additive: extends the window and adds
-        papers rather than replacing what is already armed."""
+        papers rather than replacing what is already armed. ``_armed_since_wall``
+        (the mtime-eligibility cutoff) is set only on the disarmed-to-armed
+        transition and stays put across a re-arm -- a file downloaded after
+        the FIRST click of a session is still eligible, even once a second
+        click has extended the window."""
         if not self.is_armed:
             self._armed_since_wall = time.time()
-            self._armed_at = self._now()
             self._seen = {}
         self._expiry = self._now() + ttl
         self._paper_ids |= {str(p) for p in paper_ids}
@@ -229,17 +252,14 @@ class ArmedWatcher:
                 stat = path.stat()
             except OSError:
                 continue
-            if stat.st_mtime < self._armed_since_wall:
+            if stat.st_mtime < self._armed_since_wall - _MTIME_TOLERANCE:
                 continue
 
             size = stat.st_size
             prev = self._seen.get(path)
             if prev is None:
-                already_settled = (self._now() - self._armed_at) >= self._SETTLE_GRACE
                 self._seen[path] = {"size": size, "claimed": False}
-                if not already_settled:
-                    continue  # first sighting -- wait for a second, matching poll
-                prev = self._seen[path]
+                continue  # first sighting -- wait for a second poll to confirm size
             if prev["claimed"]:
                 continue  # already reported once, never again
             if prev["size"] != size:

@@ -80,13 +80,16 @@ def test_polling_while_disarmed_reads_nothing(tmp_path):
     assert reads == [], "nothing is read while disarmed"
 
 
-def test_arming_then_polling_finds_a_new_file(tmp_path):
+def test_arming_then_polling_finds_a_completed_download(tmp_path):
+    """A completed download is claimed on the poll AFTER it is first seen --
+    the first poll only records its size."""
     clock = [100.0]
     w = ArmedWatcher(tmp_path, now=lambda: clock[0],
                      read_page1=lambda p: "10.1145/3676641.3716025")
     w.arm([q["paper_id"] for q in QUEUED], ttl=600, queued=QUEUED)
     clock[0] += 1
     (tmp_path / "3676641.3716025.pdf").write_bytes(b"%PDF-1.5 x")
+    assert w.poll() == [], "first sighting only records the size"
     found = w.poll()
     assert [f[1] for f in found] == ["doi:10.1145/3676641.3716025"]
 
@@ -159,6 +162,23 @@ def test_arming_again_extends_the_window_and_adds_papers(tmp_path):
     w.arm(["b"], ttl=600, queued=QUEUED)
     assert w.seconds_left == pytest.approx(600, abs=1)
     assert w.armed_paper_ids == {"a", "b"}
+
+
+def test_a_file_from_before_a_rearm_stays_eligible(tmp_path):
+    """The mtime-eligibility window is anchored to the FIRST arm() of a
+    session, not reset by a later re-arm: a file downloaded right after the
+    first click must not become ineligible just because the user went on to
+    queue more papers."""
+    clock = [100.0]
+    w = ArmedWatcher(tmp_path, now=lambda: clock[0],
+                     read_page1=lambda p: "10.1145/3676641.3716025")
+    w.arm(["doi:10.1145/3676641.3716025"], ttl=600, queued=QUEUED)
+    (tmp_path / "3676641.3716025.pdf").write_bytes(b"%PDF-1.5 x")
+    clock[0] += 300
+    w.arm(["arxiv:2501.02600"], ttl=600, queued=QUEUED)  # re-arm, extends window
+    assert w.poll() == [], "first sighting only records the size"
+    found = w.poll()
+    assert [f[1] for f in found] == ["doi:10.1145/3676641.3716025"]
 
 
 def test_disarming_stops_everything(tmp_path):
