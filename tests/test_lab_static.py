@@ -341,18 +341,36 @@ def test_compare_view_not_stub():
     assert "stub-view" not in cmp_js, "compare.js must not be the stub"
 
 
+def _assert_escapes_before_markup(js: str, where: str) -> None:
+    """The answer renderer must escape its whole input before building any tag.
+
+    Checked as an ORDERING inside the shared renderer rather than as a literal
+    ``escapeHtml(answer`` grep: the parameter has been renamed once already
+    (renderProseHtml shares the same body), and a guard that breaks on a rename
+    invites being 'fixed' by loosening it until it no longer guards anything.
+    """
+    start = js.index("function _render(")
+    body = js[start:]
+    param = re.match(r"function _render\(\s*([A-Za-z0-9_$]+)", body).group(1)
+    escape_at = body.find(f"escapeHtml({param}")
+    assert escape_at != -1, \
+        f"{where}: the renderer must pass its whole input through escapeHtml"
+    markup_at = body.find("`<")
+    assert markup_at != -1, f"{where}: expected the renderer to build markup"
+    assert escape_at < markup_at, \
+        f"{where}: escapeHtml must run BEFORE any tag is constructed"
+
+
 def test_ask_view_escapes_before_markup():
     """renderAnswerHtml must call escapeHtml before any tag construction.
     After W3-F4 extraction the canonical location is answerHtml.js; ask.js
     may re-export, so we check either file."""
-    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
     answer_html_js_path = STATIC_DIR / "js" / "answerHtml.js"
-    if answer_html_js_path.exists():
-        combined = ask_js + answer_html_js_path.read_text(encoding="utf-8")
-    else:
-        combined = ask_js
-    assert re.search(r"escapeHtml\(\s*answer", combined), \
-        "renderAnswerHtml must pass the raw answer through escapeHtml FIRST"
+    # Whichever file owns the renderer is the one to check. Concatenating both
+    # would find views/ask.js's own unrelated _render first.
+    owner = answer_html_js_path if answer_html_js_path.exists() \
+        else STATIC_DIR / "js" / "views" / "ask.js"
+    _assert_escapes_before_markup(owner.read_text(encoding="utf-8"), "renderAnswerHtml")
 
 
 def test_lab_css_has_f4_styles():
@@ -1234,8 +1252,25 @@ def test_answer_html_js_exports_render_answer_html():
     js = (STATIC_DIR / "js" / "answerHtml.js").read_text(encoding="utf-8")
     assert "export function renderAnswerHtml" in js, \
         "answerHtml.js must export renderAnswerHtml"
-    assert re.search(r"escapeHtml\(\s*answer", js), \
-        "answerHtml.js renderAnswerHtml must pass answer through escapeHtml FIRST"
+    _assert_escapes_before_markup(js, "answerHtml.js")
+
+
+def test_answer_html_js_exports_render_prose_html():
+    """The Report tab renders through renderProseHtml; it shares the escaping.
+
+    Report answers used to be escaped and shown verbatim, so a model's
+    ``**bold**`` reached the page as asterisks. They now go through the same
+    renderer as Ask, minus the inline citation markers the Report has no
+    handler for.
+    """
+    js = (STATIC_DIR / "js" / "answerHtml.js").read_text(encoding="utf-8")
+    assert "export function renderProseHtml" in js, \
+        "answerHtml.js must export renderProseHtml"
+    report_helpers = (STATIC_DIR / "js" / "reportHelpers.js").read_text(encoding="utf-8")
+    assert "renderProseHtml(answer)" in report_helpers, \
+        "reportHelpers must render the answer, not merely escape it"
+    assert not re.search(r"answer:\s*escapeHtml\(", report_helpers), \
+        "an escaped-only answer shows the model's raw markdown on the page"
 
 
 def test_cite_mini_card_js_exists():

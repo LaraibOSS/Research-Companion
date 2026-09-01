@@ -26,12 +26,33 @@ import { escapeHtml } from './format.js';
  * @returns {string} safe HTML
  */
 export function renderAnswerHtml(answer, citations = []) {
-  const escaped = escapeHtml(answer == null ? '' : String(answer));
+  return _render(answer, _inlineWithCitations);
+}
 
-  const inline = (s) => s
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[S?(\d+)\]/g, '<sup class="cite" data-n="$1">[$1]</sup>');
+/**
+ * The same markdown-lite rendering, but `[S1]` stays literal text.
+ *
+ * For surfaces that list their sources separately rather than inline. The
+ * Report tab is one: it renders a chip per source beneath each answer and has
+ * no handler for an inline marker, so turning `[S1]` into the superscript Ask
+ * uses would promise a link that does nothing.
+ *
+ * @param {string|null} text
+ * @returns {string} safe HTML
+ */
+export function renderProseHtml(text) {
+  return _render(text, _inlinePlain);
+}
+
+const _inlinePlain = (s) => s
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+const _inlineWithCitations = (s) => _inlinePlain(s)
+  .replace(/\[S?(\d+)\]/g, '<sup class="cite" data-n="$1">[$1]</sup>');
+
+function _render(text, inline) {
+  const escaped = escapeHtml(text == null ? '' : String(text));
 
   const blocks = escaped
     .split(/\n[ \t]*\n/)
