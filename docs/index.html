@@ -57,7 +57,11 @@
     background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(10px);
   }
   header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; }
-  .brand { font-weight: 600; letter-spacing: -0.01em; color: var(--fg); }
+  .brand { font-weight: 600; letter-spacing: -0.01em; color: var(--fg);
+           display: inline-flex; align-items: center; gap: .5rem; }
+  .brand-mark { height: 22px; width: auto; display: block; }
+  .hero-mark { height: 96px; width: auto; display: block; margin: 0 0 1.4rem; }
+  @media (max-width: 640px) { .hero-mark { height: 64px; } }
   nav.top a { color: var(--fg-dim); font-size: .87rem; margin-left: 1.5rem; }
   nav.top a:hover { color: var(--fg); text-decoration: none; }
   @media (max-width: 780px) { nav.top { display: none; } }
@@ -211,7 +215,7 @@
 
 <header class="top">
   <div class="wrap">
-    <span class="brand">Research Companion</span>
+    <span class="brand"><img src="images/logo.png" alt="" class="brand-mark">Research Companion</span>
     <nav class="top">
       <a href="#why">Why</a>
       <a href="#features">Features</a>
@@ -223,6 +227,7 @@
 </header>
 
 <div class="wrap hero">
+  <img src="images/logo.png" alt="Research Companion" class="hero-mark">
   <p class="eyebrow">Local-first · MIT · Python 3.10–3.13</p>
   <h1>Every AI research tool generates. This one <em>checks</em>.</h1>
   <p class="lede">
@@ -292,6 +297,23 @@
 
     <div class="feature">
       <div>
+        <h3>Your library, organised</h3>
+        <p>Everything you have added, filterable by evidence strength, with the reader one
+          click away and notes savable from anywhere.</p>
+        <ul>
+          <li>Add by arXiv ID, DOI, URL, or a folder of PDFs</li>
+          <li>Duplicates detected before they enter the graph</li>
+          <li>Failed ingests surface loudly instead of silently vanishing</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/library.png" alt="The Library tab showing added papers as cards with authors, year and evidence strength">
+        <figcaption>Library — eleven papers on efficient LLM inference, plus the draft, added by identifier.</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature flip">
+      <div>
         <h3>Ask your library, get citations</h3>
         <p>A question in plain language, answered from your papers with a citation after every
           claim — down to the paper <em>and section</em>, not just the title.</p>
@@ -307,20 +329,20 @@
       </figure>
     </div>
 
-    <div class="feature flip">
+    <div class="feature">
       <div>
-        <h3>Your draft, against the literature</h3>
-        <p>Every section of your draft aligned with the papers that relate to it — which
-          strengthen it, which weaken it, and the located quote behind each judgement.</p>
+        <h3>Two papers, side by side</h3>
+        <p>Shared ground and unique contributions, then a metric table assembled from what each
+          paper actually reported — with a dash wherever a paper simply did not measure it.</p>
         <ul>
-          <li>Stance and relevance per paper, labelled as AI judgements</li>
-          <li>Quotes located back to exact character offsets in the source</li>
-          <li>Opportunities where a section could be strengthened</li>
+          <li>Concepts, methods and datasets split into shared and unique</li>
+          <li>Reported numbers kept as reported, never normalised into a false comparison</li>
+          <li>A dash is a real answer: this paper did not measure that</li>
         </ul>
       </div>
       <figure>
-        <img src="images/draft.png" alt="The Draft tab showing per-section alignment cards with stance, relevance and supporting quotes">
-        <figcaption>Draft — per-section alignment, with a verified quote behind every card.</figcaption>
+        <img src="images/compare.png" alt="The Compare tab: two papers with shared and unique concepts and a table of the metrics each reported">
+        <figcaption>Compare — vLLM against FastGen, with each paper's own reported metrics.</figcaption>
       </figure>
     </div>
 
@@ -337,11 +359,96 @@
       </div>
       <figure>
         <img src="images/gaps.png" alt="The Gaps tab showing research gaps synthesised across the library, each typed, status-marked and citing its source papers">
-        <figcaption>Gaps — five themes synthesised from five papers' stated limitations.</figcaption>
+        <figcaption>Gaps — ten themes synthesised from what nine papers said about their own limits.</figcaption>
       </figure>
     </div>
 
     <div class="feature">
+      <div>
+        <h3>How the field moved</h3>
+        <p>Your library laid out by year, so you can see when a method first appears, which
+          years are crowded, and whether your direction joins a new conversation or a long-running one.</p>
+        <ul>
+          <li>Free — no model calls</li>
+          <li>Pairs with the graph: structure, then evolution</li>
+          <li>Open gaps overlay the years they were raised in</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/timeline.png" alt="The Timeline tab showing concepts, methods and datasets by publication year with open gaps marked">
+        <figcaption>Timeline — the shape of the field, from your own corpus.</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature flip">
+      <div>
+        <h3>Start with a topic, not a pile of PDFs</h3>
+        <p>Type what you are interested in and it searches real catalogues, then hands you the
+          results to add one at a time — or all at once.</p>
+        <ul>
+          <li>OpenAlex, Semantic Scholar, arXiv, Crossref and PubMed</li>
+          <li>Every result shows its source, year and citation count</li>
+          <li>Nothing enters your library until you say so</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/brainstorm.png" alt="The Brainstorm tab: a topic search returning real papers from OpenAlex with abstracts and Add buttons">
+        <figcaption>Brainstorm — a topic search, answered from live catalogues.</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div>
+        <h3>Directions, with their receipts</h3>
+        <p>What you have collected, turned into things you could actually work on — each one
+          citing the papers and the open gaps it came from.</p>
+        <ul>
+          <li>States exactly how much it read: papers, concepts, open gaps</li>
+          <li>Every direction cites real papers, never invented ones</li>
+          <li>Check novelty, or draft the direction, from the same card</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/directions.png" alt="Research Directions: proposed directions, each scored and citing the papers and gaps it came from">
+        <figcaption>Research Directions — proposals that name their own evidence.</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature flip">
+      <div>
+        <h3>Your draft, against the literature</h3>
+        <p>Every section of your draft aligned with the papers that relate to it — which
+          strengthen it, which challenge it, and the located quote behind each judgement.</p>
+        <ul>
+          <li>Stance and relevance per paper, labelled as AI judgements</li>
+          <li>Quotes located back to exact character offsets in the source</li>
+          <li>A quote that could not be found is marked unverified, not dropped</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/draft.png" alt="The Draft tab showing per-section alignment cards with stance, relevance and supporting quotes">
+        <figcaption>Draft — per-section alignment, each card carrying its quote and its verification state.</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div>
+        <h3>Not just whether you cited it — where</h3>
+        <p>Every reference in your bibliography matched against your library, and every in-text
+          citation compared with the section it is most relevant to.</p>
+        <ul>
+          <li>Coverage: which cited works you actually hold</li>
+          <li>Placement: cited in Related Work, most relevant to Results</li>
+          <li>Flagged for review, never auto-corrected — the call stays yours</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/citations.png" alt="The Citation placement panel: each cited paper with where it is cited, where it is most relevant, and a misplaced flag">
+        <figcaption>Citations — five of eleven placements worth a second look.</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature flip">
       <div>
         <h3>A cited review of your own library</h3>
         <p>A topic becomes investigation questions you can edit <em>before</em> paying to
@@ -355,40 +462,6 @@
       <figure>
         <img src="images/report.png" alt="The Report tab: a cited literature review with per-question coverage bars and citation chips">
         <figcaption>Report — plan first (free to edit), then answer. Coverage is labelled a heuristic.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature flip">
-      <div>
-        <h3>Your library, organised</h3>
-        <p>Everything you have added, filterable by evidence strength, with the reader one
-          click away and notes savable from anywhere.</p>
-        <ul>
-          <li>Add by arXiv ID, DOI, URL, or a folder of PDFs</li>
-          <li>Duplicates detected before they enter the graph</li>
-          <li>Failed ingests surface loudly instead of silently vanishing</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/library.png" alt="The Library tab showing added papers as cards with authors, year and evidence strength">
-        <figcaption>Library — six papers on LM inference, added by identifier.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature">
-      <div>
-        <h3>How the field moved</h3>
-        <p>Your library laid out by year, so you can see when a method first appears, which
-          years are crowded, and whether your direction joins a new conversation or a long-running one.</p>
-        <ul>
-          <li>Free — no model calls</li>
-          <li>Pairs with the graph: structure, then evolution</li>
-          <li>Per-paper limitations surface as diamonds on the line</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/timeline.png" alt="The Timeline tab showing the paper library arranged by publication year">
-        <figcaption>Timeline — the shape of the field, from your own corpus.</figcaption>
       </figure>
     </div>
   </div>

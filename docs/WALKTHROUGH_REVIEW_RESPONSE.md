@@ -605,6 +605,110 @@ was reported as *corrupt data*.
 
 ---
 
+## 9. Three defects the screenshots found
+
+Rebuilding the demo library so the README could show one coherent run turned up
+three bugs. None was reachable from the test suite, and none needed a special
+input: all three appeared the first time the tool was pointed at a real library
+and looked at.
+
+That is now twice — the parser bug in §8 came from the same activity. The
+pattern is worth naming: **screenshotting a product is a test.** It exercises
+every layer at once, in the order a user meets them, with a human reading the
+output. Nothing in a unit suite does that.
+
+### 9.1 The same paper, offered twice
+
+A search for "KV cache compression" returned *Scissorhands* as two results.
+OpenAlex holds it under two records — the proceedings DOI `10.52202/075280-2279`
+and the arXiv DOI `10.48550/arXiv.2305.17118` — and those two rows share **no
+identifier**. `dedupeDiscoverResults` keyed only on `doi` / `arxiv_id` / `s2_id`
+/ `pmid` / `pmcid`, so it correctly concluded they were different papers.
+
+Fixed in three parts, all in `discoverHelpers.js`:
+
+- DOIs normalised to lower case before keying. A DOI is case-insensitive; two
+  catalogues disagreeing on capitalisation were two papers.
+- `10.48550/arXiv.<id>` now *also* emits `arxiv:<id>`. A DataCite arXiv DOI
+  carries the arXiv id inside it, so a record holding only the DOI can match a
+  record holding only the id.
+- A last-resort **title + year** key. Two distinct papers with a byte-identical
+  title in the same year are rare enough that collapsing them is the better
+  error: it hides one row, where the alternative shows a duplicate on every
+  search that crosses a preprint and its published version — which is most of
+  them.
+
+The merge also **unions the identifiers**. The higher-cited copy wins the
+display, but adopts any id only the loser carried, so the surviving row never
+ends up without an add target.
+
+### 9.2 A report that showed its own markdown
+
+Report answers came out of `reportSectionModel` as `escapeHtml(answer)` and went
+straight to the page. The model writes markdown, so the page read:
+
+```
+1. **Model Partitioning**: Partitioning large models across multiple chips…
+```
+
+Ask had a renderer for exactly this (`renderAnswerHtml`); Report simply did not
+use it. It could not use it unchanged either: that renderer turns `[S1]` into a
+`<sup class="cite">` the Ask view binds a click handler to, and the Report has no
+such handler — it lists its sources as chips underneath. Rendering it there would
+have produced a citation marker that looks clickable and is not.
+
+So the renderer was split: `_render(text, inline)` holds the escaping and block
+logic, and the two exports differ only in their inline pass.
+`renderProseHtml` leaves `[S1]` as text.
+
+**A guard broke, and that mattered more than the bug.** Two static tests asserted
+the security property by grepping for the literal `escapeHtml(answer` — and the
+shared parameter is now called `text`. The tempting repair is to widen the regex
+until it matches again, which leaves a test that checks spelling rather than
+behaviour. Replaced instead with an **ordering** assertion: inside `_render`,
+find the escape call and the first backtick-`<` that starts markup, and require
+the escape to come first. Verified by breaking it deliberately — both tests fail
+when the escape is removed.
+
+### 9.3 A guard that could be silenced by a backtick
+
+`viewSymbols.test.mjs` catches a real bug that shipped twice: code referencing a
+module-scoped `_name` whose declaration never applied, so the view throws
+`ReferenceError` on mount. It works by stripping literals and comparing declared
+names against used ones.
+
+It did not strip **regex literals**. The new `_inlinePlain` contains
+``/`([^`]+)`/`` — a backtick inside a regex — which the stripper read as the
+start of a template literal and followed to the next backtick, swallowing the
+rest of the file. Every declaration after that point vanished, and the guard
+reported two perfectly good functions as undeclared.
+
+The failure mode is what makes this worth recording: the guard did not go quiet,
+it went **loud about the wrong thing**. A false positive is survivable. But the
+same blind spot could equally hide a real undeclared identifier if the swallowed
+region happened to contain the *use* rather than the declaration — and a guard
+that stops guarding without saying so is exactly the class of defect this record
+exists to track.
+
+Fixed in the test: regex literals are now skipped like strings, using the
+standard heuristic that a `/` following an identifier, number or closing bracket
+is division and anything else starts a regex.
+
+### What the demo workspace cost, and why it was rebuilt
+
+The two screenshots that survived from the previous round disagreed with each
+other. One showed a workspace called `lm-inference` with six unscored papers and
+a **"Connect a model to unlock analysis"** banner across the top; the other
+showed `demo-lm-inference` with five gap themes. Neither workspace still existed.
+A reader would have been looking at two different products.
+
+Rebuilt as one: eleven arXiv papers on efficient LLM inference, a synthetic draft
+with a real bibliography, then extraction → graph → alignment → citation
+resolution → gap synthesis → report, and every screenshot taken from that one
+state. The draft's bibliography deliberately includes one work with no arXiv
+identifier, so the citation coverage reads **12 of 13** rather than a tidy
+hundred percent.
+
 ## Declined
 
 **Aggregate truth verdicts.** The original Evidence Ledger carried a corpus-wide
@@ -665,6 +769,7 @@ translation layer written only to be deleted.
 | **10** | Submission Readiness | cheap after 3–5, expensive before |
 | **11** | Direction-ranking dimensions, no composite score | useful, not foundational |
 | **12** | Evidence Map | needs 2 for per-claim keying |
+| **13** | One entity, one type — `speculative decoding` is extracted as both a concept and a method, so it appears twice on the timeline and twice in Compare | cosmetic but visible in shipped screenshots; needs a typing policy, not a dedupe |
 | later | Research Scope | only when retrieval consumes it |
 | rejected | graph weighting · forced wizard · aggregate verdicts · domain outcome vocabularies | see Declined |
 

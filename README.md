@@ -23,8 +23,11 @@ the exact page, and a read on your own draft before a reviewer sees it.
 
 ## The tour
 
-Seven steps, each one building on the last. You can stop at any of them and still
-have something useful.
+Ten steps, each one building on the last. Every screenshot below is one run on
+one library — eleven papers on efficient LLM inference, plus a draft — so what
+you see in step 9 is what step 1 grew into.
+
+You can stop at any step and still have something useful.
 
 <br>
 
@@ -34,17 +37,18 @@ Paste an arXiv ID, a DOI, a URL, or point it at a folder of PDFs.
 That is the whole setup.
 
 ```bash
-research-companion add 1706.03762
+research-companion add 2309.06180
 ```
 
 <img src="docs/images/library.png" alt="The Library tab: papers added, shown as cards with authors, year and evidence strength">
 
 <br>
 
-### 2 · It builds a map of the ideas
+### 2 · It maps the ideas, not the citations
 
-Not a citation network — a **concept** graph. Five papers using one method become
-one node linked to all five, so you see what your corpus is actually made of.
+Five papers using one method become **one node** linked to all five — concepts,
+methods, datasets, claims and results, drawn from the papers themselves. This is
+what your corpus is actually made of.
 
 <img src="docs/images/graph.png" alt="The Graph tab: a concept-level knowledge graph of concepts, methods, datasets and claims">
 
@@ -65,48 +69,88 @@ Plain language in, an answer out — with a citation after every claim, down to 
 
 <br>
 
-### 4 · See what is still unsolved
+### 4 · Put two papers side by side
 
-Every paper's own stated limitations and future work, grouped into themes across the
-whole library. Not the tool guessing where the gaps are — **the authors saying it**.
+Shared ground, unique contributions, and a metric table built from what each
+paper actually reported — a dash where a paper simply did not measure that.
 
-<img src="docs/images/gaps.png" alt="The Gaps tab: research gaps synthesised across the library, typed, status-marked and citing sources">
-
-And a timeline of when each concept, method and dataset entered your corpus — so
-"this is new" is something you can look at rather than something you assume.
-
-<img src="docs/images/timeline.png" alt="The Timeline tab: concepts and methods plotted by year across the library">
+<img src="docs/images/compare.png" alt="The Compare tab: two papers with shared and unique concepts and a table of reported metrics">
 
 <br>
 
-### 5 · Write, with the literature beside you
+### 5 · See what is still unsolved
 
-Set your draft and every section gets checked against your papers: which strengthen
-it, which weaken it, and the located quote behind each one.
+Every paper's own stated limitations and future work, gathered across the whole
+library and marked open, partial or addressed. Not the tool guessing where the
+gaps are — **the authors saying it**, with the quote to prove they did.
+
+<img src="docs/images/gaps.png" alt="The Gaps tab: research gaps synthesised across the library, typed, status-marked and citing sources">
+
+The same gaps laid over a timeline of when each concept, method and dataset
+entered your corpus — so "this is new" becomes something you can look at.
+
+<img src="docs/images/timeline.png" alt="The Timeline tab: concepts and methods plotted by year, with open gaps marked">
+
+<br>
+
+### 6 · Or start with no papers at all
+
+Type a topic and it searches real catalogues — OpenAlex, Semantic Scholar,
+arXiv, Crossref, PubMed — and hands you the results to add one at a time.
+
+<img src="docs/images/brainstorm.png" alt="The Brainstorm tab: a topic search returning real papers from OpenAlex with abstracts and Add buttons">
+
+Then it turns what you collected into directions you could actually work on,
+each one citing the papers and the open gaps behind it — and telling you exactly
+how much it read to get there.
+
+<img src="docs/images/directions.png" alt="Research Directions: proposed directions, each scored and citing the papers and gaps it came from">
+
+<br>
+
+### 7 · Write, with the literature beside you
+
+Set your draft and every section is checked against your papers: which strengthen
+it, which challenge it, which offer an alternative — each with the located quote
+behind the judgement, marked verified or unverified.
 
 <img src="docs/images/draft.png" alt="The Draft tab: per-section alignment cards showing stance, relevance and supporting quotes">
 
 <br>
 
-### 6 · Get a cited review of your own library
+### 8 · Check where you cited it, not just whether
+
+Every reference in your bibliography matched against your library, and every
+in-text citation compared against the section it is *most relevant to*. Citing a
+paper in Related Work when it belongs in Results is the kind of thing a reviewer
+notices and you do not.
+
+<img src="docs/images/citations.png" alt="The Citation placement panel: each cited paper with where it is cited, where it is most relevant, and a misplaced flag">
+
+<br>
+
+### 9 · Get a cited review of your own library
 
 A topic becomes investigation questions you can edit **before** paying to answer
 them — planning is one model call, answering is one per question.
 
 <img src="docs/images/report.png" alt="The Report tab: a cited literature review with per-question coverage bars and citation chips">
 
-> **What it is honest about:** the cost is stated before you click, and coverage is
-> labelled a keyword-search heuristic rather than ground truth.
+> **What it is honest about:** the coverage number in that screenshot reads 1%,
+> and it is left there. It counts passages our own keyword search judged relevant
+> — a low number means the search cast a wide net, not that the answer is wrong.
+> Reporting it flattered would make it useless.
 
 <br>
 
-### 7 · Check it before anyone else does
+### 10 · Check it before anyone else does
 
-The last step costs nothing at all. Every reference looked up in real catalogues,
-every reported statistic recomputed, every venue rule checked.
+The last step costs nothing at all — no API key, no network beyond the public
+catalogues. Every reference looked up for real, every reported statistic
+recomputed, every venue rule checked.
 
 ```bash
-research-companion refcheck   <paper_id>              # do the references exist?
+research-companion refcheck    <paper_id>             # do the references exist?
 research-companion check-stats <paper_id>             # do the numbers add up?
 research-companion check-compliance <paper_id> --venue neurips
 ```
