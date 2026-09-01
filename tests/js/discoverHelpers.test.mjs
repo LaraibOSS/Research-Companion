@@ -134,6 +134,60 @@ test('dedupeDiscoverResults: falls back to title token when no namespaced id', (
   assert.equal(out[0].citation_count, 9);
 });
 
+// Found on a live search for "KV cache compression": OpenAlex returned
+// Scissorhands twice -- once under the proceedings DOI, once under the arXiv
+// DOI -- and the two rows shared no identifier, so both were offered to the
+// user.
+test('dedupeDiscoverResults: collapses the proceedings and preprint records of one paper', () => {
+  const title = 'Scissorhands: Exploiting the Persistence of Importance Hypothesis '
+    + 'for LLM KV Cache Compression at Test Time';
+  const out = dedupeDiscoverResults([
+    { title, doi: '10.52202/075280-2279', arxiv_id: null, year: 2023, citation_count: 16 },
+    { title, doi: '10.48550/arxiv.2305.17118', arxiv_id: '2305.17118', year: 2023, citation_count: 11 },
+  ]);
+  assert.equal(out.length, 1);
+});
+
+test('dedupeDiscoverResults: the surviving copy keeps an add target from the copy it replaced', () => {
+  const title = 'Scissorhands';
+  const out = dedupeDiscoverResults([
+    { title, doi: '10.52202/075280-2279', year: 2023, citation_count: 16 },
+    { title, arxiv_id: '2305.17118', year: 2023, citation_count: 11 },
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].citation_count, 16, 'higher-cited copy still wins');
+  assert.equal(out[0].arxiv_id, '2305.17118', 'but it adopts the id it lacked');
+});
+
+test('dedupeDiscoverResults: an arXiv DOI matches a bare arXiv id', () => {
+  const out = dedupeDiscoverResults([
+    { title: 'One', doi: '10.48550/arXiv.2305.17118', year: 2023 },
+    { title: 'A differently worded record', arxiv_id: '2305.17118', year: 2024 },
+  ]);
+  assert.equal(out.length, 1);
+});
+
+test('dedupeDiscoverResults: DOIs differing only in case are one paper', () => {
+  const out = dedupeDiscoverResults([
+    { title: 'One', doi: '10.1/ABC', year: 2023 },
+    { title: 'Two', doi: '10.1/abc', year: 2024 },
+  ]);
+  assert.equal(out.length, 1);
+});
+
+test('dedupeDiscoverResults: the same title in different years stays two papers', () => {
+  const out = dedupeDiscoverResults([
+    { title: 'Annual Report', year: 2023 },
+    { title: 'Annual Report', year: 2024 },
+  ]);
+  assert.equal(out.length, 2, 'a title key without a year would over-merge');
+});
+
+test('dedupeDiscoverResults: untitled rows with no ids never merge into each other', () => {
+  const out = dedupeDiscoverResults([{ title: '' }, { title: '' }]);
+  assert.equal(out.length, 0, 'nothing to key on and nothing to show');
+});
+
 test('dedupeDiscoverResults: never throws on malformed input', () => {
   assert.doesNotThrow(() => dedupeDiscoverResults(null));
   assert.doesNotThrow(() => dedupeDiscoverResults(undefined));
