@@ -177,6 +177,7 @@ try:
         mcp_cost_cap_usd: float | None = None
         contact_email: str | None = None
         claim_audit: bool | None = None
+        downloads_dir: str | None = None
         keys: dict[str, str | None] | None = None
 
     class _RegenerateBody(_BaseModel):

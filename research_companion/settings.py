@@ -54,6 +54,9 @@ DEFAULTS: dict[str, Any] = {
     "mcp_costed_tools": False,
     "mcp_cost_cap_usd": 1.0,
     "contact_email": "",
+    # Where the click-armed watcher looks for a PDF you downloaded yourself.
+    # "" means detect the OS downloads folder at use time.
+    "downloads_dir": "",
 }
 
 _VALID_PROVIDERS = {"anthropic", "openai"}
@@ -71,6 +74,25 @@ _SETTABLE_FIELDS = set(DEFAULTS.keys())
 
 class SettingsError(ValueError):
     """Raised for invalid settings values."""
+
+
+# ---------------------------------------------------------------------------
+# default_downloads_dir
+# ---------------------------------------------------------------------------
+
+def default_downloads_dir() -> str:
+    """The OS downloads folder, or "" if it cannot be determined.
+
+    Detected rather than stored so a machine-specific path never ends up in a
+    settings file that gets copied between machines.
+    """
+    import pathlib
+    try:
+        home = pathlib.Path.home()
+    except (RuntimeError, OSError):
+        return ""
+    candidate = home / "Downloads"
+    return str(candidate) if candidate.is_dir() else ""
 
 
 # ---------------------------------------------------------------------------

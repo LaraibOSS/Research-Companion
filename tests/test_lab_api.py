@@ -1978,6 +1978,7 @@ class TestSettingsEndpoints:
             "mcp_cost_cap_usd": 2.0,
             "contact_email": "me@example.org",
             "claim_audit": True,
+            "downloads_dir": "/tmp/downloads",
         }
         c = _make_client()
         unsettable = []
