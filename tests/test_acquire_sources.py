@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from research_companion.acquire.sources import (
     _parse_arxiv_feed,
     _parse_openalex_locations,
+    _parse_pmc_result,
     collect_candidates,
 )
 
@@ -87,6 +88,82 @@ def test_an_empty_feed_yields_nothing():
 def test_parsing_junk_never_raises():
     for bad in ("", "<<<", None):
         assert _parse_arxiv_feed(bad, "x") is None
+
+
+# --- EuropePMC by title -------------------------------------------------------
+# Payload shape verified live against the real API (2026-09-01, query
+# TITLE:"A rapid and low-cost protocol" AND OPEN_ACCESS:Y, resultType=core):
+# resultList.result[].fullTextUrlList.fullTextUrl[] entries each carry a
+# documentStyle ("doi" | "html" | "pdf" | ...) and a url; "pdf" is the direct
+# PDF link. Trimmed here to the fields the parser reads.
+
+_PMC_PAYLOAD = {
+    "resultList": {
+        "result": [
+            {
+                "id": "34977991",
+                "pmcid": "PMC8720503",
+                "title": "A Rapid and Low-Cost Protocol",
+                "isOpenAccess": "Y",
+                "fullTextUrlList": {
+                    "fullTextUrl": [
+                        {"availability": "Subscription required",
+                         "documentStyle": "doi",
+                         "url": "https://doi.org/10.1007/x"},
+                        {"availability": "Open access",
+                         "documentStyle": "html",
+                         "url": "https://europepmc.org/articles/PMC8720503"},
+                        {"availability": "Open access",
+                         "documentStyle": "pdf",
+                         "url": "https://europepmc.org/articles/PMC8720503?pdf=render"},
+                    ]
+                },
+            }
+        ]
+    }
+}
+
+
+def test_a_pmc_result_is_found_by_title():
+    got = _parse_pmc_result(_PMC_PAYLOAD, "A Rapid and Low-Cost Protocol")
+    assert got == "https://europepmc.org/articles/PMC8720503?pdf=render"
+
+
+def test_pmc_matching_ignores_case_and_punctuation():
+    got = _parse_pmc_result(_PMC_PAYLOAD, "a rapid and low cost protocol")
+    assert got == "https://europepmc.org/articles/PMC8720503?pdf=render"
+
+
+def test_a_pmc_title_that_does_not_match_is_rejected():
+    """As with arXiv: a near-miss must not be accepted, since attaching the
+    wrong PDF to a paper is worse than finding nothing."""
+    assert _parse_pmc_result(_PMC_PAYLOAD, "Something Entirely Different") is None
+
+
+def test_a_pmc_result_without_an_open_access_pdf_link_yields_nothing():
+    payload = {
+        "resultList": {
+            "result": [
+                {
+                    "title": "A Rapid and Low-Cost Protocol",
+                    "fullTextUrlList": {
+                        "fullTextUrl": [
+                            {"documentStyle": "doi", "url": "https://doi.org/x"},
+                            {"documentStyle": "html", "url": "https://europepmc.org/x"},
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+    assert _parse_pmc_result(payload, "A Rapid and Low-Cost Protocol") is None
+
+
+def test_a_malformed_pmc_payload_never_raises():
+    for bad in (None, {}, "nope", {"resultList": None},
+                {"resultList": {"result": "nope"}},
+                {"resultList": {"result": [None, 3]}}):
+        assert _parse_pmc_result(bad, "A Rapid and Low-Cost Protocol") is None
 
 
 # --- orchestration -----------------------------------------------------------

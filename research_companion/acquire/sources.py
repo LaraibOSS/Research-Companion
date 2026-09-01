@@ -113,10 +113,9 @@ def _fetch_arxiv_by_title(title: str) -> str | None:
 
 
 def _fetch_pmc_by_title(title: str) -> str | None:
-    """Search EuropePMC by title and return an open-access PDF URL for the
-    matching result, or None. Same title-matching discipline as arXiv: a
-    near-miss result must not be accepted, since attaching the wrong PDF is
-    worse than finding nothing."""
+    """Search EuropePMC by title and hand the raw payload to
+    _parse_pmc_result. The seam does the HTTP call and nothing else, so the
+    field-matching logic can be tested without a network."""
     if not title:
         return None
     data = _get_json(PMC_SEARCH_API, params={
@@ -125,24 +124,7 @@ def _fetch_pmc_by_title(title: str) -> str | None:
         "resultType": "core",
         "pageSize": "3",
     })
-    if not isinstance(data, dict):
-        return None
-    results = (data.get("resultList") or {}).get("result")
-    if not isinstance(results, list):
-        return None
-    want = _norm_title(title)
-    for r in results:
-        if not isinstance(r, dict):
-            continue
-        if _norm_title(r.get("title") or "") != want:
-            continue
-        urls = (r.get("fullTextUrlList") or {}).get("fullTextUrl")
-        if not isinstance(urls, list):
-            continue
-        for u in urls:
-            if isinstance(u, dict) and u.get("documentStyle") == "pdf" and u.get("url"):
-                return u["url"]
-    return None
+    return _parse_pmc_result(data, title)
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +172,36 @@ def _parse_arxiv_feed(xml, title) -> str | None:
             continue
         if _norm_title(m_ti.group(1)) == want:
             return re.sub(r"v\d+$", "", m_id.group(1).strip())
+    return None
+
+
+def _parse_pmc_result(payload, title) -> str | None:
+    """Return a direct PDF URL for the EuropePMC result whose title matches,
+    or None. Verified live against the real API (2026-09-01):
+    resultList.result[].fullTextUrlList.fullTextUrl[] entries carry
+    documentStyle ("pdf", "html", "doi", ...) and a url; a documentStyle of
+    "pdf" is the direct PDF link. Same title-matching discipline as
+    _parse_arxiv_feed: a near-miss result must not be accepted, since
+    attaching the wrong PDF to a paper is worse than finding nothing."""
+    if not isinstance(payload, dict):
+        return None
+    results = (payload.get("resultList") or {}).get("result")
+    if not isinstance(results, list):
+        return None
+    want = _norm_title(title)
+    if not want:
+        return None
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        if _norm_title(r.get("title") or "") != want:
+            continue
+        urls = (r.get("fullTextUrlList") or {}).get("fullTextUrl")
+        if not isinstance(urls, list):
+            continue
+        for u in urls:
+            if isinstance(u, dict) and u.get("documentStyle") == "pdf" and u.get("url"):
+                return u["url"]
     return None
 
 
