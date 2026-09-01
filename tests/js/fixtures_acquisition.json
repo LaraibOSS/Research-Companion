@@ -1,0 +1,100 @@
+{
+  "blocked": {
+    "obtained": false,
+    "reason": "blocked_by_host",
+    "human_can_help": true,
+    "attempts": [
+      {
+        "url": "https://dl.acm.org/doi/pdf/10.1145/3732941",
+        "host_class": "publisher",
+        "status": 403,
+        "outcome": "403"
+      }
+    ],
+    "source": null,
+    "headline": "Open access \u2014 but ACM blocks automated downloads.",
+    "detail": "Your browser can fetch this. Tried 1 source."
+  },
+  "paywalled": {
+    "obtained": false,
+    "reason": "paywalled",
+    "human_can_help": true,
+    "attempts": [
+      {
+        "url": "https://ieeexplore.ieee.org/stamp/1",
+        "host_class": "publisher",
+        "status": 404,
+        "outcome": "404"
+      }
+    ],
+    "source": null,
+    "headline": "IEEE requires a subscription.",
+    "detail": "Tried 1 source. If you are on a university network, your browser may have access."
+  },
+  "no_location": {
+    "obtained": false,
+    "reason": "no_location_found",
+    "human_can_help": true,
+    "attempts": [],
+    "source": null,
+    "headline": "No PDF found in open-access sources.",
+    "detail": "If you have the PDF, you can add it yourself."
+  },
+  "transient": {
+    "obtained": false,
+    "reason": "source_unavailable",
+    "human_can_help": false,
+    "attempts": [
+      {
+        "url": "https://arxiv.org/pdf/1",
+        "host_class": "native",
+        "status": null,
+        "outcome": "timeout"
+      }
+    ],
+    "source": null,
+    "headline": "Couldn't reach the source \u2014 we'll try again.",
+    "detail": "Tried 1 source. This usually clears on its own."
+  },
+  "not_a_pdf": {
+    "obtained": false,
+    "reason": "not_a_pdf",
+    "human_can_help": true,
+    "attempts": [
+      {
+        "url": "https://dl.acm.org/x",
+        "host_class": "publisher",
+        "status": 200,
+        "outcome": "not-pdf"
+      }
+    ],
+    "source": null,
+    "headline": "The download was a web page, not a PDF.",
+    "detail": "Tried 1 source. That usually means a login page stood in the way."
+  },
+  "not_attempted": {
+    "obtained": false,
+    "reason": "not_attempted",
+    "human_can_help": true,
+    "attempts": [],
+    "source": null,
+    "headline": "The PDF download was never attempted.",
+    "detail": "Add the PDF directly and it will work like any other paper."
+  },
+  "obtained": {
+    "obtained": true,
+    "reason": null,
+    "human_can_help": false,
+    "attempts": [
+      {
+        "url": "https://arxiv.org/pdf/1",
+        "host_class": "native",
+        "status": 200,
+        "outcome": "pdf"
+      }
+    ],
+    "source": "https://arxiv.org/pdf/1",
+    "headline": "",
+    "detail": ""
+  }
+}

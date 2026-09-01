@@ -286,6 +286,14 @@ try:
         job."""
         topic: str = ""
 
+    class _AcquireArmBody(_BaseModel):
+        """POST /api/acquire/arm body. Arming is additive -- paper_ids union
+        with whatever is already armed, and the window extends rather than
+        replaces. `ttl` is clamped server-side to 3600s regardless of what a
+        caller sends, so nothing can arm an unbounded watcher."""
+        paper_ids: list[str] = []
+        ttl: int = 600
+
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
     # with a friendly message before any endpoint tries to use these classes).
@@ -508,6 +516,26 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
             oa_links = info.get("oa_links") or []
             acquisition = info.get("acquisition")
             break
+
+    if acquisition is not None:
+        # Extend, don't replace: 7B's "acquisition": info.get("acquisition")
+        # must keep working verbatim. headline/detail come from
+        # acquire.copy so the JS never computes copy either -- it just
+        # reads acquisition.headline / acquisition.detail alongside the
+        # fields 7B already put there (obtained, reason, human_can_help,
+        # attempts, source).
+        try:
+            from research_companion.acquire import Acquisition
+            from research_companion.acquire.copy import reason_detail, reason_headline
+
+            acq_obj = Acquisition.from_dict(acquisition)
+            acquisition = {
+                **acquisition,
+                "headline": reason_headline(acq_obj),
+                "detail": reason_detail(acq_obj),
+            }
+        except (KeyError, ValueError, TypeError):
+            pass  # malformed stored acquisition -- serve it as-is rather than 500
 
     if status != "failed" and store.load_extraction(
             paper_id, prompt_sha=prompt_sha) is not None:
@@ -746,6 +774,18 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Test hook: when set to True, SSE stream terminates after replaying history
     # (mirrors dashboard's done-state pattern; production code leaves this False).
     app.state._sse_done = False
+
+    # The click-to-download watcher (Task 9): one instance per app, so
+    # /api/acquire/arm, /disarm, /status and its own poll() all agree on the
+    # same window. `downloads_dir` is "detect at use time" (settings.py), so
+    # the directory is re-resolved on every arm rather than fixed at startup.
+    def _resolve_downloads_dir() -> Path:
+        from research_companion.settings import default_downloads_dir, get_settings
+        configured = str(get_settings().get("downloads_dir") or "").strip()
+        return Path(configured or default_downloads_dir() or ".")
+
+    from research_companion.watcher import ArmedWatcher
+    app.state.watcher = ArmedWatcher(_resolve_downloads_dir())
 
     # -----------------------------------------------------------------
     # Mount static files (tolerates sparse/absent directory)
@@ -1598,6 +1638,72 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         asyncio.create_task(_run())
         return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
+    # POST /api/acquire/arm, /disarm, GET /status, GET /queue
+    #
+    # Arms/disarms/reads the click-to-download watcher (Task 9's ArmedWatcher)
+    # for the case where a paper cannot be fetched automatically -- a bot
+    # filter refuses even an open-access download, or the paper is paywalled
+    # and only the user's own institutional access can get it. The user
+    # clicks through to the publisher in their own browser; this watcher
+    # catches the PDF they save and matches it to the right paper.
+    # -----------------------------------------------------------------
+    def _acquirable_failures() -> list[dict]:
+        """Every recorded failure a person can help with, as
+        {paper_id, title, acquisition}. `human_can_help` is computed once, in
+        Python (Acquisition.human_can_help) -- this reads that stored flag
+        rather than re-deriving it, so there is exactly one source of truth
+        for queue membership. Doubles as the `queued` list the watcher
+        matches a downloaded file against (extra keys are simply ignored by
+        watcher._queued_id / _queued_title)."""
+        from research_companion import store
+
+        out: list[dict] = []
+        for key, info in store.list_failures().items():
+            if not isinstance(info, dict):
+                continue
+            acquisition = info.get("acquisition")
+            if not isinstance(acquisition, dict) or not acquisition.get("human_can_help"):
+                continue
+            paper_id = info.get("paper_id") or key
+            meta = store.PaperMetadata.load(paper_id)
+            out.append({
+                "paper_id": paper_id,
+                "title": meta.title if meta is not None else "",
+                "acquisition": acquisition,
+            })
+        return out
+
+    @app.post("/api/acquire/arm")
+    async def acquire_arm(body: _AcquireArmBody) -> dict:
+        # Clamp BEFORE arm() -- a caller must not be able to arm an
+        # unbounded watcher no matter what ttl it sends.
+        ttl = min(int(body.ttl), 3600)
+        app.state.watcher.directory = _resolve_downloads_dir()
+        app.state.watcher.arm(body.paper_ids, ttl=ttl, queued=_acquirable_failures())
+        return {
+            "armed": True,
+            "seconds_left": app.state.watcher.seconds_left,
+            "paper_ids": sorted(app.state.watcher.armed_paper_ids),
+        }
+
+    @app.post("/api/acquire/disarm")
+    async def acquire_disarm() -> dict:
+        app.state.watcher.disarm()
+        return {"armed": app.state.watcher.is_armed}
+
+    @app.get("/api/acquire/status")
+    async def acquire_status() -> dict:
+        return {
+            "armed": app.state.watcher.is_armed,
+            "seconds_left": app.state.watcher.seconds_left,
+            "paper_ids": sorted(app.state.watcher.armed_paper_ids),
+        }
+
+    @app.get("/api/acquire/queue")
+    async def acquire_queue() -> dict:
+        return {"papers": _acquirable_failures()}
 
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/pdf
