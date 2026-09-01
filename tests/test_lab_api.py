@@ -4081,6 +4081,45 @@ class TestFindPdf:
         resp = c.post("/api/papers/arxiv:findpdf_parse_err/find-pdf")
         assert resp.status_code == 409
 
+    def test_no_acquisition_and_no_pdf_on_disk_is_helpable(self, isolated_papergraph_dir):
+        """A legacy failure record with no acquisition object at all (e.g. a
+        stale "no PDF on disk" extract-stage record, or the retry path's
+        add_local_pdf "PDF not found") falls back to whether a PDF actually
+        exists on disk -- genuinely missing here, so find-pdf may proceed."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_legacy_no_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        assert store.pdf_path(paper_id) is None
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_legacy_no_pdf",
+            "paper_id": paper_id,
+        })
+        c = _make_client()
+        resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+        assert resp.status_code == 202
+
+    def test_no_acquisition_but_pdf_present_on_disk_is_409(self, isolated_papergraph_dir):
+        """A parse/OCR/graph-stage failure recorded with NO acquisition, on a
+        paper that DOES have a PDF on disk, must be refused -- proceeding
+        would re-run acquisition and silently overwrite the file the user
+        already has. This is the case the blanket "no acquisition -> always
+        helpable" default got wrong; the fix keys off store.pdf_path
+        instead."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_legacy_has_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.save_pdf(paper_id, b"%PDF-1.4 fake bytes")
+        assert store.pdf_path(paper_id) is not None
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": paper_id,
+        })
+        c = _make_client()
+        resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+        assert resp.status_code == 409
+
     def test_miss_persists_oa_links_and_shows_in_listing(self, isolated_papergraph_dir, monkeypatch):
         """When acquire() finds only a landing-page-shaped attempt (no
         downloadable PDF), the job completes as 'done' -- a miss is a
@@ -4341,6 +4380,40 @@ class TestFindPdf:
             "paper_id": "arxiv:findpdf_batch_skip",
             "acquisition": {"obtained": False, "reason": "source_unavailable",
                             "human_can_help": False, "attempts": [], "source": None},
+        })
+        c = _make_client()
+        resp = c.post("/api/papers/find-pdfs")
+        assert resp.status_code == 200
+        assert resp.json() == {"count": 0}
+
+    def test_batch_helps_a_no_acquisition_failure_with_no_pdf_on_disk(self, isolated_papergraph_dir):
+        """Mirrors test_no_acquisition_and_no_pdf_on_disk_is_helpable for the
+        batch sweep -- the same disk-backed fallback, not a blanket default."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_batch_legacy_no_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_batch_legacy_no_pdf",
+            "paper_id": paper_id,
+        })
+        c = _make_client()
+        resp = c.post("/api/papers/find-pdfs")
+        assert resp.status_code == 202
+        assert resp.json()["count"] == 1
+
+    def test_batch_skips_a_no_acquisition_failure_with_pdf_present(self, isolated_papergraph_dir):
+        """The batch sweep must not sweep up (and thus re-fetch/overwrite) a
+        paper that already has a PDF on disk, even with no acquisition
+        object recorded -- the exact regression a blanket default caused."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_batch_legacy_has_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.save_pdf(paper_id, b"%PDF-1.4 fake bytes")
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": paper_id,
         })
         c = _make_client()
         resp = c.post("/api/papers/find-pdfs")

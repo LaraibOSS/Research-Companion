@@ -264,6 +264,19 @@ test('buildRows carries acquisition through unchanged (list-view Upload/Find-PDF
   assert.equal(byId.p2.acquisition, null);
 });
 
+test('buildRows carries has_pdf through as hasPdf (list-view acquisitionAllowsHelp parity)', () => {
+  const papers = [
+    { paper_id: 'p1', title: 'PDF on disk', status: 'failed', has_pdf: true },
+    { paper_id: 'p2', title: 'No PDF on disk', status: 'failed', has_pdf: false },
+    { paper_id: 'p3', title: 'No has_pdf field', status: 'failed' },
+  ];
+  const rows = buildRows(papers, null);
+  const byId = Object.fromEntries(rows.map(r => [r.paperId, r]));
+  assert.equal(byId.p1.hasPdf, true);
+  assert.equal(byId.p2.hasPdf, false);
+  assert.equal(byId.p3.hasPdf, false);
+});
+
 // ---------------------------------------------------------------------------
 // sortRows
 // ---------------------------------------------------------------------------

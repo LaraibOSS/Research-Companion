@@ -95,7 +95,7 @@ class _FindPdfMiss(Exception):
         super().__init__(f"no open-access PDF found ({link_count} links)")
 
 
-def _failure_human_can_help(info: dict) -> bool:
+def _failure_human_can_help(info: dict, paper_id: str) -> bool:
     """Whether a person can do something about this failure -- the only
     class POST /api/papers/{id}/find-pdf and the batch sweep can actually
     fix. Reads the SAME acquisition.human_can_help flag GET /api/acquire/queue
@@ -108,13 +108,18 @@ def _failure_human_can_help(info: dict) -> bool:
     never went through acquire(), e.g. a stale "no PDF on disk" (extract.py)
     or "PDF not found" (fetch.py's add_local_pdf, the retry path) record
     from before every acquisition attempt carried a typed Acquisition --
-    defaults to True: this endpoint exists to help with exactly that class
-    of failure, and there is no stored signal here that says otherwise.
+    falls back to whether a PDF actually exists on disk for this paper
+    (store.pdf_path is None): that is exactly what "a human could help by
+    supplying the missing file" means. A parse/OCR/graph failure on a PDF
+    that IS present on disk must not get this affordance -- re-running
+    acquisition and re-saving a hit would silently overwrite a file the
+    user already has.
     """
     acquisition = info.get("acquisition")
     if isinstance(acquisition, dict):
         return bool(acquisition.get("human_can_help", True))
-    return True
+    from research_companion import store
+    return store.pdf_path(paper_id) is None
 
 # ---------------------------------------------------------------------------
 # Request body models (module-level so annotations resolve correctly with
@@ -604,6 +609,12 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         "ocr_used": bool(getattr(meta, "ocr_used", False)),
         "oa_links": oa_links,
         "acquisition": acquisition,
+        # Whether a PDF actually exists on disk for this paper -- the JS
+        # side's only source of truth for the no-acquisition Upload/Find-PDF
+        # fallback (acquisitionAllowsHelp), so it never has to guess at
+        # what's on disk the way the retired isMissingPdfFailure text-match
+        # did.
+        "has_pdf": store.pdf_path(paper_id) is not None,
     }
 
 
@@ -1539,7 +1550,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         failures = store.list_failures()
         targets: list[tuple[str, str]] = []
         for key, info in failures.items():
-            if not _failure_human_can_help(info):
+            if not _failure_human_can_help(info, info.get("paper_id") or key):
                 continue
             targets.append((key, info.get("paper_id") or key))
 
@@ -1613,7 +1624,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if matched_key is None:
             raise HTTPException(status_code=404, detail=f"No failure record for {paper_id!r}")
 
-        if not _failure_human_can_help(matched_info):
+        if not _failure_human_can_help(matched_info, paper_id):
             raise HTTPException(status_code=409,
                                 detail="failure is not a missing-PDF failure")
 

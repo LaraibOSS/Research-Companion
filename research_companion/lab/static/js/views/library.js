@@ -435,7 +435,7 @@ function _renderGrid() {
   const findAllBtn = _el.querySelector('#btn-find-all-pdfs');
   if (findAllBtn) {
     const missingCount = [...state.papers.values()]
-      .filter(p => p.status === 'failed' && acquisitionAllowsHelp(p.acquisition)).length;
+      .filter(p => p.status === 'failed' && acquisitionAllowsHelp(p.acquisition, p.has_pdf)).length;
     if (missingCount > 0) {
       findAllBtn.style.display = '';
       findAllBtn.textContent = `Find PDFs for all missing (${missingCount})`;
@@ -649,7 +649,7 @@ function _renderList(grid, papers, draftId) {
     const retryBtnHtml = row.status === 'failed'
       ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
       : '';
-    const uploadPdfBtnHtml = row.status === 'failed' && acquisitionAllowsHelp(row.acquisition)
+    const uploadPdfBtnHtml = row.status === 'failed' && acquisitionAllowsHelp(row.acquisition, row.hasPdf)
       ? `<button class="btn btn-sm btn-upload-pdf lib-upload-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Upload PDF</button>`
       : '';
     const failureReasonHtml = row.status === 'failed' && row.failureReason
@@ -661,7 +661,7 @@ function _renderList(grid, papers, draftId) {
     // findPdfAffordance/oaLinksLine take a paper-shaped object; the row uses
     // camelCase (failureReason/oaLinks/acquisition) so it's adapted here
     // rather than renaming the row's own fields.
-    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks, acquisition: row.acquisition });
+    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks, acquisition: row.acquisition, has_pdf: row.hasPdf });
     const findPdfBtnHtml = findPdfState !== 'hidden'
       ? `<button class="btn btn-sm btn-find-pdf lib-find-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Find PDF</button>`
       : '';

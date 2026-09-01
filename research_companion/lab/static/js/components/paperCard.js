@@ -105,7 +105,7 @@ export function renderPaperCard(paper) {
         ${paper.status === 'failed'
           ? `<button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>`
           : `<button class="btn btn-sm btn-read" data-paper-id="${escapeHtml(paper.paper_id)}">Read</button>`}
-        ${paper.status === 'failed' && acquisitionAllowsHelp(paper.acquisition)
+        ${paper.status === 'failed' && acquisitionAllowsHelp(paper.acquisition, paper.has_pdf)
           ? `<button class="btn btn-sm btn-upload-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Upload PDF</button>`
           : ''}
         ${findPdfState !== 'hidden'

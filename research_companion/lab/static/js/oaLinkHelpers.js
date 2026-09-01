@@ -21,19 +21,29 @@ const HTTP_URL_RE = /^https?:\/\//;
  * views/library.js). Mirrors research_companion/lab_api.py's
  * _failure_human_can_help: reads the SAME acquisition.human_can_help flag
  * (Acquisition.human_can_help, research_companion/acquire/types.py) rather
- * than re-deriving it, but a failure recorded with NO acquisition at all --
- * a stage that never went through acquire(), e.g. a stale "no PDF on disk"
- * (extract.py) or "PDF not found" (fetch.py's add_local_pdf, the retry
- * path) record from before every acquisition attempt carried a typed
- * Acquisition -- defaults to true: there is no stored signal here that
- * says a person can't help.
+ * than re-deriving it.
+ *
+ * A failure recorded with NO acquisition at all -- a stage that never went
+ * through acquire(), e.g. a stale "no PDF on disk" (extract.py) or "PDF not
+ * found" (fetch.py's add_local_pdf, the retry path) record from before
+ * every acquisition attempt carried a typed Acquisition -- falls back to
+ * `hasPdf`, computed in Python (`has_pdf` on the paper summary,
+ * research_companion/lab_api.py's _build_paper_summary) from
+ * store.pdf_path(paper_id). This module never guesses at what's on disk:
+ * helpable only when Python says there is genuinely no PDF there (hasPdf
+ * === false). A parse/OCR/graph failure on a PDF that IS present must not
+ * get this affordance -- re-running acquisition and saving a hit would
+ * silently overwrite a file the user already has.
  *
  * @param {object|null|undefined} acquisition
+ * @param {boolean|null|undefined} hasPdf — paper.has_pdf / row.hasPdf
  * @returns {boolean}
  */
-export function acquisitionAllowsHelp(acquisition) {
-  if (!acquisition || typeof acquisition !== 'object') return true;
-  return acquisition.human_can_help !== false;
+export function acquisitionAllowsHelp(acquisition, hasPdf) {
+  if (acquisition && typeof acquisition === 'object') {
+    return acquisition.human_can_help !== false;
+  }
+  return hasPdf === false;
 }
 
 /**
@@ -54,7 +64,7 @@ export function acquisitionAllowsHelp(acquisition) {
  */
 export function findPdfAffordance(paper) {
   if (!paper || paper.status !== 'failed') return 'hidden';
-  if (!acquisitionAllowsHelp(paper.acquisition)) return 'hidden';
+  if (!acquisitionAllowsHelp(paper.acquisition, paper.has_pdf)) return 'hidden';
   return oaLinksLine(paper.oa_links).show ? 'button-with-links' : 'button';
 }
 

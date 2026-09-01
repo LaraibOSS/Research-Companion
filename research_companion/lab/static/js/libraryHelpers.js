@@ -159,6 +159,10 @@ export function buildRows(papersMapOrArray, draftId) {
     // (the Upload/Find-PDF affordances) and acquisition.headline
     // (formatFailureReason) the same way the grid's paperCard.js does.
     acquisition:  paper.acquisition || null,
+    // Carried through so the list view's acquisitionAllowsHelp fallback
+    // (no acquisition -> helpable only when there is genuinely no PDF on
+    // disk) reads the SAME has_pdf Python computes, never guessing.
+    hasPdf:       paper.has_pdf === true,
   });
 
   const draftRow  = papers.filter(p => draftId != null && p.paper_id === draftId).map(toRow);
