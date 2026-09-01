@@ -20,8 +20,15 @@ from research_companion.acquire.copy import publisher_name, reason_detail, reaso
 ALL_REASONS = list(AcquireReason)
 
 # Words that assert absence. None of them may describe a refusal.
-_ABSENCE = re.compile(r"no pdf|not found|missing|does not exist|couldn't find|"
-                      r"could not find|unavailable file", re.I)
+# Broadened to catch future rephrasings: unable to, couldn't/could not with
+# action verbs, no copy, nothing found. Each alternation is specific to avoid
+# false positives like "Nothing to try" matching "nothing found".
+_ABSENCE = re.compile(
+    r"no pdf|not found|missing|does not exist|couldn't (?:find|locate|retrieve|obtain|get)|"
+    r"could not (?:find|locate|retrieve|obtain|get)|unavailable file|"
+    r"unable to (?:obtain|retrieve|locate|find|get)|no copy|nothing found",
+    re.I
+)
 
 
 def _acq(reason, attempts=()):
@@ -115,3 +122,18 @@ def test_copy_never_raises_on_an_obtained_acquisition():
     a = Acquisition(obtained=True, reason=None)
     assert reason_headline(a) == ""
     assert reason_detail(a) == ""
+
+
+def test_the_absence_guard_catches_rephrasings():
+    """Prove the guard would catch future violations — e.g. if someone rewrote
+    BLOCKED_BY_HOST as 'unable to obtain' or 'couldn't locate' — that would be
+    exactly the bug this module prevents."""
+    bad_messages = [
+        "we couldn't locate a PDF for this paper",
+        "unable to obtain a copy",
+        "no copy available",
+        "couldn't retrieve the file",
+        "nothing found for this identifier",
+    ]
+    for bad_msg in bad_messages:
+        assert _ABSENCE.search(bad_msg), f"guard should catch: {bad_msg!r}"
