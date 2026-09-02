@@ -35,7 +35,7 @@ let _listDir    = 'desc';
 // reacts to its callbacks. _acquirePoller is created lazily (see
 // _getAcquirePoller) and reused for the life of this module.
 let _acquirePoller = null;
-let _acquireEvents = [];      // recent {type,text} messages, newest first
+let _showNeedsYouHandler = null;  // window listener, removed on unmount
 let _acquireMatchedIds = new Set(); // paper_ids the watcher already caught this
                                      // session — hidden from "Needs you" even
                                      // before the eventual papers refresh lands.
@@ -58,6 +58,18 @@ export function mount(el) {
   };
   window.addEventListener('rc:open-paper', _openPaperHandler);
 
+  // The library-gaps notice sends the reader here to act on what is missing.
+  _showNeedsYouHandler = () => _selectFilter('needs-you');
+  window.addEventListener('rc:show-needs-you', _showNeedsYouHandler);
+  // Same arrive-before-mount race as the paper handoff above: the notice
+  // changes the hash and then dispatches, so the event can land before this
+  // view exists.
+  if (window.__rcPendingFilter) {
+    const pending = window.__rcPendingFilter;
+    window.__rcPendingFilter = null;
+    Promise.resolve().then(() => _selectFilter(pending));
+  }
+
   // Check the module-level handoff written by the panel before navigating —
   // handles the arrive-before-mount race (hash change triggers mount after event).
   if (window.__rcPendingPaper) {
@@ -73,6 +85,10 @@ export function unmount() {
   if (_openPaperHandler) {
     window.removeEventListener('rc:open-paper', _openPaperHandler);
     _openPaperHandler = null;
+  }
+  if (_showNeedsYouHandler) {
+    window.removeEventListener('rc:show-needs-you', _showNeedsYouHandler);
+    _showNeedsYouHandler = null;
   }
   // Stop polling — the watcher itself keeps running server-side (arming is
   // not tied to this view being mounted), only OUR poll loop tears down.
@@ -122,26 +138,15 @@ function _render() {
           <option value="title">Title</option>
         </select>
       </div>
-      <div class="acquire-banner" id="acquire-banner" style="display:none">
-        <span id="acquire-banner-text"></span>
-        <button class="btn btn-secondary btn-sm" id="acquire-disarm-btn">Disarm</button>
-        <div class="acquire-events muted" id="acquire-events"></div>
-      </div>
     </div>
     <div id="lib-grid" class="paper-grid"></div>
   `;
-
-  _el.querySelector('#acquire-disarm-btn').addEventListener('click', _disarmAcquire);
-  _renderAcquireBanner(_acquireLastModel);
 
   // Wire filter chips
   _el.querySelector('#lib-filters').addEventListener('click', (e) => {
     const chip = e.target.closest('[data-filter]');
     if (!chip) return;
-    _filter = chip.dataset.filter;
-    _el.querySelectorAll('.chip').forEach(c => c.classList.remove('chip-active'));
-    chip.classList.add('chip-active');
-    _renderGrid();
+    _selectFilter(chip.dataset.filter);
   });
 
   // Wire sort
@@ -469,43 +474,15 @@ function _wireOpenPublisherButton(btn) {
     try {
       const res = await api.armAcquire([pid]);
       _acquireLastModel = statusBannerModel(res);
-      _renderAcquireBanner(_acquireLastModel);
-      showToast(
-        `Watching your downloads for ${_acquireLastModel.countdownText} — save the PDF there and it'll be picked up`,
-        'info',
-      );
+      // One sentence, then silence until something actually happens. The
+      // watcher used to render a countdown, a disarm control and a running
+      // event log; that was a dashboard for a background errand.
+      showToast("Watching your downloads — save the PDF and it'll be added.", 'info');
       _getAcquirePoller().start();
     } catch (err) {
       showToast(`Couldn't start watching for the download: ${err.message}`, 'error');
     }
   });
-}
-
-/**
- * Update the arming banner in place (countdown + disarm control + the
- * running log of matched/unmatched/unreadable events). Hidden entirely
- * while disarmed. Called on arm, on every poll tick, and once from
- * _render() (using the last known model) so it survives a full grid<->list
- * view-mode re-render, which rebuilds this element's markup from scratch.
- * @param {{armed:boolean, countdownText:string}} model
- */
-function _renderAcquireBanner(model) {
-  if (!_el) return;
-  const banner = _el.querySelector('#acquire-banner');
-  if (!banner) return;
-  if (!model || !model.armed) {
-    banner.style.display = 'none';
-    return;
-  }
-  banner.style.display = '';
-  const textEl = banner.querySelector('#acquire-banner-text');
-  if (textEl) textEl.textContent = `Watching your downloads for a hand-fetched PDF — ${model.countdownText} left`;
-  const eventsEl = banner.querySelector('#acquire-events');
-  if (eventsEl) {
-    eventsEl.innerHTML = _acquireEvents
-      .map(ev => `<div class="acquire-event acquire-event-${escapeHtml(ev.type)}">${escapeHtml(ev.text)}</div>`)
-      .join('');
-  }
 }
 
 /**
@@ -525,18 +502,14 @@ function _getAcquirePoller() {
     onUpdate: (model) => {
       _acquireLastModel = model;
       for (const pid of model.matchedPaperIds) _acquireMatchedIds.add(pid);
-      if (model.messages.length > 0) {
-        _acquireEvents = [...model.messages, ..._acquireEvents].slice(0, 20);
-        for (const msg of model.messages) {
-          showToast(msg.text, msg.type === 'success' ? 'info' : 'error');
-        }
+      for (const msg of model.messages) {
+        showToast(msg.text, msg.type === 'success' ? 'info' : 'error');
       }
       // A match (or the window closing, which re-bounds _acquireMatchedIds
       // -- see nextMatchedIds in _renderGrid) can change queue membership --
       // reflect it right away rather than waiting on the retry job's own
       // SSE-driven refresh.
       if (model.matchedPaperIds.length > 0 || !model.armed) _renderGrid();
-      _renderAcquireBanner(model);
     },
     onGiveUp: () => {
       // Repeated fetch failures, not a normal expiry/disarm -- stop
@@ -545,7 +518,6 @@ function _getAcquirePoller() {
       // user why (see nextMatchedIds' docstring for the reasoning).
       _acquireLastModel = { armed: false, countdownText: '0:00' };
       _acquireMatchedIds = new Set();
-      _renderAcquireBanner(_acquireLastModel);
       _renderGrid();
       showToast('Lost track of the download watcher — reopen "Open at publisher" to re-arm it.', 'error');
     },
@@ -553,18 +525,21 @@ function _getAcquirePoller() {
   return _acquirePoller;
 }
 
-/** Disarm button: stop polling, tell the server, hide the banner. */
-async function _disarmAcquire() {
-  _getAcquirePoller().stop();
-  try {
-    await api.disarmAcquire();
-  } catch (err) {
-    showToast(`Disarm failed: ${err.message}`, 'error');
-  }
-  _acquireEvents = [];
-  _acquireMatchedIds = new Set();
-  _acquireLastModel = { armed: false, countdownText: '0:00' };
-  _renderAcquireBanner(_acquireLastModel);
+/**
+ * Make one filter chip the active one and re-render.
+ *
+ * Shared by the chip click handler and the library-gaps notice, so both
+ * routes leave the view in the same state -- a second implementation would
+ * let the notice select a filter the chips did not visibly agree with.
+ * @param {string} name — a chip's data-filter value
+ */
+function _selectFilter(name) {
+  if (!_el || !name) return;
+  const chip = _el.querySelector(`[data-filter="${name}"]`);
+  if (!chip) return;
+  _filter = name;
+  _el.querySelectorAll('.chip').forEach(c => c.classList.remove('chip-active'));
+  chip.classList.add('chip-active');
   _renderGrid();
 }
 

@@ -1,6 +1,6 @@
 /**
  * citationsHelpers.test.mjs — TDD tests for W5-C3 pure helpers.
- *   coverageCounts, missingCount, bannerText, statusChip,
+ *   coverageCounts, missingCount, statusChip,
  *   availableEntries, groupByStatus (citationsHelpers.js)
  *   + selectNextActions 'add-cited-papers' rule (nextAction.js)
  *
@@ -18,14 +18,12 @@ const repoRoot  = path.resolve(__dirname, '..', '..');
 const {
   coverageCounts,
   missingCount,
-  bannerText,
   statusChip,
   availableEntries,
   groupByStatus,
   linkTargetOptions,
   matchedPaperIdSet,
   unlinkedCitationOptions,
-  coverageSource,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'citationsHelpers.js')).href
 );
@@ -113,67 +111,6 @@ test('missingCount: fully covered returns 0', () => {
 
 test('missingCount: zeros returns 0', () => {
   assert.equal(missingCount({ total: 0, in_library: 0 }), 0);
-});
-
-// -----------------------------------------------------------------------
-// bannerText
-// -----------------------------------------------------------------------
-
-test('bannerText: returns correct string', () => {
-  const text = bannerText({ total: 12, in_library: 5 });
-  assert.equal(text, 'Analysis covers 5 of 12 cited references');
-});
-
-test('bannerText: zero totals', () => {
-  const text = bannerText({ total: 0, in_library: 0 });
-  assert.equal(text, 'Analysis covers 0 of 0 cited references');
-});
-
-test('bannerText: bibliography source uses "cited references" wording', () => {
-  const text = bannerText({ total: 17, in_library: 5 }, 'bibliography');
-  assert.equal(text, 'Analysis covers 5 of 17 cited references');
-});
-
-test('bannerText: related_work fallback is labelled as related-work, not cited references', () => {
-  const text = bannerText({ total: 12, in_library: 0 }, 'related_work');
-  assert.ok(!/cited references/.test(text), 'must not say "cited references"');
-  assert.ok(/related-work/.test(text), 'must mention related-work');
-  assert.ok(/bibliography not detected/.test(text));
-  assert.ok(/\b12\b/.test(text));
-});
-
-test('bannerText: none source also uses the related-work wording', () => {
-  const text = bannerText({ total: 3, in_library: 0 }, 'none');
-  assert.ok(!/cited references/.test(text));
-});
-
-test('bannerText: uses usable count when lower than in_library, with unreadable suffix', () => {
-  const text = bannerText({ total: 12, in_library: 5, usable: 3 });
-  assert.equal(text, 'Analysis covers 3 of 12 cited references (2 in library but unreadable)');
-});
-
-test('bannerText: usable equal to in_library omits the unreadable suffix', () => {
-  const text = bannerText({ total: 12, in_library: 5, usable: 5 });
-  assert.equal(text, 'Analysis covers 5 of 12 cited references');
-});
-
-test('bannerText: usable undefined falls back to in_library (stale payload, no suffix)', () => {
-  const text = bannerText({ total: 8, in_library: 3 });
-  assert.equal(text, 'Analysis covers 3 of 8 cited references');
-});
-
-// -----------------------------------------------------------------------
-// coverageSource
-// -----------------------------------------------------------------------
-
-test('coverageSource: reads .source', () => {
-  assert.equal(coverageSource({ source: 'bibliography' }), 'bibliography');
-  assert.equal(coverageSource({ source: 'related_work' }), 'related_work');
-});
-
-test('coverageSource: defaults to none', () => {
-  assert.equal(coverageSource(null), 'none');
-  assert.equal(coverageSource({}), 'none');
 });
 
 // -----------------------------------------------------------------------
