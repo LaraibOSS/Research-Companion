@@ -742,9 +742,11 @@ one of which would have been sufficient:
 
 - **It is not a paywall.** The 403 is a bot filter — ACM's own metadata
   declares the article open access, and `dl.acm.org` returns the same refusal
-  regardless of politeness (a real, documented User-Agent and per-host
-  throttling are both in place in `acquire/http.py` and verified not to move
-  it). A crawler built to defeat that filter is built to defeat a
+  regardless of politeness (a real, documented User-Agent and a per-host
+  token bucket both live in `acquire/http.py`; the bucket is a process-wide
+  singleton every caller shares, since the burst it exists to space is
+  *across* calls, and the polite `mailto:` User-Agent goes to the index
+  lookups where it is the documented etiquette — neither moves ACM). A crawler built to defeat that filter is built to defeat a
   robots-and-ToS control on a site whose terms explicitly prohibit automated
   access, not to reach content that is genuinely behind payment.
 - **It has the same ceiling.** Of the twelve real failures re-verified live in
@@ -797,29 +799,48 @@ cause.
   it," and even then only PDFs newer than that click, identified by filename,
   a page-one identifier, or title match, in that order of cost.
 - **`research-companion acquire`** (`cli.py`) — retries one paper, retries
-  every recoverable paper, or lists what is waiting, all reading the same
-  `human_can_help` flag the Lab UI reads, so the two surfaces cannot disagree
-  about which papers a person could still help with.
+  every recoverable paper, or lists what is waiting, all calling the same
+  `acquire.policy.human_can_help` the Lab UI's queue calls, so the two
+  surfaces cannot disagree about which papers a person could still help with.
+  That claim was briefly false in review: `GET /api/acquire/queue` required a
+  stored `acquisition` dict while `policy.human_can_help` fell back to a disk
+  check, which put every record written before acquisitions were attached on
+  the wrong side of it. Both now read `policy.stored_acquisition`, which is
+  also the only place that decides which `Acquisition` a record is about.
 
 ### Verified against the real failures
 
 `scripts/verify_acquisition_live.py` runs the chain, unmodified, against the
-twelve DOIs that produced the original misreport. Measured live on
-2026-09-01: 2 obtained, 5 blocked_by_host, 5 paywalled. Re-run for this task
-on 2026-09-02 came back 1 obtained, 6 blocked_by_host, 5 paywalled — a
-one-DOI shift, investigated rather than adjusted to on sight.
+twelve DOIs that produced the original misreport. **Current: 5 obtained,
+2 blocked_by_host, 5 paywalled.**
 
-The moved DOI, `10.1145/3767742`, was obtained on 2026-09-01 via a direct-PDF
-link on its institutional-repository mirror after ACM itself refused it. On
-2026-09-02 that same repository URL answers with an Incapsula bot-challenge
-page instead of the PDF — checked with both a browser User-Agent and curl's,
-challenged identically either way. ACM already refused this paper with a 403
-before and after, so nothing in the classifier or the chain changed; a
-repository added or activated bot-management on the one path that used to let
-a robot through. That is a genuine, host-side access change of exactly the
-kind this script's own comments warn against silently absorbing — recorded
-there, and the expectation updated to 1/6/5 with the investigation attached
-rather than a bare number change.
+Two shifts, both investigated rather than adjusted to on sight.
+
+The first was one DOI. `10.1145/3767742` was obtained on 2026-09-01 via a
+direct-PDF link on its institutional-repository mirror after ACM itself
+refused it; a day later that same repository URL answered with an Incapsula
+bot-challenge page instead of the PDF — checked with both a browser
+User-Agent and curl's, challenged identically either way. ACM refused the
+paper with a 403 before and after, so nothing in the classifier or the chain
+changed; a repository activated bot-management on the one path that used to
+let a robot through. A genuine host-side access change of exactly the kind
+the script's own comments warn against silently absorbing.
+
+The second was the script, not the chain. It passed `title=""`, and
+`arxiv_title`/`pmc_title` only run when a title is present — so the branch's
+headline capability, recovering a paywalled paper from its arXiv preprint by
+title, was verified by nothing at all, while `add_doi` has the Crossref
+title in hand when it calls `acquire()`. Fetching each DOI's real title makes
+the run resemble production, and five of the twelve then come back — every
+one of them from the arXiv title search after the publisher answered 403,
+including TAPAS (`2501.02600`) and NeuPIMs (`2403.00579`), the two §1.1
+predicted were automatically recoverable. Nothing was loosened to admit the
+other three: `_parse_arxiv_feed` still requires an exact normalized title
+match, so a near-miss attaches nothing.
+
+What remains is what the design said would remain: two ACM open-access
+articles that answer 403 to a robot, and five IEEE papers with no free copy
+in existence. Components 3 and 4 own both groups.
 
 ### The pattern, a third time
 

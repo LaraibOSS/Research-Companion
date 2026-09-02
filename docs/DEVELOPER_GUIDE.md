@@ -716,149 +716,253 @@ on the real PDF.js viewer's runtime behavior inside an iframe — and are
 verified manually per the upgrade procedure above and whenever
 `components/reader.js` changes in this area.
 
-## 20. Finding open-access PDFs online
+## 20. Getting a paper's PDF — `research_companion/acquire/`
 
-When a paper's PDF can't be downloaded (a paywalled DOI, an S2 entry with no
-direct file), `research_companion/oa_locator.py` gives it one more chance by
-asking the open-access aggregators the tool already trusts for either a
-direct PDF or a landing page you can follow yourself. It never scrapes a
-paywall and never bypasses one — only open, key-free aggregator APIs and
-plain links.
+One chain, one typed outcome. `acquire(meta) -> (bytes | None, Acquisition)`
+is the only thing in the codebase that decides where a PDF comes from;
+`fetch.add_doi` / `add_s2` / `add_arxiv`, the Lab's find-pdf endpoints and
+`research-companion acquire` all call it and none of them has a fallback of
+its own. It never scrapes a paywall and never bypasses one — only open,
+key-free aggregator APIs, plain links, and the user's own browser for what
+no robot may legally fetch.
 
-### The locator
+The design record is `docs/superpowers/specs/2026-09-01-pdf-acquisition-design.md`;
+this section is the map of what shipped.
 
-`locate_pdf(meta, *, settings=None, providers=DEFAULT_PROVIDERS, extra_ids=None) -> OaLocation(pdf_url, links, source)`:
+### Why it was rebuilt
 
-- **Provider order (stops at the first direct PDF):** `s2` (Semantic
-  Scholar's `openAccessPdf` field) → `unpaywall` (only when the paper has a
-  DOI **and** the `contact_email` setting is non-empty) → `openalex` (a DOI
-  lookup, or a title search when there's no DOI) → `arxiv` (only for an
-  arXiv id an *earlier* provider just surfaced — e.g. S2's
-  `externalIds.ArXiv` field — never the paper's own arXiv id, which the
-  caller would already have tried directly).
-- **Links stop accumulating once a PDF is found.** The loop checks
-  `pdf_url is not None` at the *top* of each iteration, so a provider whose
-  own turn finds the PDF still contributes its own landing-page link first
-  (each branch calls `add_link(...)` before checking whether it got a
-  `pdf_url`), but every later provider in the order never runs at all — no
-  fetch, no link (`tests/test_oa_locator.py::test_locate_stops_at_first_pdf`
-  asserts `calls == ["s2"]` when `s2` hits: `unpaywall`/`openalex` are never
-  even called). Separately, and unconditionally after the loop exits either
-  way, `locate_pdf` appends a `"DOI page"` link (when there's a DOI) and a
-  `"Google Scholar"` search link (when there's a title) — both pure string
-  formatting, no HTTP call, so they're present on a hit or a miss. A caller
-  that only wants the direct PDF reads `pdf_url`; a caller building a "try
-  these instead" UI reads `links`.
-- **Identifiers** come from `meta.paper_id`'s namespace prefix
-  (`doi:`/`arxiv:`/`s2:`, via `_derive_ids`), overlaid with any `extra_ids`
-  the caller already resolved (e.g. `fetch.add_s2` passes the DOI/arXiv ids
-  Semantic Scholar's own metadata surfaced, so the locator doesn't have to
-  re-discover them).
-- **Seams:** every network call lives in a module-level `_fetch_s2` /
-  `_fetch_unpaywall` / `_fetch_openalex` function, all routed through
-  `_get_json`, which wraps the request in a single broad `except Exception`
-  and returns `None` on **any** failure — bad status, timeout, malformed
-  JSON, whatever. Parsers (`_parse_s2`, `_parse_unpaywall`, `_parse_openalex`)
-  are pure functions over already-fetched dicts. Tests monkeypatch the
-  `_fetch_*` functions directly and never touch the network — see
-  `tests/test_oa_locator.py`.
+Every one of the 17 recorded failures on disk read `no PDF on disk for
+doi:…`. That was false in the way that mattered: the locator had already
+found the correct URL and ACM had answered **HTTP 403** — a bot filter on an
+article ACM itself declares open access, not a paywall. `bytes | None`
+flattened 404, 403, timeout, DNS failure, an HTML body and the size cap into
+the same value, so the message three stages downstream could only report the
+symptom. The whole module exists so a failure names its own cause.
 
-### Etiquette
+### The modules
 
-- **≤3 HTTP GETs per lookup.** `s2`, `unpaywall`, `openalex` each cost at
-  most one GET, and the loop stops at the first direct `pdf_url`; `arxiv`
-  never makes a request — it only formats a URL from an id another provider
-  already returned. Worst case (no hit anywhere) is exactly one GET per one
-  of those three providers, three total.
-- **`contact_email` is the polite identifier.** Unpaywall's API requires a
-  contact email on every request; rather than send a placeholder, the
-  locator skips the Unpaywall step entirely when the `contact_email` setting
-  (`settings.py`, default `""`) is empty — s2/openalex/arxiv still run. This
-  is the *only* provider the setting affects.
-- **1s spacing between papers in a batch.** The sweep endpoint (below) awaits
-  `asyncio.sleep(1.0)` between targets so a "find all" run doesn't hammer the
-  aggregator APIs back-to-back for a whole library's worth of failures.
+| file | responsibility |
+|---|---|
+| `acquire/__init__.py` | the chain, and `_classify` — which of six situations a failure was |
+| `acquire/types.py` | `Acquisition`, `Attempt`, `AcquireReason`, `HostClass`, `human_can_help` |
+| `acquire/sources.py` | ask every index for every copy (absorbs the old `oa_locator.py`) |
+| `acquire/hosts.py` | rank candidate URLs by how likely the host is to serve a robot |
+| `acquire/http.py` | the only place acquisition touches the network; retry policy; `TokenBucket` |
+| `acquire/copy.py` | reason → the sentence a user reads |
+| `acquire/policy.py` | which `Acquisition` a failure record is about, and whether a person can help |
 
-### Everything degrades
+### The chain — `acquire(meta, *, settings, transport, sleep, fetchers, bucket)`
 
-Any failure anywhere in the locator — a provider down, a malformed response,
-an unresolvable identifier — means *that provider contributes nothing*, not
-a crash: `_get_json` catches it and returns `None`, the parser sees `None`
-and returns an all-`None` dict, and `locate_pdf` moves on to the next
-provider (or returns an `OaLocation()` with no `pdf_url` and no `links` if
-every provider whiffed). Callers add a second belt: `fetch.add_doi` and
-`fetch.add_s2` (`fetch.py`) call `locate_pdf` inside their own
-`try/except Exception: OaLocation()` **after** their direct download attempt
-(DOI URL / arXiv+DOI) fails, so even a bug inside the locator can never
-break the add path — it falls back to the metadata-only save with the exact
-same warning text as before this feature (`tests/test_fetch.py`'s
-`test_add_doi_locator_exception_falls_back_to_metadata_only` /
-`test_add_s2_locator_exception_falls_back_to_metadata_only` pin this
-byte-identically).
+Stops as soon as bytes arrive; returns an `Acquisition` either way, never
+`None`, and never raises (`fetch._acquire_safely` is a defensive boundary
+only).
 
-### Wired into ingest, the Lab, and the sweep
+1. **Native identifier** — `arxiv.org/pdf/<id>` for an `arxiv:` paper.
+2. **`doi.org` direct** — cheap, and occasionally redirects to a free copy.
+3. **Index sweep** — `collect_candidates` asks s2 (`openAccessPdf`),
+   Unpaywall (`best_oa_location`, DOI + `contact_email` only), OpenAlex
+   (**every** entry in `locations[]`, not just `best_oa_location`), then
+   **arXiv by title** and **PMC by title**. The results are deduped and
+   handed to `hosts.rank_candidates`.
 
-- **`fetch.add_doi` / `fetch.add_s2`** consult the locator only as a
-  fallback after their own direct attempt fails — same behavior as always
-  when the direct attempt already succeeds.
-- **`POST /api/papers/{id}/find-pdf`** (`lab_api.py`) locates a PDF for one
-  already-failed paper: `404` when there's no failure record for that id at
-  all, `409` when the failure isn't a missing-PDF one (`_is_missing_pdf_failure`
-  — mirrors `lab/static/js/libraryHelpers.js`'s `isMissingPdfFailure`, the
-  same two wordings, "no PDF on disk" / "PDF not found" — reused rather than
-  re-implemented so the button's visibility and the endpoint's gate never
-  drift apart). Otherwise it returns `202` with a job id. A **hit** downloads
-  the PDF, saves it, and re-runs `_retry_paper_task` — the same retry-flow
-  job `/retry` uses, not a separate ingest path. A **miss** (`_FindPdfMiss`,
-  raised by `_find_pdf_for_failure`) persists the located `links` onto the
-  failure record via `store.record_failure` (a read-modify-write that
-  preserves the original `error`/`stage`/`paper_id`) as `oa_links`, publishes
-  an `IngestFailed` so the Library card re-renders with them, and completes
-  the job `"done"` (not `"failed"`) with detail
-  `"no open-access PDF found (N links)"` — a miss is a completed search, not
-  an error.
-- **`POST /api/papers/find-pdfs`** sweeps every missing-PDF failure
-  sequentially, 1s apart (see Etiquette). It's registered *before* the
-  `{paper_id:path}` routes so `"find-pdfs"` is never captured as a paper id
-  (the same ordering trick as `POST /api/papers/upload`).
-  `app.state.find_pdf_sweep_running` guards against overlapping sweeps
-  (`409` while one is running, set synchronously before the background task
-  starts); `{"count": 0}` (200) when there's nothing to do; one paper's
-  miss/error never stops the rest.
-- **Summary plumbing:** `_build_paper_summary` (`lab_api.py`) reads
-  `oa_links` off the matching failure record and includes it on every
-  `GET /api/papers` entry, so the Library can render the links line without
-  a second request.
+`collect_candidates` folds Semantic Scholar's `externalIds` into the id map
+before the later providers run, so an `s2:` paper reaches Unpaywall,
+OpenAlex-by-DOI, the `doi.org` hop and a direct arXiv fetch instead of
+depending on an exact title match. An id derived from the paper_id came from
+the user and is never overwritten.
+
+**Host-class ranking** is the core behavioural change. The old locator read
+OpenAlex's single `best_oa_location`, chosen for bibliographic quality
+rather than for whether a robot may fetch it — which is how it arrived at
+`dl.acm.org` and stopped. Candidates are now sorted (stably, so an identical
+run produces identical attempts) into `native` → `repository` → `preprint` →
+`publisher`; an unrecognised host is assumed to be a publisher, which only
+costs it a later position.
+
+**Title matching is exact.** `_parse_arxiv_feed` and `_parse_pmc_result`
+compare titles through `_norm_title` (case, punctuation and whitespace runs
+removed) and reject anything that is not an exact match — attaching the
+wrong PDF to a paper is worse than finding nothing. The title search is what
+recovers a paywalled paper from its arXiv preprint: verified live, five of
+the twelve real failures come back this way, TAPAS and NeuPIMs among them
+(`scripts/verify_acquisition_live.py`).
+
+**Every provider is a seam.** All network calls live in module-level
+`_fetch_*` functions; tests inject dicts. A provider that fails or raises
+contributes nothing and never stops the others.
+
+### The typed outcome — `Acquisition`
+
+```python
+Acquisition(obtained: bool, reason: AcquireReason | None,
+            attempts: tuple[Attempt, ...], source: str | None)
+Attempt(url: str, host_class: HostClass, status: int | None, outcome: str)
+```
+
+Six reasons, because six genuinely different situations used to share one
+sentence: `BLOCKED_BY_HOST`, `PAYWALLED`, `NO_LOCATION_FOUND`,
+`SOURCE_UNAVAILABLE`, `NOT_A_PDF`, `NOT_ATTEMPTED`. `_classify` orders them
+so a **refusal outranks an absence** — a 403 from a host that has the file
+is not the same problem as no copy existing.
+
+`human_can_help` is a computed property **on the Python object**, never
+re-derived in JS (the rule `signalHelpers.js` already follows):
+
+```python
+human_can_help = reason is not SOURCE_UNAVAILABLE
+```
+
+`PAYWALLED` is included on purpose: we cannot know whether this user has
+institutional access, and deciding on their behalf that they do not is worse
+than offering the action. `SOURCE_UNAVAILABLE` is the one reason the machine
+owns — and because nothing schedules a background retry for it, its copy
+names the surfaces that do re-run the download (adding the paper again, or
+`research-companion acquire <id>`) rather than promising one.
+
+### Retry policy and politeness — `acquire/http.py`
+
+- **Retried** (3 attempts, exponential backoff with jitter, honouring
+  `Retry-After`): `429`, `500`, `502`, `503`, `504`, timeouts, connection
+  resets. Before this, a single transient 503 permanently failed an add.
+- **Never retried**: `403`, `404`, any other 4xx, a non-PDF body. These are
+  definitive; retrying a 403 is indistinguishable from an attack and is how a
+  host-level block becomes an IP-level one — which would also take down the
+  arXiv path that has never failed.
+- **One process-wide `TokenBucket`** (`acquire.default_bucket()`) throttles
+  per host. It has to outlive a single `acquire()` call to be a throttle at
+  all: the burst is *across* calls, since citation auto-add fires
+  `_queue_add_paper` in a tight loop. `take()` accepts the caller's `sleep`
+  so tests drive it without wall time.
+- **`contact_email` in the User-Agent** for the index lookups — the
+  documented etiquette for arXiv, Crossref, Unpaywall and OpenAlex, and the
+  difference between the polite pool and being throttled. Verified *not* to
+  move ACM.
+- **The guardrails from the old `fetch._download_pdf` moved across intact**:
+  `validate_public_url` on *every* redirect hop, a 50 MB cap enforced on both
+  the declared length and the streamed bytes, a redirect cap, and a `%PDF-`
+  magic-byte check. They were never what failed.
+  `tests/test_security_regressions.py` guards them here, on the live path.
+
+### The copy — `acquire/copy.py`
+
+`reason_headline` / `reason_detail` / `failure_sentence` are pure functions
+over an `Acquisition`, kept in one module so the honesty guard
+(`tests/test_acquire_copy.py`) can walk **every** reason and assert that only
+`NO_LOCATION_FOUND` may use the vocabulary of absence. A refusal, a paywall
+and a timeout are not missing files. `_refuser` prefers a refusal from a
+*named* publisher, because the `doi.org` hop is tried first and redirects to
+the publisher — reporting "doi.org blocks automated downloads" would name the
+doorbell instead of the door.
+
+### One rule for "a person could help" — `acquire/policy.py`
+
+`policy.human_can_help(info, key)` is the single decision the CLI
+(`acquire --list/--all`), `POST /api/papers/{id}/find-pdf`, the sweep and
+`GET /api/acquire/queue` all call. It reads
+`policy.stored_acquisition(info, key)`, which is the only place that decides
+**which** `Acquisition` a failure record is about:
+
+1. the record's own `acquisition` block, when it has one;
+2. otherwise the paper's `PaperMetadata.last_acquisition` — the primary
+   path, because `add_doi`/`add_s2`/`add_arxiv` do **not** raise when the PDF
+   cannot be got (they save metadata and return), so the failure is recorded
+   three stages later by `research_companion/lab` with no acquisition
+   attached;
+3. and `None` when a PDF is already on disk or the acquisition succeeded —
+   a parse/OCR/graph failure must keep its own error, since re-acquiring
+   would overwrite a file the user already has.
+
+With no acquisition anywhere it falls back to `store.pdf_path(paper_id) is
+None`, which is exactly what "a person could help by supplying the missing
+file" means.
+
+### Persistence and the API surface
+
+Additive, as `checker_signals.py` was. `failed.json` records grow an
+`acquisition` block beside the existing `stage`/`error`/`paper_id`/`at`/
+`oa_links` keys, and `PaperMetadata.last_acquisition` carries the outcome of
+every add. `research_companion/lab`'s ingest failure sites attach both the
+acquisition and its honest sentence, so new records never carry the symptom
+string at all.
+
+- **`_build_paper_summary`** (`lab_api.py`) reads `stored_acquisition`,
+  enriches it through `_enrich_acquisition` (which adds `headline`/`detail`),
+  and — when an acquisition applies — replaces `failure_reason` with the
+  honest sentence, so the stale symptom text on records written before this
+  existed never reaches the card's tooltip either. It also carries
+  `has_pdf`, `oa_links` and `alignment_note`.
+- **`GET /api/acquire/queue`** returns the same enriched shape for every
+  failure `policy.human_can_help` admits, and doubles as the `queued` list
+  the watcher matches a downloaded file against.
+- **`POST /api/papers/{id}/find-pdf`** — `404` with no failure record,
+  `409` when a person cannot help, else `202` with a job id. A **hit** saves
+  the PDF and re-runs `_retry_paper_task` (the same job `/retry` uses). A
+  **miss** raises `_FindPdfMiss`, persists the attempted URLs as `oa_links`
+  (plus a DOI-page and a Google Scholar link), publishes `IngestFailed` so
+  the card re-renders, and completes the job `"done"` — a miss is a completed
+  search, not an error.
+- **`POST /api/papers/find-pdfs`** sweeps every helpable failure
+  sequentially, 1s apart, guarded by `app.state.find_pdf_sweep_running`
+  (`409` while one runs); one paper's miss never stops the rest.
+- **`research-companion acquire <paper_id> | --all | --list`** is the CLI
+  parity, using the identical `policy.human_can_help` rule.
+
+### The armed watcher — `research_companion/watcher.py`
+
+For what no robot may fetch: the user clicks **Open at publisher ↗**, saves
+the PDF in their own browser, and `ArmedWatcher` catches it. Armed by a
+click and time-boxed (default 10 minutes, additive across clicks, capped at
+an hour server-side). Its privacy properties are invariants, each pinned by a
+test: nothing is read while disarmed; only files whose mtime is after the
+arming instant; only `*.pdf` (`.crdownload`/`.part`/`.tmp`/`.download` are
+ignored, and a file is only considered once its size is stable across two
+polls); page one only, and only to find an identifier; a file matching
+nothing is reported and otherwise untouched.
+
+`downloads_dir` (`settings.py`, empty by default so a machine-specific path
+never travels in a settings file) is detected at use time, shown and editable
+in Settings, and reported alongside the detected folder by
+`GET /api/settings` as `downloads_dir_detected`. There is deliberately **no**
+fallback to the working directory: with no folder known, `poll()` reads
+nothing and `POST /api/acquire/arm` refuses with `409` and says so. The
+watcher is an accelerant, never a dependency — Upload PDF on the card always
+works.
+
+Identification is three tiers, cheapest first, all reusing code that already
+existed: the arXiv-id/DOI regexes from `store.py` against the **filename**
+(ACM names downloads after the DOI suffix, so this often wins outright),
+then those same regexes against **page-1 text**, then `title_is_cited` from
+`refcheck/matching.py`. Matching is a pure function over
+`(filename, page1_text, queued_papers)` and is tested with no filesystem.
 
 ### UI
 
-`research_companion/lab/static/js/oaLinkHelpers.js` is the pure, DOM-free
-layer (`node:test`-covered in `tests/js/oaLinkHelpers.test.mjs`):
+`oaLinkHelpers.js` and `acquireHelpers.js` are the pure, DOM-free layer
+(`node:test`-covered in `tests/js/oaLinkHelpers.test.mjs` and
+`tests/js/acquireHelpers.test.mjs`, whose fixtures are **generated from the
+Python model** by `scripts/generate_acquisition_fixtures.py`).
 
-- `findPdfAffordance(paper)` → `'hidden' | 'button' | 'button-with-links'`,
-  gated on `status === 'failed'` and `isMissingPdfFailure(paper.failure_reason)`.
-- `oaLinksLine(links)` validates and caps the list at 5 entries, dropping
-  anything that isn't `{label: string, url: http(s)-string}` (blocks
-  `javascript:` and other unsafe schemes a malformed locator response might
-  carry).
-- `pollDecision({status, error, consecutiveFailures, elapsedPolls})` drives
-  the job-poll loop in `views/library.js`: bounded to `MAX_POLLS = 120`
-  (~2 minutes at roughly 1 poll/second), gives up after
-  `MAX_CONSECUTIVE_FAILURES = 5` in a row, and a `404` always stops
-  immediately (the job record is gone) even if the poll-count cap was also
-  hit.
+- `acquisitionAllowsHelp(acquisition, hasPdf)` reads the backend's
+  `human_can_help`; with no acquisition it falls back to Python's `has_pdf`,
+  never guessing at what is on disk.
+- `queueRowModel(paper)` is queue membership plus the row's copy — all
+  backend-computed. `browserOpenUrl(attempts)` picks which URL **Open at
+  publisher** opens: the highest-ranked candidate a browser can use (same
+  host-class order Python uses), with the `doi.org` resolver as the fallback
+  it was specified to be, and every URL validated against `HTTP_URL_RE`
+  because this one is handed to `window.open`.
+- `formatFailureReason(reason, acquisition)` prefers `acquisition.headline`
+  — Python already knows why, and phrased it honestly.
+- `oaLinksLine(links)` validates and caps the list at 5, dropping anything
+  that is not `{label: string, url: http(s)-string}`.
+- `pollDecision(...)` and `createAcquirePoller(...)` bound the find-pdf and
+  arming poll loops (`MAX_POLLS = 120`, `MAX_CONSECUTIVE_FAILURES = 5`, a
+  `404` always stops).
 
-Both `components/paperCard.js` (grid) and `views/library.js` (list) render
-the same affordance from these helpers: a **Find PDF** button next to
-**Upload PDF** on a failed, missing-PDF paper, and — once a search has come
-back with a miss that still found candidate links — a muted
-*"Not freely available — try:"* line with up to 5 links (`target="_blank"
-rel="noopener"`). The Library header's **"Find PDFs for all missing (n)"**
-button posts to the sweep endpoint and is recomputed (count, visibility,
-enabled state) on every papers refresh. Settings gained a **Contact email**
-field (`contact_email`, empty by default) wired straight to the setting
-above — the UI hint is explicit that leaving it blank only skips the
-Unpaywall lookup, nothing else.
+The Library's chip row gains **Needs you**, populated from
+`queueRowModel(p).show` — one filter and a count, no new navigation. Both
+`components/paperCard.js` (grid) and `views/library.js` (list) render the
+same affordances from these helpers.
 
 ## 21. The reader's "Simplified" tab
 
