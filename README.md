@@ -15,7 +15,7 @@
 Drop in papers. Get a knowledge graph you can question, answers with citations to
 the exact page, and a read on your own draft before a reviewer sees it.
 
-**[Take the tour ↓](#the-tour) · [Walkthrough](docs/WALKTHROUGH.md) · [Install](#installation) · [Skills](#claude-code-skills)**
+**[Take the tour ↓](#the-tour) · [See it in full](https://laraiboss.github.io/Research-Companion/) · [Walkthrough](docs/WALKTHROUGH.md) · [Install](#installation) · [Skills](#claude-code-skills)**
 
 </div>
 

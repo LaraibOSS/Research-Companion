@@ -1,609 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Research Companion — a local-first research tool that checks rather than generates. Concept graph, cited answers, draft alignment, and reference checking that needs no API key.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="images/web/logo.png">
+<meta property="og:title" content="Research Companion">
+<meta property="og:description" content="Every AI research tool generates. This one checks.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="images/web/graph.jpg">
 <title>Research Companion</title>
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,300&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
 <style>
-  /* --------------------------------------------------------------------
-     Tokens lifted from the product itself (lab/static/css/lab.css), so the
-     page and the tool are one visual system. The four epistemic states are
-     the tool's own --color-ok / warn / muted / fail.
-     -------------------------------------------------------------------- */
+  /* ------------------------------------------------------------------
+     Research Companion — capability showcase.
+
+     Single theme, deliberately: every figure on this page is a screenshot
+     of a dark interface. A light ground would frame eleven dark rectangles
+     badly. Every colour below is therefore painted explicitly, so the page
+     holds on any host ground rather than borrowing one.
+     ------------------------------------------------------------------ */
   :root {
-    --bg:      #ffffff;
-    --panel:   #f6f8fa;
-    --border:  #d0d7de;
-    --fg:      #1f2328;
-    --fg-dim:  #656d76;
-    --muted:   #656d76;
-    --accent:  #0969da;
+    color-scheme: dark;
 
-    --ok:      #1a7f37;
-    --warn:    #9a6700;
-    --fail:    #cf222e;
-    --neutral: #656d76;
+    --ink:      #0d1117;   /* ground — the tool's own */
+    --plate:    #161b22;   /* raised surfaces */
+    --plate-2:  #1c232c;   /* figure mounts */
+    --rule:     #30363d;   /* hairlines */
+    --accent:   #58a6ff;   /* links and the key, nowhere else */
 
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
-    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
-    --measure: 36rem;
-    --radius: 6px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0d1117; --panel: #161b22; --border: #30363d;
-      --fg: #c9d1d9; --fg-dim: #8b949e; --muted: #8b949e; --accent: #58a6ff;
-      --ok: #3fb950; --warn: #d29922; --fail: #f85149; --neutral: #8b949e;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #0d1117; --panel: #161b22; --border: #30363d;
-    --fg: #c9d1d9; --fg-dim: #8b949e; --muted: #8b949e; --accent: #58a6ff;
-    --ok: #3fb950; --warn: #d29922; --fail: #f85149; --neutral: #8b949e;
+    --ok:       #3fb950;   /* semantic, separate from the accent */
+    --warn:     #d29922;
+    --dim:      #8b949e;
+
+    --fg:       #e6edf3;
+    --fg-soft:  #b9c3ce;
+
+    --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --sans:  "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+    --measure: 66ch;
+    --wide: 1180px;
   }
 
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+
   body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font-family: var(--sans); font-size: 16px; line-height: 1.65;
+    margin: 0;
+    background: var(--ink);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 clamp(1.1rem, 4vw, 2.5rem); }
-  .measure { max-width: var(--measure); }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  h1, h2, h3 { text-wrap: balance; }
 
-  /* ---- masthead ------------------------------------------------------ */
-  header.top {
-    position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(10px);
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 clamp(1.25rem, 4vw, 2.5rem);
   }
-  header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; }
-  .brand { font-weight: 600; letter-spacing: -0.01em; color: var(--fg);
-           display: inline-flex; align-items: center; gap: .5rem; }
-  .brand-mark { height: 22px; width: auto; display: block; }
-  .hero-mark { height: 96px; width: auto; display: block; margin: 0 0 1.4rem; }
-  @media (max-width: 640px) { .hero-mark { height: 64px; } }
-  nav.top a { color: var(--fg-dim); font-size: .87rem; margin-left: 1.5rem; }
-  nav.top a:hover { color: var(--fg); text-decoration: none; }
-  @media (max-width: 780px) { nav.top { display: none; } }
+  .col { max-width: var(--measure); }
 
-  /* ---- hero ---------------------------------------------------------- */
-  .hero { padding: clamp(3.5rem, 9vw, 6rem) 0 clamp(2rem, 5vw, 3rem); }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
   .eyebrow {
-    font-family: var(--mono); font-size: .7rem; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--muted); margin: 0 0 1.3rem;
-  }
-  .hero h1 {
-    font-family: var(--serif); font-weight: 600;
-    font-size: clamp(2.4rem, 5.6vw, 3.9rem); line-height: 1.05;
-    letter-spacing: -0.03em; margin: 0 0 1.3rem; max-width: 17ch;
-  }
-  .hero h1 em { font-style: italic; color: var(--accent); }
-  .lede { font-size: clamp(1.02rem, 1.8vw, 1.16rem); color: var(--fg-dim); max-width: 46ch; margin: 0; }
-  .cta { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 2rem; }
-  .btn {
-    display: inline-block; font-size: .9rem; padding: .58rem 1.1rem;
-    border-radius: var(--radius); border: 1px solid var(--accent);
-    background: var(--accent); color: #fff; font-weight: 500;
-  }
-  .btn:hover { opacity: .9; text-decoration: none; }
-  .btn.ghost { background: transparent; color: var(--fg); border-color: var(--border); }
-
-  /* ---- screenshots --------------------------------------------------- */
-  figure { margin: 0; }
-  figure img {
-    width: 100%; height: auto; display: block;
-    border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--panel);
-  }
-  figcaption {
-    font-family: var(--mono); font-size: .72rem; color: var(--muted);
-    margin-top: .6rem; letter-spacing: .02em;
-  }
-  .hero figure { margin-top: 2.8rem; }
-
-  /* ---- state strip --------------------------------------------------- */
-  .states {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
-    background: var(--border); border: 1px solid var(--border);
-    border-radius: var(--radius); overflow: hidden; margin-top: 2.6rem;
-  }
-  .state { background: var(--panel); padding: 1.05rem 1rem 1.15rem; }
-  .state .tag {
-    font-family: var(--mono); font-size: .68rem; letter-spacing: .07em;
-    text-transform: uppercase; display: flex; align-items: center; gap: .45rem;
-  }
-  .state .tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .state p { margin: .55rem 0 0; font-size: .82rem; color: var(--fg-dim); line-height: 1.5; }
-  .s-ok { color: var(--ok); } .s-warn { color: var(--warn); }
-  .s-mut { color: var(--neutral); } .s-fail { color: var(--fail); }
-  @media (max-width: 760px) { .states { grid-template-columns: repeat(2, 1fr); } }
-
-  /* ---- sections ------------------------------------------------------ */
-  section { padding: clamp(3rem, 7vw, 5rem) 0; border-top: 1px solid var(--border); }
-  .kicker {
-    font-family: var(--mono); font-size: .68rem; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--muted); margin: 0 0 .8rem;
-  }
-  section h2 { font-size: clamp(1.6rem, 3.2vw, 2.1rem); letter-spacing: -0.02em; margin: 0 0 .9rem; font-weight: 600; }
-  section > .wrap > p { color: var(--fg-dim); }
-
-  /* ---- alternating feature rows -------------------------------------- */
-  .feature {
-    display: grid; grid-template-columns: 1fr 1.25fr; gap: clamp(1.6rem, 4vw, 3.2rem);
-    align-items: center; padding: clamp(2rem, 4vw, 3rem) 0; border-top: 1px solid var(--border);
-  }
-  .feature:first-of-type { border-top: 0; }
-  .feature.flip > figure { order: -1; }
-  .feature h3 { font-size: 1.24rem; margin: 0 0 .6rem; font-weight: 600; letter-spacing: -0.01em; }
-  .feature p { margin: 0 0 .9rem; color: var(--fg-dim); font-size: .95rem; }
-  .feature ul { margin: 0; padding-left: 1.05rem; color: var(--fg-dim); font-size: .9rem; }
-  .feature li { margin: .3rem 0; }
-  @media (max-width: 820px) {
-    .feature { grid-template-columns: 1fr; }
-    .feature.flip > figure { order: 0; }
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 0;
   }
 
-  /* ---- phases -------------------------------------------------------- */
-  .phase {
-    display: grid; grid-template-columns: 3.4rem 1fr; gap: 1.4rem;
-    padding: 1.4rem 0; border-top: 1px solid var(--border);
-  }
-  .phase:last-child { border-bottom: 1px solid var(--border); }
-  .phase .num { font-family: var(--mono); font-size: .72rem; color: var(--muted); padding-top: .3rem; }
-  .phase h3 { margin: 0 0 .3rem; font-size: 1.03rem; font-weight: 600; }
-  .phase p { margin: 0 0 .7rem; color: var(--fg-dim); font-size: .9rem; }
-  .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
-  .chip {
-    font-family: var(--mono); font-size: .72rem; padding: .16rem .45rem;
-    border: 1px solid var(--border); border-radius: 4px; color: var(--fg-dim); background: var(--panel);
-  }
-  .chip.free { border-color: color-mix(in srgb, var(--ok) 42%, var(--border)); color: var(--ok); }
+  /* ---------------- hero ---------------- */
 
-  /* ---- demo panel ---------------------------------------------------- */
-  .panel {
-    border: 1px solid var(--border); background: var(--panel);
-    border-radius: var(--radius); overflow: hidden; margin-top: 1.8rem;
-  }
-  .panel-bar {
-    border-bottom: 1px solid var(--border); padding: .5rem .9rem;
-    font-family: var(--mono); font-size: .72rem; color: var(--muted);
-    background: color-mix(in srgb, var(--panel) 60%, var(--bg));
-  }
-  .panel-body { padding: .9rem 1rem 1.1rem; }
-  .row { display: flex; gap: .7rem; padding: .55rem 0; border-bottom: 1px dashed var(--border); font-size: .87rem; }
-  .row:last-child { border-bottom: 0; }
-  .badge {
-    font-family: var(--mono); font-size: .68rem; padding: .1rem .42rem;
-    border: 1px solid currentColor; border-radius: 4px; white-space: nowrap; flex: none; height: fit-content;
-  }
-  .row .what { color: var(--fg-dim); }
-  .row .what b { color: var(--fg); font-weight: 600; }
+  .hero { padding: clamp(3.5rem, 9vw, 6.5rem) 0 clamp(2rem, 5vw, 3rem); }
+  .hero img.mark { height: 74px; width: auto; display: block; margin-bottom: 1.75rem; }
 
-  /* ---- steps --------------------------------------------------------- */
-  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 2rem 0 0; }
-  ol.steps > li {
-    counter-increment: s; position: relative; padding: 0 0 1.6rem 3rem;
-    border-left: 1px solid var(--border); margin-left: .75rem;
+  h1 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: clamp(2.4rem, 6.2vw, 4.1rem);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 1rem 0 0;
+    max-width: 17ch;
   }
-  ol.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
-  ol.steps > li::before {
-    content: counter(s); position: absolute; left: -0.8rem; top: 0;
-    width: 1.6rem; height: 1.6rem; border-radius: 50%;
-    background: var(--bg); border: 1px solid var(--border); color: var(--fg-dim);
-    font-family: var(--mono); font-size: .72rem; display: grid; place-items: center;
+  h1 em { font-style: italic; color: var(--accent); }
+
+  .lede {
+    font-family: var(--serif);
+    font-size: clamp(1.1rem, 2.1vw, 1.32rem);
+    font-weight: 300;
+    line-height: 1.6;
+    color: var(--fg-soft);
+    margin: 1.6rem 0 0;
+    max-width: 54ch;
   }
-  ol.steps h3 { margin: 0 0 .35rem; font-size: 1rem; font-weight: 600; }
-  ol.steps p { margin: 0; color: var(--fg-dim); font-size: .9rem; }
 
-  pre {
-    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: .85rem 1rem; overflow-x: auto; font-family: var(--mono);
-    font-size: .82rem; line-height: 1.6; margin: .8rem 0 0; color: var(--fg);
+  /* the four-state key — the tool's thesis, shown the way an instrument
+     shows its legend */
+  .key {
+    margin-top: clamp(2.5rem, 6vw, 4rem);
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 1.6rem 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem 2rem;
   }
-  pre .c { color: var(--muted); }
-  code { font-family: var(--mono); font-size: .88em; }
+  .key-caption {
+    grid-column: 1 / -1;
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 0 0 .3rem;
+  }
+  .state code {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .04em;
+    display: block;
+    margin-bottom: .45rem;
+  }
+  .state b { font-weight: 600; font-size: .95rem; display: block; }
+  .state p { margin: .25rem 0 0; font-size: .86rem; color: var(--dim); line-height: 1.5; }
+  .s-ok   code { color: var(--ok); }
+  .s-warn code { color: var(--warn); }
+  .s-dim  code { color: var(--dim); }
 
-  table { width: 100%; border-collapse: collapse; margin-top: 1.6rem; font-size: .88rem; }
-  th, td { text-align: left; padding: .65rem .8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { font-family: var(--mono); font-size: .69rem; letter-spacing: .07em; text-transform: uppercase;
-       color: var(--muted); font-weight: 400; }
-  .scroll { overflow-x: auto; }
+  /* ---------------- phases ---------------- */
 
-  footer { border-top: 1px solid var(--border); padding: 2.4rem 0 3rem; color: var(--muted); font-size: .84rem; }
-  .foot { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .phase { padding: clamp(3.5rem, 8vw, 5.5rem) 0 0; }
+  .phase-head { display: flex; align-items: baseline; gap: 1rem; margin-bottom: .5rem; }
+  .phase-num {
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .12em;
+    color: var(--accent);
+    flex: none;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.6rem, 3.4vw, 2.15rem);
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .phase-note { margin: .6rem 0 0; color: var(--fg-soft); font-size: 1rem; }
+
+  /* ---------------- figures ---------------- */
+
+  figure {
+    margin: clamp(2rem, 4vw, 2.8rem) 0 0;
+    background: var(--plate-2);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  figure img { display: block; width: 100%; height: auto; border-bottom: 1px solid var(--rule); }
+  figcaption { padding: 1rem 1.25rem 1.15rem; }
+  .fig-label {
+    font-family: var(--mono);
+    font-size: .69rem;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--dim);
+    display: block;
+    margin-bottom: .3rem;
+  }
+  .fig-label b { color: var(--fg-soft); font-weight: 500; }
+  figcaption p { margin: 0; font-size: .93rem; color: var(--fg-soft); line-height: 1.6; max-width: 74ch; }
+
+  /* an honest note attached to a figure — what the tool refuses to claim */
+  .caveat {
+    margin: .75rem 0 0;
+    padding-left: .85rem;
+    border-left: 2px solid var(--warn);
+    font-size: .86rem;
+    color: var(--dim);
+    line-height: 1.55;
+    max-width: 70ch;
+  }
+  .caveat b { color: var(--fg-soft); font-weight: 500; }
+
+  /* ---------------- terminal ---------------- */
+
+  .term {
+    margin: clamp(2rem, 4vw, 2.8rem) 0 0;
+    background: var(--plate);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+  .term pre {
+    margin: 0;
+    padding: 1.2rem 1.35rem;
+    font-family: var(--mono);
+    font-size: .8rem;
+    line-height: 1.75;
+    color: var(--fg-soft);
+    white-space: pre;
+  }
+  .term .c { color: var(--dim); }
+  .term .g { color: var(--ok); }
+  .term .r { color: #f85149; }
+  .term .p { color: var(--accent); }
+
+  /* ---------------- closing ---------------- */
+
+  .close { padding: clamp(4rem, 9vw, 6rem) 0 clamp(3rem, 6vw, 4.5rem); }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 2rem 2.5rem;
+    margin-top: 2rem;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: .82rem;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--fg);
+    margin: 0 0 .6rem;
+  }
+  .grid-2 p { margin: 0 0 .5rem; font-size: .92rem; color: var(--fg-soft); }
+  .grid-2 code {
+    font-family: var(--mono);
+    font-size: .82rem;
+    color: var(--fg);
+    background: var(--plate);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .12rem .4rem;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 2rem 0 3.5rem;
+    color: var(--dim);
+    font-size: .84rem;
+  }
+  footer .row { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; justify-content: space-between; }
+
+  /* ---------------- motion, kept restrained ---------------- */
+
+  .rise { opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease; }
+  .rise.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .rise { opacity: 1; transform: none; transition: none; }
+  }
 </style>
+</head>
+<body>
 
-<header class="top">
-  <div class="wrap">
-    <span class="brand"><img src="images/logo.png" alt="" class="brand-mark">Research Companion</span>
-    <nav class="top">
-      <a href="#why">Why</a>
-      <a href="#features">Features</a>
-      <a href="#lifecycle">Lifecycle</a>
-      <a href="#start">Get started</a>
-      <a href="https://github.com/LaraibOSS/Research-Companion">GitHub</a>
-    </nav>
-  </div>
-</header>
+<div class="wrap">
 
-<div class="wrap hero">
-  <img src="images/logo.png" alt="Research Companion" class="hero-mark">
-  <p class="eyebrow">Local-first · MIT · Python 3.10–3.13</p>
-  <h1>Every AI research tool generates. This one <em>checks</em>.</h1>
-  <p class="lede">
-    Turn a pile of papers into a knowledge graph you can question — then take your own
-    draft through alignment, claim auditing and submission checks. On your machine,
-    with the deterministic half running on no API key at all.
-  </p>
-  <div class="cta">
-    <a class="btn" href="#start">Get started</a>
-    <a class="btn ghost" href="WALKTHROUGH.md">Read the walkthrough</a>
-    <a class="btn ghost" href="https://github.com/LaraibOSS/Research-Companion">Source</a>
-  </div>
+  <header class="hero">
+    <img class="mark" src="images/web/logo.png" alt="Research Companion">
+    <p class="eyebrow">Local-first · MIT · Python 3.10–3.13</p>
+    <h1>Every AI research tool generates. This one <em>checks</em>.</h1>
+    <p class="lede">
+      Drop in papers. Get a concept graph you can question, answers that cite the
+      exact section they came from, and a read on your own draft before a reviewer
+      sees it. On your machine, with the deterministic half running on no API key.
+    </p>
 
-  <figure>
-    <img src="images/graph.png" alt="The Research Lab showing a concept-level knowledge graph built from a paper library">
-    <figcaption>The Research Lab — a concept-level graph of your library, built as papers are added.</figcaption>
-  </figure>
+    <div class="key">
+      <p class="key-caption">Four states, kept apart everywhere</p>
+      <div class="state s-ok">
+        <code>CHECKED</code>
+        <b>Verified</b>
+        <p>A completed check established it. The only state that earns a tick.</p>
+      </div>
+      <div class="state s-warn">
+        <code>HEURISTIC</code>
+        <b>Advisory</b>
+        <p>A model judged it. Useful, fallible, never presented as fact.</p>
+      </div>
+      <div class="state s-dim">
+        <code>DEGRADED</code>
+        <b>Could not check</b>
+        <p>Attempted and could not finish. Not evidence of a problem.</p>
+      </div>
+      <div class="state s-dim">
+        <code>NOT_APPLICABLE</code>
+        <b>Not applicable</b>
+        <p>Meaningless for this document. Nothing is outstanding.</p>
+      </div>
+    </div>
+  </header>
 
-  <div class="states">
-    <div class="state"><span class="tag s-ok">Verified</span>
-      <p>A completed check established it. The only state that earns a tick.</p></div>
-    <div class="state"><span class="tag s-warn">Advisory</span>
-      <p>A model judged it. Useful, fallible, never presented as fact.</p></div>
-    <div class="state"><span class="tag s-mut">Could not check</span>
-      <p>Attempted and could not finish. Not evidence of a problem.</p></div>
-    <div class="state"><span class="tag s-fail">Problem found</span>
-      <p>The one adverse verdict. Everything else is a failure to check.</p></div>
-  </div>
+  <!-- I -->
+  <section class="phase">
+    <div class="col">
+      <div class="phase-head">
+        <span class="phase-num">I</span>
+        <h2>Discovery</h2>
+      </div>
+      <p class="phase-note">
+        Getting papers in, whether you already have them or only have a question.
+      </p>
+    </div>
+
+    <figure class="rise">
+      <img src="images/web/library.jpg" alt="The Library tab: papers as cards with authors, year, evidence strength and stance counts against the draft" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 1 — <b>Library</b></span>
+        <p>
+          Papers arrive by arXiv ID, DOI, URL, or a folder of PDFs. Each card carries its
+          evidence strength and how it stands against the paper you are writing. A scanned
+          PDF that yields no text fails loudly rather than entering the library empty.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/brainstorm.jpg" alt="The Brainstorm tab: a topic search returning real papers from OpenAlex with abstracts and Add buttons" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 2 — <b>Brainstorm</b></span>
+        <p>
+          Start from a topic instead of a folder. Searches OpenAlex, Semantic Scholar, arXiv,
+          Crossref and PubMed, and hands you the results to add one at a time. Nothing enters
+          your library until you say so.
+        </p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- II -->
+  <section class="phase">
+    <div class="col">
+      <div class="phase-head">
+        <span class="phase-num">II</span>
+        <h2>Understanding</h2>
+      </div>
+      <p class="phase-note">
+        What your corpus is actually made of, and what it can answer.
+      </p>
+    </div>
+
+    <figure class="rise">
+      <img src="images/web/graph.jpg" alt="The Graph tab: a concept-level knowledge graph of concepts, methods, datasets and claims" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 3 — <b>Graph</b></span>
+        <p>
+          Not a citation network — a concept graph. Five papers using one method become one
+          node linked to all five, so you see the shape of the corpus rather than a web of
+          who cited whom.
+        </p>
+        <p class="caveat">
+          <b>What it will not claim:</b> this is density within your library, not the field.
+          Load six papers on one method and that method will look dominant.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/ask.jpg" alt="The Ask tab answering a question with inline citation chips to specific papers and sections" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 4 — <b>Ask</b></span>
+        <p>
+          Plain language in, an answer out, with a citation after every claim down to the paper
+          <em>and section</em>. Click a citation and the source opens at that passage. A quoted
+          span that cannot be found verbatim is flagged, not quietly kept.
+        </p>
+        <p class="caveat">
+          <b>What it will not claim:</b> if your library does not cover the question, it says so
+          rather than guessing. That refusal is the feature.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/compare.jpg" alt="The Compare tab: two papers with shared and unique concepts and a table of the metrics each reported" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 5 — <b>Compare</b></span>
+        <p>
+          Two papers side by side: shared ground, unique contributions, and a table built from
+          what each one actually reported. A dash is a real answer — that paper did not measure
+          it. Numbers stay as published rather than being normalised into a false comparison.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/timeline.jpg" alt="The Timeline tab: concepts, methods and datasets plotted by year with open gaps marked" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 6 — <b>Timeline</b></span>
+        <p>
+          Every concept, method and dataset by the year it enters your corpus. A long row is an
+          idea the field kept using; a row starting recently is an emerging one. Diamonds mark
+          gaps the papers left open. Free — no model calls.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/report.jpg" alt="The Report tab: a cited literature review with per-question coverage bars and citation chips" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 7 — <b>Report</b></span>
+        <p>
+          A topic becomes investigation questions you can edit <em>before</em> paying to answer
+          them. Planning is one model call; answering is one per question, and the cost is stated
+          before you click.
+        </p>
+        <p class="caveat">
+          <b>What it will not claim:</b> the coverage figure is a keyword-search heuristic against
+          what the tool's own search judged relevant — not ground truth, and labelled as such on
+          screen.
+        </p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- III -->
+  <section class="phase">
+    <div class="col">
+      <div class="phase-head">
+        <span class="phase-num">III</span>
+        <h2>Opportunity</h2>
+      </div>
+      <p class="phase-note">
+        What the literature admits is unfinished — and what you could do about it.
+      </p>
+    </div>
+
+    <figure class="rise">
+      <img src="images/web/gaps.jpg" alt="The Gaps tab: research gaps synthesised across the library, typed, status-marked and citing sources" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 8 — <b>Gaps</b></span>
+        <p>
+          Every paper's own stated limitations and future work, gathered across the library and
+          marked open, partial or addressed. Not the tool guessing where the gaps are — the
+          authors saying so, with the quote to prove they did.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/directions.jpg" alt="Research Directions: proposed directions, each scored and citing the papers and gaps it came from" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 9 — <b>Research directions</b></span>
+        <p>
+          Turns what you collected into things you could work on, each citing the real papers and
+          open gaps behind it. It states exactly how much it read to get there — papers, concepts,
+          open gaps — so a proposal can be checked rather than trusted.
+        </p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- IV -->
+  <section class="phase">
+    <div class="col">
+      <div class="phase-head">
+        <span class="phase-num">IV</span>
+        <h2>Development</h2>
+      </div>
+      <p class="phase-note">
+        Your draft, held against the literature while you write it.
+      </p>
+    </div>
+
+    <figure class="rise">
+      <img src="images/web/draft.jpg" alt="The Draft tab: per-section alignment cards showing stance, relevance and supporting quotes" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 10 — <b>Draft alignment</b></span>
+        <p>
+          Every section of your draft checked against every paper: which strengthen it, which
+          challenge it, which offer an alternative — each with the located quote behind the
+          judgement, marked verified or unverified.
+        </p>
+        <p class="caveat">
+          <b>What it will not claim:</b> a paper it has not read is not scored at all. A stance
+          derived from a bare title would look identical to one built on a full text, so it
+          refuses instead.
+        </p>
+      </figcaption>
+    </figure>
+
+    <figure class="rise">
+      <img src="images/web/citations.jpg" alt="The Citation placement panel: each cited paper with where it is cited, where it is most relevant, and a misplaced flag" loading="lazy">
+      <figcaption>
+        <span class="fig-label">Fig. 11 — <b>Citations</b></span>
+        <p>
+          Not just whether you cited a work — <em>where</em>. Every reference matched against your
+          library, and every in-text citation compared with the section it is most relevant to.
+          Citing a paper in Related Work when it belongs in Results is what a reviewer notices and
+          you do not.
+        </p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- V -->
+  <section class="phase">
+    <div class="col">
+      <div class="phase-head">
+        <span class="phase-num">V</span>
+        <h2>Verification</h2>
+      </div>
+      <p class="phase-note">
+        The last step costs nothing at all — no API key, no model, no network beyond the
+        public catalogues. Every reference looked up for real, every reported statistic
+        recomputed, every venue rule checked.
+      </p>
+    </div>
+
+    <div class="term rise">
+<pre><span class="c">$</span> research-companion refcheck <span class="p">&lt;paper_id&gt;</span>
+
+<span class="g">OK</span> [verified]   Vaswani et al. Attention is all you need. NeurIPS
+<span class="g">OK</span> [verified]   Devlin et al. BERT: pre-training of deep bidirectional transformers
+<span class="r">XX</span> [unverified] Zzyzx Q. Nonexistent. A paper that was never written anywhere.
+
+Summary: 39 verified, 0 suspect, 1 unverified (40 references)
+
+<span class="c">$</span> research-companion check-stats      <span class="p">&lt;paper_id&gt;</span>   <span class="c"># do the numbers add up?</span>
+<span class="c">$</span> research-companion check-compliance <span class="p">&lt;paper_id&gt;</span> --venue neurips
+</pre>
+    </div>
+
+    <div class="col">
+      <p class="phase-note" style="margin-top:1.6rem">
+        A missing reference is never called fabricated. Zero statistics found is never reported
+        as passed. An unreachable catalogue is never treated as evidence of absence. Those
+        distinctions are enforced in the type system, not left to copy discipline.
+      </p>
+    </div>
+  </section>
+
+  <!-- closing -->
+  <section class="close">
+    <div class="col">
+      <p class="eyebrow">Getting it</p>
+      <h2 style="margin-top:.6rem">Runs on your machine.</h2>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <h3>Install</h3>
+        <p><code>pip install -e ".[server]"</code></p>
+        <p><code>research-companion lab serve</code></p>
+        <p>The deterministic half — reference checking, statistic recomputation, venue
+          compliance — needs no API key and no account.</p>
+      </div>
+      <div>
+        <h3>As Claude Code skills</h3>
+        <p>The same checks run as skills, so an agent can use them directly:
+          <code>submission-check</code> and <code>refcheck</code>.</p>
+      </div>
+      <div>
+        <h3>Your data</h3>
+        <p>Papers, graph, notes and drafts stay in a folder on your disk. Anything that costs
+          money or sends data anywhere is opt-in, and the tool behaves identically when it is
+          switched off.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="row">
+      <span>Research Companion — MIT licensed · <a href="https://github.com/LaraibOSS/Research-Companion">Source on GitHub</a></span>
+      <span>Figures captured from a live workspace of eleven papers on efficient LLM inference</span>
+    </div>
+  </footer>
+
 </div>
 
-<section id="why">
-  <div class="wrap">
-    <p class="kicker">Why it exists</p>
-    <h2>Absence of evidence is not evidence of absence</h2>
-    <div class="measure">
-      <p>Ask a language model about the literature and it answers fluently. Some of it is
-        true. Some cites papers that were never written. You cannot tell which by reading,
-        and the confident ones are the dangerous ones.</p>
-      <p>So the tool is built around one rule: <b>a check that did not run is never shown as
-        a check that passed.</b> It is enforced in the type system — a result whose status is
-        incomplete cannot carry a conclusion, and the code refuses to construct one.</p>
-    </div>
-
-    <div class="panel">
-      <div class="panel-bar">research-companion refcheck · 40 references · no model calls</div>
-      <div class="panel-body">
-        <div class="row"><span class="badge s-ok">verified</span>
-          <span class="what"><b>Attention Is All You Need</b> — matched in arXiv and CrossRef</span></div>
-        <div class="row"><span class="badge s-fail">not found</span>
-          <span class="what"><b>Zzyzx Q. Nonexistent, 2099</b> — no record in the catalogues searched.
-            <em>Not proof it is fabricated: books, theses and very recent preprints land here too.</em></span></div>
-        <div class="row"><span class="badge s-mut">could not check</span>
-          <span class="what"><b>Hochreiter &amp; Schmidhuber</b> — no source could be reached. This is
-            <em>not</em> evidence the reference is missing.</span></div>
-        <div class="row"><span class="badge s-mut">not applicable</span>
-          <span class="what"><b>GRIM test</b> — applies to means of bounded integer items, not to these
-            results. Nothing is outstanding.</span></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="features">
-  <div class="wrap">
-    <p class="kicker">In the tool</p>
-    <h2>What you actually see</h2>
-
-    <div class="feature">
-      <div>
-        <h3>Your library, organised</h3>
-        <p>Everything you have added, filterable by evidence strength, with the reader one
-          click away and notes savable from anywhere.</p>
-        <ul>
-          <li>Add by arXiv ID, DOI, URL, or a folder of PDFs</li>
-          <li>Duplicates detected before they enter the graph</li>
-          <li>Failed ingests surface loudly instead of silently vanishing</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/library.png" alt="The Library tab showing added papers as cards with authors, year and evidence strength">
-        <figcaption>Library — eleven papers on efficient LLM inference, plus the draft, added by identifier.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature flip">
-      <div>
-        <h3>Ask your library, get citations</h3>
-        <p>A question in plain language, answered from your papers with a citation after every
-          claim — down to the paper <em>and section</em>, not just the title.</p>
-        <ul>
-          <li>Click any citation to open the source at that passage</li>
-          <li>If the library does not cover it, it says so instead of guessing</li>
-          <li>Quotes are checked to appear verbatim in the source</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/ask.png" alt="The Ask tab answering a question with inline citations to specific papers and sections">
-        <figcaption>Ask — every claim carries a citation chip back to the exact section.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature">
-      <div>
-        <h3>Two papers, side by side</h3>
-        <p>Shared ground and unique contributions, then a metric table assembled from what each
-          paper actually reported — with a dash wherever a paper simply did not measure it.</p>
-        <ul>
-          <li>Concepts, methods and datasets split into shared and unique</li>
-          <li>Reported numbers kept as reported, never normalised into a false comparison</li>
-          <li>A dash is a real answer: this paper did not measure that</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/compare.png" alt="The Compare tab: two papers with shared and unique concepts and a table of the metrics each reported">
-        <figcaption>Compare — vLLM against FastGen, with each paper's own reported metrics.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature flip">
-      <div>
-        <h3>What the papers admit is unfinished</h3>
-        <p>Every paper's own stated limitations and future work, grouped into themes across
-          the whole library. Not the tool guessing where the gaps are — the authors saying it.</p>
-        <ul>
-          <li>Typed as limitation or future work, and classified by kind</li>
-          <li>Marked open, partially addressed, or addressed</li>
-          <li>Every theme cites the papers it came from</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/gaps.png" alt="The Gaps tab showing research gaps synthesised across the library, each typed, status-marked and citing its source papers">
-        <figcaption>Gaps — ten themes synthesised from what nine papers said about their own limits.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature">
-      <div>
-        <h3>How the field moved</h3>
-        <p>Your library laid out by year, so you can see when a method first appears, which
-          years are crowded, and whether your direction joins a new conversation or a long-running one.</p>
-        <ul>
-          <li>Free — no model calls</li>
-          <li>Pairs with the graph: structure, then evolution</li>
-          <li>Open gaps overlay the years they were raised in</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/timeline.png" alt="The Timeline tab showing concepts, methods and datasets by publication year with open gaps marked">
-        <figcaption>Timeline — the shape of the field, from your own corpus.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature flip">
-      <div>
-        <h3>Start with a topic, not a pile of PDFs</h3>
-        <p>Type what you are interested in and it searches real catalogues, then hands you the
-          results to add one at a time — or all at once.</p>
-        <ul>
-          <li>OpenAlex, Semantic Scholar, arXiv, Crossref and PubMed</li>
-          <li>Every result shows its source, year and citation count</li>
-          <li>Nothing enters your library until you say so</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/brainstorm.png" alt="The Brainstorm tab: a topic search returning real papers from OpenAlex with abstracts and Add buttons">
-        <figcaption>Brainstorm — a topic search, answered from live catalogues.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature">
-      <div>
-        <h3>Directions, with their receipts</h3>
-        <p>What you have collected, turned into things you could actually work on — each one
-          citing the papers and the open gaps it came from.</p>
-        <ul>
-          <li>States exactly how much it read: papers, concepts, open gaps</li>
-          <li>Every direction cites real papers, never invented ones</li>
-          <li>Check novelty, or draft the direction, from the same card</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/directions.png" alt="Research Directions: proposed directions, each scored and citing the papers and gaps it came from">
-        <figcaption>Research Directions — proposals that name their own evidence.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature flip">
-      <div>
-        <h3>Your draft, against the literature</h3>
-        <p>Every section of your draft aligned with the papers that relate to it — which
-          strengthen it, which challenge it, and the located quote behind each judgement.</p>
-        <ul>
-          <li>Stance and relevance per paper, labelled as AI judgements</li>
-          <li>Quotes located back to exact character offsets in the source</li>
-          <li>A quote that could not be found is marked unverified, not dropped</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/draft.png" alt="The Draft tab showing per-section alignment cards with stance, relevance and supporting quotes">
-        <figcaption>Draft — per-section alignment, each card carrying its quote and its verification state.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature">
-      <div>
-        <h3>Not just whether you cited it — where</h3>
-        <p>Every reference in your bibliography matched against your library, and every in-text
-          citation compared with the section it is most relevant to.</p>
-        <ul>
-          <li>Coverage: which cited works you actually hold</li>
-          <li>Placement: cited in Related Work, most relevant to Results</li>
-          <li>Flagged for review, never auto-corrected — the call stays yours</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/citations.png" alt="The Citation placement panel: each cited paper with where it is cited, where it is most relevant, and a misplaced flag">
-        <figcaption>Citations — five of eleven placements worth a second look.</figcaption>
-      </figure>
-    </div>
-
-    <div class="feature flip">
-      <div>
-        <h3>A cited review of your own library</h3>
-        <p>A topic becomes investigation questions you can edit <em>before</em> paying to
-          answer them — planning is one model call, answering is one per question.</p>
-        <ul>
-          <li>Cost stated before you click, in model calls</li>
-          <li>Every claim carries a citation chip to the exact paper and section</li>
-          <li>Coverage labelled a keyword-search heuristic, never ground truth</li>
-        </ul>
-      </div>
-      <figure>
-        <img src="images/report.png" alt="The Report tab: a cited literature review with per-question coverage bars and citation chips">
-        <figcaption>Report — plan first (free to edit), then answer. Coverage is labelled a heuristic.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<section id="lifecycle">
-  <div class="wrap">
-    <p class="kicker">How it fits together</p>
-    <h2>Six phases, nothing enforced</h2>
-    <p class="measure">A recommended lifecycle over a non-linear workspace. Follow it end to end,
-      or open any tab at any time — compare papers before building the graph, check citations
-      mid-draft, return to discovery after choosing a direction.</p>
-
-    <div style="margin-top:2.2rem">
-      <div class="phase"><div class="num">01</div><div>
-        <h3>Define</h3>
-        <p>One isolated workspace per project, so an unrelated paper never skews the graph,
-          the gaps, or the directions that come out of them.</p>
-        <div class="chips"><span class="chip free">Researches</span><span class="chip free">Home</span></div>
-      </div></div>
-      <div class="phase"><div class="num">02</div><div>
-        <h3>Build the evidence base</h3>
-        <p>Search the real literature, add what is worth reading, let it be parsed and
-          extracted — then <b>read it yourself</b>. Everything downstream is computed from this.</p>
-        <div class="chips"><span class="chip free">Discover</span><span class="chip">Ingest &amp; extract</span><span class="chip free">Reader</span><span class="chip free">Notes</span></div>
-      </div></div>
-      <div class="phase"><div class="num">03</div><div>
-        <h3>Understand the field</h3>
-        <p>A concept-level graph — five papers using one method are one node linked to all
-          five — then how that structure evolved, then what the authors say is unfinished.</p>
-        <div class="chips"><span class="chip free">Graph</span><span class="chip free">Timeline</span><span class="chip">Gaps</span></div>
-      </div></div>
-      <div class="phase"><div class="num">04</div><div>
-        <h3>Find an opportunity</h3>
-        <p>Ranked directions grounded in your library and its stated gaps, screened against
-          real prior work from public catalogues — never against the model's memory.</p>
-        <div class="chips"><span class="chip">Directions</span><span class="chip">Novelty screen</span><span class="chip">Brief</span></div>
-      </div></div>
-      <div class="phase"><div class="num">05</div><div>
-        <h3>Develop the paper</h3>
-        <p>Draft alignment, a cited literature review over your own library, and the hard
-          question: does the cited passage actually support the claim?</p>
-        <div class="chips"><span class="chip">Alignment</span><span class="chip">Claim audit</span><span class="chip">Report</span></div>
-      </div></div>
-      <div class="phase"><div class="num">06</div><div>
-        <h3>Verify and submit</h3>
-        <p>Do the references exist? Do the statistics add up? Does anything near-duplicate
-          your earlier work? Will the venue desk-reject it?</p>
-        <div class="chips"><span class="chip free">Reference check</span><span class="chip free">Statcheck</span><span class="chip free">Overlap</span><span class="chip free">Venue rules</span></div>
-      </div></div>
-    </div>
-    <p style="margin-top:1rem;font-size:.82rem;color:var(--muted)">
-      <span class="chip free" style="display:inline-block">green</span> runs with no API key and no model calls.
-    </p>
-  </div>
-</section>
-
-<section id="start">
-  <div class="wrap">
-    <p class="kicker">Get started</p>
-    <h2>From install to a checked bibliography</h2>
-    <p class="measure">The deterministic half needs no key. Add one only when you want the
-      model-assisted features — and every costed action states its price in model calls
-      before you click it.</p>
-
-    <ol class="steps">
-      <li>
-        <h3>Install</h3>
-        <p>The <code>[server]</code> extra adds the browser Lab. Leave it off for CLI only.</p>
-<pre>pip install "research-companion[server]"</pre>
-      </li>
-      <li>
-        <h3>Add a key — optional</h3>
-        <p>Only needed for the model-assisted features. Everything in green above works without one.</p>
-<pre>cp .env.example .env   <span class="c"># then fill in ANTHROPIC_API_KEY or OPENAI_API_KEY</span></pre>
-      </li>
-      <li>
-        <h3>Start the Lab</h3>
-        <p>Opens at <code>127.0.0.1:8800</code>. Everything stays on your machine.</p>
-<pre>research-companion lab serve</pre>
-      </li>
-      <li>
-        <h3>Create a research and add papers</h3>
-        <p>One workspace per project. Search the literature from the Brainstorm tab, or add
-          by identifier from the terminal.</p>
-<pre>research-companion workspace new "LM inference"
-research-companion add 1706.03762   <span class="c"># arXiv id, DOI, or a local PDF</span></pre>
-      </li>
-      <li>
-        <h3>Check something, free</h3>
-        <p>No model calls: every reference looked up in CrossRef, OpenAlex and arXiv.</p>
-<pre>research-companion refcheck arxiv:1706.03762
-research-companion check-compliance &lt;paper_id&gt; --venue neurips</pre>
-      </li>
-    </ol>
-
-    <div class="scroll">
-      <table>
-        <tr><th>Free — no model call</th><th>Costs model calls</th></tr>
-        <tr>
-          <td>literature search · PDF parsing · knowledge graph · timeline ·
-              reference checking · statcheck &amp; GRIM · venue compliance ·
-              overlap detection · coverage · notes · BibTeX export</td>
-          <td>paper extraction (once each) · research directions · novelty screen ·
-              brief · report questions and answers · evidence scoring ·
-              claim audit · draft alignment · Ask · Compare</td>
-        </tr>
-      </table>
-    </div>
-
-    <p style="margin-top:1.6rem;font-size:.92rem">
-      <a href="WALKTHROUGH.md"><b>The walkthrough</b></a> follows one researcher on LM inference
-      from an empty install through to submission checks — every step, with diagrams.
-      It is also available as a <a href="WALKTHROUGH.pdf">PDF</a>.
-    </p>
-  </div>
-</section>
-
-<section id="agents">
-  <div class="wrap">
-    <p class="kicker">For agents</p>
-    <h2>The free checks, without the UI</h2>
-    <div class="measure">
-      <p>Two <a href="https://claude.com/claude-code">Claude Code</a> skills run the
-        deterministic checks from your editor, on a scratch workspace that can never touch
-        your real research. An MCP server exposes the same verification tools to any agent.</p>
-    </div>
-<pre>cp -r skills/refcheck skills/submission-check ~/.claude/skills/
-
-/refcheck paper.pdf                          <span class="c"># do these citations exist?</span>
-/submission-check paper.pdf --venue neurips  <span class="c"># would this be desk-rejected?</span></pre>
-  </div>
-</section>
-
-<footer>
-  <div class="wrap foot">
-    <span>MIT licensed · your papers stay on your machine</span>
-    <span>
-      <a href="https://github.com/LaraibOSS/Research-Companion">GitHub</a> ·
-      <a href="WALKTHROUGH.md">Walkthrough</a> ·
-      <a href="USER_MANUAL.md">Manual</a> ·
-      <a href="https://pypi.org/project/research-companion/">PyPI</a>
-    </span>
-  </div>
-</footer>
+<script>
+  // Restrained: figures settle in as they arrive. Nothing else moves.
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var items = document.querySelectorAll('.rise');
+    if (reduce || !('IntersectionObserver' in window)) {
+      items.forEach(function (el) { el.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+    items.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+</body>
+</html>
