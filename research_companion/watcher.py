@@ -177,7 +177,12 @@ class ArmedWatcher:
     """
 
     def __init__(self, directory, *, now=time.monotonic, read_page1=None):
-        self.directory = Path(directory)
+        # None means "no downloads directory is known". It is NOT the same as
+        # the working directory: falling back to "." made an armed watcher
+        # read page one of every new PDF in whatever directory the server
+        # happened to be started from, invisibly. poll() returns nothing in
+        # that state, and lab_api refuses to arm and says why.
+        self.directory = Path(directory) if directory is not None else None
         self._now = now
         self._read_page1 = read_page1 if read_page1 is not None else _default_read_page1
         self._expiry: float | None = None
@@ -232,7 +237,7 @@ class ArmedWatcher:
     def poll(self) -> list[tuple[Path, str | None]]:
         """One synchronous look at the directory. Returns newly-settled PDFs
         as ``(path, paper_id_or_None)``. Reads nothing unless armed."""
-        if not self.is_armed:
+        if not self.is_armed or self.directory is None:
             return []
         try:
             entries = list(self.directory.iterdir())

@@ -9,9 +9,18 @@ from research_companion.lab_api import create_lab_app
 
 
 @pytest.fixture
-def lab_client():
+def lab_client(tmp_path):
     """Mirrors _make_client in tests/test_lab_api.py. Workspace isolation is
-    autouse via conftest.isolated_papergraph_dir."""
+    autouse via conftest.isolated_papergraph_dir.
+
+    downloads_dir is pinned to a real temp directory: arming now refuses when
+    no downloads folder is known (7.6 -- there is no Path(".") fallback any
+    more), so leaving it unset would make every arming test depend on whether
+    the machine running the suite happens to have a ~/Downloads."""
+    from research_companion.settings import update_settings
+    downloads = tmp_path / "downloads"
+    downloads.mkdir(exist_ok=True)
+    update_settings({"downloads_dir": str(downloads)})
     return TestClient(create_lab_app(Bus()))
 
 
@@ -133,3 +142,68 @@ def test_arm_hands_the_watcher_the_same_queue_the_queue_endpoint_reports(lab_cli
     armed_ids = {q["paper_id"] for q in captured["queued"]}
     assert queue_ids == armed_ids
     assert "doi:blocked-arm" in armed_ids
+
+
+# ---------------------------------------------------------------------------
+# downloads_dir (spec 7.6): detected, shown, editable -- and never guessed
+# ---------------------------------------------------------------------------
+
+def test_arming_is_refused_when_no_downloads_folder_is_known(lab_client,
+                                                             monkeypatch):
+    """The fallback used to be Path("."), so on a machine with no ~/Downloads
+    and nothing configured an armed watcher read page one of every new PDF in
+    the server's own working directory -- invisibly, and nowhere near
+    anything the user pointed at. 7.5: the watcher is an accelerant, never a
+    dependency, so refusing costs only the convenience."""
+    import research_companion.settings as settings_mod
+    from research_companion.settings import update_settings
+    update_settings({"downloads_dir": ""})
+    monkeypatch.setattr(settings_mod, "default_downloads_dir", lambda: "")
+
+    r = lab_client.post("/api/acquire/arm", json={"paper_ids": ["doi:1"]})
+    assert r.status_code == 409
+    assert "downloads folder" in r.json()["detail"].lower()
+    assert "upload pdf" in r.json()["detail"].lower(), "says what to do instead"
+    assert lab_client.get("/api/acquire/status").json()["armed"] is False
+
+
+def test_arming_is_refused_when_the_configured_folder_does_not_exist(
+        lab_client, monkeypatch, tmp_path):
+    from research_companion.settings import update_settings
+    update_settings({"downloads_dir": str(tmp_path / "nope")})
+    assert lab_client.post("/api/acquire/arm",
+                           json={"paper_ids": ["doi:1"]}).status_code == 409
+
+
+def test_a_configured_folder_is_used(lab_client, tmp_path):
+    from research_companion.settings import update_settings
+    update_settings({"downloads_dir": str(tmp_path)})
+    r = lab_client.post("/api/acquire/arm", json={"paper_ids": ["doi:1"]})
+    assert r.status_code == 200
+    assert lab_client.app.state.watcher.directory == tmp_path
+
+
+def test_the_detected_folder_is_reported_so_settings_can_show_it(lab_client,
+                                                                 monkeypatch):
+    """Stored empty by default (a machine-specific path must not travel in a
+    settings file), so the UI needs the detected value to show what is in
+    use."""
+    import research_companion.settings as settings_mod
+    from research_companion.settings import update_settings
+    update_settings({"downloads_dir": ""})
+    monkeypatch.setattr(settings_mod, "default_downloads_dir",
+                        lambda: "/home/u/Downloads")
+    body = lab_client.get("/api/settings").json()
+    assert body["downloads_dir"] == ""
+    assert body["downloads_dir_detected"] == "/home/u/Downloads"
+
+
+def test_the_watcher_reads_nothing_when_no_folder_is_known(tmp_path):
+    """Belt as well as braces: even handed None directly, poll() must not
+    fall back to the working directory."""
+    from research_companion.watcher import ArmedWatcher
+
+    w = ArmedWatcher(None)
+    w.arm(["doi:1"], ttl=600)
+    assert w.is_armed is True
+    assert w.poll() == []

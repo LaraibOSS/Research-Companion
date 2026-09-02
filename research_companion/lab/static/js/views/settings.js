@@ -5,6 +5,7 @@
  * Sections:
  *  1. Model provider (provider, model, API keys)
  *  2. Semantic search (HF token)
+ *  2c. Downloads folder (downloads_dir — the click-armed watcher)
  *  3. Appearance (theme, accent, density)
  *  4. Retrieval (k_sections, char_budget)
  *  5. About/Help (links, replay intro)
@@ -141,6 +142,26 @@ function _render(s) {
     </div>
     <div class="settings-section-actions">
       <button class="btn btn-accent btn-sm" id="save-oa-lookups">Save</button>
+    </div>
+  </div>
+
+  <!-- 2c. Downloads folder (the click-to-download watcher, spec 7.6) -->
+  <div class="settings-card" id="sc-downloads">
+    <div class="settings-card-title">Downloads Folder</div>
+    <div class="settings-field">
+      <label class="settings-label">Downloads folder</label>
+      <input type="text" class="settings-input" id="s-downloads-dir"
+        value="${escapeHtml(s.downloads_dir || '')}"
+        placeholder="${escapeHtml(s.downloads_dir_detected || 'no folder detected — type one')}">
+      <span class="settings-hint">Where your browser saves files. When a paper can only be
+        fetched by you, Research Companion watches this folder — <strong>only</strong> for the
+        ten minutes after you click <em>Open at publisher</em>, only for new <code>.pdf</code>
+        files, and only to read page one for an identifier. Leave it blank to use the detected
+        folder${s.downloads_dir_detected ? ' (' + escapeHtml(s.downloads_dir_detected) + ')' : ''}.
+        ${s.downloads_dir_detected ? '' : 'Nothing was detected on this machine, so watching stays off until you set one.'}</span>
+    </div>
+    <div class="settings-section-actions">
+      <button class="btn btn-accent btn-sm" id="save-downloads">Save</button>
     </div>
   </div>
 
@@ -351,6 +372,22 @@ function _wireEvents(s) {
         anthropic_api_key: '', openai_api_key: '', hf_token: '',
       };
       await _savePatch(formState, s, saveOaLookups);
+    });
+  }
+
+  // Save downloads folder
+  const saveDownloads = _el.querySelector('#save-downloads');
+  if (saveDownloads) {
+    saveDownloads.addEventListener('click', async () => {
+      const downloadsDir = _el.querySelector('#s-downloads-dir').value.trim();
+      const formState = {
+        provider: s.provider, model: s.model,
+        theme: s.theme, accent: s.accent, density: s.density,
+        k_sections: s.k_sections, char_budget: s.char_budget,
+        downloads_dir: downloadsDir,
+        anthropic_api_key: '', openai_api_key: '', hf_token: '',
+      };
+      await _savePatch(formState, s, saveDownloads);
     });
   }
 

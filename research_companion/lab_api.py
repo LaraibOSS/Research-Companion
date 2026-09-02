@@ -848,10 +848,21 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # /api/acquire/arm, /disarm, /status and its own poll() all agree on the
     # same window. `downloads_dir` is "detect at use time" (settings.py), so
     # the directory is re-resolved on every arm rather than fixed at startup.
-    def _resolve_downloads_dir() -> Path:
+    def _resolve_downloads_dir() -> Path | None:
+        """The directory the watcher may look at, or None when we do not know
+        of one.
+
+        There is deliberately NO fallback to Path("."): on a machine with no
+        ~/Downloads and no configured directory that made an armed watcher
+        read page one of every new PDF in the server's own working directory
+        -- silently, and nowhere near anything the user pointed at. Not
+        knowing is a state the watcher and the arm endpoint can both report
+        honestly; guessing is not.
+        """
         from research_companion.settings import default_downloads_dir, get_settings
         configured = str(get_settings().get("downloads_dir") or "").strip()
-        return Path(configured or default_downloads_dir() or ".")
+        resolved = configured or default_downloads_dir()
+        return Path(resolved) if resolved else None
 
     from research_companion.watcher import ArmedWatcher
     app.state.watcher = ArmedWatcher(_resolve_downloads_dir())
@@ -1765,7 +1776,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         # never a literal) rather than claiming "armed: true" for a watcher
         # that is already expired.
         ttl = min(int(body.ttl), 3600)
-        app.state.watcher.directory = _resolve_downloads_dir()
+        directory = _resolve_downloads_dir()
+        if directory is None or not directory.is_dir():
+            # 7.5: the watcher is an accelerant, never a dependency. Refusing
+            # here costs the user the convenience and nothing else -- the
+            # Upload PDF button on the card still does the job -- whereas
+            # arming against a guessed directory reads files the user never
+            # pointed us at.
+            raise HTTPException(
+                status_code=409,
+                detail=("No downloads folder is set, so there is nowhere to "
+                        "watch. Set one in Settings → Downloads folder, then "
+                        "try again — or just use Upload PDF on the paper."))
+        app.state.watcher.directory = directory
         app.state.watcher.arm(body.paper_ids, ttl=ttl, queued=_acquirable_failures())
         return {
             "armed": app.state.watcher.is_armed,
@@ -3422,8 +3445,13 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     @app.get("/api/settings")
     async def get_settings_endpoint() -> dict:
-        from research_companion.settings import get_settings
-        return get_settings()
+        from research_companion.settings import default_downloads_dir, get_settings
+        # downloads_dir is "detected, shown, editable" (7.6). The stored value
+        # is empty by default precisely so a machine-specific path never ends
+        # up in a settings file that gets copied between machines -- so the
+        # DETECTED folder is reported alongside it (read-only; it is not a
+        # setting) and the Settings field can show what is actually in use.
+        return {**get_settings(), "downloads_dir_detected": default_downloads_dir()}
 
     # -----------------------------------------------------------------
     # PUT /api/settings
