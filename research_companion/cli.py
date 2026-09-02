@@ -375,38 +375,23 @@ def _acquire_meta_for(paper_id: str):
         paper_id=paper_id, title="", authors=[])
 
 
-def _acquire_human_can_help(info: dict) -> bool:
-    """Whether a person could act on this failure.
-
-    Reads the persisted ``acquisition.human_can_help`` flag -- computed once,
-    in ``Acquisition.human_can_help`` -- rather than re-deriving it from the
-    reason or the attempts a second time. A failure recorded before acquire()
-    existed carries no 'acquisition' key at all; for those older records this
-    falls back to whether a PDF is actually on disk, the same fallback the
-    Lab side uses for the same gap (research_companion/lab_api.py,
-    _failure_human_can_help) -- so a stale record still queues exactly when
-    "a human could help by supplying the missing file" is true, and the CLI
-    and the Lab agree on the same set of papers either way.
-    """
-    acquisition = info.get("acquisition")
-    if isinstance(acquisition, dict):
-        return bool(acquisition.get("human_can_help", True))
-    from research_companion.store import pdf_path
-
-    paper_id = info.get("paper_id") or ""
-    return pdf_path(paper_id) is None if paper_id else True
-
-
 def _acquire_candidates() -> list[tuple[str, str, dict]]:
     """(failure key, paper_id, failure record) for every failure a person
-    could help with."""
+    could help with.
+
+    Queue membership is decided by research_companion.acquire.policy.human_can_help
+    -- the ONE place both the CLI and the Lab (research_companion/lab_api.py)
+    decide this, so the two surfaces cannot silently drift the way two
+    separately-hand-written copies of the same fallback once did.
+    """
+    from research_companion.acquire.policy import human_can_help
     from research_companion.store import list_failures
 
     out = []
     for key, info in list_failures().items():
         if not isinstance(info, dict):
             continue
-        if _acquire_human_can_help(info):
+        if human_can_help(info, key):
             out.append((key, info.get("paper_id") or key, info))
     return out
 

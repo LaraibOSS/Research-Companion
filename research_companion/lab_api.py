@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
+from research_companion.acquire.policy import human_can_help
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import event_to_dict
 
@@ -94,32 +95,6 @@ class _FindPdfMiss(Exception):
         self.link_count = link_count
         super().__init__(f"no open-access PDF found ({link_count} links)")
 
-
-def _failure_human_can_help(info: dict, paper_id: str) -> bool:
-    """Whether a person can do something about this failure -- the only
-    class POST /api/papers/{id}/find-pdf and the batch sweep can actually
-    fix. Reads the SAME acquisition.human_can_help flag GET /api/acquire/queue
-    and _build_paper_summary trust (Acquisition.human_can_help,
-    research_companion/acquire/types.py) rather than re-deriving it from
-    error text a second time -- that re-derivation (matching "no PDF on
-    disk" / "PDF not found" prefixes) is exactly what this replaces.
-
-    A failure recorded with no acquisition at all -- a failure stage that
-    never went through acquire(), e.g. a stale "no PDF on disk" (extract.py)
-    or "PDF not found" (fetch.py's add_local_pdf, the retry path) record
-    from before every acquisition attempt carried a typed Acquisition --
-    falls back to whether a PDF actually exists on disk for this paper
-    (store.pdf_path is None): that is exactly what "a human could help by
-    supplying the missing file" means. A parse/OCR/graph failure on a PDF
-    that IS present on disk must not get this affordance -- re-running
-    acquisition and re-saving a hit would silently overwrite a file the
-    user already has.
-    """
-    acquisition = info.get("acquisition")
-    if isinstance(acquisition, dict):
-        return bool(acquisition.get("human_can_help", True))
-    from research_companion import store
-    return store.pdf_path(paper_id) is None
 
 # ---------------------------------------------------------------------------
 # Request body models (module-level so annotations resolve correctly with
@@ -1550,7 +1525,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         failures = store.list_failures()
         targets: list[tuple[str, str]] = []
         for key, info in failures.items():
-            if not _failure_human_can_help(info, info.get("paper_id") or key):
+            if not human_can_help(info, key):
                 continue
             targets.append((key, info.get("paper_id") or key))
 
@@ -1624,7 +1599,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if matched_key is None:
             raise HTTPException(status_code=404, detail=f"No failure record for {paper_id!r}")
 
-        if not _failure_human_can_help(matched_info, paper_id):
+        if not human_can_help(matched_info, paper_id):
             raise HTTPException(status_code=409,
                                 detail="failure is not a missing-PDF failure")
 
