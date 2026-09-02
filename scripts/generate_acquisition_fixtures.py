@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import pathlib
 
-from research_companion.acquire import Acquisition, AcquireReason, Attempt, HostClass
+from research_companion.acquire import AcquireReason, Acquisition, Attempt, HostClass
 from research_companion.acquire.copy import reason_detail, reason_headline
 
 OUT = pathlib.Path(__file__).resolve().parents[1] / "tests" / "js" / "fixtures_acquisition.json"
