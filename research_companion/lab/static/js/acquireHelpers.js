@@ -1,5 +1,6 @@
 /**
- * acquireHelpers.js — display model for a paper waiting on the user.
+ * acquireHelpers.js — display model for a paper waiting on the user, plus
+ * the DOM-free poll loop that drives GET /api/acquire/status while armed.
  *
  * THE RULE THIS MODULE FOLLOWS (same as signalHelpers.js): it does not decide
  * who can help. `human_can_help` is computed in Python
@@ -10,6 +11,8 @@
  * Pure and DOM-free. Returns RAW strings; the caller escapes at the
  * interpolation site.
  */
+
+import { pollDecision } from './oaLinkHelpers.js';
 
 export function queueRowModel(paper) {
   const blank = { show: false, headline: '', detail: '', canOpen: false, openUrl: '' };
@@ -28,11 +31,6 @@ export function queueRowModel(paper) {
   };
 }
 
-export function needsYouCount(papers) {
-  if (!Array.isArray(papers)) return 0;
-  return papers.filter(p => queueRowModel(p).show).length;
-}
-
 /**
  * Papers still genuinely needing a person's help, EXCLUDING any whose
  * paper_id is in `matchedPaperIds` — a caught file the watcher already
@@ -40,7 +38,8 @@ export function needsYouCount(papers) {
  * the eventual 'papers' SSE refresh lands and the stored acquisition
  * itself catches up. Membership is still `queueRowModel(p).show` (the
  * backend flag) first; `matchedPaperIds` only narrows it further, it never
- * widens it.
+ * widens it. This is the only place the chip count / filter should read
+ * queue membership from — nothing else re-derives it.
  *
  * @param {Array|null|undefined} papers
  * @param {Set<string>|string[]|null|undefined} matchedPaperIds
@@ -52,6 +51,50 @@ export function queueAfterMatches(papers, matchedPaperIds) {
     : new Set(Array.isArray(matchedPaperIds) ? matchedPaperIds : []);
   const list = Array.isArray(papers) ? papers : [];
   return list.filter(p => queueRowModel(p).show && !matched.has(p && p.paper_id));
+}
+
+/**
+ * Bound how long a paper_id may stay in the caller's "just matched, hide it
+ * optimistically" set. Two rules, either one enough on its own to prevent a
+ * paper staying invisibly missing from the queue forever:
+ *
+ *   1. Once the arming window is over (`model.armed` false -- expired, given
+ *      up, or disarmed) EVERY id is forgotten unconditionally. A paper can
+ *      therefore never be hidden longer than the current arming window,
+ *      which the user can see counting down -- not "until the next reload".
+ *   2. While still armed, an id is dropped as soon as `isStillQueued(id)`
+ *      says that paper is no longer a queue member at all -- the ordinary,
+ *      expected case where the re-ingest succeeded and the eventual
+ *      'papers' refresh caught up.
+ *
+ * Deliberately does NOT try to distinguish "still mid-re-ingest" from "the
+ * re-ingest failed and re-armed the SAME paper for a genuinely new reason"
+ * while still armed -- both look identical from here (`isStillQueued` true
+ * either way). Rule 1 is what bounds that ambiguity: at worst, the paper
+ * reappears once the window ends rather than staying hidden indefinitely.
+ * A paper briefly reappearing while its re-ingest finishes is the safer
+ * failure than one silently vanishing with no expiry at all.
+ *
+ * @param {Set<string>|string[]|null|undefined} currentMatchedIds
+ * @param {{armed: boolean}|null|undefined} model — latest statusBannerModel result
+ * @param {(paperId: string) => boolean} isStillQueued — queueRowModel(paper).show
+ *   for the CURRENT store state of that paper_id. The caller looks this up
+ *   (this function never reads any store) — so this stays DOM/store-free.
+ * @returns {Set<string>}
+ */
+export function nextMatchedIds(currentMatchedIds, model, isStillQueued) {
+  if (!model || model.armed !== true) return new Set();
+  const ids = currentMatchedIds instanceof Set
+    ? currentMatchedIds
+    : new Set(Array.isArray(currentMatchedIds) ? currentMatchedIds : []);
+  const check = typeof isStillQueued === 'function' ? isStillQueued : () => true;
+  const next = new Set();
+  for (const id of ids) {
+    let keep = true;
+    try { keep = check(id) !== false; } catch { keep = true; }
+    if (keep) next.add(id);
+  }
+  return next;
 }
 
 /**
@@ -116,4 +159,117 @@ export function statusBannerModel(status) {
     matchedPaperIds,
     messages,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The poll loop itself (Task 10D fix round 1)
+//
+// This is deliberately NOT wrapped in a class or anything view-specific: it
+// is a plain factory over injectable `fetchStatus`/`schedule`/`cancel`, so a
+// node test can drive it with a fake timer and a fake fetch — no DOM, no
+// real setTimeout, no real network. The default `schedule`/`cancel` are the
+// real timer functions, so production code gets real polling for free.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a poller that repeatedly calls `fetchStatus()` on `intervalMs`,
+ * stopping itself when the status comes back disarmed, or when repeated
+ * fetch failures cross pollDecision's bounded give-up threshold (the SAME
+ * continue/retry/give-up state machine _watchFindPdfJob uses for find-pdf
+ * polling, in oaLinkHelpers.js) — so a request that never resolves, or a
+ * server that never answers, cannot leave this looping forever.
+ *
+ * @param {object} opts
+ * @param {() => Promise<object>} opts.fetchStatus — normally api.getAcquireStatus
+ * @param {(model: {armed:boolean, countdownText:string,
+ *   matchedPaperIds:string[], messages:Array}) => void} [opts.onUpdate] —
+ *   called with statusBannerModel(status) after every SUCCESSFUL fetch,
+ *   including the final one that reports armed:false.
+ * @param {() => void} [opts.onGiveUp] — called once, when polling stops due
+ *   to repeated fetch failures (pollDecision's 'stop-404'/'give-up') rather
+ *   than a normal disarm/expiry.
+ * @param {number} [opts.intervalMs=5000]
+ * @param {(fn: () => void, ms: number) => any} [opts.schedule] — defaults to
+ *   the real setTimeout; a test passes a fake that records the call instead
+ *   of actually waiting.
+ * @param {(id: any) => void} [opts.cancel] — defaults to the real
+ *   clearTimeout; pairs with `schedule`.
+ * @returns {{ start: () => Promise<void>, stop: () => void,
+ *   isPolling: () => boolean }}
+ */
+export function createAcquirePoller(opts) {
+  const {
+    fetchStatus,
+    onUpdate,
+    onGiveUp,
+    intervalMs = 5000,
+    schedule = (fn, ms) => setTimeout(fn, ms),
+    cancel = (id) => clearTimeout(id),
+  } = opts || {};
+
+  let polling = false;
+  let timerId = null;
+  let consecutiveFailures = 0;
+  let elapsedPolls = 0;
+
+  function _clearTimer() {
+    if (timerId != null) {
+      cancel(timerId);
+      timerId = null;
+    }
+  }
+
+  async function _tick() {
+    if (!polling) return;
+    elapsedPolls += 1;
+
+    let status = null;
+    let err = null;
+    try {
+      status = await fetchStatus();
+    } catch (e) {
+      err = e;
+    }
+
+    if (!polling) return; // stopped while the fetch was in flight
+
+    if (!err) {
+      consecutiveFailures = 0;
+      const model = statusBannerModel(status);
+      if (onUpdate) onUpdate(model);
+      if (!model.armed) {
+        stop();
+        return;
+      }
+      if (polling) timerId = schedule(_tick, intervalMs);
+      return;
+    }
+
+    const decision = pollDecision({ error: err, consecutiveFailures, elapsedPolls });
+    if (decision === 'retry-transient') {
+      consecutiveFailures += 1;
+      if (polling) timerId = schedule(_tick, intervalMs);
+      return;
+    }
+    // 'stop-404' or 'give-up' — bounded, so this loop cannot run forever
+    // against a status endpoint that never stops answering the way this
+    // caller expects.
+    stop();
+    if (onGiveUp) onGiveUp();
+  }
+
+  function start() {
+    if (polling) return Promise.resolve();
+    polling = true;
+    consecutiveFailures = 0;
+    elapsedPolls = 0;
+    return _tick();
+  }
+
+  function stop() {
+    polling = false;
+    _clearTimer();
+  }
+
+  return { start, stop, isPolling: () => polling };
 }

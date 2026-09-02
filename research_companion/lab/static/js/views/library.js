@@ -12,7 +12,7 @@ import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { buildRows, sortRows, draftActionFor, formatFailureReason } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
-import { queueRowModel, queueAfterMatches, statusBannerModel } from '../acquireHelpers.js';
+import { queueRowModel, queueAfterMatches, nextMatchedIds, statusBannerModel, createAcquirePoller } from '../acquireHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -29,14 +29,18 @@ let _listDir    = 'desc';
 
 // Browser-handoff acquisition state (arm/disarm/poll the click-to-download
 // watcher — see acquireHelpers.js and api.js's arm/getAcquireStatus/disarm).
-let _acquirePolling          = false;   // guards against a second poll loop starting
-let _acquirePollTimer        = null;    // setTimeout handle for the next tick
-let _acquireConsecutiveFails = 0;       // resets on any successful poll (pollDecision)
-let _acquireElapsedPolls     = 0;       // total attempts made (pollDecision's cap)
-let _acquireEvents           = [];      // recent {type,text} messages, newest first
-let _acquireMatchedIds       = new Set(); // paper_ids the watcher already caught this
-                                           // session — hidden from "Needs you" even
-                                           // before the eventual papers refresh lands
+// The poll loop itself (start/stop/give-up bookkeeping) lives in
+// acquireHelpers.js's createAcquirePoller — a DOM-free, node-testable
+// factory — so this view only wires it to the real fetch + real timers and
+// reacts to its callbacks. _acquirePoller is created lazily (see
+// _getAcquirePoller) and reused for the life of this module.
+let _acquirePoller = null;
+let _acquireEvents = [];      // recent {type,text} messages, newest first
+let _acquireMatchedIds = new Set(); // paper_ids the watcher already caught this
+                                     // session — hidden from "Needs you" even
+                                     // before the eventual papers refresh lands.
+                                     // Bounded by acquireHelpers.js's
+                                     // nextMatchedIds -- see _renderGrid.
 let _acquireLastModel = { armed: false, countdownText: '0:00' }; // survives a _render() rebuild
 const _ACQUIRE_POLL_MS = 5000; // modest — this is a countdown display, not a race
 
@@ -72,7 +76,9 @@ export function unmount() {
   }
   // Stop polling — the watcher itself keeps running server-side (arming is
   // not tied to this view being mounted), only OUR poll loop tears down.
-  _stopAcquirePolling();
+  // Guarded (not _getAcquirePoller()) so unmounting never CREATES a poller
+  // that was never started in the first place.
+  if (_acquirePoller) _acquirePoller.stop();
   drawerClose();
   _el = null;
 }
@@ -468,7 +474,7 @@ function _wireOpenPublisherButton(btn) {
         `Watching your downloads for ${_acquireLastModel.countdownText} — save the PDF there and it'll be picked up`,
         'info',
       );
-      _startAcquirePolling();
+      _getAcquirePoller().start();
     } catch (err) {
       showToast(`Couldn't start watching for the download: ${err.message}`, 'error');
     }
@@ -502,98 +508,64 @@ function _renderAcquireBanner(model) {
   }
 }
 
-/** Start the status poll loop, unless one is already running. */
-function _startAcquirePolling() {
-  if (_acquirePolling) return;
-  _acquirePolling = true;
-  _acquireConsecutiveFails = 0;
-  _acquireElapsedPolls = 0;
-  _pollAcquireStatus();
-}
-
-/** Stop the status poll loop (window expired, disarmed, or view unmounting). */
-function _stopAcquirePolling() {
-  _acquirePolling = false;
-  if (_acquirePollTimer) {
-    clearTimeout(_acquirePollTimer);
-    _acquirePollTimer = null;
-  }
-}
-
 /**
- * One GET /api/acquire/status tick. Reuses the same continue/retry/give-up
- * decision as _watchFindPdfJob's pollDecision -- only for a FAILED request;
- * the "stop because the window is no longer armed" case is this loop's own
- * (armed reads real server state, so it is not a pollDecision case, same as
- * that function's own terminal-status note). Bounded by pollDecision's own
- * caps, so a server that stops answering (rather than 500ing) can't leave
- * this polling forever either.
+ * Lazily build the shared poller (acquireHelpers.js's createAcquirePoller --
+ * the DOM-free loop; see there for start/stop/give-up bookkeeping), wired to
+ * the real api.getAcquireStatus and real timers, and built once for the life
+ * of this module. Everything DOM/store-shaped that follows a poll -- toasting,
+ * updating the banner, bounding _acquireMatchedIds, re-rendering the grid --
+ * lives here in onUpdate/onGiveUp; the poller itself knows none of it.
+ * @returns {ReturnType<typeof createAcquirePoller>}
  */
-async function _pollAcquireStatus() {
-  if (!_acquirePolling) return;
-  _acquireElapsedPolls += 1;
-
-  let status = null;
-  let err = null;
-  try {
-    status = await api.getAcquireStatus();
-  } catch (e) {
-    err = e;
-  }
-
-  if (!err) {
-    _acquireConsecutiveFails = 0;
-    const model = statusBannerModel(status);
-    _acquireLastModel = model;
-    for (const pid of model.matchedPaperIds) _acquireMatchedIds.add(pid);
-    if (model.messages.length > 0) {
-      _acquireEvents = [...model.messages, ..._acquireEvents].slice(0, 20);
-      for (const msg of model.messages) {
-        showToast(msg.text, msg.type === 'success' ? 'info' : 'error');
+function _getAcquirePoller() {
+  if (_acquirePoller) return _acquirePoller;
+  _acquirePoller = createAcquirePoller({
+    fetchStatus: () => api.getAcquireStatus(),
+    intervalMs: _ACQUIRE_POLL_MS,
+    onUpdate: (model) => {
+      _acquireLastModel = model;
+      for (const pid of model.matchedPaperIds) _acquireMatchedIds.add(pid);
+      if (model.messages.length > 0) {
+        _acquireEvents = [...model.messages, ..._acquireEvents].slice(0, 20);
+        for (const msg of model.messages) {
+          showToast(msg.text, msg.type === 'success' ? 'info' : 'error');
+        }
       }
-      // A match means a paper just left the queue -- reflect it right away
-      // rather than waiting on the retry job's own SSE-driven refresh.
-      if (model.matchedPaperIds.length > 0) _renderGrid();
-    }
-    _renderAcquireBanner(model);
-    if (!model.armed) {
-      _stopAcquirePolling();
-      return;
-    }
-    _acquirePollTimer = setTimeout(_pollAcquireStatus, _ACQUIRE_POLL_MS);
-    return;
-  }
-
-  const decision = pollDecision({
-    error: err,
-    consecutiveFailures: _acquireConsecutiveFails,
-    elapsedPolls: _acquireElapsedPolls,
-  });
-  switch (decision) {
-    case 'retry-transient':
-      _acquireConsecutiveFails += 1;
-      _acquirePollTimer = setTimeout(_pollAcquireStatus, _ACQUIRE_POLL_MS);
-      return;
-    case 'stop-404':
-    case 'give-up':
-    default:
-      _stopAcquirePolling();
+      // A match (or the window closing, which re-bounds _acquireMatchedIds
+      // -- see nextMatchedIds in _renderGrid) can change queue membership --
+      // reflect it right away rather than waiting on the retry job's own
+      // SSE-driven refresh.
+      if (model.matchedPaperIds.length > 0 || !model.armed) _renderGrid();
+      _renderAcquireBanner(model);
+    },
+    onGiveUp: () => {
+      // Repeated fetch failures, not a normal expiry/disarm -- stop
+      // pretending anything is still armed, and forget every optimistically
+      // hidden match rather than let one survive with no signal telling the
+      // user why (see nextMatchedIds' docstring for the reasoning).
+      _acquireLastModel = { armed: false, countdownText: '0:00' };
+      _acquireMatchedIds = new Set();
+      _renderAcquireBanner(_acquireLastModel);
+      _renderGrid();
       showToast('Lost track of the download watcher — reopen "Open at publisher" to re-arm it.', 'error');
-      return;
-  }
+    },
+  });
+  return _acquirePoller;
 }
 
 /** Disarm button: stop polling, tell the server, hide the banner. */
 async function _disarmAcquire() {
-  _stopAcquirePolling();
+  _getAcquirePoller().stop();
   try {
     await api.disarmAcquire();
   } catch (err) {
     showToast(`Disarm failed: ${err.message}`, 'error');
   }
   _acquireEvents = [];
+  _acquireMatchedIds = new Set();
   _acquireLastModel = { armed: false, countdownText: '0:00' };
   _renderAcquireBanner(_acquireLastModel);
+  _renderGrid();
 }
 
 // ---------------------------------------------------------------------------
@@ -612,15 +584,18 @@ function _renderGrid() {
   const countEl = _el.querySelector('#lib-count');
   if (countEl) countEl.textContent = `${totalCount} paper${totalCount === 1 ? '' : 's'}`;
 
-  // Prune the optimistic "just matched" set: once a paper is no longer
-  // 'failed' at all it can't be a queue member either way (queueRowModel
-  // only ever shows a failed paper), so the entry is redundant and dropped.
-  // A paper that failed again for a genuinely NEW reason after a bad match
-  // is a fresh failure record, not the one this set was hiding.
-  for (const pid of _acquireMatchedIds) {
+  // Bound the optimistic "just matched" set via acquireHelpers.js's
+  // nextMatchedIds: drop an id the moment a refresh shows that paper is
+  // genuinely no longer a queue member (queueRowModel(p).show === false --
+  // the ordinary re-ingest-succeeded case), and forget EVERY id once the
+  // arming window itself is over (_acquireLastModel.armed false). That
+  // second rule is what actually bounds this -- a paper can be hidden past
+  // the point its re-ingest resolves only until the current, user-visible
+  // countdown ends, never indefinitely.
+  _acquireMatchedIds = nextMatchedIds(_acquireMatchedIds, _acquireLastModel, (pid) => {
     const p = state.papers.get(pid);
-    if (!p || p.status !== 'failed') _acquireMatchedIds.delete(pid);
-  }
+    return p ? queueRowModel(p).show : false;
+  });
 
   // "Find PDFs for all missing (n)" — visible only when there's work to do.
   // Counted against ALL papers (not the active filter) so the count always

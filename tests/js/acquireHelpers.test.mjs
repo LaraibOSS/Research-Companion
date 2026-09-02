@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { queueRowModel, needsYouCount, queueAfterMatches, formatCountdown, statusBannerModel } from
+import { queueRowModel, queueAfterMatches, nextMatchedIds, formatCountdown, statusBannerModel, createAcquirePoller } from
   '../../research_companion/lab/static/js/acquireHelpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,9 +49,9 @@ test('a paper with no URL to open shows upload only', () => {
   assert.equal(queueRowModel(paper(F.not_attempted)).canOpen, false);
 });
 
-test('needsYouCount counts only queue members', () => {
-  assert.equal(needsYouCount([paper(F.blocked), paper(F.transient),
-                              paper(F.paywalled), paper(F.obtained)]), 2);
+test('queueAfterMatches (with no matches) counts every queue member -- the chip/filter membership rule', () => {
+  const list = [paper(F.blocked), paper(F.transient), paper(F.paywalled), paper(F.obtained)];
+  assert.equal(queueAfterMatches(list, []).length, 2);
 });
 
 test('a paper with no acquisition block is not in the queue', () => {
@@ -62,7 +62,6 @@ test('never throws on malformed input', () => {
   for (const bad of [null, undefined, {}, { acquisition: null }, { acquisition: 3 }]) {
     assert.doesNotThrow(() => queueRowModel(bad));
   }
-  assert.equal(needsYouCount(null), 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -96,6 +95,47 @@ test('queueAfterMatches never throws on malformed input', () => {
   assert.doesNotThrow(() => queueAfterMatches(null, null));
   assert.equal(queueAfterMatches(null, null).length, 0);
   assert.doesNotThrow(() => queueAfterMatches([paper(F.blocked)], undefined));
+});
+
+// ---------------------------------------------------------------------------
+// nextMatchedIds — bounding the optimistic "just matched, hide it" set
+// ---------------------------------------------------------------------------
+
+test('while still armed, a matched id that resolved (no longer queued) is dropped', () => {
+  const next = nextMatchedIds(['doi:a', 'doi:b'], { armed: true }, (id) => id !== 'doi:a');
+  assert.deepEqual([...next], ['doi:b']);
+});
+
+test('while still armed, a matched id that is STILL queued is kept -- grace period for the re-ingest', () => {
+  const next = nextMatchedIds(['doi:a'], { armed: true }, () => true);
+  assert.deepEqual([...next], ['doi:a']);
+});
+
+test('once the window is over, EVERY id is forgotten regardless of queue state -- this is the actual bound', () => {
+  // isStillQueued says "still needs help" for every id (the worst case the
+  // reviewer flagged: a re-ingest failure that re-arms the same paper for a
+  // genuinely new reason, status staying 'failed' throughout) -- armed:false
+  // must still clear the set unconditionally, so the paper is never hidden
+  // past the current, user-visible arming window.
+  const next = nextMatchedIds(['doi:a', 'doi:b'], { armed: false }, () => true);
+  assert.equal(next.size, 0);
+});
+
+test('nextMatchedIds treats a missing/null model the same as armed:false', () => {
+  assert.equal(nextMatchedIds(['doi:a'], null, () => true).size, 0);
+  assert.equal(nextMatchedIds(['doi:a'], undefined, () => true).size, 0);
+});
+
+test('nextMatchedIds accepts a Set or an array for currentMatchedIds', () => {
+  const fromSet = nextMatchedIds(new Set(['doi:a']), { armed: true }, () => true);
+  assert.deepEqual([...fromSet], ['doi:a']);
+});
+
+test('nextMatchedIds never throws on malformed input, including a throwing isStillQueued', () => {
+  assert.doesNotThrow(() => nextMatchedIds(null, { armed: true }, () => true));
+  assert.equal(nextMatchedIds(null, { armed: true }, () => true).size, 0);
+  assert.doesNotThrow(() => nextMatchedIds(['doi:a'], { armed: true }, undefined));
+  assert.doesNotThrow(() => nextMatchedIds(['doi:a'], { armed: true }, () => { throw new Error('boom'); }));
 });
 
 // ---------------------------------------------------------------------------
@@ -186,4 +226,173 @@ test('statusBannerModel never throws on malformed input', () => {
   }
   assert.equal(statusBannerModel(null).armed, false);
   assert.deepEqual(statusBannerModel(null).messages, []);
+});
+
+// ---------------------------------------------------------------------------
+// createAcquirePoller — the poll loop's lifecycle (Task 10D fix round 1).
+//
+// A fake `schedule`/`cancel` capture the timer calls instead of using a real
+// clock, so a "next tick" is driven by the test invoking the captured
+// callback itself. This is the DOM-free, injected-timer style the coordinator
+// asked for -- no real setTimeout, no real fetch, anywhere in this section.
+// ---------------------------------------------------------------------------
+
+function fakeScheduler() {
+  const scheduled = []; // [{ id, fn, ms }]
+  let nextId = 1;
+  const cancelled = new Set();
+  return {
+    scheduled,
+    cancelled,
+    schedule: (fn, ms) => {
+      const id = nextId++;
+      scheduled.push({ id, fn, ms });
+      return id;
+    },
+    cancel: (id) => { cancelled.add(id); },
+  };
+}
+
+test('a still-armed response schedules exactly one next tick', async () => {
+  const sched = fakeScheduler();
+  const fetchStatus = async () => ({ armed: true, seconds_left: 100,
+    matched: [], unmatched: [], unreadable: [] });
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+  });
+
+  await poller.start();
+
+  assert.equal(poller.isPolling(), true);
+  assert.equal(sched.scheduled.length, 1, 'exactly one next tick, not zero and not more');
+  assert.equal(sched.scheduled[0].ms, 5000);
+});
+
+test('a response reporting armed:false stops the loop and schedules nothing further', async () => {
+  const sched = fakeScheduler();
+  const fetchStatus = async () => ({ armed: false, seconds_left: 0,
+    matched: [], unmatched: [], unreadable: [] });
+  let lastModel = null;
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+    onUpdate: (model) => { lastModel = model; },
+  });
+
+  await poller.start();
+
+  assert.equal(poller.isPolling(), false);
+  assert.equal(sched.scheduled.length, 0);
+  assert.equal(lastModel.armed, false, 'onUpdate still fires for the final, disarming response');
+});
+
+test('stop() (disarm / unmount) stops the loop -- a straggler already-scheduled tick becomes a no-op', async () => {
+  const sched = fakeScheduler();
+  let fetchCalls = 0;
+  const fetchStatus = async () => {
+    fetchCalls += 1;
+    return { armed: true, seconds_left: 100, matched: [], unmatched: [], unreadable: [] };
+  };
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+  });
+
+  await poller.start();
+  assert.equal(fetchCalls, 1);
+  assert.equal(sched.scheduled.length, 1);
+
+  poller.stop(); // models both the Disarm button and unmount() in views/library.js
+  assert.equal(poller.isPolling(), false);
+  assert.deepEqual([...sched.cancelled], [sched.scheduled[0].id], 'the pending timer must actually be cancelled');
+
+  // Even if the real timer fired anyway (best-effort clearTimeout), the
+  // loop's own internal guard must still make it a no-op.
+  await sched.scheduled[0].fn();
+  assert.equal(fetchCalls, 1, 'no further fetch after stop()');
+  assert.equal(sched.scheduled.length, 1, 'no further tick gets scheduled after stop()');
+});
+
+test('calling start() twice does not start a second, parallel loop', async () => {
+  const sched = fakeScheduler();
+  let fetchCalls = 0;
+  const fetchStatus = async () => {
+    fetchCalls += 1;
+    return { armed: true, seconds_left: 100, matched: [], unmatched: [], unreadable: [] };
+  };
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+  });
+
+  await poller.start();
+  await poller.start(); // e.g. a second "Open at publisher" click while already armed
+  assert.equal(fetchCalls, 1, 'the second start() must not trigger a second immediate fetch');
+});
+
+test('repeated fetch failures hit the bounded give-up and stop, rather than retrying forever', async () => {
+  const sched = fakeScheduler();
+  const fetchStatus = async () => { throw new Error('network down'); };
+  let giveUps = 0;
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+    onGiveUp: () => { giveUps += 1; },
+  });
+
+  await poller.start();
+
+  let iterations = 0;
+  const HARD_CAP = 200; // this test's own safety net, not the implementation's
+  while (poller.isPolling() && sched.scheduled.length > 0 && iterations < HARD_CAP) {
+    const next = sched.scheduled.shift();
+    await next.fn();
+    iterations += 1;
+  }
+
+  assert.equal(poller.isPolling(), false, 'polling must eventually stop on repeated failures');
+  assert.equal(giveUps, 1, 'onGiveUp fires exactly once');
+  assert.ok(iterations < HARD_CAP, 'must give up well before the test\'s own hard cap');
+});
+
+test('onUpdate is never called for a failed fetch -- only onGiveUp, and only once, at the end', async () => {
+  const sched = fakeScheduler();
+  const fetchStatus = async () => { throw new Error('network down'); };
+  let updates = 0;
+  let giveUps = 0;
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+    onUpdate: () => { updates += 1; },
+    onGiveUp: () => { giveUps += 1; },
+  });
+
+  await poller.start();
+  let iterations = 0;
+  while (poller.isPolling() && sched.scheduled.length > 0 && iterations < 200) {
+    const next = sched.scheduled.shift();
+    await next.fn();
+    iterations += 1;
+  }
+
+  assert.equal(updates, 0);
+  assert.equal(giveUps, 1);
+});
+
+test('a transient failure followed by a recovery does not give up -- polling continues normally', async () => {
+  const sched = fakeScheduler();
+  let call = 0;
+  const fetchStatus = async () => {
+    call += 1;
+    if (call === 1) throw new Error('blip');
+    return { armed: true, seconds_left: 100, matched: [], unmatched: [], unreadable: [] };
+  };
+  let giveUps = 0;
+  const poller = createAcquirePoller({
+    fetchStatus, schedule: sched.schedule, cancel: sched.cancel, intervalMs: 5000,
+    onGiveUp: () => { giveUps += 1; },
+  });
+
+  await poller.start();               // call 1: fails, schedules a retry
+  assert.equal(poller.isPolling(), true);
+  assert.equal(sched.scheduled.length, 1);
+  await sched.scheduled.shift().fn(); // call 2: succeeds, still armed
+
+  assert.equal(poller.isPolling(), true);
+  assert.equal(giveUps, 0);
 });
