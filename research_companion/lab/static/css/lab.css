@@ -668,6 +668,20 @@ html, body {
   color: var(--color-accent);
 }
 
+/* Alignment evidence badges — a paper that was REFUSED a score (we have not
+   read it) and one scored from its abstract alone must not look like one
+   scored on a full text. Warn-coloured for the refusal, muted for the
+   weaker-but-real abstract score. */
+.badge-align-refused {
+  background: rgba(210, 153, 34, 0.2);
+  color: var(--color-warn);
+}
+
+.badge-align-abstract {
+  background: rgba(139, 148, 158, 0.18);
+  color: var(--color-muted);
+}
+
 /* Muted badge — folder scan-preview "Already in library" chip */
 .badge-muted {
   background: rgba(139, 148, 158, 0.15);
@@ -5186,6 +5200,12 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 .lib-status-pill-ocr {
   background: rgba(var(--accent-rgb), 0.12);
   color: var(--color-accent);
+  text-transform: none;
+  margin-left: var(--space-2);
+}
+
+/* Alignment evidence pill — the list-view twin of .badge-align-* above. */
+.lib-status-pill-align {
   text-transform: none;
   margin-left: var(--space-2);
 }

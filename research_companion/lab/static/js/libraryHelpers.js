@@ -72,6 +72,37 @@ export function formatFailureReason(reason, acquisition) {
 }
 
 /**
+ * How a paper's alignment should be MARKED, if at all.
+ *
+ * alignment.py refuses to score a paper it has not read, and records
+ * evidence_depth on the ones it does score. Neither reached the Lab: a
+ * refusal was published as verdict="" score=0.0 and rendered as an ordinary
+ * neutral score, and an abstract-only score looked like a full-text one.
+ * That is 8.1's "indistinguishable from its siblings" -- the same failure as
+ * "no PDF on disk", relocated.
+ *
+ * Like every other decision of this kind here, the judgement is Python's
+ * (lab_api.py's _alignment_note); this only chooses how to render it.
+ *
+ * @param {object|null|undefined} note — paper.alignment_note / row.alignmentNote
+ * @returns {{show: boolean, cls: string, label: string, title: string}}
+ */
+export function alignmentNoteModel(note) {
+  const blank = { show: false, cls: '', label: '', title: '' };
+  if (!note || typeof note !== 'object') return blank;
+  const kind = String(note.kind || '');
+  if (kind !== 'refused' && kind !== 'abstract_only') return blank;
+  const headline = String(note.headline || '');
+  const detail = String(note.detail || '');
+  return {
+    show: true,
+    cls: kind === 'refused' ? 'badge-align-refused' : 'badge-align-abstract',
+    label: kind === 'refused' ? 'Not scored' : 'Abstract only',
+    title: detail ? `${headline} ${detail}` : headline,
+  };
+}
+
+/**
  * Build the aggregate missing-metadata banner text, correctly pluralized
  * for both "paper(s)" and "need(s)".
  *
@@ -163,6 +194,9 @@ export function buildRows(papersMapOrArray, draftId) {
     // (no acquisition -> helpable only when there is genuinely no PDF on
     // disk) reads the SAME has_pdf Python computes, never guessing.
     hasPdf:       paper.has_pdf === true,
+    // Carried through (not transformed) so the list view marks a refused or
+    // abstract-only alignment exactly as the grid card does.
+    alignmentNote: paper.alignment_note || null,
   });
 
   const draftRow  = papers.filter(p => draftId != null && p.paper_id === draftId).map(toRow);

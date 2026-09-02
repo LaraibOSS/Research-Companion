@@ -4,7 +4,7 @@
 
 import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
-import { needsMetadata, formatFailureReason } from '../libraryHelpers.js';
+import { needsMetadata, formatFailureReason, alignmentNoteModel } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
 import { queueRowModel } from '../acquireHelpers.js';
 import * as api from '../api.js';
@@ -49,6 +49,12 @@ export function renderPaperCard(paper) {
   if (paper.ocr_used) {
     const src = paper.parse_source || 'OCR';
     badges.push(`<span class="badge badge-ocr" title="Read via OCR — scanned PDF (${escapeHtml(src)})">OCR</span>`);
+  }
+  // A paper alignment REFUSED to score (it has not been read), or scored
+  // from the abstract alone, must not look like one scored on a full text.
+  const alignNote = alignmentNoteModel(paper.alignment_note);
+  if (alignNote.show) {
+    badges.push(`<span class="badge ${alignNote.cls}" title="${escapeHtml(alignNote.title)}">${escapeHtml(alignNote.label)}</span>`);
   }
 
   // Stance chips from stance_counts

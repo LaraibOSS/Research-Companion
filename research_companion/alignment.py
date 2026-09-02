@@ -197,6 +197,16 @@ def rank_draft_sections(
     return [(sec, score) for score, _idx, sec in scored[:k]]
 
 
+def _should_persist(persist: bool | None, draft_id: str) -> bool:
+    """True = always write; False = never; None = write only when this IS the
+    configured draft. Factored out so the refusal above and the score below
+    obey the identical rule rather than one of them quietly not persisting.
+    """
+    if persist is not None:
+        return persist
+    return draft_id == store.get_draft_paper_id()
+
+
 # ---------------------------------------------------------------------------
 # align_papers (main entry point)
 # ---------------------------------------------------------------------------
@@ -258,10 +268,24 @@ def align_papers(
         cand_text = ""
     abstract = (getattr(cand_meta, "abstract", "") or "").strip()
     if not cand_text and not abstract:
-        return {"draft_id": draft_id, "candidate_id": candidate_id,
-                "skipped": True, "reason": "no_text",
-                "relation": None, "score": None,
-                "evidence_depth": "metadata"}
+        # Persisted, and under the draft_paper_id/candidate_paper_id keys
+        # store.load_alignment matches on, so the REFUSAL is loadable the
+        # way a score is. Returned-only, it reached nothing: the Lab saw no
+        # alignment at all and rendered the paper as merely unscored --
+        # 8.1's "indistinguishable from its siblings" relocated rather than
+        # removed. sections is empty, so GET /api/draft/alignment and the
+        # summary's stance counts are unaffected.
+        skipped = {"draft_id": draft_id, "candidate_id": candidate_id,
+                   "draft_paper_id": draft_id, "candidate_paper_id": candidate_id,
+                   "skipped": True, "reason": "no_text",
+                   "relation": None, "score": None,
+                   "verdict": "", "band": "", "sections": [],
+                   "computed_at": datetime.now(timezone.utc).isoformat().replace(
+                       "+00:00", "Z"),
+                   "evidence_depth": "metadata"}
+        if _should_persist(persist, draft_id):
+            store.save_alignment(candidate_id, skipped)
+        return skipped
     evidence_depth = "full_text" if cand_text else "abstract"
     if not cand_text:
         cand_text = abstract
@@ -429,16 +453,7 @@ def align_papers(
     }
 
     # Step 8: Persist per rules
-    should_persist: bool
-    if persist is True:
-        should_persist = True
-    elif persist is False:
-        should_persist = False
-    else:
-        # persist=None: write only when draft_id == configured draft
-        should_persist = (draft_id == store.get_draft_paper_id())
-
-    if should_persist:
+    if _should_persist(persist, draft_id):
         store.save_alignment(candidate_id, payload)
 
     return payload

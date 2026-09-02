@@ -10,7 +10,7 @@ import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
-import { buildRows, sortRows, draftActionFor, formatFailureReason } from '../libraryHelpers.js';
+import { buildRows, sortRows, draftActionFor, formatFailureReason, alignmentNoteModel } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
 import { queueRowModel, queueAfterMatches, nextMatchedIds, statusBannerModel, createAcquirePoller } from '../acquireHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
@@ -871,8 +871,15 @@ function _renderList(grid, papers, draftId) {
       ? ` <span class="lib-status-pill lib-status-pill-ocr" title="Read via OCR — scanned PDF${row.parseSource ? ' (' + escapeHtml(row.parseSource) + ')' : ''}">OCR</span>`
       : '';
 
+    // Same marking as the grid card: a refused alignment is not a neutral
+    // score, and an abstract-only score is not a full-text one.
+    const alignNote = alignmentNoteModel(row.alignmentNote);
+    const alignPillHtml = alignNote.show
+      ? ` <span class="lib-status-pill lib-status-pill-align ${escapeHtml(alignNote.cls)}" title="${escapeHtml(alignNote.title)}">${escapeHtml(alignNote.label)}</span>`
+      : '';
+
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${openPublisherBtnHtml}${queueRow.show ? queueInfoHtml : failureReasonHtml}${oaLinksHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${alignPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${openPublisherBtnHtml}${queueRow.show ? queueInfoHtml : failureReasonHtml}${oaLinksHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>

@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason, alignmentNoteModel } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
 
@@ -469,4 +469,32 @@ test('formatFailureReason: no acquisition at all falls back to the raw (truncate
     'PDF not found: /some/path/paper.pdf');
   assert.equal(formatFailureReason('PDF not found: /some/path/paper.pdf'),
     'PDF not found: /some/path/paper.pdf');
+});
+
+// --- alignment evidence marking (spec 8.1) ----------------------------------
+
+test('a refused alignment is marked, not rendered as a score', () => {
+  const m = alignmentNoteModel({
+    kind: 'refused', reason: 'no_text', evidence_depth: 'metadata',
+    headline: 'Not scored — this paper has not been read.',
+    detail: 'Add the PDF and it will be scored like any other paper.',
+  });
+  assert.equal(m.show, true);
+  assert.equal(m.label, 'Not scored');
+  assert.match(m.title, /has not been read/);
+});
+
+test('an abstract-only score says so', () => {
+  const m = alignmentNoteModel({
+    kind: 'abstract_only', evidence_depth: 'abstract',
+    headline: 'Scored from the abstract.', detail: '',
+  });
+  assert.equal(m.show, true);
+  assert.equal(m.label, 'Abstract only');
+});
+
+test('a full-text score is not marked at all', () => {
+  for (const note of [null, undefined, {}, 'nope', { kind: 'full_text' }]) {
+    assert.equal(alignmentNoteModel(note).show, false);
+  }
 });

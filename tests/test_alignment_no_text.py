@@ -104,3 +104,95 @@ def test_a_full_text_paper_is_marked_as_such(monkeypatch):
     out = alignment.align_papers("local:draft", "doi:10.1109/z",
                                  llm=_counting_llm(), persist=False)
     assert out["evidence_depth"] == "full_text"
+
+
+# ---------------------------------------------------------------------------
+# The refusal has to reach the Lab, not just the return value
+# ---------------------------------------------------------------------------
+
+def test_the_refusal_is_persisted_so_the_lab_can_load_it():
+    """Returned-only, the refusal reached nothing: the Lab saw no alignment
+    at all and rendered the paper as merely unscored -- 8.1's
+    "indistinguishable from its siblings", relocated rather than removed.
+    It is stored under the keys store.load_alignment matches on."""
+    from research_companion import store
+
+    _draft()
+    PaperMetadata(paper_id="doi:10.1109/p", title="T", authors=[], year=2024).save()
+    alignment.align_papers("local:draft", "doi:10.1109/p",
+                           llm=_counting_llm(), persist=True)
+
+    stored = store.load_alignment("doi:10.1109/p", draft_paper_id="local:draft")
+    assert stored is not None, "load_alignment must find the refusal"
+    assert stored["skipped"] is True
+    assert stored["sections"] == [], "an empty sections list keeps every reader working"
+
+
+def test_persist_false_still_writes_nothing():
+    from research_companion import store
+
+    _draft()
+    PaperMetadata(paper_id="doi:10.1109/q", title="T", authors=[], year=2024).save()
+    alignment.align_papers("local:draft", "doi:10.1109/q",
+                           llm=_counting_llm(), persist=False)
+    assert store.load_alignment("doi:10.1109/q") is None
+
+
+def test_the_lab_marks_a_refused_paper_rather_than_scoring_it():
+    from fastapi.testclient import TestClient
+
+    from research_companion.agents.bus import Bus
+    from research_companion.lab_api import create_lab_app
+
+    _draft()
+    PaperMetadata(paper_id="doi:10.1109/r", title="Refused", authors=[],
+                  year=2024).save()
+    alignment.align_papers("local:draft", "doi:10.1109/r",
+                           llm=_counting_llm(), persist=True)
+
+    client = TestClient(create_lab_app(Bus()))
+    paper = next(p for p in client.get("/api/papers").json()
+                 if p["paper_id"] == "doi:10.1109/r")
+    note = paper["alignment_note"]
+    assert note is not None, "a refusal must be visible in the Lab"
+    assert note["kind"] == "refused"
+    assert note["evidence_depth"] == "metadata"
+    assert "not been read" in note["headline"]
+    assert paper["stance_counts"] == {"strengthens": 0, "challenges": 0,
+                                      "alternative": 0}
+
+
+def test_the_lab_marks_an_abstract_only_score(monkeypatch):
+    """A stance resting on the authors' own summary is defensible, but it is
+    not a stance resting on the paper, and it must not look like one."""
+    from fastapi.testclient import TestClient
+
+    from research_companion.agents.bus import Bus
+    from research_companion.lab_api import create_lab_app
+
+    _draft()
+    PaperMetadata(paper_id="doi:10.1109/s", title="Abstract only", authors=[],
+                  year=2024,
+                  abstract="We show speculative decoding degrades under "
+                           "memory pressure.").save()
+    alignment.align_papers("local:draft", "doi:10.1109/s",
+                           llm=_counting_llm(), persist=True)
+
+    client = TestClient(create_lab_app(Bus()))
+    paper = next(p for p in client.get("/api/papers").json()
+                 if p["paper_id"] == "doi:10.1109/s")
+    assert paper["alignment_note"]["kind"] == "abstract_only"
+
+
+def test_the_refusal_event_carries_no_score():
+    """lab_api's bulk analyze coerced score to float(... or 0.0), publishing a
+    refusal as a neutral 0.0 the Library rendered like any other score."""
+    from research_companion.agents.events import AlignmentReady, event_to_dict
+
+    evt = AlignmentReady(paper_id="doi:x", draft_paper_id="local:draft",
+                         verdict="", score=None, skipped=True, reason="no_text",
+                         evidence_depth="metadata")
+    payload = event_to_dict(evt)
+    assert payload["skipped"] is True
+    assert payload["score"] is None
+    assert payload["reason"] == "no_text"

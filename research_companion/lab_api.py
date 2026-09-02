@@ -519,6 +519,44 @@ def _enrich_acquisition(acquisition: dict | None) -> dict | None:
         return acquisition  # malformed stored acquisition -- serve it as-is rather than 500
 
 
+def _alignment_note(alignment: dict | None) -> dict | None:
+    """What the Lab must say about HOW an alignment was reached, or None when
+    there is nothing to say (a full-text score, or no alignment at all).
+
+    8.1's rule is that a paper scored on less evidence must not look like one
+    scored on more. Alignment already refuses a paper it has not read
+    (alignment.py) and records evidence_depth on the ones it does score --
+    but the Lab consumed neither: a refusal published verdict="" score=0.0
+    and rendered as a neutral score, and an abstract-only score was
+    indistinguishable from a full-text one. Computed here, in Python, and
+    consumed by the UI -- never re-derived in JS, the same rule
+    signalHelpers.js follows.
+    """
+    if not isinstance(alignment, dict):
+        return None
+    depth = str(alignment.get("evidence_depth") or "")
+    if alignment.get("skipped"):
+        return {
+            "kind": "refused",
+            "reason": str(alignment.get("reason") or "no_text"),
+            "evidence_depth": depth or "metadata",
+            "headline": "Not scored — this paper has not been read.",
+            "detail": ("Alignment needs the paper's text or its abstract; only "
+                       "a title is on record. Add the PDF and it will be scored "
+                       "like any other paper."),
+        }
+    if depth == "abstract":
+        return {
+            "kind": "abstract_only",
+            "reason": "",
+            "evidence_depth": depth,
+            "headline": "Scored from the abstract.",
+            "detail": ("No full text was available, so this score rests on the "
+                       "authors' own summary rather than on the paper."),
+        }
+    return None
+
+
 def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> dict:
     """Build the per-paper dict served by GET /api/papers (and returned by
     PATCH /api/papers/{id}). Factored so the two stay identical in shape."""
@@ -579,9 +617,11 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         strength = None
 
     stance_counts = {"strengthens": 0, "challenges": 0, "alternative": 0}
+    alignment_note = None
     if draft_id is not None:
         alignment = store.load_alignment(paper_id, draft_paper_id=draft_id)
         if alignment is not None:
+            alignment_note = _alignment_note(alignment)
             for sec in alignment.get("sections", []):
                 rel = sec.get("relation", "")
                 if rel in stance_counts:
@@ -597,6 +637,9 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         "strength": strength,
         "is_draft": paper_id == draft_id,
         "stance_counts": stance_counts,
+        # None unless the alignment rests on less than a full text (see
+        # _alignment_note). The UI reads it; it never re-derives it.
+        "alignment_note": alignment_note,
         "added_at": meta.added_at,
         "parse_source": getattr(meta, "parse_source", "") or "",
         "ocr_used": bool(getattr(meta, "ocr_used", False)),
@@ -2639,12 +2682,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                         payload = await asyncio.to_thread(
                             aligner, draft_id, cand_id,
                             llm=resolved_llm, force=force)
+                        skipped = bool(payload.get("skipped"))
                         with suppress(Exception):
                             await bus.publish(AlignmentReady(
                                 paper_id=cand_id,
                                 draft_paper_id=draft_id,
                                 verdict=str(payload.get("verdict", "")),
-                                score=float(payload.get("score", 0.0) or 0.0)))
+                                # `or 0.0` turned a refusal's None into a
+                                # neutral-looking score. A refusal has none.
+                                score=(None if skipped
+                                       else float(payload.get("score", 0.0) or 0.0)),
+                                skipped=skipped,
+                                reason=str(payload.get("reason") or ""),
+                                evidence_depth=str(payload.get("evidence_depth") or "")))
                     except Exception:  # noqa: BLE001 — one paper must not abort the run
                         failed += 1
                     done += 1

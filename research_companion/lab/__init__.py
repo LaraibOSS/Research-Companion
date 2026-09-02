@@ -374,11 +374,17 @@ async def ingest_one(
                     paper_id,
                     llm=_llm,
                 )
+                skipped = bool(align_payload.get("skipped"))
                 await bus.publish(AlignmentReady(
                     paper_id=paper_id,
                     draft_paper_id=draft_id,
                     verdict=align_payload.get("verdict", ""),
-                    score=align_payload.get("score", 0.0),
+                    # None, not 0.0: a refusal has no score, and coercing it
+                    # to one renders the paper as merely middling.
+                    score=None if skipped else align_payload.get("score", 0.0),
+                    skipped=skipped,
+                    reason=str(align_payload.get("reason") or ""),
+                    evidence_depth=str(align_payload.get("evidence_depth") or ""),
                 ))
             except Exception as exc:
                 # Alignment failures are non-fatal; publish IngestFailed but do NOT
