@@ -29,6 +29,7 @@ import feedparser
 import httpx
 
 from research_companion.acquire import AcquireReason, Acquisition, acquire
+from research_companion.acquire.copy import reason_headline
 from research_companion.store import (
     PaperMetadata,
     find_existing_paper_for,
@@ -116,45 +117,6 @@ def _arxiv_metadata(arxiv_id: str, *, timeout: float = 30.0) -> dict:
         "abstract": (e.get("summary", "") or "").strip().replace("\n", " "),
         "arxiv_categories": categories,
     }
-
-
-def _download_pdf(url: str, *, timeout: float = 60.0) -> bytes:
-    from research_companion.net import MAX_DOWNLOAD_BYTES, MAX_REDIRECTS, UrlNotAllowed, validate_public_url
-    current = url
-    try:
-        with httpx.Client(timeout=timeout, headers={"User-Agent": USER_AGENT},
-                          follow_redirects=False) as client:
-            for _ in range(MAX_REDIRECTS + 1):
-                validate_public_url(current)          # re-validate EVERY hop
-                with client.stream("GET", current) as resp:
-                    if resp.is_redirect:
-                        loc = resp.headers.get("location")
-                        if not loc:
-                            raise FetchError(f"redirect without Location from {current}")
-                        current = str(resp.url.join(loc))
-                        continue
-                    resp.raise_for_status()
-                    declared = resp.headers.get("content-length")
-                    if declared and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
-                        raise FetchError(f"PDF exceeds size cap ({MAX_DOWNLOAD_BYTES} bytes): {url}")
-                    chunks: list[bytes] = []
-                    total = 0
-                    for chunk in resp.iter_bytes():
-                        total += len(chunk)
-                        if total > MAX_DOWNLOAD_BYTES:
-                            raise FetchError(f"PDF exceeds size cap ({MAX_DOWNLOAD_BYTES} bytes): {url}")
-                        chunks.append(chunk)
-                    body = b"".join(chunks)
-                    if not body:
-                        raise FetchError(f"empty PDF from {url}")
-                    if not body.startswith(b"%PDF-"):
-                        raise FetchError(f"response from {url} does not look like a PDF")
-                    return body
-            raise FetchError(f"too many redirects for {url}")
-    except UrlNotAllowed as exc:
-        raise FetchError(str(exc)) from exc
-    except httpx.HTTPError as exc:
-        raise FetchError(f"download failed for {url}: {exc}") from exc
 
 
 def _acquire_safely(meta, **kwargs) -> tuple[bytes | None, Acquisition]:
@@ -266,8 +228,14 @@ def add_doi(url_or_doi: str) -> PaperMetadata:
     if pdf_bytes is not None:
         save_pdf(paper_id, pdf_bytes)
     else:
-        print(f"warning: could not download PDF for DOI {doi} "
-              f"(likely paywalled). Metadata saved, but text extraction "
+        # NOT "(likely paywalled)": acq already knows which of the six
+        # situations this was, and guessing "paywalled" while holding a
+        # BLOCKED_BY_HOST is the same wrong-cause report this whole chain
+        # exists to stop -- an open-access article a bot filter refused is
+        # not a subscription wall, and telling the user it is sends them
+        # looking for institutional access they do not need.
+        print(f"warning: could not download PDF for DOI {doi} — "
+              f"{reason_headline(acq)} Metadata saved, but text extraction "
               f"will not work without a PDF.")
 
     meta = PaperMetadata(

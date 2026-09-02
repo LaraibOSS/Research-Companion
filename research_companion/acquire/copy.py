@@ -76,7 +76,12 @@ def reason_headline(acq: Acquisition) -> str:
     if r is AcquireReason.NO_LOCATION_FOUND:
         return "No PDF found in open-access sources."
     if r is AcquireReason.SOURCE_UNAVAILABLE:
-        return "Couldn't reach the source — we'll try again."
+        # NOT "we'll try again". Nothing schedules a retry: this is the one
+        # reason human_can_help is False for, so it is excluded from the
+        # Needs-you queue, the find-pdf sweep and `acquire --list/--all`,
+        # and no background job re-runs it. Promising a retry that never
+        # happens is the same class of dishonesty as naming the wrong cause.
+        return "Couldn't reach the source — the host or the network was down."
     if r is AcquireReason.NOT_A_PDF:
         return "The download was a web page, not a PDF."
     # Two situations share NOT_ATTEMPTED: a paper with genuinely no
@@ -101,7 +106,9 @@ def reason_detail(acq: Acquisition) -> str:
     if r is AcquireReason.NO_LOCATION_FOUND:
         return f"{tried} If you have the PDF, you can add it yourself.".strip()
     if r is AcquireReason.SOURCE_UNAVAILABLE:
-        return f"{tried} This usually clears on its own.".strip()
+        return (f"{tried} This usually clears on its own, but nothing here "
+                "retries it for you — add the paper again, or run "
+                "`research-companion acquire <paper id>`.").strip()
     if r is AcquireReason.NOT_A_PDF:
         return (f"{tried} That usually means a login page stood in the way."
                 ).strip()

@@ -170,9 +170,14 @@ def test_add_doi_saves_metadata_only_when_acquire_finds_nothing(
     assert store.pdf_path(meta.paper_id) is None  # metadata-only, exactly as today
     assert meta.last_acquisition["reason"] == "no_location_found"
     out = capsys.readouterr().out
-    assert ("warning: could not download PDF for DOI 10.9999/paywalled "
-            "(likely paywalled). Metadata saved, but text extraction "
-            "will not work without a PDF.") in out
+    # The warning names the reason acq actually carries. It used to say
+    # "(likely paywalled)" unconditionally -- a guess, and the wrong one for
+    # the case that dominates the real data (an open-access article a bot
+    # filter refused), which is exactly the wrong-cause report this branch
+    # exists to remove.
+    assert ("warning: could not download PDF for DOI 10.9999/paywalled — "
+            "No PDF found in open-access sources. Metadata saved, but text "
+            "extraction will not work without a PDF.") in out
 
 
 def test_add_doi_survives_acquire_raising(monkeypatch: pytest.MonkeyPatch,
@@ -196,9 +201,12 @@ def test_add_doi_survives_acquire_raising(monkeypatch: pytest.MonkeyPatch,
     assert store.pdf_path(meta.paper_id) is None   # metadata-only, exactly as today
     assert meta.last_acquisition is not None        # the crash didn't lose the record
     out = capsys.readouterr().out
-    assert ("warning: could not download PDF for DOI 10.9999/acquire-crashes "
-            "(likely paywalled). Metadata saved, but text extraction "
-            "will not work without a PDF.") in out
+    # _acquire_safely's defensive fallback is SOURCE_UNAVAILABLE, and the
+    # warning reports that rather than guessing at a paywall.
+    assert ("warning: could not download PDF for DOI 10.9999/acquire-crashes — "
+            "Couldn't reach the source — the host or the network was down. "
+            "Metadata saved, but text extraction will not work without a "
+            "PDF.") in out
 
 
 def test_add_s2_saves_pdf_when_acquire_succeeds(monkeypatch: pytest.MonkeyPatch,

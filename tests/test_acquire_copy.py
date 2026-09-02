@@ -93,10 +93,17 @@ def test_the_detail_reports_how_many_sources_were_tried():
     assert "2 source" in reason_detail(a)
 
 
-def test_a_transient_failure_says_the_tool_will_retry_not_that_you_must():
+def test_a_transient_failure_does_not_promise_a_retry_nobody_performs():
+    """SOURCE_UNAVAILABLE is the one reason human_can_help is False for, so
+    it is excluded from the Needs-you queue, the find-pdf sweep and
+    `acquire --list/--all`, Find PDF is hidden for it, and no background job
+    schedules a retry. The copy therefore must not say one is coming; it
+    names the action a person can actually take instead."""
     a = _acq(AcquireReason.SOURCE_UNAVAILABLE, [_attempt(status=None, outcome="timeout")])
     text = (reason_headline(a) + " " + reason_detail(a)).lower()
-    assert "again" in text or "retry" in text
+    assert "we'll try again" not in text
+    assert "will try again" not in text
+    assert "acquire" in text, "must name the surface that DOES re-run it"
 
 
 @pytest.mark.parametrize("url,expected", [
