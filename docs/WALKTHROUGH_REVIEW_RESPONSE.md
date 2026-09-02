@@ -709,6 +709,129 @@ state. The draft's bibliography deliberately includes one work with no arXiv
 identifier, so the citation coverage reads **12 of 13** rather than a tidy
 hundred percent.
 
+---
+
+## 10. A missing file that was not missing
+
+Every one of the 17 real download failures in this codebase read:
+
+```
+no PDF on disk for doi:...
+```
+
+The file was not the problem. Three steps upstream, the open-access locator
+had already found the correct PDF URL, and ACM had already answered the
+request with HTTP 403. By the time `extract.py` raised, the URL and the
+refusal were both gone — `FileNotFoundError` was the only fact left standing,
+and it names a condition (nothing on disk) that was never actually true: a
+location was known, it was just refused.
+
+### Cost of the misreport
+
+A message that says *missing file* sends the reader to build the thing that
+finds files: a crawler that renders JavaScript, holds cookies, rotates
+User-Agents, and clicks through consent walls the way a browser does. That
+looked like the natural next step here too, and was seriously considered
+before this record's pattern (§8) prompted checking what actually failed
+first.
+
+### Declined: the crawler
+
+**A browser-shaped crawler was declined**, on three independent grounds, any
+one of which would have been sufficient:
+
+- **It is not a paywall.** The 403 is a bot filter — ACM's own metadata
+  declares the article open access, and `dl.acm.org` returns the same refusal
+  regardless of politeness (a real, documented User-Agent and per-host
+  throttling are both in place in `acquire/http.py` and verified not to move
+  it). A crawler built to defeat that filter is built to defeat a
+  robots-and-ToS control on a site whose terms explicitly prohibit automated
+  access, not to reach content that is genuinely behind payment.
+- **It has the same ceiling.** Of the twelve real failures re-verified live in
+  this task, five have no free copy anywhere any index knows about — not
+  ACM's, not a mirror's, not a preprint's. A crawler cannot download a PDF
+  that does not exist in open access; it would return exactly the five
+  failures this chain already returns, at the cost of everything below.
+- **The risk is asymmetric.** Defeating a bot filter well enough to matter
+  risks an IP-level ban from the publisher network, which is a strictly worse
+  outcome than the status quo: it would jeopardise `arxiv.org`, the one path
+  in this whole chain that **has never failed** — tried first in
+  `acquire/__init__.py` precisely because it is a native identifier and needs
+  no index round-trip. Trading a working, ToS-compliant path for a chance at
+  recovering a subset of five publisher copies is not a trade worth making.
+
+### Root cause: one value doing the work of six
+
+`fetch._try_download_pdf(url) -> bytes | None` was the single choke point.
+`None` told the caller a download did not happen; it never told anyone which
+of the genuinely different situations that was. A 404, a 403, a timeout, an
+HTML login page, and a body that hit the 50&nbsp;MB cap all collapsed onto the
+same value and were reported with the same sentence three layers up. This is
+the same defect as §8's `bytes | None`-shaped cousins — a wrapper that
+compresses distinct failures into one signal is, structurally, the same
+mistake as a wrapper that discards `stderr` and lets a fallback overwrite the
+cause.
+
+### What shipped
+
+- **`Acquisition(obtained, reason, attempts, source)`** — a typed outcome
+  (`research_companion/acquire/types.py`) with six `AcquireReason` values
+  (`blocked_by_host`, `paywalled`, `no_location_found`, `source_unavailable`,
+  `not_a_pdf`, `not_attempted`) replacing the one collapsed `bytes | None`,
+  plus `human_can_help`, computed once so no surface re-derives it.
+- **Host-class ranking** (`acquire/hosts.py`) — candidates are tried
+  repository-before-publisher, because a repository exists to be harvested
+  and a publisher is the one that answers 403. The old code took OpenAlex's
+  single `best_oa_location`, chosen for bibliographic quality, which is
+  usually the publisher — the worst place to ask first.
+- **arXiv title search** (`acquire/sources.py`) — recovers a preprint of a
+  paywalled paper when no provider has already surfaced its arXiv id, which
+  is what the old code required.
+- **The never-retry-a-403 rule** (`acquire/http.py`) — only
+  `{429, 500, 502, 503, 504}` are retried; a 403, a 404, or an HTML body is a
+  definitive answer, and retrying it is indistinguishable from an attack —
+  the exact behaviour a crawler would have needed to defeat, and exactly what
+  risks the IP ban above.
+- **The click-armed downloads watcher** (`research_companion/watcher.py`) —
+  reads nothing from a folder unless the user has just clicked "I downloaded
+  it," and even then only PDFs newer than that click, identified by filename,
+  a page-one identifier, or title match, in that order of cost.
+- **`research-companion acquire`** (`cli.py`) — retries one paper, retries
+  every recoverable paper, or lists what is waiting, all reading the same
+  `human_can_help` flag the Lab UI reads, so the two surfaces cannot disagree
+  about which papers a person could still help with.
+
+### Verified against the real failures
+
+`scripts/verify_acquisition_live.py` runs the chain, unmodified, against the
+twelve DOIs that produced the original misreport. Measured live on
+2026-09-01: 2 obtained, 5 blocked_by_host, 5 paywalled. Re-run for this task
+on 2026-09-02 came back 1 obtained, 6 blocked_by_host, 5 paywalled — a
+one-DOI shift, investigated rather than adjusted to on sight.
+
+The moved DOI, `10.1145/3767742`, was obtained on 2026-09-01 via a direct-PDF
+link on its institutional-repository mirror after ACM itself refused it. On
+2026-09-02 that same repository URL answers with an Incapsula bot-challenge
+page instead of the PDF — checked with both a browser User-Agent and curl's,
+challenged identically either way. ACM already refused this paper with a 403
+before and after, so nothing in the classifier or the chain changed; a
+repository added or activated bot-management on the one path that used to let
+a robot through. That is a genuine, host-side access change of exactly the
+kind this script's own comments warn against silently absorbing — recorded
+there, and the expectation updated to 1/6/5 with the investigation attached
+rather than a bare number change.
+
+### The pattern, a third time
+
+**A rescue path must preserve what it rescued you from** (§8) applies here
+too, in its third form in this record: `mcp` reported a present SDK as
+missing, `claim_audit` reported a model judgement as verified, and
+`_try_download_pdf` reported a refusal as a missing file. In all three, the
+system had the right information at some point in the call stack and threw it
+away before the message reached a human — and in this case, the wrong message
+did not just mislead an investigation, it argued for building the wrong tool
+entirely.
+
 ## Declined
 
 **Aggregate truth verdicts.** The original Evidence Ledger carried a corpus-wide

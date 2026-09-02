@@ -238,6 +238,71 @@
         "tests/test_claim_audit.py::test_a_citation_with_no_anchor_is_uncheckable_not_wrong",
         "tests/test_claim_audit.py::test_summary_does_not_inflate_how_much_was_actually_checked"
       ]
+    },
+    {
+      "mechanism": "acquisition_open_access_host_blocks_download",
+      "trigger": "An index reports a free copy of a paper, but the host serving it answers 403 or 429 to an automated request",
+      "degraded_state": "Classified BLOCKED_BY_HOST rather than PAYWALLED or a generic 'no PDF on disk' — the refusal outranks absence in _classify() because a bot filter on an open-access article is a different situation from a paper with no free copy anywhere. Queued for human help, since a browser can fetch what a robot cannot.",
+      "user_visible_signal": "reason_headline reads 'Open access — but <publisher> blocks automated downloads.'; the paper appears under the Library's 'Needs you' chip.",
+      "authority": [
+        {
+          "file": "research_companion/acquire/__init__.py",
+          "anchor": "\"403\" in outcomes or \"429\" in outcomes"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_acquire_chain.py::test_an_open_access_403_is_blocked_by_host_not_paywalled",
+        "tests/test_acquire_http.py::test_a_403_is_never_retried"
+      ]
+    },
+    {
+      "mechanism": "acquisition_never_retries_a_definitive_refusal",
+      "trigger": "A host answers 403, 404, or any other non-retryable 4xx, or returns an HTML body where a PDF was promised",
+      "degraded_state": "download_pdf returns immediately without retrying. Only {429, 500, 502, 503, 504} are treated as the host asking us to come back; retrying a definitive refusal is indistinguishable from an attack and is how a host-level block becomes an IP-level one, which would also take down the arXiv path that has never failed.",
+      "user_visible_signal": "The paper's attempts list records exactly one Attempt for that host, never a retried sequence, for a 403/404/not-a-PDF outcome.",
+      "authority": [
+        {
+          "file": "research_companion/acquire/http.py",
+          "anchor": "RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_acquire_http.py::test_a_403_is_never_retried",
+        "tests/test_acquire_http.py::test_a_404_is_never_retried",
+        "tests/test_acquire_http.py::test_html_is_not_retried"
+      ]
+    },
+    {
+      "mechanism": "acquisition_transient_failure_not_queued_to_a_person",
+      "trigger": "Every acquisition attempt fails with a retryable status (timeout/5xx) that survives all retries",
+      "degraded_state": "Classified SOURCE_UNAVAILABLE, the one reason human_can_help is False for. Retrying a transient network failure is treated as the machine's job, not something a person should be asked to work around by clicking a queue item.",
+      "user_visible_signal": "reason_headline reads \"Couldn't reach the source — we'll try again.\"; the paper does not appear in the Library's 'Needs you' queue.",
+      "authority": [
+        {
+          "file": "research_companion/acquire/types.py",
+          "anchor": "_MACHINE_OWNED = frozenset({AcquireReason.SOURCE_UNAVAILABLE})"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_acquire_types.py::test_the_machine_owns_transient_failures",
+        "tests/test_acquire_chain.py::test_a_transient_failure_everywhere_is_source_unavailable"
+      ]
+    },
+    {
+      "mechanism": "acquisition_downloads_watcher_disarmed_by_default",
+      "trigger": "The click-armed downloads watcher has not been armed by an explicit user action, or its TTL has expired since it was",
+      "degraded_state": "poll() returns before any directory listing, stat, or page-one read happens — nothing on disk is scanned while disarmed. Arming is a time-boxed action tied to a user clicking 'I downloaded it', never an always-on filesystem watcher.",
+      "user_visible_signal": "No filesystem access occurs; is_armed is False and seconds_left is 0 until the user arms it again.",
+      "authority": [
+        {
+          "file": "research_companion/watcher.py",
+          "anchor": "Reads nothing unless armed."
+        }
+      ],
+      "pinned_by": [
+        "tests/test_watcher.py::test_a_new_watcher_is_not_armed",
+        "tests/test_watcher.py::test_polling_while_disarmed_reads_nothing"
+      ]
     }
   ]
 }

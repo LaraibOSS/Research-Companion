@@ -42,6 +42,11 @@ research-companion add 2309.06180
 
 <img src="docs/images/library.png" alt="The Library tab: papers added, shown as cards with authors, year and evidence strength">
 
+If a publisher blocks the automatic download — some do, even for articles they
+themselves mark open access — that paper is queued under **Needs you** with a
+plain-language reason instead of a bare "failed." Download the PDF yourself
+and add it, or retry the whole queue later with `research-companion acquire --all`.
+
 <br>
 
 ### 2 · It maps the ideas, not the citations
