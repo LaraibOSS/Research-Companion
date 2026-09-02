@@ -111,6 +111,43 @@ def _build_llm_callable(provider: str, model: str | None) -> Callable[[str], str
     return _llm
 
 
+def _acquisition_failure(paper_id: str, stage: str, error: str) -> dict:
+    """The failure record for one ingest-stage failure, carrying the paper's
+    acquisition outcome whenever that outcome is what actually went wrong.
+
+    This is the path every real failure takes. ``add_doi``/``add_s2``/
+    ``add_arxiv`` do NOT raise when the PDF cannot be got -- they save the
+    metadata, print a warning and return -- so the add job succeeds, no
+    exception ever reaches lab_api's add-failure handler (the only other
+    place that attaches an ``acquisition``), and the paper instead fails
+    here, three stages downstream, with ``FileNotFoundError("no PDF on disk
+    for ...")`` from extract.py. Recorded bare, that sentence is the symptom
+    and not the cause, and it is what all 17 recorded failures on disk say.
+
+    ``acquire.policy.stored_acquisition`` is the ONE place that decides which
+    acquisition a failure record is about (it returns None when a PDF IS on
+    disk, so a genuine parse/OCR/graph failure is left exactly as it was);
+    ``acquire.copy.failure_sentence`` is the ONE place that phrases it. This
+    function only joins them to a record.
+    """
+    info = {"stage": stage, "error": error, "paper_id": paper_id}
+    try:
+        from research_companion.acquire import Acquisition
+        from research_companion.acquire.copy import failure_sentence
+        from research_companion.acquire.policy import stored_acquisition
+
+        acquisition = stored_acquisition({"paper_id": paper_id}, paper_id)
+        if not isinstance(acquisition, dict):
+            return info
+        sentence = failure_sentence(Acquisition.from_dict(acquisition))
+        info["acquisition"] = acquisition
+        if sentence:
+            info["error"] = sentence
+    except Exception:  # noqa: BLE001 — enrichment must never lose the failure
+        return {"stage": stage, "error": error, "paper_id": paper_id}
+    return info
+
+
 def _persist_parser_sections(paper_id: str, parsed) -> list | None:
     """Persist parser-provided (docling) sections via the store, matching the
     sections.py payload shape so downstream ``build_and_save_sections`` treats
@@ -251,14 +288,18 @@ async def ingest_one(
     except ParserError as exc:
         # docling convert failure -> a text/parse extraction failure, not a
         # sectioning failure; consistent with the empty-text gate above.
-        error_str = f"Failed to parse the PDF ({exc})"
-        store.record_failure(path_str, {"stage": "extract", "error": error_str, "paper_id": paper_id})
-        await bus.publish(IngestFailed(path=path_str, stage="extract", error=error_str, paper_id=paper_id))
+        info = _acquisition_failure(paper_id, "extract",
+                                    f"Failed to parse the PDF ({exc})")
+        store.record_failure(path_str, info)
+        await bus.publish(IngestFailed(path=path_str, stage="extract",
+                                       error=info["error"], paper_id=paper_id))
         return False
     except Exception as exc:
-        error_str = str(exc)
-        store.record_failure(path_str, {"stage": "sections", "error": error_str, "paper_id": paper_id})
-        await bus.publish(IngestFailed(path=path_str, stage="sections", error=error_str, paper_id=paper_id))
+        # The missing-PDF FileNotFoundError from extract.py arrives here.
+        info = _acquisition_failure(paper_id, "sections", str(exc))
+        store.record_failure(path_str, info)
+        await bus.publish(IngestFailed(path=path_str, stage="sections",
+                                       error=info["error"], paper_id=paper_id))
         return False
 
     # -----------------------------------------------------------------------

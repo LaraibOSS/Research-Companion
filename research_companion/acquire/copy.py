@@ -41,10 +41,26 @@ def publisher_name(url) -> str | None:
 
 
 def _refuser(acq: Acquisition) -> str | None:
+    """Which host refused us, preferring one this module can NAME.
+
+    The DOI resolver is tried first and redirects straight to the
+    publisher, and an Attempt records the URL we asked for rather than the
+    one that answered -- so the first refusal on a blocked ACM article is
+    filed under doi.org, and reporting "doi.org blocks automated downloads"
+    names the doorbell instead of the door. Prefer a refusal from a host in
+    _PUBLISHERS; fall back to the first refusal only when none of them is
+    recognised.
+    """
+    first: str | None = None
     for a in acq.attempts:
-        if a.outcome in ("403", "429"):
-            return publisher_name(a.url)
-    return None
+        if a.outcome not in ("403", "429"):
+            continue
+        name = publisher_name(a.url)
+        if first is None:
+            first = name
+        if name in _PUBLISHERS.values():
+            return name
+    return first
 
 
 def reason_headline(acq: Acquisition) -> str:
@@ -90,3 +106,19 @@ def reason_detail(acq: Acquisition) -> str:
         return (f"{tried} That usually means a login page stood in the way."
                 ).strip()
     return "Add the PDF directly and it will work like any other paper."
+
+
+def failure_sentence(acq: Acquisition) -> str:
+    """The one user-facing sentence for a failed acquisition: the cause,
+    then what follows from it.
+
+    Exists so the two places that put an acquisition failure into a
+    ``failed.json`` record's ``error`` field (research_companion/lab's
+    ingest failure sites, and research_companion/lab_api.py's paper
+    summary, which rewrites the stale symptom text of records written
+    before acquisitions were attached) produce the identical sentence
+    rather than each assembling headline and detail their own way.
+    """
+    if acq.obtained or acq.reason is None:
+        return ""
+    return f"{reason_headline(acq)} {reason_detail(acq)}".strip()

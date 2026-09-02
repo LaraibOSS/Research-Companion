@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from research_companion.acquire.policy import human_can_help
+from research_companion.acquire.policy import human_can_help, stored_acquisition
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import event_to_dict
 
@@ -534,10 +534,28 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
             status = "failed"
             failure_reason = info.get("error")
             oa_links = info.get("oa_links") or []
-            acquisition = info.get("acquisition")
+            # NOT info["acquisition"]: the failure that actually happens most
+            # -- add_doi/add_s2/add_arxiv could not get the PDF, saved the
+            # metadata and did NOT raise, so the failure is recorded three
+            # stages later by research_companion/lab with no acquisition
+            # attached -- only ever carries its outcome on the paper's own
+            # last_acquisition. stored_acquisition is the ONE place that
+            # rule lives; policy.human_can_help reads the same function, so
+            # this summary and the queue cannot disagree about which
+            # acquisition a record is about.
+            acquisition = stored_acquisition(info, key)
             break
 
     acquisition = _enrich_acquisition(acquisition)
+    # "no PDF on disk for doi:..." is the symptom, observed three steps
+    # downstream of the cause, and it is what every one of the real recorded
+    # failures says. When the acquisition above knows the actual cause, that
+    # cause is what the user reads -- including in the card's full-reason
+    # tooltip, which is otherwise the last place the stale sentence survives.
+    if acquisition is not None and acquisition.get("headline"):
+        failure_reason = " ".join(
+            part for part in (acquisition.get("headline"),
+                              acquisition.get("detail")) if part).strip()
 
     if status != "failed" and store.load_extraction(
             paper_id, prompt_sha=prompt_sha) is not None:
@@ -1660,28 +1678,31 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     def _acquirable_failures() -> list[dict]:
         """Every recorded failure a person can help with, as
         {paper_id, title, acquisition}. `human_can_help` is computed once, in
-        Python (Acquisition.human_can_help) -- this reads that stored flag
-        rather than re-deriving it, so there is exactly one source of truth
-        for queue membership. The `acquisition` dict returned here is run
-        through `_enrich_acquisition` -- the SAME helper _build_paper_summary
-        uses -- so GET /api/acquire/queue carries headline/detail identically
-        to GET /api/papers rather than a consumer having to recompute them.
-        Doubles as the `queued` list the watcher matches a downloaded file
-        against (extra keys are simply ignored by watcher._queued_id /
-        _queued_title)."""
+        Python (Acquisition.human_can_help) -- this calls the SAME
+        acquire.policy.human_can_help that find-pdf, the sweep and the CLI
+        `acquire --list/--all` call, so there is exactly one rule for queue
+        membership. Requiring a stored `acquisition` dict here instead was
+        drift: it made this endpoint and the Needs-you chip stricter than
+        every other surface claiming the same thing, and put every record
+        written before acquisitions were attached on the wrong side of it.
+        (The row itself still needs an acquisition to render -- queueRowModel
+        demands one -- and `stored_acquisition` supplies it from the paper's
+        own last_acquisition when the record has none.) The `acquisition`
+        dict returned here is run through `_enrich_acquisition` -- the SAME
+        helper _build_paper_summary uses -- so GET /api/acquire/queue carries
+        headline/detail identically to GET /api/papers rather than a consumer
+        having to recompute them. Doubles as the `queued` list the watcher
+        matches a downloaded file against (extra keys are simply ignored by
+        watcher._queued_id / _queued_title)."""
         from research_companion import store
 
         out: list[dict] = []
         for key, info in store.list_failures().items():
             if not isinstance(info, dict):
                 continue
-            acquisition = info.get("acquisition")
-            # Membership is decided on the RAW stored flag, before
-            # enrichment -- enrichment only adds headline/detail, it never
-            # changes human_can_help, but checking the raw dict keeps this
-            # check obviously independent of what _enrich_acquisition does.
-            if not isinstance(acquisition, dict) or not acquisition.get("human_can_help"):
+            if not human_can_help(info, key):
                 continue
+            acquisition = stored_acquisition(info, key)
             paper_id = info.get("paper_id") or key
             meta = store.PaperMetadata.load(paper_id)
             out.append({
