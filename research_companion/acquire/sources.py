@@ -43,15 +43,50 @@ def _derive_ids(meta) -> dict:
     return ids
 
 
+def _merge_external_ids(ids: dict, external) -> dict:
+    """Fold Semantic Scholar's ``externalIds`` into the id map, in place.
+
+    `_fetch_s2` has always ASKED for this field; nothing read it. So an
+    `s2:` paper reached the rest of the chain with only its S2 hash: no
+    Unpaywall lookup (DOI-only), no OpenAlex-by-DOI, no direct arXiv fetch
+    -- leaving it dependent on an exact title match, a regression against
+    the native path `fetch.add_s2` used to have. S2 is asked first for
+    exactly this reason: every later provider sees the ids it surfaced.
+
+    Never overwrites an id already derived from the paper_id: that one came
+    from the user and is authoritative.
+    """
+    if not isinstance(external, dict):
+        return ids
+    for slot, keys in (("doi", ("DOI", "doi")),
+                       ("arxiv", ("ArXiv", "ARXIV", "arxiv"))):
+        if ids.get(slot):
+            continue
+        for key in keys:
+            value = external.get(key)
+            if isinstance(value, str) and value.strip():
+                ids[slot] = value.strip()
+                break
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Seam-injectable fetchers (network lives here and only here)
 # ---------------------------------------------------------------------------
 
-def _get_json(url: str, params: dict | None = None) -> dict | None:
-    """Ported verbatim from oa_locator.py."""
-    from research_companion.fetch import USER_AGENT
+def _get_json(url: str, params: dict | None = None, email: str = "") -> dict | None:
+    """Ported from oa_locator.py, with one correction: the User-Agent now
+    carries the contact email.
+
+    Backwards before: the polite `mailto:` User-Agent reached only the
+    publisher PDF fetch (acquire/http.py), where §5.4 records it was
+    verified NOT to help, and never reached Unpaywall, OpenAlex, arXiv or
+    EuropePMC -- the four services where it IS the documented etiquette and
+    the difference between the polite pool and being throttled."""
+    from research_companion.acquire.http import user_agent
     try:
-        with httpx.Client(timeout=_TIMEOUT, headers={"User-Agent": USER_AGENT},
+        with httpx.Client(timeout=_TIMEOUT,
+                          headers={"User-Agent": user_agent(email)},
                           follow_redirects=True) as client:
             resp = client.get(url, params=params)
             resp.raise_for_status()
@@ -61,12 +96,14 @@ def _get_json(url: str, params: dict | None = None) -> dict | None:
         return None
 
 
-def _get_text(url: str) -> str | None:
+def _get_text(url: str, email: str = "") -> str | None:
     """Same shape as _get_json but for the arXiv/EuropePMC endpoints that
-    return XML or where we want the raw body rather than parsed JSON."""
-    from research_companion.fetch import USER_AGENT
+    return XML or where we want the raw body rather than parsed JSON. Same
+    polite User-Agent, for the same reason."""
+    from research_companion.acquire.http import user_agent
     try:
-        with httpx.Client(timeout=_TIMEOUT, headers={"User-Agent": USER_AGENT},
+        with httpx.Client(timeout=_TIMEOUT,
+                          headers={"User-Agent": user_agent(email)},
                           follow_redirects=True) as client:
             resp = client.get(url)
             resp.raise_for_status()
@@ -75,44 +112,47 @@ def _get_text(url: str) -> str | None:
         return None
 
 
-def _fetch_s2(ids: dict, title: str) -> dict | None:
+def _fetch_s2(ids: dict, title: str, email: str = "") -> dict | None:
     """Ported verbatim from oa_locator.py."""
     key = ids.get("s2") or (f"DOI:{ids['doi']}" if ids.get("doi") else None) \
         or (f"ARXIV:{ids['arxiv']}" if ids.get("arxiv") else None)
     if key is None:
         return None
     return _get_json(S2_LOOKUP_API.format(key=quote(key, safe=":/")),
-                     params={"fields": "title,openAccessPdf,externalIds"})
+                     params={"fields": "title,openAccessPdf,externalIds"},
+                     email=email)
 
 
 def _fetch_unpaywall(doi: str, email: str) -> dict | None:
     """Ported verbatim from oa_locator.py."""
     return _get_json(UNPAYWALL_API.format(doi=quote(doi, safe="/")),
-                     params={"email": email})
+                     params={"email": email}, email=email)
 
 
-def _fetch_openalex(ids: dict, title: str) -> dict | None:
+def _fetch_openalex(ids: dict, title: str, email: str = "") -> dict | None:
     """Ported verbatim from oa_locator.py."""
     if ids.get("doi"):
-        return _get_json(OPENALEX_DOI_API.format(doi=quote(ids["doi"], safe="/")))
+        return _get_json(OPENALEX_DOI_API.format(doi=quote(ids["doi"], safe="/")),
+                         email=email)
     if not title:
         return None
-    data = _get_json(OPENALEX_SEARCH_API, params={"search": title, "per-page": "1"})
+    data = _get_json(OPENALEX_SEARCH_API, params={"search": title, "per-page": "1"},
+                     email=email)
     results = (data or {}).get("results") or []
     return results[0] if results else None
 
 
-def _fetch_arxiv_by_title(title: str) -> str | None:
+def _fetch_arxiv_by_title(title: str, email: str = "") -> str | None:
     """Search arXiv by title, unlike the old code which only followed an
     arXiv id another provider had already surfaced. This is what recovers a
     preprint of a paywalled paper -- TAPAS and NeuPIMs among them."""
     if not title:
         return None
     url = ARXIV_QUERY.format(title=quote_plus(title))
-    return _parse_arxiv_feed(_get_text(url), title)
+    return _parse_arxiv_feed(_get_text(url, email=email), title)
 
 
-def _fetch_pmc_by_title(title: str) -> str | None:
+def _fetch_pmc_by_title(title: str, email: str = "") -> str | None:
     """Search EuropePMC by title and hand the raw payload to
     _parse_pmc_result. The seam does the HTTP call and nothing else, so the
     field-matching logic can be tested without a network."""
@@ -123,7 +163,7 @@ def _fetch_pmc_by_title(title: str) -> str | None:
         "format": "json",
         "resultType": "core",
         "pageSize": "3",
-    })
+    }, email=email)
     return _parse_pmc_result(data, title)
 
 
@@ -229,6 +269,7 @@ def collect_candidates(meta, *, settings=None, fetchers=None) -> list[str]:
         settings = get_settings()
     f = fetchers or _DEFAULT_FETCHERS
     ids = _derive_ids(meta)
+    pid = getattr(meta, "paper_id", "") or ""
     title = (getattr(meta, "title", "") or "").strip()
     email = (settings.get("contact_email") or "").strip()
     urls: list[str] = []
@@ -239,11 +280,24 @@ def collect_candidates(meta, *, settings=None, fetchers=None) -> list[str]:
         except Exception:      # a provider outage must not fail the acquisition
             return None
 
-    s2 = safe(f["s2"], ids, title)
+    s2 = safe(f["s2"], ids, title, email)
     if isinstance(s2, dict):
+        # Before the other providers run, so they get the DOI/arXiv id S2
+        # knows about even when the paper was added as a bare s2: hash.
+        _merge_external_ids(ids, s2.get("externalIds"))
         pdf = (s2.get("openAccessPdf") or {}).get("url")
         if pdf:
             urls.append(pdf)
+
+    # A native arXiv id surfaced by S2 is a rank-1 candidate -- the one host
+    # class that has never failed -- and needs no title match to be certain
+    # it is the right paper.
+    if ids.get("arxiv") and not pid.startswith("arxiv:"):
+        urls.append(ARXIV_PDF_URL.format(arxiv_id=ids["arxiv"]))
+    # Likewise the doi.org hop: acquire() takes it only for a doi: paper_id,
+    # so a DOI learned here is otherwise never resolved at all.
+    if ids.get("doi") and not pid.startswith("doi:"):
+        urls.append(f"https://doi.org/{ids['doi']}")
 
     if ids.get("doi") and email:
         up = safe(f["unpaywall"], ids["doi"], email)
@@ -252,15 +306,15 @@ def collect_candidates(meta, *, settings=None, fetchers=None) -> list[str]:
             if pdf:
                 urls.append(pdf)
 
-    urls.extend(_parse_openalex_locations(safe(f["openalex"], ids, title)))
+    urls.extend(_parse_openalex_locations(safe(f["openalex"], ids, title, email)))
 
     if title and not ids.get("arxiv"):
-        found = safe(f["arxiv_title"], title)
+        found = safe(f["arxiv_title"], title, email)
         if found:
             urls.append(ARXIV_PDF_URL.format(arxiv_id=found))
 
     if title:
-        pmc = safe(f["pmc_title"], title)
+        pmc = safe(f["pmc_title"], title, email)
         if pmc:
             urls.append(pmc)
 

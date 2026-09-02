@@ -41,7 +41,7 @@ def test_a_reachable_pdf_is_obtained():
     t = _serve({"zenodo.org": httpx.Response(200, content=PDF)})
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
-        fetchers=_fetchers(s2=lambda i, ti: {
+        fetchers=_fetchers(s2=lambda i, ti, email="": {
             "openAccessPdf": {"url": "https://zenodo.org/a.pdf"}}))
     assert body == PDF
     assert acq.obtained is True
@@ -55,7 +55,7 @@ def test_the_repository_copy_is_tried_before_the_publisher():
                 "smu.edu.sg": httpx.Response(200, content=PDF)})
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
-        fetchers=_fetchers(openalex=lambda i, ti: {"locations": [
+        fetchers=_fetchers(openalex=lambda i, ti, email="": {"locations": [
             {"pdf_url": "https://dl.acm.org/doi/pdf/x"},
             {"pdf_url": "https://ink.library.smu.edu.sg/cgi/viewcontent.cgi?a=1"}]}))
     assert body == PDF
@@ -76,7 +76,7 @@ def test_an_open_access_403_is_blocked_by_host_not_paywalled():
     t = _serve({"dl.acm.org": httpx.Response(403, text="<html/>")})
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
-        fetchers=_fetchers(openalex=lambda i, ti: {
+        fetchers=_fetchers(openalex=lambda i, ti, email="": {
             "locations": [{"pdf_url": "https://dl.acm.org/doi/pdf/x"}]}))
     assert body is None
     assert acq.reason is AcquireReason.BLOCKED_BY_HOST
@@ -111,7 +111,7 @@ def test_a_transient_failure_everywhere_is_source_unavailable():
     t = _serve({"zenodo.org": httpx.Response(503)}, default=httpx.Response(503))
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
-        fetchers=_fetchers(s2=lambda i, ti: {
+        fetchers=_fetchers(s2=lambda i, ti, email="": {
             "openAccessPdf": {"url": "https://zenodo.org/a.pdf"}}))
     assert acq.reason is AcquireReason.SOURCE_UNAVAILABLE
     assert acq.human_can_help is False
@@ -121,7 +121,7 @@ def test_html_at_every_candidate_is_not_a_pdf():
     t = _serve({"zenodo.org": httpx.Response(200, text="<html>login</html>")})
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
-        fetchers=_fetchers(s2=lambda i, ti: {
+        fetchers=_fetchers(s2=lambda i, ti, email="": {
             "openAccessPdf": {"url": "https://zenodo.org/a.pdf"}}))
     assert acq.reason is AcquireReason.NOT_A_PDF
 
@@ -130,7 +130,7 @@ def test_every_candidate_tried_is_recorded():
     t = _serve({"dl.acm.org": httpx.Response(403), "zenodo.org": httpx.Response(404)})
     body, acq = acquire(
         _meta(), settings={}, transport=t, sleep=lambda s: None,
-        fetchers=_fetchers(openalex=lambda i, ti: {"locations": [
+        fetchers=_fetchers(openalex=lambda i, ti, email="": {"locations": [
             {"pdf_url": "https://dl.acm.org/doi/pdf/x"},
             {"pdf_url": "https://zenodo.org/a.pdf"}]}))
     assert len(acq.attempts) == 3
@@ -145,6 +145,50 @@ def test_an_arxiv_paper_goes_straight_to_arxiv():
     body, acq = acquire(
         _meta(paper_id="arxiv:2501.02600"), settings={}, transport=t,
         sleep=lambda s: None,
-        fetchers=_fetchers(openalex=lambda i, ti: called.append(1)))
+        fetchers=_fetchers(openalex=lambda i, ti, email="": called.append(1)))
     assert body == PDF
     assert called == [], "no index was consulted"
+
+
+def test_the_per_host_throttle_is_constructed_and_spans_calls(monkeypatch):
+    """§5.4's throttle only exists if it survives BETWEEN acquire() calls.
+
+    Every production caller (fetch._acquire_safely, lab_api's
+    _find_pdf_for_failure, cli._acquire_one) calls acquire(meta) with no
+    bucket, and the citation auto-add path fires _queue_add_paper in a tight
+    loop -- so a 40-reference bibliography is 40 separate acquire() calls. A
+    bucket built per call would refill on every one of them and space
+    nothing, which is why this drives the DEFAULT bucket rather than passing
+    one in.
+    """
+    import research_companion.acquire as acquire_mod
+    from research_companion.acquire.http import TokenBucket
+
+    clock = [0.0]
+    monkeypatch.setattr(acquire_mod, "_BUCKET",
+                        TokenBucket(rate_per_sec=1.0, capacity=1,
+                                    now=lambda: clock[0]))
+
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    # 404 is definitive, so nothing here is a retry backoff: every sleep
+    # recorded below is the throttle and only the throttle.
+    t = _serve({"arxiv.org": httpx.Response(404)})
+    for _ in range(3):
+        acquire(_meta(paper_id="arxiv:2501.02600", title=""), settings={},
+                transport=t, sleep=sleep, fetchers=_fetchers())
+
+    assert waits == [1.0, 1.0], (
+        "the second and third calls to one host must be spaced by the "
+        f"shared bucket; got {waits!r}")
+
+
+def test_acquire_uses_the_shared_bucket_by_default():
+    """The bucket is a process-wide singleton, not a per-call object."""
+    from research_companion.acquire import default_bucket
+
+    assert default_bucket() is default_bucket()

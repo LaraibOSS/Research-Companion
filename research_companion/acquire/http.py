@@ -50,15 +50,29 @@ class TokenBucket:
         self._last: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def take(self, host: str) -> None:
+    def take(self, host: str, sleep=None) -> None:
+        """Block until this host has a token. ``sleep`` overrides the clock
+        the bucket was built with, so the ONE process-wide bucket (which
+        must outlive any single call to be a throttle at all) can still be
+        driven by a caller's injected sleep in a test instead of costing
+        real wall time."""
+        wait_with = sleep or self._sleep
         with self._lock:
             now = self._now()
             last = self._last.get(host, now)
+            # max(0, ...) because an injected clock (or a clock adjustment)
+            # can hand back a time earlier than the last one, and negative
+            # elapsed time must never MINT tokens in reverse.
             tokens = min(self._capacity,
-                         self._tokens.get(host, self._capacity) + (now - last) * self._rate)
+                         self._tokens.get(host, self._capacity)
+                         + max(0.0, now - last) * self._rate)
             if tokens < 1.0:
                 wait = (1.0 - tokens) / self._rate
-                self._sleep(wait)
+                wait_with(wait)
+                # Time really did pass. Not accounting for it here let the
+                # NEXT take re-earn the same second twice and skip its wait,
+                # so a spaced burst still arrived in pairs.
+                now += wait
                 tokens = 1.0
             self._tokens[host] = tokens - 1.0
             self._last[host] = now
@@ -97,7 +111,7 @@ def download_pdf(url: str, *, transport=None, sleep=time.sleep,
         return Attempt(url=url, host_class=host_class, status=status, outcome=outcome)
 
     if bucket is not None:
-        bucket.take(httpx.URL(url).host or url)
+        bucket.take(httpx.URL(url).host or url, sleep=sleep)
 
     last_status: int | None = None
     for i in range(_MAX_ATTEMPTS):

@@ -1,4 +1,6 @@
 """Obtaining a paper's PDF: one chain, one typed outcome."""
+import threading
+
 from research_companion.acquire.types import (
     AcquireReason,
     Acquisition,
@@ -6,7 +8,30 @@ from research_companion.acquire.types import (
     HostClass,
 )
 
-__all__ = ["acquire", "Acquisition", "AcquireReason", "Attempt", "HostClass"]
+__all__ = ["acquire", "default_bucket", "Acquisition", "AcquireReason",
+           "Attempt", "HostClass"]
+
+# ONE per-host throttle for the whole process. It has to outlive a single
+# acquire() call to be a throttle at all: §5.4's problem is the burst, and
+# the burst is across calls -- lab_api's citation auto-add fires
+# _queue_add_paper in a tight loop, so a 40-reference bibliography reaches
+# arXiv as 40 back-to-back adds. A bucket built inside acquire() would
+# refill on every one of them and space nothing.
+_BUCKET = None
+_BUCKET_LOCK = threading.Lock()
+
+
+def default_bucket():
+    """The shared TokenBucket every production caller uses. Built lazily so
+    importing this module costs nothing, and behind a lock because adds run
+    on the Lab's thread pool."""
+    global _BUCKET
+    if _BUCKET is None:
+        with _BUCKET_LOCK:
+            if _BUCKET is None:
+                from research_companion.acquire.http import TokenBucket
+                _BUCKET = TokenBucket()
+    return _BUCKET
 
 
 def acquire(meta, *, settings=None, transport=None, sleep=None,
@@ -25,6 +50,13 @@ def acquire(meta, *, settings=None, transport=None, sleep=None,
     from research_companion.acquire.sources import ARXIV_PDF_URL, collect_candidates
 
     sleep = sleep or time.sleep
+    # None means "use the shared one", not "no throttle": every production
+    # caller (fetch._acquire_safely, lab_api._find_pdf_for_failure,
+    # cli._acquire_one) calls acquire(meta) with no bucket, so defaulting to
+    # None left §5.4's per-host throttle constructed nowhere and doing
+    # nothing. Pass a bucket explicitly only to isolate one (tests).
+    if bucket is None:
+        bucket = default_bucket()
     if settings is None:
         from research_companion.settings import get_settings
         settings = get_settings()
