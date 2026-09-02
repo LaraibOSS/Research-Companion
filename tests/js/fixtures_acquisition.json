@@ -53,8 +53,8 @@
       }
     ],
     "source": null,
-    "headline": "Couldn't reach the source \u2014 we'll try again.",
-    "detail": "Tried 1 source. This usually clears on its own."
+    "headline": "Couldn't reach the source \u2014 the host or the network was down.",
+    "detail": "Tried 1 source. This usually clears on its own, but nothing here retries it for you \u2014 add the paper again, or run `research-companion acquire <paper id>`."
   },
   "not_a_pdf": {
     "obtained": false,
