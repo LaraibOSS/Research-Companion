@@ -62,57 +62,69 @@ def test_reject_zero_addresses_and_gaierror(monkeypatch):
         net.validate_public_url("https://bad.example.org/p.pdf")
 
 
-def test_download_pdf_maps_blocked_url_to_fetcherror():
-    """A blocked URL (literal loopback, no DNS) surfaces as FetchError."""
-    from research_companion.fetch import FetchError, _download_pdf
-    with pytest.raises(FetchError):
-        _download_pdf("http://127.0.0.1/x.pdf")
+def test_a_blocked_url_is_refused_before_any_request():
+    """A blocked URL (literal loopback, no DNS) never reaches the network,
+    and the refusal is reported as its own outcome rather than flattened
+    into the same value as a 404."""
+    from research_companion.acquire.http import download_pdf
+    body, attempt = download_pdf("http://127.0.0.1/x.pdf")
+    assert body is None
+    assert attempt.outcome == "blocked-url"
+    assert attempt.status is None
 
 
 # --- streaming size cap + redirects, deterministic via httpx.MockTransport ----
+#
+# These guard acquire/http.py's download_pdf -- the ONE function that fetches
+# a PDF in production. They used to guard fetch._download_pdf, which had no
+# production caller left once acquire/ absorbed it: a named SSRF regression
+# test exercising dead code proves nothing about the path an attacker would
+# actually reach. The guardrails themselves (validate_public_url on every
+# redirect hop, the 50 MB cap on both the declared length and the streamed
+# bytes, the redirect cap, the %PDF- magic-byte check) moved across intact;
+# what changed is that a refusal now returns (None, Attempt) naming which
+# refusal it was, instead of raising one flattened FetchError.
 
 def _download_with(monkeypatch, handler):
-    """Force fetch's internal httpx.Client to use a MockTransport; allow any host."""
+    """Drive the live downloader over a MockTransport; allow any host (the
+    URL policy itself is covered by the tests above)."""
     monkeypatch.setattr(net, "validate_public_url", lambda url: None)
-    import research_companion.fetch as fetch_mod
-    real_client = httpx.Client
+    from research_companion.acquire.http import download_pdf
 
-    def fake_client(*a, **k):
-        k.pop("follow_redirects", None)
-        return real_client(*a, transport=httpx.MockTransport(handler),
-                           follow_redirects=False, **k)
-    monkeypatch.setattr(fetch_mod.httpx, "Client", fake_client)
-    from research_companion.fetch import _download_pdf
-    return _download_pdf
+    def run(url):
+        return download_pdf(url, transport=httpx.MockTransport(handler),
+                            sleep=lambda s: None)
+    return run
 
 
 def test_stream_rejects_oversized_content_length(monkeypatch):
-    from research_companion.fetch import FetchError
     monkeypatch.setattr(net, "MAX_DOWNLOAD_BYTES", 100)
     body = b"%PDF-" + b"a" * 96  # 101 bytes -> httpx sets content-length=101
     dl = _download_with(monkeypatch, lambda req: httpx.Response(200, content=body))
-    with pytest.raises(FetchError):
-        dl("https://ok.example.org/p.pdf")
+    got, attempt = dl("https://ok.example.org/p.pdf")
+    assert got is None
+    assert attempt.outcome == "too-large"
 
 
 def test_stream_rejects_oversized_body_without_content_length(monkeypatch):
-    from research_companion.fetch import FetchError
     monkeypatch.setattr(net, "MAX_DOWNLOAD_BYTES", 10)
 
     def gen():
         yield b"%PDF-"
         yield b"a" * 20  # total 25 > 10, no content-length (streaming iterator)
     dl = _download_with(monkeypatch, lambda req: httpx.Response(200, content=gen()))
-    with pytest.raises(FetchError):
-        dl("https://ok.example.org/p.pdf")
+    got, attempt = dl("https://ok.example.org/p.pdf")
+    assert got is None
+    assert attempt.outcome == "too-large"
 
 
-@pytest.mark.parametrize("content", [b"", b"<html>not a pdf</html>"])
-def test_stream_rejects_non_pdf_and_empty(monkeypatch, content):
-    from research_companion.fetch import FetchError
+@pytest.mark.parametrize("content,outcome", [(b"", "empty"),
+                                             (b"<html>not a pdf</html>", "not-pdf")])
+def test_stream_rejects_non_pdf_and_empty(monkeypatch, content, outcome):
     dl = _download_with(monkeypatch, lambda req: httpx.Response(200, content=content))
-    with pytest.raises(FetchError):
-        dl("https://ok.example.org/p.pdf")
+    got, attempt = dl("https://ok.example.org/p.pdf")
+    assert got is None
+    assert attempt.outcome == outcome
 
 
 def test_stream_follows_bounded_redirects_then_downloads(monkeypatch):
@@ -124,15 +136,41 @@ def test_stream_follows_bounded_redirects_then_downloads(monkeypatch):
             return httpx.Response(302, headers={"location": "https://ok.example.org/next"})
         return httpx.Response(200, content=b"%PDF-1.7 minimal")
     dl = _download_with(monkeypatch, handler)
-    assert dl("https://ok.example.org/start").startswith(b"%PDF-")
+    got, attempt = dl("https://ok.example.org/start")
+    assert got.startswith(b"%PDF-")
+    assert attempt.outcome == "pdf"
 
 
 def test_stream_rejects_too_many_redirects(monkeypatch):
-    from research_companion.fetch import FetchError
     dl = _download_with(monkeypatch,
                         lambda req: httpx.Response(302, headers={"location": "https://ok.example.org/loop"}))
-    with pytest.raises(FetchError):
-        dl("https://ok.example.org/start")
+    got, attempt = dl("https://ok.example.org/start")
+    assert got is None
+    assert attempt.outcome == "too-many-redirects"
+
+
+def test_every_redirect_hop_is_revalidated(monkeypatch):
+    """The hop matters more than the first URL: a public host redirecting to
+    169.254.169.254 is the whole SSRF shape this guard exists for."""
+    from research_companion.acquire.http import download_pdf
+
+    seen = []
+
+    def fake_validate(url):
+        seen.append(url)
+        if "169.254" in url:
+            raise net.UrlNotAllowed(url)
+    monkeypatch.setattr(net, "validate_public_url", fake_validate)
+
+    def handler(req):
+        return httpx.Response(302, headers={"location": "http://169.254.169.254/latest"})
+
+    got, attempt = download_pdf("https://ok.example.org/start",
+                                transport=httpx.MockTransport(handler),
+                                sleep=lambda s: None)
+    assert got is None
+    assert attempt.outcome == "blocked-url"
+    assert any("169.254" in u for u in seen), "the redirect target was validated"
 
 
 def test_paper_id_cannot_traverse_paths():

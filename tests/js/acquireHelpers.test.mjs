@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { queueRowModel, queueAfterMatches, nextMatchedIds, formatCountdown, statusBannerModel, createAcquirePoller } from
+import { queueRowModel, browserOpenUrl, queueAfterMatches, nextMatchedIds, formatCountdown, statusBannerModel, createAcquirePoller } from
   '../../research_companion/lab/static/js/acquireHelpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -395,4 +395,67 @@ test('a transient failure followed by a recovery does not give up -- polling con
 
   assert.equal(poller.isPolling(), true);
   assert.equal(giveUps, 0);
+});
+
+
+// --- which URL "Open at publisher" opens (spec 7.2) --------------------------
+
+test('the DOI resolver is the fallback, never the pick', () => {
+  // acquire() tries doi.org FIRST for a DOI paper, so attempts[0] is always
+  // the resolver -- taking it sent every user to doi.org instead of to the
+  // copy an index actually found.
+  const url = browserOpenUrl([
+    { url: 'https://doi.org/10.1145/3732941', host_class: 'publisher', outcome: '403' },
+    { url: 'https://dl.acm.org/doi/pdf/10.1145/3732941', host_class: 'publisher', outcome: '403' },
+  ]);
+  assert.equal(url, 'https://dl.acm.org/doi/pdf/10.1145/3732941');
+});
+
+test('the highest-ranked host class wins', () => {
+  const url = browserOpenUrl([
+    { url: 'https://dl.acm.org/a.pdf', host_class: 'publisher', outcome: '403' },
+    { url: 'https://zenodo.org/b.pdf', host_class: 'repository', outcome: '404' },
+    { url: 'https://arxiv.org/pdf/2501.02600', host_class: 'native', outcome: '404' },
+  ]);
+  assert.equal(url, 'https://arxiv.org/pdf/2501.02600');
+});
+
+test('same-class candidates keep the order they were tried in', () => {
+  const url = browserOpenUrl([
+    { url: 'https://a.example.org/1.pdf', host_class: 'publisher' },
+    { url: 'https://b.example.org/2.pdf', host_class: 'publisher' },
+  ]);
+  assert.equal(url, 'https://a.example.org/1.pdf');
+});
+
+test('the resolver is still offered when it is the only candidate', () => {
+  const url = browserOpenUrl([
+    { url: 'https://doi.org/10.1145/3732941', host_class: 'publisher', outcome: '403' },
+  ]);
+  assert.equal(url, 'https://doi.org/10.1145/3732941');
+});
+
+test('a non-http url is never handed to window.open', () => {
+  // oaLinksLine has validated links against HTTP_URL_RE all along, for
+  // exactly this reason; this URL is opened, not merely rendered.
+  for (const bad of ['javascript:alert(1)', 'data:text/html,<script>', 'file:///etc/passwd', '', null, 42]) {
+    assert.equal(browserOpenUrl([{ url: bad, host_class: 'publisher' }]), '');
+  }
+  assert.equal(
+    queueRowModel({ acquisition: { human_can_help: true, attempts: [{ url: 'javascript:alert(1)' }] } }).canOpen,
+    false);
+});
+
+test('an unknown host class sorts last rather than throwing', () => {
+  const url = browserOpenUrl([
+    { url: 'https://weird.example.org/1.pdf', host_class: 'martian' },
+    { url: 'https://dl.acm.org/2.pdf', host_class: 'publisher' },
+  ]);
+  assert.equal(url, 'https://dl.acm.org/2.pdf');
+});
+
+test('no attempts at all means nothing to open', () => {
+  for (const bad of [null, undefined, [], 'nope', [null, 3]]) {
+    assert.equal(browserOpenUrl(bad), '');
+  }
 });

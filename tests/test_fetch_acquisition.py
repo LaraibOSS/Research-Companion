@@ -92,11 +92,16 @@ def test_the_acquisition_is_saved_on_the_metadata():
     assert reloaded.last_acquisition["human_can_help"] is True
 
 
-def test_try_download_pdf_is_gone():
-    """It flattened 404, 403, timeout, HTML and the size cap into one None.
-    Leaving it available invites the same bug back."""
+def test_the_old_download_helpers_are_gone():
+    """_try_download_pdf flattened 404, 403, timeout, HTML and the size cap
+    into one None. _download_pdf, its guardrails carried across intact into
+    acquire/http.py, had no production caller left -- and a dead copy of a
+    security-critical fetcher is worse than none: the SSRF regression guard
+    was still pointed at it, so it proved nothing about the path production
+    actually takes. Leaving either available invites both bugs back."""
     from research_companion import fetch
     assert not hasattr(fetch, "_try_download_pdf")
+    assert not hasattr(fetch, "_download_pdf")
 
 
 def test_oa_locator_is_gone():

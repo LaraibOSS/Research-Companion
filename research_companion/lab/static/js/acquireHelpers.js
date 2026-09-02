@@ -12,7 +12,50 @@
  * interpolation site.
  */
 
-import { pollDecision } from './oaLinkHelpers.js';
+import { pollDecision, HTTP_URL_RE } from './oaLinkHelpers.js';
+
+// Host-class rank, lowest first — the SAME order Python ranks candidates in
+// (research_companion/acquire/hosts.py's _ORDER). An unrecognised class
+// sorts last rather than throwing.
+const HOST_CLASS_ORDER = ['native', 'repository', 'preprint', 'publisher'];
+
+// The DOI resolver is §7.2's FALLBACK, not a candidate: for a DOI paper it
+// is always attempt 0 (acquire() tries it before asking any index), so
+// taking attempts[0] sent the user to doi.org every time instead of to the
+// copy an index actually found — the dl.acm.org URL that 403'd the robot
+// and opens fine for a person.
+const DOI_RESOLVER_RE = /^https?:\/\/(?:dx\.)?doi\.org\//i;
+
+/**
+ * §7.2's "the highest-ranked candidate from Acquisition.attempts that a
+ * browser can use", then the DOI resolver, else ''.
+ *
+ * Every URL is validated against HTTP_URL_RE — the same guard oaLinksLine
+ * applies before rendering an anchor — because this one is handed to
+ * window.open, where a javascript:/data: URL from a malformed or hostile
+ * index response would execute rather than merely render.
+ *
+ * @param {Array|null|undefined} attempts — acquisition.attempts
+ * @returns {string}
+ */
+export function browserOpenUrl(attempts) {
+  const usable = [];
+  for (const a of Array.isArray(attempts) ? attempts : []) {
+    if (!a || typeof a !== 'object') continue;
+    const url = a.url;
+    if (typeof url !== 'string' || !HTTP_URL_RE.test(url)) continue;
+    const rank = HOST_CLASS_ORDER.indexOf(String(a.host_class || ''));
+    usable.push({
+      url,
+      rank: rank === -1 ? HOST_CLASS_ORDER.length : rank,
+      resolver: DOI_RESOLVER_RE.test(url) ? 1 : 0,
+    });
+  }
+  // Array.prototype.sort is stable (ES2019), so two candidates of the same
+  // class keep the order acquire() tried them in.
+  usable.sort((a, b) => (a.resolver - b.resolver) || (a.rank - b.rank));
+  return usable.length > 0 ? usable[0].url : '';
+}
 
 export function queueRowModel(paper) {
   const blank = { show: false, headline: '', detail: '', canOpen: false, openUrl: '' };
@@ -20,8 +63,7 @@ export function queueRowModel(paper) {
   if (!acq || typeof acq !== 'object') return blank;
   if (acq.human_can_help !== true) return blank;
 
-  const attempts = Array.isArray(acq.attempts) ? acq.attempts : [];
-  const openUrl = (attempts.find(a => a && a.url) || {}).url || '';
+  const openUrl = browserOpenUrl(acq.attempts);
   return {
     show: true,
     headline: String(acq.headline || ''),

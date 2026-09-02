@@ -12,8 +12,10 @@ const MAX_OA_LINKS = 5;
 
 // Only http(s) links are ever rendered as clickable anchors — this also
 // blocks javascript: and other unsafe schemes a malformed/malicious
-// locator response might contain.
-const HTTP_URL_RE = /^https?:\/\//;
+// locator response might contain. Exported because acquireHelpers.js's
+// "Open at publisher" button hands a URL to window.open and needs the
+// SAME check, not a second one that could drift from this one.
+export const HTTP_URL_RE = /^https?:\/\//;
 
 /**
  * Whether a person can do something about a paper's failure -- shared by
