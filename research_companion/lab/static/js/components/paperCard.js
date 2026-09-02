@@ -6,6 +6,7 @@ import { strengthColor, stanceIcon, authorsLine, escapeHtml } from '../format.js
 import { tip } from '../glossary.js';
 import { needsMetadata, formatFailureReason } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
+import { queueRowModel } from '../acquireHelpers.js';
 import * as api from '../api.js';
 import { showToast } from './toast.js';
 import { buildNoteRecord } from '../noteRecord.js';
@@ -89,6 +90,21 @@ export function renderPaperCard(paper) {
         .join(', ')}</div>`
     : '';
 
+  // "Needs you" queue row — a person, not a machine, has to get this one
+  // (a bot filter refused an otherwise-open-access download, or the paper
+  // is paywalled and only the user's own institutional access can get it).
+  // Membership + copy come straight from queueRowModel (backend-computed
+  // human_can_help; see acquireHelpers.js) — this never re-derives it.
+  // When it applies, it REPLACES the generic failure-reason line below
+  // (queueRow.headline is the same underlying copy, plus the fuller detail).
+  const queueRow = queueRowModel(paper);
+  const queueInfoHtml = queueRow.show
+    ? `<div class="acquire-queue-info">
+        <div class="acquire-headline">${escapeHtml(queueRow.headline)}</div>
+        ${queueRow.detail ? `<div class="acquire-detail muted">${escapeHtml(queueRow.detail)}</div>` : ''}
+      </div>`
+    : '';
+
   card.innerHTML = `
     <div class="paper-card-body">
       <div class="paper-title">${escapeHtml(paper.title || 'Untitled')}</div>
@@ -98,9 +114,11 @@ export function renderPaperCard(paper) {
         ${stanceHtml}
         ${strengthChipHtml}
       </div>
-      ${isFailed && paper.failure_reason
-        ? `<div class="failure-reason muted" title="${escapeHtml(paper.failure_reason)}">${escapeHtml(formatFailureReason(paper.failure_reason, paper.acquisition))}</div>`
-        : ''}
+      ${queueRow.show
+        ? queueInfoHtml
+        : (isFailed && paper.failure_reason
+            ? `<div class="failure-reason muted" title="${escapeHtml(paper.failure_reason)}">${escapeHtml(formatFailureReason(paper.failure_reason, paper.acquisition))}</div>`
+            : '')}
       <div class="card-actions">
         ${paper.status === 'failed'
           ? `<button class="btn btn-sm btn-retry" data-paper-id="${escapeHtml(paper.paper_id)}">Retry</button>`
@@ -110,6 +128,9 @@ export function renderPaperCard(paper) {
           : ''}
         ${findPdfState !== 'hidden'
           ? `<button class="btn btn-sm btn-find-pdf" data-paper-id="${escapeHtml(paper.paper_id)}">Find PDF</button>`
+          : ''}
+        ${queueRow.canOpen
+          ? `<button class="btn btn-sm btn-open-publisher" data-paper-id="${escapeHtml(paper.paper_id)}" data-url="${escapeHtml(queueRow.openUrl)}">Open at publisher ↗</button>`
           : ''}
         <button class="btn btn-sm btn-save-note" data-paper-id="${escapeHtml(paper.paper_id)}">Save note</button>
         <button class="btn btn-sm btn-remove" data-paper-id="${escapeHtml(paper.paper_id)}">Remove</button>

@@ -12,7 +12,7 @@ import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
 import { buildRows, sortRows, draftActionFor, formatFailureReason } from '../libraryHelpers.js';
 import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
-import { queueRowModel, needsYouCount } from '../acquireHelpers.js';
+import { queueRowModel, queueAfterMatches, statusBannerModel } from '../acquireHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
 
@@ -26,6 +26,19 @@ let _openPaperHandler = null; // rc:open-paper listener (kept for unmount cleanu
 let _viewMode   = localStorage.getItem('rc.libraryView') || 'grid'; // 'grid' | 'list'
 let _listCol    = 'added';
 let _listDir    = 'desc';
+
+// Browser-handoff acquisition state (arm/disarm/poll the click-to-download
+// watcher — see acquireHelpers.js and api.js's arm/getAcquireStatus/disarm).
+let _acquirePolling          = false;   // guards against a second poll loop starting
+let _acquirePollTimer        = null;    // setTimeout handle for the next tick
+let _acquireConsecutiveFails = 0;       // resets on any successful poll (pollDecision)
+let _acquireElapsedPolls     = 0;       // total attempts made (pollDecision's cap)
+let _acquireEvents           = [];      // recent {type,text} messages, newest first
+let _acquireMatchedIds       = new Set(); // paper_ids the watcher already caught this
+                                           // session — hidden from "Needs you" even
+                                           // before the eventual papers refresh lands
+let _acquireLastModel = { armed: false, countdownText: '0:00' }; // survives a _render() rebuild
+const _ACQUIRE_POLL_MS = 5000; // modest — this is a countdown display, not a race
 
 export function mount(el) {
   _el = el;
@@ -57,6 +70,9 @@ export function unmount() {
     window.removeEventListener('rc:open-paper', _openPaperHandler);
     _openPaperHandler = null;
   }
+  // Stop polling — the watcher itself keeps running server-side (arming is
+  // not tied to this view being mounted), only OUR poll loop tears down.
+  _stopAcquirePolling();
   drawerClose();
   _el = null;
 }
@@ -100,9 +116,17 @@ function _render() {
           <option value="title">Title</option>
         </select>
       </div>
+      <div class="acquire-banner" id="acquire-banner" style="display:none">
+        <span id="acquire-banner-text"></span>
+        <button class="btn btn-secondary btn-sm" id="acquire-disarm-btn">Disarm</button>
+        <div class="acquire-events muted" id="acquire-events"></div>
+      </div>
     </div>
     <div id="lib-grid" class="paper-grid"></div>
   `;
+
+  _el.querySelector('#acquire-disarm-btn').addEventListener('click', _disarmAcquire);
+  _renderAcquireBanner(_acquireLastModel);
 
   // Wire filter chips
   _el.querySelector('#lib-filters').addEventListener('click', (e) => {
@@ -412,6 +436,167 @@ function _wireFindAllPdfsButton(btn) {
 }
 
 // ---------------------------------------------------------------------------
+// Browser handoff — "Open at publisher" (Task 10D)
+//
+// A paper in the "Needs you" queue can't be fetched automatically (a bot
+// filter refused an otherwise-open-access download, or the paper is
+// paywalled and only the user's own institutional access can get it). The
+// button opens the publisher page in the user's OWN browser/tab — their own
+// access, their own click — and arms the click-to-download watcher so a PDF
+// saved to the downloads folder gets caught and attached to this paper.
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire an "Open at publisher" button: click -> open its data-url in a new
+ * tab, then POST /api/acquire/arm for that one paper. Arming is additive
+ * server-side (see api.armAcquire), so clicking several of these in a row
+ * accumulates papers in one arming window rather than replacing it.
+ * @param {HTMLElement|null} btn
+ */
+function _wireOpenPublisherButton(btn) {
+  if (!btn) return;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const pid = btn.dataset.paperId;
+    const url = btn.dataset.url;
+    if (url) window.open(url, '_blank', 'noopener');
+    try {
+      const res = await api.armAcquire([pid]);
+      _acquireLastModel = statusBannerModel(res);
+      _renderAcquireBanner(_acquireLastModel);
+      showToast(
+        `Watching your downloads for ${_acquireLastModel.countdownText} — save the PDF there and it'll be picked up`,
+        'info',
+      );
+      _startAcquirePolling();
+    } catch (err) {
+      showToast(`Couldn't start watching for the download: ${err.message}`, 'error');
+    }
+  });
+}
+
+/**
+ * Update the arming banner in place (countdown + disarm control + the
+ * running log of matched/unmatched/unreadable events). Hidden entirely
+ * while disarmed. Called on arm, on every poll tick, and once from
+ * _render() (using the last known model) so it survives a full grid<->list
+ * view-mode re-render, which rebuilds this element's markup from scratch.
+ * @param {{armed:boolean, countdownText:string}} model
+ */
+function _renderAcquireBanner(model) {
+  if (!_el) return;
+  const banner = _el.querySelector('#acquire-banner');
+  if (!banner) return;
+  if (!model || !model.armed) {
+    banner.style.display = 'none';
+    return;
+  }
+  banner.style.display = '';
+  const textEl = banner.querySelector('#acquire-banner-text');
+  if (textEl) textEl.textContent = `Watching your downloads for a hand-fetched PDF — ${model.countdownText} left`;
+  const eventsEl = banner.querySelector('#acquire-events');
+  if (eventsEl) {
+    eventsEl.innerHTML = _acquireEvents
+      .map(ev => `<div class="acquire-event acquire-event-${escapeHtml(ev.type)}">${escapeHtml(ev.text)}</div>`)
+      .join('');
+  }
+}
+
+/** Start the status poll loop, unless one is already running. */
+function _startAcquirePolling() {
+  if (_acquirePolling) return;
+  _acquirePolling = true;
+  _acquireConsecutiveFails = 0;
+  _acquireElapsedPolls = 0;
+  _pollAcquireStatus();
+}
+
+/** Stop the status poll loop (window expired, disarmed, or view unmounting). */
+function _stopAcquirePolling() {
+  _acquirePolling = false;
+  if (_acquirePollTimer) {
+    clearTimeout(_acquirePollTimer);
+    _acquirePollTimer = null;
+  }
+}
+
+/**
+ * One GET /api/acquire/status tick. Reuses the same continue/retry/give-up
+ * decision as _watchFindPdfJob's pollDecision -- only for a FAILED request;
+ * the "stop because the window is no longer armed" case is this loop's own
+ * (armed reads real server state, so it is not a pollDecision case, same as
+ * that function's own terminal-status note). Bounded by pollDecision's own
+ * caps, so a server that stops answering (rather than 500ing) can't leave
+ * this polling forever either.
+ */
+async function _pollAcquireStatus() {
+  if (!_acquirePolling) return;
+  _acquireElapsedPolls += 1;
+
+  let status = null;
+  let err = null;
+  try {
+    status = await api.getAcquireStatus();
+  } catch (e) {
+    err = e;
+  }
+
+  if (!err) {
+    _acquireConsecutiveFails = 0;
+    const model = statusBannerModel(status);
+    _acquireLastModel = model;
+    for (const pid of model.matchedPaperIds) _acquireMatchedIds.add(pid);
+    if (model.messages.length > 0) {
+      _acquireEvents = [...model.messages, ..._acquireEvents].slice(0, 20);
+      for (const msg of model.messages) {
+        showToast(msg.text, msg.type === 'success' ? 'info' : 'error');
+      }
+      // A match means a paper just left the queue -- reflect it right away
+      // rather than waiting on the retry job's own SSE-driven refresh.
+      if (model.matchedPaperIds.length > 0) _renderGrid();
+    }
+    _renderAcquireBanner(model);
+    if (!model.armed) {
+      _stopAcquirePolling();
+      return;
+    }
+    _acquirePollTimer = setTimeout(_pollAcquireStatus, _ACQUIRE_POLL_MS);
+    return;
+  }
+
+  const decision = pollDecision({
+    error: err,
+    consecutiveFailures: _acquireConsecutiveFails,
+    elapsedPolls: _acquireElapsedPolls,
+  });
+  switch (decision) {
+    case 'retry-transient':
+      _acquireConsecutiveFails += 1;
+      _acquirePollTimer = setTimeout(_pollAcquireStatus, _ACQUIRE_POLL_MS);
+      return;
+    case 'stop-404':
+    case 'give-up':
+    default:
+      _stopAcquirePolling();
+      showToast('Lost track of the download watcher — reopen "Open at publisher" to re-arm it.', 'error');
+      return;
+  }
+}
+
+/** Disarm button: stop polling, tell the server, hide the banner. */
+async function _disarmAcquire() {
+  _stopAcquirePolling();
+  try {
+    await api.disarmAcquire();
+  } catch (err) {
+    showToast(`Disarm failed: ${err.message}`, 'error');
+  }
+  _acquireEvents = [];
+  _acquireLastModel = { armed: false, countdownText: '0:00' };
+  _renderAcquireBanner(_acquireLastModel);
+}
+
+// ---------------------------------------------------------------------------
 // Grid render
 // ---------------------------------------------------------------------------
 
@@ -426,6 +611,16 @@ function _renderGrid() {
   const totalCount = state.papers.size;
   const countEl = _el.querySelector('#lib-count');
   if (countEl) countEl.textContent = `${totalCount} paper${totalCount === 1 ? '' : 's'}`;
+
+  // Prune the optimistic "just matched" set: once a paper is no longer
+  // 'failed' at all it can't be a queue member either way (queueRowModel
+  // only ever shows a failed paper), so the entry is redundant and dropped.
+  // A paper that failed again for a genuinely NEW reason after a bad match
+  // is a fresh failure record, not the one this set was hiding.
+  for (const pid of _acquireMatchedIds) {
+    const p = state.papers.get(pid);
+    if (!p || p.status !== 'failed') _acquireMatchedIds.delete(pid);
+  }
 
   // "Find PDFs for all missing (n)" — visible only when there's work to do.
   // Counted against ALL papers (not the active filter) so the count always
@@ -446,12 +641,13 @@ function _renderGrid() {
   }
 
   // "Needs you" chip label — shows the count of papers actually queued for
-  // a person to help with (queueRowModel(p).show, the SAME membership rule
-  // the filter below applies), so the chip's own count never drifts from
-  // what clicking it reveals.
+  // a person to help with (queueAfterMatches, the SAME membership rule —
+  // queueRowModel(p).show, minus anything the watcher already caught this
+  // session — the filter below applies), so the chip's own count never
+  // drifts from what clicking it reveals.
   const needsYouChip = _el.querySelector('[data-filter="needs-you"]');
   if (needsYouChip) {
-    const n = needsYouCount([...state.papers.values()]);
+    const n = queueAfterMatches([...state.papers.values()], _acquireMatchedIds).length;
     needsYouChip.textContent = n > 0 ? `Needs you (${n})` : 'Needs you';
   }
 
@@ -461,7 +657,7 @@ function _renderGrid() {
   if (_filter !== 'all') {
     papers = papers.filter(p => {
       if (_filter === 'failed') return p.status === 'failed';
-      if (_filter === 'needs-you') return queueRowModel(p).show;
+      if (_filter === 'needs-you') return queueRowModel(p).show && !_acquireMatchedIds.has(p.paper_id);
       const band = p.strength ? p.strength.band : null;
       if (_filter === 'unscored') return !band || p.status === 'processing';
       return band === _filter;
@@ -556,6 +752,10 @@ function _renderGridCards(grid, papers) {
 
     // Find PDF button (only rendered by paperCard.js for a missing-PDF failure)
     _wireFindPdfButton(card.querySelector('.btn-find-pdf'));
+
+    // Open at publisher (only rendered by paperCard.js for a "Needs you"
+    // queue row with a URL to send the user to)
+    _wireOpenPublisherButton(card.querySelector('.btn-open-publisher'));
 
     // Read button -> open the paper in the reader.
     const readBtn = card.querySelector('.btn-read');
@@ -656,6 +856,21 @@ function _renderList(grid, papers, draftId) {
       ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason, row.acquisition))}</div>`
       : '';
 
+    // "Needs you" queue row — same rule as paperCard.js's grid version:
+    // queueRowModel decides membership from the backend-computed
+    // human_can_help flag, never re-derived here. Replaces the generic
+    // failure-reason line above when it applies.
+    const queueRow = queueRowModel({ acquisition: row.acquisition });
+    const queueInfoHtml = queueRow.show
+      ? `<div class="acquire-queue-info">
+          <div class="acquire-headline">${escapeHtml(queueRow.headline)}</div>
+          ${queueRow.detail ? `<div class="acquire-detail muted">${escapeHtml(queueRow.detail)}</div>` : ''}
+        </div>`
+      : '';
+    const openPublisherBtnHtml = queueRow.canOpen
+      ? `<button class="btn btn-sm btn-open-publisher lib-open-publisher-btn" data-paper-id="${escapeHtml(row.paperId)}" data-url="${escapeHtml(queueRow.openUrl)}">Open at publisher ↗</button>`
+      : '';
+
     // "Find PDF" affordance — mirrors paperCard.js so a failed, missing-PDF
     // row offers the same open-access search + links as the grid card.
     // findPdfAffordance/oaLinksLine take a paper-shaped object; the row uses
@@ -682,7 +897,7 @@ function _renderList(grid, papers, draftId) {
       : '';
 
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${failureReasonHtml}${oaLinksHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${openPublisherBtnHtml}${queueRow.show ? queueInfoHtml : failureReasonHtml}${oaLinksHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
@@ -751,6 +966,9 @@ function _renderList(grid, papers, draftId) {
 
   // Wire find-PDF buttons in list (same handler + job-polling as the grid)
   grid.querySelectorAll('.lib-find-pdf-btn').forEach(btn => _wireFindPdfButton(btn));
+
+  // Wire open-at-publisher buttons in list (same handler as the grid)
+  grid.querySelectorAll('.lib-open-publisher-btn').forEach(btn => _wireOpenPublisherButton(btn));
 
   // Wire per-row read buttons -> open the paper in the reader.
   grid.querySelectorAll('.btn-row-read').forEach(btn => {
