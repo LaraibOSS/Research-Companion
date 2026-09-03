@@ -44,11 +44,21 @@ let _highlightTheme = null;  // theme id from #/gaps?theme=, consumed once
 // ---------------------------------------------------------------------------
 
 export function mount(el) {
+  // The router skips unmount() when the route string is unchanged (e.g.
+  // arriving at #/gaps?theme=x from a note's origin link, then clicking the
+  // Gaps nav item takes the hash to #/gaps — same route, so unmount() is
+  // skipped and mount() runs again). Drain any subscriptions from a previous
+  // mount() first so they can't accumulate.
+  for (const u of _unsubs) u();
+  _unsubs = [];
+
   _el = el;
   _sortCol = 'score';
   _sortDir = 'desc';
   _typeFilter = 'all';
   _statusFilter = 'all';
+  _rows = [];
+  _noteFor = null;
   _highlightTheme = themeFromHash(window.location.hash);
 
   el.innerHTML = `<div class="gaps-view"><div class="gaps-loading muted">Loading gaps…</div></div>`;

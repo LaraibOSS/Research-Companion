@@ -3776,6 +3776,11 @@ def test_gaps_view_reads_the_theme_param_and_uses_it():
         "views/gaps.js must import themeFromHash"
     assert re.search(r"\bthemeFromHash\s*\(", js), \
         "views/gaps.js must CALL themeFromHash, not merely import it"
+    assert re.search(r"[\w.]+\s*=\s*themeFromHash\s*\(", js), (
+        "views/gaps.js must ASSIGN themeFromHash's return value — a bare "
+        "`themeFromHash(hash);` with the result discarded would pass the "
+        "call-is-present check above while leaving the return path dead"
+    )
     assert "data-theme-id" in js, \
         "the row anchor the return path scrolls to must still be emitted"
 
@@ -3797,4 +3802,8 @@ def test_brief_note_records_which_section_it_came_from():
     js = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
     assert re.search(r"kind:\s*'brief'", js), (
         "the brief note must record origin_kind 'brief'"
+    )
+    assert re.search(r"label:\s*sectionTitle", js), (
+        "the brief note must carry the section title as its origin label — "
+        "pinned so the label can't regress to the bullet's own excerpt"
     )

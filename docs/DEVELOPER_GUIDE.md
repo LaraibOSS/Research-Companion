@@ -1184,17 +1184,28 @@ failures-store accessors (`record_failure` / `list_failures` /
 - **Record shape** — `_FIELDS`: `draft_section_id`, `draft_section_title`,
   `paper_id`, `paper_title`, `relation`, `relevance`, `rationale`,
   `evidence_quote`, `evidence_section_id`, `comment`, `kind`,
-  `source_excerpt`; plus server-assigned `id` (`uuid.uuid4().hex`),
-  `created_at` (UTC ISO-8601, `Z` suffix), and `status` (`"open"` /
-  `"done"` / `"dismissed"`, starting `"open"`). *(`kind` and
-  `source_excerpt` were added in §23, which generalized the record beyond
-  opportunity suggestions — see there for the current contract.)*
+  `source_excerpt`, `origin_kind`, `origin_id`, `origin_label`; plus
+  server-assigned `id` (`uuid.uuid4().hex`), `created_at` (UTC ISO-8601, `Z`
+  suffix), and `status` (`"open"` / `"done"` / `"dismissed"`, starting
+  `"open"`). *(`kind` and `source_excerpt` were added in §23, which
+  generalized the record beyond opportunity suggestions — see there for the
+  current contract.)* The `origin_*` trio records *where* the note was
+  written (the gap/question/section the user was looking at when they hit
+  "save note") as distinct from `paper_id`/`draft_section_id`, which record
+  what the note is *about* — a note can legitimately have both. They're
+  appended at the end of `_FIELDS` and default to `""`, so notes saved
+  before this trio existed read back with an empty origin and need no
+  migration.
 - **`save_note(record) -> dict`** dedupes on **(`paper_id`,
   `draft_section_id`)**: if an **open** note already matches, its fields are
   updated in place (so re-saving a refreshed suggestion doesn't pile up
   duplicates) rather than appended — except a blank incoming `comment` never
   blanks an existing one, so a re-save can't silently erase what the user
-  typed. `relevance` is coerced through `_as_float` (falls back to `0.0` on
+  typed. The same guard applies to each `origin_*` field individually: a
+  re-save that omits an origin (or targets a different one) never blanks an
+  origin the note already had, so navigating back into an existing note
+  through a route with no `?theme=` can't erase where it came from.
+  `relevance` is coerced through `_as_float` (falls back to `0.0` on
   anything non-numeric/`None`) both on write and again wherever
   `notes_to_markdown` sorts by it, since `relevance` is caller-supplied and
   the API boundary validates only `kind` and overall non-emptiness (see
