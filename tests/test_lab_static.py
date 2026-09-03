@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs tests/js/handoffHelpers.test.mjs
 Tests:
   - Every file referenced by index.html exists in lab/static
   - index.html contains the module script tag and vendor script tag
@@ -1441,12 +1441,6 @@ def test_api_js_has_temporal_and_gaps_endpoints():
     api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
     for name in ("getTemporal", "getGaps", "refreshGaps"):
         assert f"export const {name}" in api_js, f"api.js must export {name}"
-
-
-def test_store_js_has_gaps_setter():
-    """store.js must export setGaps (W3-F5 additive)."""
-    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
-    assert "export function setGaps" in store_js, "store.js must export setGaps"
 
 
 def test_reducer_handles_gaps_updated():
@@ -3647,3 +3641,85 @@ def test_report_view_original_render_preserved_alongside_export_button():
     assert "report-generate-plan-btn" in text
     assert "report-score-evidence-btn" in text
     assert "report-export-btn" in text
+
+
+# ---------------------------------------------------------------------------
+# Cross-surface handoffs: controls that must do what they say
+# ---------------------------------------------------------------------------
+
+def test_open_paper_dispatchers_and_listener_agree():
+    """Five of seven "open this paper" edges were dead.
+
+    ``views/library.js`` read ``e.detail.paperId``; gaps, report, timeline and
+    brainstorm dispatched ``paper_id``. The mismatch was invisible because each
+    dispatcher also wrote a ``window.__rcPendingPaper`` fallback that is drained
+    on mount -- so the edges "worked" from anywhere except Library itself, where
+    no remount happens and the click did nothing.
+
+    The listener now reads both spellings through one helper. This pins that it
+    keeps doing so, since normalising every caller and trusting it is exactly
+    what failed.
+    """
+    js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "paperIdsFromDetail" in js,         "library.js must parse the rc:open-paper detail through handoffHelpers"
+    assert not re.search(r"e\.detail\s*&&\s*e\.detail\.paperId", js),         "library.js must not read one spelling of the id directly again"
+
+
+def test_handoff_helpers_accept_both_spellings():
+    js = (STATIC_DIR / "js" / "handoffHelpers.js").read_text(encoding="utf-8")
+    assert "export function paperIdFromDetail" in js
+    assert "export function paperIdsFromDetail" in js
+    assert "export function sectionFromHash" in js
+    assert "paper_id" in js and "paperId" in js,         "both spellings must be handled in one place"
+
+
+def test_draft_view_honours_the_section_a_caller_asked_for():
+    """views/suggestions.js links to #/draft?section=<id> and Draft ignored it.
+
+    A suggestion that says "this is about section 4" landed the reader on
+    section 1. views/graph.js already read its own ?section= correctly; Draft
+    now uses the shared helper.
+    """
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    # Substring matching is not enough here: a rename to sectionFromHashXX
+    # still contains "sectionFromHash" and slipped past the first version of
+    # this guard. Pin the import and the actual call.
+    assert re.search(r"import\s*\{[^}]*\bsectionFromHash\b[^}]*\}\s*from", js),         "draft.js must import sectionFromHash from handoffHelpers"
+    assert re.search(r"\bsectionFromHash\s*\(\s*window\.location\.hash\s*\)", js),         "draft.js must honour ?section= -- suggestions.js has always linked to it"
+
+
+def test_journey_refetch_cannot_loop():
+    """The journey is fetched, not pushed, so a refetch must key on a signal it
+    does not itself raise.
+
+    ``store.setJourney`` notifies ``journey``; subscribing a refetch to that
+    topic is an infinite loop. The SSE event therefore raises ``journey_stale``.
+    """
+    reducer = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "'journey_stale'" in reducer,         "draft_version_added must raise journey_stale, not journey"
+    home = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "subscribe(['journey_stale']" in home,         "home.js must refetch on journey_stale"
+    assert not re.search(r"subscribe\(\['journey'\]", home),         "subscribing the refetch to 'journey' would loop through setJourney"
+
+
+def test_report_view_clears_its_payloads_on_unmount():
+    """_report and _audit outlived the view, so switching research showed the
+    previous workspace's report and claim audit."""
+    js = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    unmount = js[js.index("export function unmount"):]
+    unmount = unmount[:unmount.index("\n}")]
+    assert "_report = null" in unmount and "_audit = null" in unmount,         "report.js unmount must clear _report and _audit"
+
+
+def test_compare_footer_opens_both_papers():
+    """The footer said "Open both in library" and opened neither, while both
+    ids sat in the payload it was rendering from."""
+    js = (STATIC_DIR / "js" / "views" / "compare.js").read_text(encoding="utf-8")
+    assert "cmp-open-both" in js and "__rcPendingPaper" in js,         "compare.js must hand both paper ids to the Library view"
+
+
+def test_store_has_no_dead_gaps_field():
+    """setGaps had zero callers and state.gaps zero readers, so it looked like
+    shared state and was permanently null."""
+    js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "setGaps" not in js, "the dead gaps setter must stay removed"

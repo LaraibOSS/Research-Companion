@@ -15,6 +15,7 @@ import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } f
 import { queueRowModel, queueAfterMatches, nextMatchedIds, statusBannerModel, createAcquirePoller } from '../acquireHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
+import { paperIdsFromDetail } from '../handoffHelpers.js';
 
 let _el = null;
 let _unsubscribe = null;
@@ -53,8 +54,11 @@ export function mount(el) {
   // The panel also sets window.__rcPendingPaper before dispatching the event
   // as a fallback in case the event fires before this listener is registered.
   _openPaperHandler = (e) => {
-    const paperId = e.detail && e.detail.paperId;
-    if (paperId) _openDrawer(paperId);
+    // Either spelling: five dispatchers sent paper_id against a listener that
+    // read paperId, and the mismatch stayed invisible because each of them also
+    // wrote the __rcPendingPaper fallback below.
+    for (const paperId of paperIdsFromDetail(e && e.detail)) _openDrawer(paperId);
+    _drainPendingPaper();
   };
   window.addEventListener('rc:open-paper', _openPaperHandler);
 
@@ -70,14 +74,30 @@ export function mount(el) {
     Promise.resolve().then(() => _selectFilter(pending));
   }
 
-  // Check the module-level handoff written by the panel before navigating —
-  // handles the arrive-before-mount race (hash change triggers mount after event).
-  if (window.__rcPendingPaper) {
-    const pendingId = window.__rcPendingPaper;
-    window.__rcPendingPaper = null;
-    // Defer until after first render so the papers grid is in the DOM
-    Promise.resolve().then(() => _openDrawer(pendingId));
-  }
+  _drainPendingPaper();
+}
+
+/**
+ * Open whatever a caller left in the module-level handoff.
+ *
+ * Two races, not one. A caller navigating in from another surface sets this
+ * and changes the hash, so the value must survive until this view mounts. A
+ * caller already ON this route changes nothing — no hashchange, no remount —
+ * so the same value has to be picked up without one. Called from both mount
+ * and the event listener for that reason; before, only mount drained it, and
+ * from Library itself the click did nothing at all.
+ *
+ * Accepts a bare id or a list, so Compare can hand over both its papers.
+ */
+function _drainPendingPaper() {
+  const pending = window.__rcPendingPaper;
+  if (!pending) return;
+  window.__rcPendingPaper = null;
+  // Defer until after first render so the papers grid is in the DOM.
+  Promise.resolve().then(() => {
+    const detail = Array.isArray(pending) ? { paperIds: pending } : { paperId: pending };
+    for (const paperId of paperIdsFromDetail(detail)) _openDrawer(paperId);
+  });
 }
 
 export function unmount() {

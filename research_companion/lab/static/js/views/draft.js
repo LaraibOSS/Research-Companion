@@ -20,6 +20,7 @@ import { opportunityModel } from '../opportunityHelpers.js';
 import { draftSectionModel } from '../draftHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
 import { claimAuditBadge, claimAuditSummaryLine, CLAIM_AUDIT_DISCLAIMER } from '../claimAuditHelpers.js';
+import { sectionFromHash } from '../handoffHelpers.js';
 // strengthColor is used for chip dot colors (paper strength) below
 
 let _el = null;
@@ -222,6 +223,15 @@ async function _render() {
   }
 
   if (!_el) return;
+
+  // A caller may name the section: views/suggestions.js links to
+  // #/draft?section=<id> so "this suggestion is about section 4" lands there.
+  // That link existed and this view never read it, so it always opened the
+  // first section. Only honoured when the id is really one of ours.
+  const asked = sectionFromHash(window.location.hash);
+  if (asked && sections.some(s => s.section_id === asked)) {
+    _selectedSectionId = asked;
+  }
 
   // Default to first section
   if (!_selectedSectionId && sections.length > 0) {

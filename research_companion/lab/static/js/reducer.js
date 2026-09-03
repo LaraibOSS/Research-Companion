@@ -298,7 +298,11 @@ export function applyEvent(state, evt) {
     }
 
     case 'draft_version_added': {
-      return ['journey'];
+      // 'journey_stale', not 'journey'. The journey is FETCHED, not pushed, so
+      // a listener that refetches has to key on something the fetch does not
+      // itself raise -- store.setJourney notifies 'journey', so subscribing a
+      // refetch to that topic is an infinite loop.
+      return ['journey_stale'];
     }
 
     // W3-F5: gaps analysis completed
