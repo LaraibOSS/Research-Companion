@@ -343,6 +343,11 @@ async function _onSaveNoteClick(e) {
       sourceExcerpt: answerText,
       paperId: topCitation ? (topCitation.paper_id || '') : '',
       paperTitle: topCitation ? (topCitation.title || '') : '',
+      // The note stored the answer and dropped the question, leaving a
+      // reply to something it did not name. An ask entry has no id — the
+      // question text is its only durable handle, so it is the label and
+      // the origin renders as text rather than a link.
+      origin: { kind: 'ask', id: '', label: entry.question },
     }));
     showToast('Saved to Notes', 'info');
   } catch (err) {

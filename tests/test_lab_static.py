@@ -3778,3 +3778,23 @@ def test_gaps_view_reads_the_theme_param_and_uses_it():
         "views/gaps.js must CALL themeFromHash, not merely import it"
     assert "data-theme-id" in js, \
         "the row anchor the return path scrolls to must still be emitted"
+
+
+def test_ask_note_records_the_question_it_came_from():
+    """An Ask note saved the answer and the top citation and dropped the
+    question — the note recorded a reply to something it did not name."""
+    js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert re.search(r"kind:\s*'ask'", js), (
+        "the ask note must record origin_kind 'ask'"
+    )
+    assert re.search(r"label:\s*entry\.question", js), (
+        "the ask note must carry entry.question as its origin label"
+    )
+
+
+def test_brief_note_records_which_section_it_came_from():
+    """A brief note kept the bullet text and dropped which section it sat in."""
+    js = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert re.search(r"kind:\s*'brief'", js), (
+        "the brief note must record origin_kind 'brief'"
+    )
