@@ -214,3 +214,55 @@ test('buildNoteRecord: non-string field values are coerced via String()', () => 
   assert.equal(rec.paper_id, '123');
   assert.equal(rec.paper_title, '456');
 });
+
+// ---------------------------------------------------------------------------
+// origin: flattened at the chokepoint (Task 3)
+// ---------------------------------------------------------------------------
+
+test('an origin is flattened onto the record', () => {
+  const r = buildNoteRecord('freeform', {
+    comment: 'worth chasing',
+    origin: { kind: 'gap', id: 'gap_85c6f47740cf', label: 'Expand evaluations' },
+  });
+  assert.equal(r.origin_kind, 'gap');
+  assert.equal(r.origin_id, 'gap_85c6f47740cf');
+  assert.equal(r.origin_label, 'Expand evaluations');
+});
+
+test('a record with no origin still carries three empty origin fields', () => {
+  // Five of the six producers pass no origin. They must still produce a
+  // valid record — an absent origin is a normal note, not a broken one.
+  const r = buildNoteRecord('reader', { paperId: 'arxiv:2205.14135' });
+  assert.equal(r.origin_kind, '');
+  assert.equal(r.origin_id, '');
+  assert.equal(r.origin_label, '');
+});
+
+test('a malformed origin degrades to empty rather than throwing', () => {
+  for (const origin of [null, 'gap', 7, [], undefined]) {
+    assert.doesNotThrow(() => buildNoteRecord('freeform', { origin }));
+    const r = buildNoteRecord('freeform', { origin });
+    assert.equal(r.origin_kind, '');
+    assert.equal(r.origin_id, '');
+    assert.equal(r.origin_label, '');
+  }
+});
+
+test('a partial origin fills what it has and blanks the rest', () => {
+  // An Ask note has a question but no durable id for it — label-only is a
+  // legitimate origin, not a malformed one.
+  const r = buildNoteRecord('ask', { origin: { kind: 'ask', label: 'Why FlashAttention?' } });
+  assert.equal(r.origin_kind, 'ask');
+  assert.equal(r.origin_id, '');
+  assert.equal(r.origin_label, 'Why FlashAttention?');
+});
+
+test('origin_kind is NOT constrained to the note KINDS list', () => {
+  // kind and origin_kind are different fields. `kind` is validated at the
+  // API boundary (lab_api.py:2874) against six values; origin_kind is
+  // provenance and is deliberately open, so a future origin needs no
+  // schema change. A note FROM a gap is still kind 'freeform'.
+  const r = buildNoteRecord('freeform', { origin: { kind: 'gap', id: 'g1', label: 'x' } });
+  assert.equal(r.kind, 'freeform');
+  assert.equal(r.origin_kind, 'gap');
+});
