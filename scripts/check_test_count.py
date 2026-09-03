@@ -6,10 +6,12 @@ removed instead of fixed, a merge resolves a conflict by keeping one side. None
 of that turns CI red — the remaining tests still pass, so the suite reports
 success while protecting less than it did yesterday.
 
-This records the collected test count in ``tests/.test-count`` and fails if the
-current count is lower. Adding tests is normal (the baseline moves up); removing
-them requires deliberately lowering the baseline in the same commit, which makes
-the removal visible in review.
+This records the pytest count in ``tests/.test-count`` and the ``node --test``
+count in ``tests/.test-count-js``, failing if either drops. The node suite
+needs its own ratchet for a specific reason: CI runs
+``node --test tests/js/*.test.mjs``, so a deleted test file makes the glob
+expand to fewer files, every one of which passes — exit 0, CI green, coverage
+silently gone.
 
 Usage::
 
@@ -26,6 +28,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "tests" / ".test-count"
+JS_BASELINE = REPO_ROOT / "tests" / ".test-count-js"
 
 
 def collected_count() -> int:
@@ -45,31 +48,49 @@ def collected_count() -> int:
     return int(match.group(1))
 
 
-def read_baseline() -> int | None:
-    if not BASELINE.exists():
+def node_collected_count() -> int:
+    """Number of node:test tests, counted over the same glob CI runs.
+
+    The TAP reporter is pinned explicitly: node's default reporter is
+    ``spec`` on a TTY and ``tap`` otherwise, so an unpinned format parses
+    locally and silently fails to match in CI (or the reverse).
+    """
+    files = sorted((REPO_ROOT / "tests" / "js").glob("*.test.mjs"))
+    if not files:
+        raise SystemExit("no node test files found at tests/js/*.test.mjs")
+    proc = subprocess.run(
+        ["node", "--test", "--test-reporter=tap", *[str(f) for f in files]],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    match = re.search(r"^# pass (\d+)", proc.stdout, re.MULTILINE)
+    if match is None:
+        sys.stderr.write(proc.stdout[-2000:] + proc.stderr[-2000:])
+        raise SystemExit("could not determine the node test count")
+    if proc.returncode != 0:
+        raise SystemExit(f"node --test failed (exit {proc.returncode})")
+    return int(match.group(1))
+
+
+def read_baseline(path: pathlib.Path) -> int | None:
+    if not path.exists():
         return None
-    text = BASELINE.read_text(encoding="utf-8").strip()
+    text = path.read_text(encoding="utf-8").strip()
     return int(text) if text.isdigit() else None
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--update", action="store_true",
-                        help="write the current count as the new baseline")
-    args = parser.parse_args()
+def check(label: str, current: int, path: pathlib.Path, update: bool) -> int:
+    """Compare one suite's count against its baseline. Returns an exit code."""
+    baseline = read_baseline(path)
 
-    current = collected_count()
-    baseline = read_baseline()
-
-    if args.update or baseline is None:
-        BASELINE.parent.mkdir(parents=True, exist_ok=True)
-        BASELINE.write_text(f"{current}\n", encoding="utf-8")
-        print(f"test-count baseline set to {current}")
+    if update or baseline is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{current}\n", encoding="utf-8")
+        print(f"{label} baseline set to {current}")
         return 0
 
     if current < baseline:
         print(
-            f"FAIL: test count dropped {baseline} -> {current} "
+            f"FAIL: {label} dropped {baseline} -> {current} "
             f"({baseline - current} fewer).\n"
             "Tests were removed. If that is intentional, lower the baseline in "
             "the same commit:\n"
@@ -80,12 +101,25 @@ def main() -> int:
         return 1
 
     if current > baseline:
-        BASELINE.write_text(f"{current}\n", encoding="utf-8")
-        print(f"test count grew {baseline} -> {current}; baseline updated")
+        path.write_text(f"{current}\n", encoding="utf-8")
+        print(f"{label} grew {baseline} -> {current}; baseline updated")
         return 0
 
-    print(f"test count unchanged at {current}")
+    print(f"{label} unchanged at {current}")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update", action="store_true",
+                        help="write the current counts as the new baselines")
+    args = parser.parse_args()
+
+    # Both run even when the first fails, so one invocation reports both
+    # problems rather than hiding the second behind the first.
+    py = check("python test count", collected_count(), BASELINE, args.update)
+    js = check("node test count", node_collected_count(), JS_BASELINE, args.update)
+    return py or js
 
 
 if __name__ == "__main__":
