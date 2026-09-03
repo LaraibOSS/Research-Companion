@@ -98,6 +98,12 @@ def save_note(record: dict) -> dict:
                 # Don't blank a user's existing comment just because a
                 # re-save (e.g. refreshed suggestion) omitted one.
                 merged["comment"] = existing.get("comment", "")
+            # Preserve origin fields on re-save, just like comment. A re-save
+            # without origin should not erase a previously recorded origin.
+            # Only overwrite if the incoming record explicitly provides a value.
+            for origin_field in ("origin_kind", "origin_id", "origin_label"):
+                if not merged[origin_field]:
+                    merged[origin_field] = existing.get(origin_field, "")
             existing.update(merged)
             _write(notes)
             return existing

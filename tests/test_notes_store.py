@@ -198,3 +198,46 @@ def test_markdown_export_omits_origin_when_unlabelled(isolated_papergraph_dir):
     ns.save_note(_rec(origin_kind="gap", origin_id="gap_1", origin_label=""))
     md = ns.notes_to_markdown(ns.list_notes())
     assert "from:" not in md
+
+
+def test_dedupe_preserves_origin_fields_on_resave_omit(isolated_papergraph_dir):
+    """When deduping, a re-save that omits origin fields should not blank them.
+
+    save_note dedupes by (paper_id, draft_section_id, kind) when all are present.
+    The dedupe path must guard origin fields the same way it guards comment:
+    do not blank a stored origin when the incoming record omits one."""
+    first = ns.save_note(_rec(
+        origin_kind="gap",
+        origin_id="gap_85c6f47740cf",
+        origin_label="Expand evaluations",
+    ))
+    # Re-save the same paper/section without origin fields
+    resaved = ns.save_note(_rec())  # _rec() has no origin fields
+    assert resaved["id"] == first["id"]  # dedupe occurred
+    assert resaved["origin_kind"] == "gap"
+    assert resaved["origin_id"] == "gap_85c6f47740cf"
+    assert resaved["origin_label"] == "Expand evaluations"
+    # Verify persistence
+    got = ns.list_notes()[0]
+    assert got["origin_kind"] == "gap"
+    assert got["origin_id"] == "gap_85c6f47740cf"
+    assert got["origin_label"] == "Expand evaluations"
+
+
+def test_dedupe_overwrites_origin_when_resave_supplies_new_one(isolated_papergraph_dir):
+    """When deduping with an explicit new origin, the old origin is replaced."""
+    first = ns.save_note(_rec(
+        origin_kind="gap",
+        origin_id="gap_old",
+        origin_label="Old origin",
+    ))
+    # Re-save with a different origin
+    resaved = ns.save_note(_rec(
+        origin_kind="question",
+        origin_id="q_new",
+        origin_label="New origin",
+    ))
+    assert resaved["id"] == first["id"]  # dedupe occurred
+    assert resaved["origin_kind"] == "question"
+    assert resaved["origin_id"] == "q_new"
+    assert resaved["origin_label"] == "New origin"
