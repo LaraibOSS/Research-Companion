@@ -7417,3 +7417,8 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   text-decoration: none;
   color: var(--color-muted);
 }
+
+.gaps-row-actions { margin-top: 0.5rem; }
+.gaps-note-editor { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.gaps-note-input { width: 100%; resize: vertical; }
+.gaps-note-actions { display: flex; gap: 0.4rem; }

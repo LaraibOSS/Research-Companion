@@ -3739,3 +3739,24 @@ def test_store_has_no_dead_gaps_field():
     shared state and was permanently null."""
     js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
     assert "setGaps" not in js, "the dead gaps setter must stay removed"
+
+
+def test_gaps_view_saves_a_note_with_a_gap_origin():
+    """The Gaps view is the one real origin producer.
+
+    Pinned as import-AND-call with word boundaries, not `"buildNoteRecord"
+    in js`: an earlier guard in this branch asserted only that a name was a
+    substring, which a symbol named `sectionFromHashXX` satisfies. That
+    guard stayed green while the feature was broken.
+    """
+    js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert re.search(r"import\s*\{[^}]*\bbuildNoteRecord\b[^}]*\}\s*from", js), \
+        "views/gaps.js must import buildNoteRecord"
+    assert re.search(r"\bbuildNoteRecord\s*\(", js), \
+        "views/gaps.js must CALL buildNoteRecord, not merely import it"
+    assert re.search(r"kind:\s*'gap'", js), \
+        "the gap producer must record origin_kind 'gap'"
+    assert re.search(r"buildNoteRecord\(\s*'freeform'", js), (
+        "the note's own kind stays 'freeform' — 'gap' is the ORIGIN kind, and "
+        "lab_api.py validates `kind` against six values that do not include it"
+    )
