@@ -13,9 +13,16 @@ from pathlib import Path
 
 from research_companion.store import workspace_path
 
+# origin_* record WHERE the note was written (the gap/question/section the
+# reader was looking at), as opposed to paper_id/draft_section_id, which
+# record what the note is ABOUT. A note can legitimately have both.
+# Appended at the end: save_note filters through this tuple with a ""
+# default, so existing notes on disk read back with an empty origin and
+# need no migration.
 _FIELDS = ("draft_section_id", "draft_section_title", "paper_id", "paper_title",
            "relation", "relevance", "rationale", "evidence_quote",
-           "evidence_section_id", "comment", "kind", "source_excerpt")
+           "evidence_section_id", "comment", "kind", "source_excerpt",
+           "origin_kind", "origin_id", "origin_label")
 
 
 def _path() -> Path | None:
@@ -157,6 +164,10 @@ def notes_to_markdown(notes: list[dict], group_by: str = "section") -> str:
                 line += f" — {n['source_excerpt']}"
             if n.get("comment"):
                 line += f" — note: {n['comment']}"
+            if n.get("origin_label"):
+                # Only the label. An origin_id is an opaque hash and means
+                # nothing in an exported document read outside the app.
+                line += f" — from: {n['origin_label']}"
             lines.append(line)
         lines.append("")
     return "\n".join(lines) + "\n"

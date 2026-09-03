@@ -156,3 +156,45 @@ def test_dedupe_requires_matching_kind(isolated_papergraph_dir):
     assert kept["relevance"] == 0.9
     assert kept["rationale"] == "why"
     assert kept["evidence_quote"] == "q"
+
+
+def test_origin_fields_round_trip(isolated_papergraph_dir):
+    n = ns.save_note(_rec(
+        origin_kind="gap",
+        origin_id="gap_85c6f47740cf",
+        origin_label="Expand evaluations to diverse device classes",
+    ))
+    got = ns.list_notes()[0]
+    assert got["origin_kind"] == "gap"
+    assert got["origin_id"] == "gap_85c6f47740cf"
+    assert got["origin_label"] == "Expand evaluations to diverse device classes"
+    assert n["origin_kind"] == "gap"
+
+
+def test_note_without_origin_reads_back_empty_not_missing(isolated_papergraph_dir):
+    """The no-migration guarantee, pinned as a test rather than asserted in prose.
+
+    Every note written before origins existed has no origin keys at all.
+    save_note filters through `{k: record.get(k, "") for k in _FIELDS}`, so
+    those notes must read back with empty strings — never a KeyError, and
+    never None (which would render as the string "None" in the UI).
+    """
+    n = ns.save_note(_rec())
+    assert n["origin_kind"] == ""
+    assert n["origin_id"] == ""
+    assert n["origin_label"] == ""
+
+
+def test_markdown_export_includes_origin_when_labelled(isolated_papergraph_dir):
+    ns.save_note(_rec(origin_kind="gap", origin_id="gap_1",
+                      origin_label="Expand evaluations"))
+    md = ns.notes_to_markdown(ns.list_notes())
+    assert "from: Expand evaluations" in md
+
+
+def test_markdown_export_omits_origin_when_unlabelled(isolated_papergraph_dir):
+    """An id with no label is not renderable provenance — an opaque hash in an
+    exported document tells the reader nothing. The label is what carries."""
+    ns.save_note(_rec(origin_kind="gap", origin_id="gap_1", origin_label=""))
+    md = ns.notes_to_markdown(ns.list_notes())
+    assert "from:" not in md
