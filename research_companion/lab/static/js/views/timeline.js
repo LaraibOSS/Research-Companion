@@ -539,7 +539,7 @@ function _closeDetail() {
 function _openPaperDrawer(paperId) {
   window.__rcPendingPaper = paperId;
   window.dispatchEvent(new CustomEvent('rc:open-paper', {
-    detail: { paper_id: paperId },
+    detail: { paperId },
     bubbles: true,
   }));
   window.location.hash = '#/library';

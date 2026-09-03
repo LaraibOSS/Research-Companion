@@ -3665,6 +3665,22 @@ def test_open_paper_dispatchers_and_listener_agree():
     assert not re.search(r"e\.detail\s*&&\s*e\.detail\.paperId", js),         "library.js must not read one spelling of the id directly again"
 
 
+def test_no_dispatcher_sends_the_non_canonical_paper_id():
+    """Defence in depth, not belt-and-braces.
+
+    The listener tolerates either spelling so this class of drift cannot break
+    navigation again. That is the safety net; callers still being canonical is
+    what keeps a FUTURE listener elsewhere -- one that reads only paperId --
+    from inheriting the same bug.
+    """
+    for name in ("gaps", "report", "timeline", "brainstorm", "suggestions"):
+        js = (STATIC_DIR / "js" / "views" / f"{name}.js").read_text(encoding="utf-8")
+        assert "paper_id: paperId" not in js, (
+            f"views/{name}.js dispatches the non-canonical paper_id; "
+            "use { paperId } so every caller agrees"
+        )
+
+
 def test_handoff_helpers_accept_both_spellings():
     js = (STATIC_DIR / "js" / "handoffHelpers.js").read_text(encoding="utf-8")
     assert "export function paperIdFromDetail" in js

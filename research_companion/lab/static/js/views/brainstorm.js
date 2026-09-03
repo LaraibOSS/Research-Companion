@@ -799,7 +799,7 @@ function _bindEvents() {
       const paperId = btn.dataset.paperId;
       if (!paperId) return;
       window.__rcPendingPaper = paperId;
-      window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
+      window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperId }, bubbles: true }));
       window.location.hash = '#/library';
     });
   });
@@ -883,7 +883,7 @@ function _bindBriefEvents() {
     const paperId = chip.dataset.paperId;
     if (!paperId) return;
     window.__rcPendingPaper = paperId;
-    window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
+    window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperId }, bubbles: true }));
     window.location.hash = '#/library';
   }));
 }
