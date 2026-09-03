@@ -22,6 +22,7 @@ import {
   filterGapThemes,
 } from '../gapHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
+import { themeFromHash } from '../noteOriginHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -36,6 +37,7 @@ let _typeFilter = 'all';
 let _statusFilter = 'all';
 let _rows = [];            // last rendered row models, keyed by theme id
 let _noteFor = null;       // theme id whose inline note textarea is open
+let _highlightTheme = null;  // theme id from #/gaps?theme=, consumed once
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -47,6 +49,7 @@ export function mount(el) {
   _sortDir = 'desc';
   _typeFilter = 'all';
   _statusFilter = 'all';
+  _highlightTheme = themeFromHash(window.location.hash);
 
   el.innerHTML = `<div class="gaps-view"><div class="gaps-loading muted">Loading gaps…</div></div>`;
 
@@ -113,6 +116,20 @@ function _render() {
     </div>`;
 
   _bindEvents();
+
+  // A theme handed over by a note's origin link. Consumed once: re-rendering
+  // for a filter or sort change must not yank the reader back.
+  if (_highlightTheme) {
+    const row = _el.querySelector(`.gaps-row[data-theme-id="${CSS.escape(_highlightTheme)}"]`);
+    _highlightTheme = null;
+    if (row) {
+      row.classList.add('gaps-row--highlight');
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    // No match is not an error. A theme_id is derived from its member
+    // gap_ids, so re-clustering can retire one — the note's link still
+    // opens Gaps, which is more useful than an error the reader cannot act on.
+  }
 }
 
 function _controlsHtml() {

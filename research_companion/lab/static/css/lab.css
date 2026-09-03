@@ -7422,3 +7422,9 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 .gaps-note-editor { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
 .gaps-note-input { width: 100%; resize: vertical; }
 .gaps-note-actions { display: flex; gap: 0.4rem; }
+
+.gaps-row--highlight {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

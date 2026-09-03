@@ -3760,3 +3760,21 @@ def test_gaps_view_saves_a_note_with_a_gap_origin():
         "the note's own kind stays 'freeform' — 'gap' is the ORIGIN kind, and "
         "lab_api.py validates `kind` against six values that do not include it"
     )
+
+
+def test_gaps_view_reads_the_theme_param_and_uses_it():
+    """views/gaps.js:163 has emitted data-theme-id with no reader since it was
+    written — the receiving half of a return path, built and left unwired.
+
+    Import AND call are both pinned, with word boundaries. `"themeFromHash"
+    in js` would pass against a symbol named themeFromHashXX; that exact
+    weakness let a guard in this branch stay green while its feature was
+    broken.
+    """
+    js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert re.search(r"import\s*\{[^}]*\bthemeFromHash\b[^}]*\}\s*from", js), \
+        "views/gaps.js must import themeFromHash"
+    assert re.search(r"\bthemeFromHash\s*\(", js), \
+        "views/gaps.js must CALL themeFromHash, not merely import it"
+    assert "data-theme-id" in js, \
+        "the row anchor the return path scrolls to must still be emitted"
