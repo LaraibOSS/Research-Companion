@@ -40,12 +40,6 @@ const _KINDS = {
   brief: { badge: '§ Brief', route: null },
 };
 
-/** The display badge for an origin kind, or '' when unknown. */
-export function originBadge(kind) {
-  const entry = _KINDS[_str(kind)];
-  return entry ? entry.badge : '';
-}
-
 /**
  * Resolve a stored origin to something renderable.
  *
@@ -66,7 +60,18 @@ export function originLink(origin) {
   if (!entry || !entry.route || !id) {
     return { href: null, label, badge: entry ? entry.badge : '', canOpen: false };
   }
-  return { href: entry.route(id), label, badge: entry.badge, canOpen: true };
+
+  // Guard encodeURIComponent: an id with unpaired UTF-16 surrogates throws
+  // URIError. Degrade to non-openable rather than propagating the error,
+  // mirroring themeFromHash's treatment of malformed percent-escapes.
+  let href = null;
+  try {
+    href = entry.route(id);
+  } catch {
+    // Malformed id: preserve label, return non-openable shape.
+    return { href: null, label, badge: entry.badge, canOpen: false };
+  }
+  return { href, label, badge: entry.badge, canOpen: true };
 }
 
 /**

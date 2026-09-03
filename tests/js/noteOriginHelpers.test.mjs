@@ -24,11 +24,13 @@ test('a gap origin resolves to the gaps route carrying its theme', () => {
   assert.equal(r.href, '#/gaps?theme=gap_85c6f47740cf');
   assert.equal(r.label, 'Expand evaluations');
   assert.equal(r.canOpen, true);
+  assert.equal(r.badge, '◇ Gap');
 });
 
 test('a theme id is percent-encoded into the href', () => {
   const r = originLink({ kind: 'gap', id: 'a b&c', label: 'x' });
   assert.equal(r.href, '#/gaps?theme=a%20b%26c');
+  assert.equal(r.badge, '◇ Gap');
 });
 
 test('an unknown kind keeps its label but cannot be opened', () => {
@@ -38,6 +40,7 @@ test('an unknown kind keeps its label but cannot be opened', () => {
   assert.equal(r.canOpen, false);
   assert.equal(r.href, null);
   assert.equal(r.label, 'Some future thing');
+  assert.equal(r.badge, '');
 });
 
 test('a known kind with no id cannot be opened but keeps its label', () => {
@@ -46,6 +49,7 @@ test('a known kind with no id cannot be opened but keeps its label', () => {
   assert.equal(r.canOpen, false);
   assert.equal(r.href, null);
   assert.equal(r.label, 'Why FlashAttention?');
+  assert.equal(r.badge, '? Question');
 });
 
 test('an empty origin is not an origin', () => {
@@ -68,6 +72,17 @@ test('a non-string label is refused rather than coerced', () => {
   // String(7) would render "7" as if it were a real label.
   const r = originLink({ kind: 'gap', id: 'g1', label: 7 });
   assert.equal(r.label, '');
+});
+
+test('an id with unpaired UTF-16 surrogate does not throw', () => {
+  // encodeURIComponent('\uD800') throws URIError: URI malformed.
+  // Degrade to non-openable, preserving label, like any other encoding failure.
+  assert.doesNotThrow(() => originLink({ kind: 'gap', id: '\uD800', label: 'x' }));
+  const r = originLink({ kind: 'gap', id: '\uD800', label: 'My Gap' });
+  assert.equal(r.canOpen, false);
+  assert.equal(r.href, null);
+  assert.equal(r.label, 'My Gap');
+  assert.equal(r.badge, '◇ Gap');
 });
 
 // ---------------------------------------------------------------------------
