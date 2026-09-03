@@ -314,6 +314,20 @@ function _renderCard(m, idx) {
     ? `<div class="note-paper-title">${escapeHtml(m.paperTitle || m.paperId)}</div>`
     : '';
 
+  // Origin: where the reader was when they wrote this. A non-openable origin
+  // (unknown kind, missing id, or a theme that has since been re-clustered
+  // away) still shows its label — the note stays readable, it just stops
+  // being a link.
+  const originHtml = m.origin.label
+    ? (m.origin.canOpen
+      ? `<a class="note-origin" href="${escapeHtml(m.origin.href)}">`
+        + `<span class="note-origin-badge">${escapeHtml(m.origin.badge)}</span>`
+        + `<span class="note-origin-label">${escapeHtml(m.origin.label)}</span></a>`
+      : `<span class="note-origin note-origin--stale">`
+        + `<span class="note-origin-badge">${escapeHtml(m.origin.badge)}</span>`
+        + `<span class="note-origin-label">${escapeHtml(m.origin.label)}</span></span>`)
+    : '';
+
   const actionsHtml = `
     ${status === 'open' ? `<button class="btn btn-secondary btn-sm note-mark-done" data-note-idx="${idx}">Mark done</button>` : ''}
     ${status !== 'dismissed' ? `<button class="btn btn-secondary btn-sm note-dismiss" data-note-idx="${idx}">Dismiss</button>` : ''}
@@ -330,6 +344,7 @@ function _renderCard(m, idx) {
         <span class="note-status-tag note-status-${escapeHtml(status)}">${escapeHtml(status)}</span>
       </div>
       ${paperTitleHtml}
+      ${originHtml}
       ${m.rationale ? `<p class="note-rationale">${escapeHtml(m.rationale)}</p>` : ''}
       ${excerptHtml}
       ${quoteHtml}

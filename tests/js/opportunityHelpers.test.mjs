@@ -360,3 +360,29 @@ test('notesGroupModel: malformed note entries in the array are tolerated', () =>
   assert.ok(unfiled);
   assert.equal(unfiled.rows.length, 4);
 });
+
+test('noteRowModel resolves a stored origin', () => {
+  const m = noteRowModel({
+    id: 'n1', kind: 'freeform',
+    origin_kind: 'gap', origin_id: 'gap_1', origin_label: 'Expand evaluations',
+  });
+  assert.equal(m.origin.canOpen, true);
+  assert.equal(m.origin.href, '#/gaps?theme=gap_1');
+  assert.equal(m.origin.label, 'Expand evaluations');
+});
+
+test('noteRowModel gives an origin-less note a non-openable origin', () => {
+  // Every note written before origins existed lands here. It must be a
+  // usable object, not undefined — _renderCard reads .canOpen off it.
+  const m = noteRowModel({ id: 'n1', kind: 'reader' });
+  assert.equal(m.origin.canOpen, false);
+  assert.equal(m.origin.label, '');
+});
+
+test('noteRowModel still yields an origin on its malformed-input fallback', () => {
+  for (const bad of [null, undefined, 'note', 7]) {
+    const m = noteRowModel(bad);
+    assert.ok(m.origin, 'the catch-branch fallback must include origin');
+    assert.equal(m.origin.canOpen, false);
+  }
+});

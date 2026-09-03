@@ -7402,3 +7402,18 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 }
 .report-plan-row-actions { display: flex; flex-direction: column; gap: 2px; }
 .report-plan-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+
+.note-origin {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.85em;
+  text-decoration: none;
+}
+.note-origin-badge { color: var(--color-muted); white-space: nowrap; }
+.note-origin-label { text-decoration: underline; }
+.note-origin--stale .note-origin-label {
+  text-decoration: none;
+  color: var(--color-muted);
+}

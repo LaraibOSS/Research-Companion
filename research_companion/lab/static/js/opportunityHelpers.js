@@ -24,6 +24,8 @@
  * throws, it degrades to an empty/neutral result instead.
  */
 
+import { originLink } from './noteOriginHelpers.js';
+
 // Stance palette — mirrors views/draft.js's local STANCE_COLORS/STANCE_ICONS
 // (format.js has no STANCE_COLORS export; this is the canonical relation->color
 // mapping shared by the Draft opportunities block and the Notes row model).
@@ -149,6 +151,9 @@ export function noteRowModel(note) {
       createdAt: safe.created_at != null ? String(safe.created_at) : '',
       badgeColor: STANCE_COLORS[relation] || MUTED_COLOR,
       badgeIcon: STANCE_ICONS[relation] || '',
+      origin: originLink({
+        kind: safe.origin_kind, id: safe.origin_id, label: safe.origin_label,
+      }),
     };
   } catch {
     return {
@@ -156,6 +161,7 @@ export function noteRowModel(note) {
       relation: '', relevancePct: 0, rationale: '', quote: '', quoteSectionId: null,
       sourceExcerpt: '', comment: '', status: 'open', createdAt: '',
       badgeColor: MUTED_COLOR, badgeIcon: '',
+      origin: originLink(null),
     };
   }
 }
