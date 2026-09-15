@@ -7410,7 +7410,17 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   margin: 0.2rem 0 0.4rem;
   font-size: 0.85em;
   text-decoration: none;
+  /* An <a> with no color falls through to the user agent's default link blue
+     (#0000EE) and visited purple, both near-unreadable on this dark ground.
+     Setting it explicitly is what keeps the origin link legible; the rule
+     below pins :visited to the same value so a followed link does not change
+     colour underneath the reader. */
+  color: var(--color-accent);
 }
+.note-origin:visited,
+.note-origin:hover,
+.note-origin:focus-visible { color: var(--color-accent); }
+
 .note-origin-badge { color: var(--color-muted); white-space: nowrap; }
 .note-origin-label { text-decoration: underline; }
 .note-origin--stale .note-origin-label {
