@@ -99,6 +99,17 @@ entered your corpus — so "this is new" becomes something you can look at.
 
 <img src="docs/images/timeline.png" alt="The Timeline tab: concepts and methods plotted by year, with open gaps marked">
 
+Read a gap, have a thought, write it down — and the note remembers **where you
+were standing when you had it**. Not just which paper it concerned: the gap you
+were looking at, with one click back to it.
+
+<img src="docs/images/notes.png" alt="The Notes tab: a note carrying a ◇ Gap origin chip that links back to the gap it was written from, beside an older note with no origin">
+
+Three weeks later that is the difference between a sentence you trust and a
+sentence you have to re-derive. And if the gap is ever re-clustered away, the
+note still reads — it just stops being a link. Less information, never a broken
+screen.
+
 <br>
 
 ### 6 · Or start with no papers at all
