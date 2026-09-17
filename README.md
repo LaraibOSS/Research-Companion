@@ -11,9 +11,9 @@
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue?style=flat-square)](pyproject.toml)
 [![CI](https://img.shields.io/github/actions/workflow/status/LaraibOSS/Research-Companion/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 
-[![4,404 tests, ratcheted so coverage cannot shrink](https://img.shields.io/badge/4%2C404%20tests-ratcheted%20so%20coverage%20cannot%20shrink-2b8a3e?style=flat-square)](tests)
+[![3,927 tests, ratcheted so coverage cannot shrink](https://img.shields.io/badge/3%2C927%20tests-ratcheted%20so%20coverage%20cannot%20shrink-2b8a3e?style=flat-square)](tests)
 [![Deterministic core runs with no API key](https://img.shields.io/badge/deterministic%20core-runs%20with%20no%20API%20key-8250df?style=flat-square)](#why-research-companion)
-[![20 degradation mechanisms proved in CI](https://img.shields.io/badge/20%20degradation%20mechanisms-proved%20in%20CI-c2255c?style=flat-square)](docs/DEGRADATION_REGISTRY.json)
+[![14 degradation mechanisms proved in CI](https://img.shields.io/badge/14%20degradation%20mechanisms-proved%20in%20CI-c2255c?style=flat-square)](docs/DEGRADATION_REGISTRY.json)
 [![Your papers never leave your machine](https://img.shields.io/badge/your%20papers-never%20leave%20your%20machine-e8590c?style=flat-square)](#configuration--security)
 
 Drop in papers. Get a knowledge graph you can question, answers with citations to
