@@ -131,6 +131,11 @@ export function mount(el) {
 export function unmount() {
   for (const u of _unsubs) u();
   _unsubs = [];
+  // Clear the payloads too. _report and _audit outlived the view, so switching
+  // research showed the previous workspace's report and claim audit until the
+  // new one finished loading.
+  _report = null;
+  _audit = null;
   _el = null;
 }
 
@@ -690,7 +695,7 @@ function _bindEvents() {
       if (!paperId) return;
       window.__rcPendingPaper = paperId;
       window.dispatchEvent(new CustomEvent('rc:open-paper', {
-        detail: { paper_id: paperId },
+        detail: { paperId },
         bubbles: true,
       }));
       window.location.hash = '#/library';

@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from research_companion import signals
@@ -94,22 +94,72 @@ class AuditResult:
         }
 
 
+#: Why an audit did not conclude, per outcome. Structured so failures can be
+#: grouped and counted — "how many citations lacked an anchor?" is a question
+#: a prose `detail` string cannot answer.
+_REASONS = {
+    AuditOutcome.ANCHORLESS: signals.Reason.NO_ANCHOR,
+    AuditOutcome.UNVERIFIABLE: signals.Reason.AMBIGUOUS,
+    AuditOutcome.NOT_CHECKED: signals.Reason.USER_DISABLED,
+}
+
+
+def _evidence_refs(locator: Locator | None) -> tuple[signals.DocumentRef, ...]:
+    """The source passage this verdict was reached against.
+
+    This is the link that was missing: the Locator resolved the passage and was
+    then discarded, so the signal could not say WHICH passage it had judged.
+    Without it the audit trail stops at "claim_audit said so".
+    """
+    if locator is None or not locator.paper_id:
+        return ()
+    return (signals.DocumentRef(
+        paper_id=locator.paper_id,
+        section_id=locator.section_id,
+        char_start=locator.char_start,
+        char_end=locator.char_end,
+        quote=locator.quote or "",
+    ),)
+
+
 def _result(outcome: AuditOutcome, reason: str, *, claim: str = "",
-            passage: str = "") -> AuditResult:
+            passage: str = "", locator: Locator | None = None) -> AuditResult:
     """Build a result whose signal cannot misrepresent what was established."""
     name = "claim_supported"
-    if outcome is AuditOutcome.SUPPORTED:
-        sig = signals.resolved(name, source="claim_audit", detail=reason)
-    elif outcome is AuditOutcome.NOT_SUPPORTED:
-        # A model judgement is a heuristic, never a deterministic fact — the
-        # label must say so even when the verdict is adverse.
-        sig = signals.heuristic(name, matched=True, detail=reason, source="claim_audit")
+    refs = _evidence_refs(locator)
+
+    if outcome in (AuditOutcome.SUPPORTED, AuditOutcome.NOT_SUPPORTED):
+        # BOTH directions are heuristic. The same model call decided each, so
+        # "supported" cannot be a deterministic fact while "not supported" is
+        # advisory — that asymmetry rendered a model judgement as VERIFIED.
+        sig = signals.heuristic(
+            name, matched=outcome is AuditOutcome.NOT_SUPPORTED,
+            detail=reason, source="claim_audit",
+        )
     elif outcome is AuditOutcome.NOT_CHECKED:
-        sig = signals.not_checked(name, detail=reason, source="claim_audit")
-    else:  # UNVERIFIABLE / ANCHORLESS
-        sig = signals.could_not_check(name, detail=reason, source="claim_audit")
+        sig = signals.not_checked(name, detail=reason, source="claim_audit",
+                                  reason=_REASONS[outcome])
+    else:  # UNVERIFIABLE / ANCHORLESS — attempted, could not conclude
+        sig = signals.could_not_check(name, detail=reason, source="claim_audit",
+                                      reason=_REASONS.get(outcome))
+
+    # Carry provenance so a verdict can be re-checked later: which passage, and
+    # which prompt produced the judgement.
+    sig = replace(sig, evidence_refs=refs, prompt_sha=_prompt_sha())
+
     return AuditResult(outcome=outcome, reason=reason, claim=claim,
                        passage=passage, signal=sig)
+
+
+def _prompt_sha() -> str:
+    """The prompt version behind a heuristic verdict. A model judgement is only
+    reproducible if you know what asked the question."""
+    try:
+        from research_companion.prompts import claim_audit_prompt_sha256
+
+        return claim_audit_prompt_sha256()
+    except Exception:  # noqa: BLE001 — provenance is never worth failing a check
+        return ""
 
 
 def audit_claim(
@@ -147,14 +197,15 @@ def audit_claim(
         fulltext = load_text(locator.paper_id) or ""
     except Exception as exc:  # noqa: BLE001 — a load failure is not a bad citation
         return _result(AuditOutcome.UNVERIFIABLE,
-                       f"Could not load the source text ({exc}).", claim=claim)
+                       f"Could not load the source text ({exc}).", claim=claim,
+                       locator=locator)
 
     passage = resolve(locator, fulltext)
     if len(passage.strip()) < MIN_PASSAGE_CHARS:
         return _result(
             AuditOutcome.UNVERIFIABLE,
             "The anchored passage is too short to establish anything either way.",
-            claim=claim, passage=passage,
+            claim=claim, passage=passage, locator=locator,
         )
 
     prompt = format_claim_audit_prompt(claim=claim, passage=passage)
@@ -168,24 +219,24 @@ def audit_claim(
     except Exception as exc:  # noqa: BLE001 — a model failure is not a bad citation
         return _result(AuditOutcome.UNVERIFIABLE,
                        f"The audit could not be completed ({exc}).",
-                       claim=claim, passage=passage)
+                       claim=claim, passage=passage, locator=locator)
 
     if verdict == "supported":
         return _result(AuditOutcome.SUPPORTED,
                        reason or "The passage supports this claim.",
-                       claim=claim, passage=passage)
+                       claim=claim, passage=passage, locator=locator)
     if verdict == "not_supported":
         return _result(
             AuditOutcome.NOT_SUPPORTED,
             reason or "The passage does not establish this claim.",
-            claim=claim, passage=passage,
+            claim=claim, passage=passage, locator=locator,
         )
     # "unclear", an unrecognised verdict, or a blank response — all mean the
     # audit did not settle it. Never upgrade that into an accusation.
     return _result(
         AuditOutcome.UNVERIFIABLE,
         reason or "The model could not tell from this passage alone.",
-        claim=claim, passage=passage,
+        claim=claim, passage=passage, locator=locator,
     )
 
 
@@ -272,6 +323,43 @@ def audit_report(report: dict, *, load_text, llm=None) -> dict:
             audited.append({**cit, "audit": result.to_dict()})
         out_sections.append({**sec, "citations": audited})
     return {"sections": out_sections, "summary": summarize(all_results)}
+
+
+def audit_draft_alignment(payload: dict, *, load_text, llm=None) -> dict:
+    """Audit the draft's cross-paper alignment view.
+
+    ``GET /api/draft/alignment`` groups by DRAFT section and then by candidate
+    paper -- ``sections[] -> alignments[] -> evidence[]`` -- one level deeper
+    than the per-paper shape :func:`audit_alignment` walks. Running the wrong
+    runner over this does not raise: it finds no ``evidence`` on the section,
+    audits nothing, and reports a summary of zero, which reads exactly like a
+    document with no citations to check. Hence a separate runner.
+
+    The claim under test is each alignment's rationale -- the assertion the
+    tool made about that paper -- checked against the passage it cited for it.
+    """
+    out_sections = []
+    all_results: list[AuditResult] = []
+    for sec in (payload or {}).get("sections", []) or []:
+        if not isinstance(sec, dict):
+            continue
+        out_alignments = []
+        for align in sec.get("alignments", []) or []:
+            if not isinstance(align, dict):
+                out_alignments.append(align)
+                continue
+            claim = str(align.get("rationale") or "").strip()
+            audited = []
+            for ev in align.get("evidence", []) or []:
+                result = audit_claim(claim, _locator_from_citation(ev),
+                                     load_text=load_text, llm=llm)
+                all_results.append(result)
+                audited.append({**ev, "audit": result.to_dict()})
+            out_alignments.append({**align, "evidence": audited})
+        out_sections.append({**sec, "alignments": out_alignments})
+    # Preserve draft_id and any other top-level fields the view relies on.
+    return {**(payload or {}), "sections": out_sections,
+            "summary": summarize(all_results)}
 
 
 def audit_alignment(alignment: dict, *, load_text, llm=None) -> dict:

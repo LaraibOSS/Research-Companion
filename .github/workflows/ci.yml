@@ -54,13 +54,15 @@ jobs:
       # it is trusted — so CI fails when an anchor or pinned test disappears.
       - name: degradation registry matches the code
         run: python scripts/check_degradation_registry.py
-      # Coverage can be deleted silently: a refactor drops a file, a flaky test
-      # is removed instead of fixed. Removing tests must be a visible decision.
-      - name: test count has not shrunk
-        run: python scripts/check_test_count.py
       - uses: actions/setup-node@v7
         with:
           node-version: '20'
+      # Coverage can be deleted silently: a refactor drops a file, a flaky test
+      # is removed instead of fixed. Removing tests must be a visible decision.
+      # Both suites are ratcheted — a deleted .test.mjs makes the CI glob expand
+      # to fewer files, which would otherwise pass green.
+      - name: test count has not shrunk
+        run: python scripts/check_test_count.py
       - run: node --test tests/js/*.test.mjs
 
   audit:

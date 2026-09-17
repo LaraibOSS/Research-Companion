@@ -10,10 +10,12 @@ import { showToast } from '../components/toast.js';
 import { strengthColor, stanceIcon, escapeHtml, authorsLine, timeAgo } from '../format.js';
 import { openModal } from '../components/ingestModal.js';
 import { confirmDialog } from '../components/confirmDialog.js';
-import { buildRows, sortRows, draftActionFor, formatFailureReason, isMissingPdfFailure } from '../libraryHelpers.js';
-import { findPdfAffordance, oaLinksLine, pollDecision } from '../oaLinkHelpers.js';
+import { buildRows, sortRows, draftActionFor, formatFailureReason, alignmentNoteModel } from '../libraryHelpers.js';
+import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../oaLinkHelpers.js';
+import { queueRowModel, queueAfterMatches, nextMatchedIds, statusBannerModel, createAcquirePoller } from '../acquireHelpers.js';
 import { buildPaperPatch } from '../metadataForm.js';
 import { unlinkedCitationOptions } from '../citationsHelpers.js';
+import { paperIdsFromDetail } from '../handoffHelpers.js';
 
 let _el = null;
 let _unsubscribe = null;
@@ -26,6 +28,23 @@ let _viewMode   = localStorage.getItem('rc.libraryView') || 'grid'; // 'grid' | 
 let _listCol    = 'added';
 let _listDir    = 'desc';
 
+// Browser-handoff acquisition state (arm/disarm/poll the click-to-download
+// watcher — see acquireHelpers.js and api.js's arm/getAcquireStatus/disarm).
+// The poll loop itself (start/stop/give-up bookkeeping) lives in
+// acquireHelpers.js's createAcquirePoller — a DOM-free, node-testable
+// factory — so this view only wires it to the real fetch + real timers and
+// reacts to its callbacks. _acquirePoller is created lazily (see
+// _getAcquirePoller) and reused for the life of this module.
+let _acquirePoller = null;
+let _showNeedsYouHandler = null;  // window listener, removed on unmount
+let _acquireMatchedIds = new Set(); // paper_ids the watcher already caught this
+                                     // session — hidden from "Needs you" even
+                                     // before the eventual papers refresh lands.
+                                     // Bounded by acquireHelpers.js's
+                                     // nextMatchedIds -- see _renderGrid.
+let _acquireLastModel = { armed: false, countdownText: '0:00' }; // survives a _render() rebuild
+const _ACQUIRE_POLL_MS = 5000; // modest — this is a countdown display, not a race
+
 export function mount(el) {
   _el = el;
   _render();
@@ -35,19 +54,50 @@ export function mount(el) {
   // The panel also sets window.__rcPendingPaper before dispatching the event
   // as a fallback in case the event fires before this listener is registered.
   _openPaperHandler = (e) => {
-    const paperId = e.detail && e.detail.paperId;
-    if (paperId) _openDrawer(paperId);
+    // Either spelling: five dispatchers sent paper_id against a listener that
+    // read paperId, and the mismatch stayed invisible because each of them also
+    // wrote the __rcPendingPaper fallback below.
+    for (const paperId of paperIdsFromDetail(e && e.detail)) _openDrawer(paperId);
+    _drainPendingPaper();
   };
   window.addEventListener('rc:open-paper', _openPaperHandler);
 
-  // Check the module-level handoff written by the panel before navigating —
-  // handles the arrive-before-mount race (hash change triggers mount after event).
-  if (window.__rcPendingPaper) {
-    const pendingId = window.__rcPendingPaper;
-    window.__rcPendingPaper = null;
-    // Defer until after first render so the papers grid is in the DOM
-    Promise.resolve().then(() => _openDrawer(pendingId));
+  // The library-gaps notice sends the reader here to act on what is missing.
+  _showNeedsYouHandler = () => _selectFilter('needs-you');
+  window.addEventListener('rc:show-needs-you', _showNeedsYouHandler);
+  // Same arrive-before-mount race as the paper handoff above: the notice
+  // changes the hash and then dispatches, so the event can land before this
+  // view exists.
+  if (window.__rcPendingFilter) {
+    const pending = window.__rcPendingFilter;
+    window.__rcPendingFilter = null;
+    Promise.resolve().then(() => _selectFilter(pending));
   }
+
+  _drainPendingPaper();
+}
+
+/**
+ * Open whatever a caller left in the module-level handoff.
+ *
+ * Two races, not one. A caller navigating in from another surface sets this
+ * and changes the hash, so the value must survive until this view mounts. A
+ * caller already ON this route changes nothing — no hashchange, no remount —
+ * so the same value has to be picked up without one. Called from both mount
+ * and the event listener for that reason; before, only mount drained it, and
+ * from Library itself the click did nothing at all.
+ *
+ * Accepts a bare id or a list, so Compare can hand over both its papers.
+ */
+function _drainPendingPaper() {
+  const pending = window.__rcPendingPaper;
+  if (!pending) return;
+  window.__rcPendingPaper = null;
+  // Defer until after first render so the papers grid is in the DOM.
+  Promise.resolve().then(() => {
+    const detail = Array.isArray(pending) ? { paperIds: pending } : { paperId: pending };
+    for (const paperId of paperIdsFromDetail(detail)) _openDrawer(paperId);
+  });
 }
 
 export function unmount() {
@@ -56,6 +106,15 @@ export function unmount() {
     window.removeEventListener('rc:open-paper', _openPaperHandler);
     _openPaperHandler = null;
   }
+  if (_showNeedsYouHandler) {
+    window.removeEventListener('rc:show-needs-you', _showNeedsYouHandler);
+    _showNeedsYouHandler = null;
+  }
+  // Stop polling — the watcher itself keeps running server-side (arming is
+  // not tied to this view being mounted), only OUR poll loop tears down.
+  // Guarded (not _getAcquirePoller()) so unmounting never CREATES a poller
+  // that was never started in the first place.
+  if (_acquirePoller) _acquirePoller.stop();
   drawerClose();
   _el = null;
 }
@@ -89,6 +148,7 @@ function _render() {
         <button class="chip" data-filter="weak">Weak</button>
         <button class="chip" data-filter="unscored">Unscored</button>
         <button class="chip" data-filter="failed">Failed</button>
+        <button class="chip" data-filter="needs-you">Needs you</button>
       </div>
       <div class="sort-row">
         <label for="lib-sort" class="muted">Sort by:</label>
@@ -106,10 +166,7 @@ function _render() {
   _el.querySelector('#lib-filters').addEventListener('click', (e) => {
     const chip = e.target.closest('[data-filter]');
     if (!chip) return;
-    _filter = chip.dataset.filter;
-    _el.querySelectorAll('.chip').forEach(c => c.classList.remove('chip-active'));
-    chip.classList.add('chip-active');
-    _renderGrid();
+    _selectFilter(chip.dataset.filter);
   });
 
   // Wire sort
@@ -410,6 +467,103 @@ function _wireFindAllPdfsButton(btn) {
 }
 
 // ---------------------------------------------------------------------------
+// Browser handoff — "Open at publisher" (Task 10D)
+//
+// A paper in the "Needs you" queue can't be fetched automatically (a bot
+// filter refused an otherwise-open-access download, or the paper is
+// paywalled and only the user's own institutional access can get it). The
+// button opens the publisher page in the user's OWN browser/tab — their own
+// access, their own click — and arms the click-to-download watcher so a PDF
+// saved to the downloads folder gets caught and attached to this paper.
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire an "Open at publisher" button: click -> open its data-url in a new
+ * tab, then POST /api/acquire/arm for that one paper. Arming is additive
+ * server-side (see api.armAcquire), so clicking several of these in a row
+ * accumulates papers in one arming window rather than replacing it.
+ * @param {HTMLElement|null} btn
+ */
+function _wireOpenPublisherButton(btn) {
+  if (!btn) return;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const pid = btn.dataset.paperId;
+    const url = btn.dataset.url;
+    if (url) window.open(url, '_blank', 'noopener');
+    try {
+      const res = await api.armAcquire([pid]);
+      _acquireLastModel = statusBannerModel(res);
+      // One sentence, then silence until something actually happens. The
+      // watcher used to render a countdown, a disarm control and a running
+      // event log; that was a dashboard for a background errand.
+      showToast("Watching your downloads — save the PDF and it'll be added.", 'info');
+      _getAcquirePoller().start();
+    } catch (err) {
+      showToast(`Couldn't start watching for the download: ${err.message}`, 'error');
+    }
+  });
+}
+
+/**
+ * Lazily build the shared poller (acquireHelpers.js's createAcquirePoller --
+ * the DOM-free loop; see there for start/stop/give-up bookkeeping), wired to
+ * the real api.getAcquireStatus and real timers, and built once for the life
+ * of this module. Everything DOM/store-shaped that follows a poll -- toasting,
+ * updating the banner, bounding _acquireMatchedIds, re-rendering the grid --
+ * lives here in onUpdate/onGiveUp; the poller itself knows none of it.
+ * @returns {ReturnType<typeof createAcquirePoller>}
+ */
+function _getAcquirePoller() {
+  if (_acquirePoller) return _acquirePoller;
+  _acquirePoller = createAcquirePoller({
+    fetchStatus: () => api.getAcquireStatus(),
+    intervalMs: _ACQUIRE_POLL_MS,
+    onUpdate: (model) => {
+      _acquireLastModel = model;
+      for (const pid of model.matchedPaperIds) _acquireMatchedIds.add(pid);
+      for (const msg of model.messages) {
+        showToast(msg.text, msg.type === 'success' ? 'info' : 'error');
+      }
+      // A match (or the window closing, which re-bounds _acquireMatchedIds
+      // -- see nextMatchedIds in _renderGrid) can change queue membership --
+      // reflect it right away rather than waiting on the retry job's own
+      // SSE-driven refresh.
+      if (model.matchedPaperIds.length > 0 || !model.armed) _renderGrid();
+    },
+    onGiveUp: () => {
+      // Repeated fetch failures, not a normal expiry/disarm -- stop
+      // pretending anything is still armed, and forget every optimistically
+      // hidden match rather than let one survive with no signal telling the
+      // user why (see nextMatchedIds' docstring for the reasoning).
+      _acquireLastModel = { armed: false, countdownText: '0:00' };
+      _acquireMatchedIds = new Set();
+      _renderGrid();
+      showToast('Lost track of the download watcher — reopen "Open at publisher" to re-arm it.', 'error');
+    },
+  });
+  return _acquirePoller;
+}
+
+/**
+ * Make one filter chip the active one and re-render.
+ *
+ * Shared by the chip click handler and the library-gaps notice, so both
+ * routes leave the view in the same state -- a second implementation would
+ * let the notice select a filter the chips did not visibly agree with.
+ * @param {string} name — a chip's data-filter value
+ */
+function _selectFilter(name) {
+  if (!_el || !name) return;
+  const chip = _el.querySelector(`[data-filter="${name}"]`);
+  if (!chip) return;
+  _filter = name;
+  _el.querySelectorAll('.chip').forEach(c => c.classList.remove('chip-active'));
+  chip.classList.add('chip-active');
+  _renderGrid();
+}
+
+// ---------------------------------------------------------------------------
 // Grid render
 // ---------------------------------------------------------------------------
 
@@ -425,6 +579,19 @@ function _renderGrid() {
   const countEl = _el.querySelector('#lib-count');
   if (countEl) countEl.textContent = `${totalCount} paper${totalCount === 1 ? '' : 's'}`;
 
+  // Bound the optimistic "just matched" set via acquireHelpers.js's
+  // nextMatchedIds: drop an id the moment a refresh shows that paper is
+  // genuinely no longer a queue member (queueRowModel(p).show === false --
+  // the ordinary re-ingest-succeeded case), and forget EVERY id once the
+  // arming window itself is over (_acquireLastModel.armed false). That
+  // second rule is what actually bounds this -- a paper can be hidden past
+  // the point its re-ingest resolves only until the current, user-visible
+  // countdown ends, never indefinitely.
+  _acquireMatchedIds = nextMatchedIds(_acquireMatchedIds, _acquireLastModel, (pid) => {
+    const p = state.papers.get(pid);
+    return p ? queueRowModel(p).show : false;
+  });
+
   // "Find PDFs for all missing (n)" — visible only when there's work to do.
   // Counted against ALL papers (not the active filter) so the count always
   // matches what a sweep would actually target. Re-enabling on every refresh
@@ -433,7 +600,7 @@ function _renderGrid() {
   const findAllBtn = _el.querySelector('#btn-find-all-pdfs');
   if (findAllBtn) {
     const missingCount = [...state.papers.values()]
-      .filter(p => p.status === 'failed' && isMissingPdfFailure(p.failure_reason)).length;
+      .filter(p => p.status === 'failed' && acquisitionAllowsHelp(p.acquisition, p.has_pdf)).length;
     if (missingCount > 0) {
       findAllBtn.style.display = '';
       findAllBtn.textContent = `Find PDFs for all missing (${missingCount})`;
@@ -443,12 +610,24 @@ function _renderGrid() {
     }
   }
 
+  // "Needs you" chip label — shows the count of papers actually queued for
+  // a person to help with (queueAfterMatches, the SAME membership rule —
+  // queueRowModel(p).show, minus anything the watcher already caught this
+  // session — the filter below applies), so the chip's own count never
+  // drifts from what clicking it reveals.
+  const needsYouChip = _el.querySelector('[data-filter="needs-you"]');
+  if (needsYouChip) {
+    const n = queueAfterMatches([...state.papers.values()], _acquireMatchedIds).length;
+    needsYouChip.textContent = n > 0 ? `Needs you (${n})` : 'Needs you';
+  }
+
   let papers = [...state.papers.values()];
 
   // Filter
   if (_filter !== 'all') {
     papers = papers.filter(p => {
       if (_filter === 'failed') return p.status === 'failed';
+      if (_filter === 'needs-you') return queueRowModel(p).show && !_acquireMatchedIds.has(p.paper_id);
       const band = p.strength ? p.strength.band : null;
       if (_filter === 'unscored') return !band || p.status === 'processing';
       return band === _filter;
@@ -544,6 +723,10 @@ function _renderGridCards(grid, papers) {
     // Find PDF button (only rendered by paperCard.js for a missing-PDF failure)
     _wireFindPdfButton(card.querySelector('.btn-find-pdf'));
 
+    // Open at publisher (only rendered by paperCard.js for a "Needs you"
+    // queue row with a URL to send the user to)
+    _wireOpenPublisherButton(card.querySelector('.btn-open-publisher'));
+
     // Read button -> open the paper in the reader.
     const readBtn = card.querySelector('.btn-read');
     if (readBtn) {
@@ -636,19 +819,34 @@ function _renderList(grid, papers, draftId) {
     const retryBtnHtml = row.status === 'failed'
       ? `<button class="btn btn-sm btn-retry lib-retry-btn" data-paper-id="${escapeHtml(row.paperId)}">Retry</button>`
       : '';
-    const uploadPdfBtnHtml = row.status === 'failed' && isMissingPdfFailure(row.failureReason)
+    const uploadPdfBtnHtml = row.status === 'failed' && acquisitionAllowsHelp(row.acquisition, row.hasPdf)
       ? `<button class="btn btn-sm btn-upload-pdf lib-upload-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Upload PDF</button>`
       : '';
     const failureReasonHtml = row.status === 'failed' && row.failureReason
-      ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason))}</div>`
+      ? `<div class="lib-failure-reason muted" title="${escapeHtml(row.failureReason)}">${escapeHtml(formatFailureReason(row.failureReason, row.acquisition))}</div>`
+      : '';
+
+    // "Needs you" queue row — same rule as paperCard.js's grid version:
+    // queueRowModel decides membership from the backend-computed
+    // human_can_help flag, never re-derived here. Replaces the generic
+    // failure-reason line above when it applies.
+    const queueRow = queueRowModel({ acquisition: row.acquisition });
+    const queueInfoHtml = queueRow.show
+      ? `<div class="acquire-queue-info">
+          <div class="acquire-headline">${escapeHtml(queueRow.headline)}</div>
+          ${queueRow.detail ? `<div class="acquire-detail muted">${escapeHtml(queueRow.detail)}</div>` : ''}
+        </div>`
+      : '';
+    const openPublisherBtnHtml = queueRow.canOpen
+      ? `<button class="btn btn-sm btn-open-publisher lib-open-publisher-btn" data-paper-id="${escapeHtml(row.paperId)}" data-url="${escapeHtml(queueRow.openUrl)}">Open at publisher ↗</button>`
       : '';
 
     // "Find PDF" affordance — mirrors paperCard.js so a failed, missing-PDF
     // row offers the same open-access search + links as the grid card.
     // findPdfAffordance/oaLinksLine take a paper-shaped object; the row uses
-    // camelCase (failureReason/oaLinks) so it's adapted here rather than
-    // renaming the row's own fields.
-    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks });
+    // camelCase (failureReason/oaLinks/acquisition) so it's adapted here
+    // rather than renaming the row's own fields.
+    const findPdfState = findPdfAffordance({ status: row.status, failure_reason: row.failureReason, oa_links: row.oaLinks, acquisition: row.acquisition, has_pdf: row.hasPdf });
     const findPdfBtnHtml = findPdfState !== 'hidden'
       ? `<button class="btn btn-sm btn-find-pdf lib-find-pdf-btn" data-paper-id="${escapeHtml(row.paperId)}">Find PDF</button>`
       : '';
@@ -668,8 +866,15 @@ function _renderList(grid, papers, draftId) {
       ? ` <span class="lib-status-pill lib-status-pill-ocr" title="Read via OCR — scanned PDF${row.parseSource ? ' (' + escapeHtml(row.parseSource) + ')' : ''}">OCR</span>`
       : '';
 
+    // Same marking as the grid card: a refused alignment is not a neutral
+    // score, and an abstract-only score is not a full-text one.
+    const alignNote = alignmentNoteModel(row.alignmentNote);
+    const alignPillHtml = alignNote.show
+      ? ` <span class="lib-status-pill lib-status-pill-align ${escapeHtml(alignNote.cls)}" title="${escapeHtml(alignNote.title)}">${escapeHtml(alignNote.label)}</span>`
+      : '';
+
     return `<tr class="lib-row lib-row-${escapeHtml(row.status)}" data-paper-id="${escapeHtml(row.paperId)}"${failureAttr}>
-      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${failureReasonHtml}${oaLinksHtml}</td>
+      <td class="lib-td lib-td-title">${draftBadge}${escapeHtml(row.title)}${metadataPillHtml}${ocrPillHtml}${alignPillHtml}${retryBtnHtml}${uploadPdfBtnHtml}${findPdfBtnHtml}${openPublisherBtnHtml}${queueRow.show ? queueInfoHtml : failureReasonHtml}${oaLinksHtml}</td>
       <td class="lib-td lib-td-year">${yearTxt}</td>
       <td class="lib-td lib-td-status">${_statusPillHtml(row.status, row.failureReason)}</td>
       <td class="lib-td lib-td-strength">${strengthTxt}</td>
@@ -738,6 +943,9 @@ function _renderList(grid, papers, draftId) {
 
   // Wire find-PDF buttons in list (same handler + job-polling as the grid)
   grid.querySelectorAll('.lib-find-pdf-btn').forEach(btn => _wireFindPdfButton(btn));
+
+  // Wire open-at-publisher buttons in list (same handler as the grid)
+  grid.querySelectorAll('.lib-open-publisher-btn').forEach(btn => _wireOpenPublisherButton(btn));
 
   // Wire per-row read buttons -> open the paper in the reader.
   grid.querySelectorAll('.btn-row-read').forEach(btn => {

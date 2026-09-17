@@ -115,7 +115,15 @@ class AlignmentReady:
     paper_id: str
     draft_paper_id: str
     verdict: str
-    score: float
+    score: float | None
+    # A paper we have not read is REFUSED, not scored (alignment.py). Carried
+    # here so the Lab can say so: published as verdict="" score=0.0 it was
+    # indistinguishable from a genuine neutral score, which is the same
+    # failure as "no PDF on disk" -- an output resting on far less than its
+    # siblings and nothing marking the difference.
+    skipped: bool = False
+    reason: str = ""
+    evidence_depth: str = ""
 
 
 @dataclass

@@ -582,6 +582,42 @@ export function checkNovelty(params = {}) {
 // Draft scaffolding endpoint (feat/brainstorm-scaffold, Brainstorm 2d)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Browser-handoff acquisition endpoints (Task 9's ArmedWatcher, wired up
+// here) — arm/disarm/poll the click-to-download watcher for a paper an
+// automated fetch can't get (a bot filter refuses even an open-access
+// download, or the paper is paywalled and only the user's own institutional
+// access can get it).
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/acquire/arm — body: { paper_ids, ttl }. Arming is ADDITIVE
+ * server-side: paper_ids union with whatever is already armed, and the
+ * window extends rather than replaces, so arming several papers in a row
+ * accumulates them in one window. ttl is clamped to an upper bound of 3600s
+ * server-side no matter what is sent. Returns
+ * { armed, seconds_left, paper_ids }.
+ */
+export const armAcquire = (paperIds, ttl = 600) =>
+  post('/api/acquire/arm', { paper_ids: Array.isArray(paperIds) ? paperIds : [paperIds], ttl });
+
+/**
+ * GET /api/acquire/status — polls the watcher (this call IS the tick that
+ * makes it check the downloads directory) and reports current state.
+ * Returns { armed, seconds_left, paper_ids, matched, unmatched, unreadable }.
+ *   matched:    [{paper_id, filename, job_id}] — re-ingest already kicked off
+ *   unmatched:  [filename, ...] — a caught file that matched no armed paper
+ *   unreadable: [{filename, error}] — a caught file that could not (yet) be
+ *               read; released so a later poll (within the arming window)
+ *               gets a fresh look at it
+ */
+export const getAcquireStatus = () => get('/api/acquire/status');
+
+/**
+ * POST /api/acquire/disarm — stops the watcher immediately. Returns { armed }.
+ */
+export const disarmAcquire = () => post('/api/acquire/disarm');
+
 /**
  * POST /api/directions/draft { title, rationale?, direction_type?, citations? }
  * "Draft this direction" (Brainstorm 2d) -- MUTATING: creates a real draft

@@ -21,6 +21,8 @@ import {
   sortGapThemes,
   filterGapThemes,
 } from '../gapHelpers.js';
+import { buildNoteRecord } from '../noteRecord.js';
+import { themeFromHash } from '../noteOriginHelpers.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -33,17 +35,31 @@ let _sortCol = 'score';
 let _sortDir = 'desc';
 let _typeFilter = 'all';
 let _statusFilter = 'all';
+let _rows = [];            // last rendered row models, keyed by theme id
+let _noteFor = null;       // theme id whose inline note textarea is open
+let _highlightTheme = null;  // theme id from #/gaps?theme=, consumed once
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
 export function mount(el) {
+  // The router skips unmount() when the route string is unchanged (e.g.
+  // arriving at #/gaps?theme=x from a note's origin link, then clicking the
+  // Gaps nav item takes the hash to #/gaps — same route, so unmount() is
+  // skipped and mount() runs again). Drain any subscriptions from a previous
+  // mount() first so they can't accumulate.
+  for (const u of _unsubs) u();
+  _unsubs = [];
+
   _el = el;
   _sortCol = 'score';
   _sortDir = 'desc';
   _typeFilter = 'all';
   _statusFilter = 'all';
+  _rows = [];
+  _noteFor = null;
+  _highlightTheme = themeFromHash(window.location.hash);
 
   el.innerHTML = `<div class="gaps-view"><div class="gaps-loading muted">Loading gaps…</div></div>`;
 
@@ -90,6 +106,7 @@ function _render() {
   const draftAddresses = (_gaps && Array.isArray(_gaps.draft_addresses)) ? _gaps.draft_addresses : [];
 
   const rows = themes.map(t => gapThemeRowModel(t, draftAddresses));
+  _rows = rows;
   const filtered = filterGapThemes(rows, { type: _typeFilter, status: _statusFilter });
   const sorted = sortGapThemes(filtered, _sortCol, _sortDir);
 
@@ -109,6 +126,20 @@ function _render() {
     </div>`;
 
   _bindEvents();
+
+  // A theme handed over by a note's origin link. Consumed once: re-rendering
+  // for a filter or sort change must not yank the reader back.
+  if (_highlightTheme) {
+    const row = _el.querySelector(`.gaps-row[data-theme-id="${CSS.escape(_highlightTheme)}"]`);
+    _highlightTheme = null;
+    if (row) {
+      row.classList.add('gaps-row--highlight');
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    // No match is not an error. A theme_id is derived from its member
+    // gap_ids, so re-clustering can retire one — the note's link still
+    // opens Gaps, which is more useful than an error the reader cannot act on.
+  }
 }
 
 function _controlsHtml() {
@@ -170,6 +201,17 @@ function _rowHtml(r) {
       </div>
       <div class="gaps-bullet">${escapeHtml(r.bullet || r.title)}</div>
       <div class="gaps-citations">${citationChips}</div>
+      <div class="gaps-row-actions">
+        <button class="btn btn-secondary btn-sm gaps-save-note" data-theme-id="${escapeHtml(r.id)}">Save note</button>
+      </div>
+      ${_noteFor === r.id ? `
+      <div class="gaps-note-editor">
+        <textarea class="gaps-note-input" rows="2" placeholder="What do you want to remember about this gap&hellip;"></textarea>
+        <div class="gaps-note-actions">
+          <button class="btn btn-primary btn-sm gaps-note-save" data-theme-id="${escapeHtml(r.id)}">Save</button>
+          <button class="btn btn-secondary btn-sm gaps-note-cancel">Cancel</button>
+        </div>
+      </div>` : ''}
     </div>`;
 }
 
@@ -213,7 +255,7 @@ function _bindEvents() {
       if (!paperId) return;
       window.__rcPendingPaper = paperId;
       window.dispatchEvent(new CustomEvent('rc:open-paper', {
-        detail: { paper_id: paperId },
+        detail: { paperId },
         bubbles: true,
       }));
       window.location.hash = '#/library';
@@ -231,4 +273,43 @@ function _bindEvents() {
       }
     });
   }
+
+  _el.querySelectorAll('.gaps-save-note').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _noteFor = btn.dataset.themeId;
+      _render();
+      const ta = _el.querySelector('.gaps-note-input');
+      if (ta) ta.focus();
+    });
+  });
+
+  _el.querySelectorAll('.gaps-note-cancel').forEach(btn => {
+    btn.addEventListener('click', () => { _noteFor = null; _render(); });
+  });
+
+  _el.querySelectorAll('.gaps-note-save').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const themeId = btn.dataset.themeId;
+      const ta = _el.querySelector('.gaps-note-input');
+      const comment = ((ta && ta.value) || '').trim();
+      // Empty is a cancel, matching views/brainstorm.js:936.
+      if (!comment) { _noteFor = null; _render(); return; }
+      // The row model, for the label the reader actually saw on screen.
+      const row = _rows.find(r => r.id === themeId);
+      const label = row ? (row.bullet || row.title) : '';
+      try {
+        // kind stays 'freeform' — lab_api.py:2874 validates `kind` against
+        // six values and 'gap' is not one of them. 'gap' is the ORIGIN kind.
+        await api.saveNote(buildNoteRecord('freeform', {
+          comment,
+          origin: { kind: 'gap', id: themeId, label },
+        }));
+        showToast('Saved to Notes', 'info');
+      } catch (err) {
+        showToast(`Failed to save note: ${err.message}`, 'error');
+      }
+      _noteFor = null;
+      _render();
+    });
+  });
 }

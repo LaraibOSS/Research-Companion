@@ -1978,6 +1978,7 @@ class TestSettingsEndpoints:
             "mcp_cost_cap_usd": 2.0,
             "contact_email": "me@example.org",
             "claim_audit": True,
+            "downloads_dir": "/tmp/downloads",
         }
         c = _make_client()
         unsettable = []
@@ -4034,9 +4035,10 @@ class TestUploadPaperPdf:
 
 # ---------------------------------------------------------------------------
 # POST /api/papers/{id}/find-pdf and POST /api/papers/find-pdfs — locate an
-# open-access PDF (research_companion.oa_locator.locate_pdf) for a paper
-# whose ingest failed for lack of one, download it, and re-run the SAME
-# retry-flow job the /retry endpoint uses.
+# open-access PDF (research_companion.acquire.acquire, the same chain
+# add_doi/add_s2/add_arxiv use) for a paper whose ingest failed for lack of
+# one, download it, and re-run the SAME retry-flow job the /retry endpoint
+# uses.
 # ---------------------------------------------------------------------------
 
 class TestFindPdf:
@@ -4062,26 +4064,72 @@ class TestFindPdf:
         assert resp.status_code == 404
 
     def test_409_when_failure_is_not_missing_pdf(self, isolated_papergraph_dir):
-        """A failure whose error text is NOT a missing-PDF reason (e.g. a
-        parse error with the PDF already present on disk) is not something
-        find-pdf can fix -- reject it distinctly from the no-record 404."""
+        """A failure whose stored acquisition says a person cannot help
+        (e.g. a parse error with the PDF already present on disk) is not
+        something find-pdf can fix -- reject it distinctly from the
+        no-record 404. The acquisition.human_can_help flag is the SAME one
+        GET /api/acquire/queue trusts -- not re-derived from error text."""
         from research_companion import store
 
         store.record_failure("arxiv:findpdf_parse_err", {
             "stage": "extract", "error": "could not parse PDF",
             "paper_id": "arxiv:findpdf_parse_err",
+            "acquisition": {"obtained": False, "reason": "source_unavailable",
+                            "human_can_help": False, "attempts": [], "source": None},
         })
         c = _make_client()
         resp = c.post("/api/papers/arxiv:findpdf_parse_err/find-pdf")
         assert resp.status_code == 409
 
+    def test_no_acquisition_and_no_pdf_on_disk_is_helpable(self, isolated_papergraph_dir):
+        """A legacy failure record with no acquisition object at all (e.g. a
+        stale "no PDF on disk" extract-stage record, or the retry path's
+        add_local_pdf "PDF not found") falls back to whether a PDF actually
+        exists on disk -- genuinely missing here, so find-pdf may proceed."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_legacy_no_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        assert store.pdf_path(paper_id) is None
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_legacy_no_pdf",
+            "paper_id": paper_id,
+        })
+        c = _make_client()
+        resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+        assert resp.status_code == 202
+
+    def test_no_acquisition_but_pdf_present_on_disk_is_409(self, isolated_papergraph_dir):
+        """A parse/OCR/graph-stage failure recorded with NO acquisition, on a
+        paper that DOES have a PDF on disk, must be refused -- proceeding
+        would re-run acquisition and silently overwrite the file the user
+        already has. This is the case the blanket "no acquisition -> always
+        helpable" default got wrong; the fix keys off store.pdf_path
+        instead."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_legacy_has_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.save_pdf(paper_id, b"%PDF-1.4 fake bytes")
+        assert store.pdf_path(paper_id) is not None
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": paper_id,
+        })
+        c = _make_client()
+        resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+        assert resp.status_code == 409
+
     def test_miss_persists_oa_links_and_shows_in_listing(self, isolated_papergraph_dir, monkeypatch):
-        """When locate_pdf finds only landing-page links (no downloadable
-        PDF), the job completes as 'done' -- a miss is a completed search,
-        not a failed job -- and the links are persisted onto the failure
-        record (read-modify-write: the original error/stage survive) so
+        """When acquire() finds only a landing-page-shaped attempt (no
+        downloadable PDF), the job completes as 'done' -- a miss is a
+        completed search, not a failed job -- and links derived from the
+        Acquisition's attempts are persisted onto the failure record
+        (read-modify-write: the original error/stage survive) so
         GET /api/papers' listing carries oa_links for the library card."""
-        from research_companion import oa_locator, store
+        import research_companion.acquire as acquire_mod
+        from research_companion import store
+        from research_companion.acquire import AcquireReason, Acquisition, Attempt, HostClass
         from research_companion.agents.events import IngestFailed
 
         paper_id = "arxiv:findpdf_miss"
@@ -4091,12 +4139,23 @@ class TestFindPdf:
             "paper_id": paper_id,
         })
 
-        seeded_links = [{"label": "Publisher page", "url": "https://example.org/paper"}]
+        attempt = Attempt(url="https://example.org/paper", host_class=HostClass.PUBLISHER,
+                          status=403, outcome="403")
+        # _make_paper's default title ("Test Paper") means the Google
+        # Scholar fallback link is added after the attempt-derived one --
+        # see test_miss_with_no_attempts_still_gets_fallback_links below for
+        # the case that regressed (an empty-attempts miss with NO links at
+        # all before this fallback was restored).
+        expected_links = [
+            {"label": "Publisher", "url": "https://example.org/paper"},
+            {"label": "Google Scholar",
+             "url": "https://scholar.google.com/scholar?q=Test+Paper"},
+        ]
 
-        def fake_locate(meta):
-            return oa_locator.OaLocation(pdf_url=None, links=seeded_links, source="openalex")
+        def fake_acquire(meta, **kwargs):
+            return None, Acquisition(False, AcquireReason.BLOCKED_BY_HOST, (attempt,))
 
-        monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)
+        monkeypatch.setattr(acquire_mod, "acquire", fake_acquire)
 
         bus = Bus()
         app = create_lab_app(bus)
@@ -4106,25 +4165,64 @@ class TestFindPdf:
             job_id = resp.json()["job_id"]
             job = self._poll(c, job_id)
             assert job["status"] == "done", f"a miss must be 'done', not 'failed': {job}"
-            assert job["detail"] == "no open-access PDF found (1 links)"
+            assert job["detail"] == "no open-access PDF found (2 links)"
 
         # The failure record must survive (not cleared) with the ORIGINAL
         # error preserved and oa_links merged in (read-modify-write).
         failures = store.list_failures()
         assert paper_id in failures, "failure record was incorrectly cleared on a miss"
         assert failures[paper_id]["error"] == "no PDF on disk for arxiv:findpdf_miss"
-        assert failures[paper_id]["oa_links"] == seeded_links
+        assert failures[paper_id]["oa_links"] == expected_links
+        assert failures[paper_id]["acquisition"]["reason"] == "blocked_by_host"
 
         # GET /api/papers must carry oa_links through _build_paper_summary.
         papers = c.get("/api/papers").json()
         mine = next(p for p in papers if p["paper_id"] == paper_id)
-        assert mine["oa_links"] == seeded_links
+        assert mine["oa_links"] == expected_links
         assert mine["status"] == "failed"
 
         # The library card needs an event to re-render with the new links.
         failed_events = [e for e in bus.history if isinstance(e, IngestFailed)
                         and e.paper_id == paper_id and e.stage == "find-pdf"]
         assert failed_events, "no IngestFailed event was published for the miss"
+
+    def test_miss_with_no_attempts_still_gets_fallback_links(self, isolated_papergraph_dir, monkeypatch):
+        """NO_LOCATION_FOUND and NOT_ATTEMPTED misses have EMPTY acq.attempts
+        -- exactly the situations where the user has the least else to go
+        on. oa_locator.locate_pdf used to unconditionally append a DOI page
+        link and a Google Scholar search link regardless of what the
+        providers found; deriving oa_links purely from acq.attempts silently
+        dropped both for these two reasons. They must be restored as a
+        fallback."""
+        import research_companion.acquire as acquire_mod
+        from research_companion import store
+        from research_companion.acquire import AcquireReason, Acquisition
+
+        paper_id = "doi:10.1145/findpdf_no_attempts"
+        _make_paper(isolated_papergraph_dir, paper_id,
+                   title="A Paper With No Location", write_extraction=False)
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": f"no PDF on disk for {paper_id}",
+            "paper_id": paper_id,
+        })
+
+        def fake_acquire(meta, **kwargs):
+            return None, Acquisition(False, AcquireReason.NO_LOCATION_FOUND, ())
+
+        monkeypatch.setattr(acquire_mod, "acquire", fake_acquire)
+
+        with TestClient(create_lab_app(Bus())) as c:
+            resp = c.post(f"/api/papers/{paper_id}/find-pdf")
+            assert resp.status_code == 202
+            job_id = resp.json()["job_id"]
+            job = self._poll(c, job_id)
+            assert job["status"] == "done", f"a miss must be 'done', not 'failed': {job}"
+
+        links = store.list_failures()[paper_id]["oa_links"]
+        assert links, "a DOI+title miss with no attempts must not show an empty oa_links"
+        urls = {link["url"] for link in links}
+        assert "https://doi.org/10.1145/findpdf_no_attempts" in urls
+        assert any(u.startswith("https://scholar.google.com/scholar?q=") for u in urls)
 
     def test_miss_for_unrelated_paper_shows_empty_oa_links(self, isolated_papergraph_dir):
         """A healthy paper with no failure record must show oa_links: []
@@ -4136,10 +4234,10 @@ class TestFindPdf:
         assert mine["oa_links"] == []
 
     def test_hit_downloads_and_reingests(self, isolated_papergraph_dir, monkeypatch):
-        """When locate_pdf returns a direct pdf_url and the download seam
-        succeeds, the PDF is saved to disk, the SAME retry-flow pipeline the
-        /retry endpoint uses runs (via pipeline_overrides), and the failure
-        record is cleared -- the paper is no longer 'failed'.
+        """When acquire() returns PDF bytes, they are saved to disk, the SAME
+        retry-flow pipeline the /retry endpoint uses runs (via
+        pipeline_overrides), and the failure record is cleared -- the paper
+        is no longer 'failed'.
 
         REGRESSION: the failure record's key is very often NOT a filesystem
         path -- it can be a DOI/target string, or a stale path from an
@@ -4155,7 +4253,9 @@ class TestFindPdf:
         """
         from unittest.mock import patch
 
-        from research_companion import oa_locator, store
+        import research_companion.acquire as acquire_mod
+        from research_companion import store
+        from research_companion.acquire import Acquisition
         from research_companion.fetch import FetchError
         from research_companion.store import PaperMetadata
 
@@ -4175,12 +4275,8 @@ class TestFindPdf:
 
         _fake_meta, counts, seam_overrides = _make_pipeline_spying_fakes(store_paper=False)
 
-        def fake_locate(m):
-            return oa_locator.OaLocation(pdf_url="https://example.org/hit.pdf", links=[],
-                                         source="unpaywall")
-
-        def fake_download(url, *, timeout=60.0):
-            return _UPLOAD_PDF
+        def fake_acquire(m, **kwargs):
+            return _UPLOAD_PDF, Acquisition(True, None, source="https://example.org/hit.pdf")
 
         def fake_add_local_pdf(path):
             p = Path(path)
@@ -4188,14 +4284,13 @@ class TestFindPdf:
                 raise FetchError(f"PDF not found: {p}")
             return meta
 
-        monkeypatch.setattr(oa_locator, "locate_pdf", fake_locate)
+        monkeypatch.setattr(acquire_mod, "acquire", fake_acquire)
 
         bus = Bus()
         app = create_lab_app(bus)
         app.state.pipeline_overrides = seam_overrides
 
-        with patch("research_companion.fetch._try_download_pdf", fake_download), \
-             patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), \
+        with patch("research_companion.fetch.add_local_pdf", fake_add_local_pdf), \
              TestClient(app) as c:
             resp = c.post(f"/api/papers/{paper_id}/find-pdf")
             assert resp.status_code == 202
@@ -4276,13 +4371,49 @@ class TestFindPdf:
         assert resp.json() == {"count": 0}
 
     def test_batch_skips_non_missing_pdf_failures(self, isolated_papergraph_dir):
-        """A failure that isn't a missing-PDF case must not be swept up by
-        the batch endpoint."""
+        """A failure whose stored acquisition says a person cannot help must
+        not be swept up by the batch endpoint."""
         from research_companion import store
 
         store.record_failure("arxiv:findpdf_batch_skip", {
             "stage": "extract", "error": "could not parse PDF",
             "paper_id": "arxiv:findpdf_batch_skip",
+            "acquisition": {"obtained": False, "reason": "source_unavailable",
+                            "human_can_help": False, "attempts": [], "source": None},
+        })
+        c = _make_client()
+        resp = c.post("/api/papers/find-pdfs")
+        assert resp.status_code == 200
+        assert resp.json() == {"count": 0}
+
+    def test_batch_helps_a_no_acquisition_failure_with_no_pdf_on_disk(self, isolated_papergraph_dir):
+        """Mirrors test_no_acquisition_and_no_pdf_on_disk_is_helpable for the
+        batch sweep -- the same disk-backed fallback, not a blanket default."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_batch_legacy_no_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "no PDF on disk for arxiv:findpdf_batch_legacy_no_pdf",
+            "paper_id": paper_id,
+        })
+        c = _make_client()
+        resp = c.post("/api/papers/find-pdfs")
+        assert resp.status_code == 202
+        assert resp.json()["count"] == 1
+
+    def test_batch_skips_a_no_acquisition_failure_with_pdf_present(self, isolated_papergraph_dir):
+        """The batch sweep must not sweep up (and thus re-fetch/overwrite) a
+        paper that already has a PDF on disk, even with no acquisition
+        object recorded -- the exact regression a blanket default caused."""
+        from research_companion import store
+
+        paper_id = "arxiv:findpdf_batch_legacy_has_pdf"
+        _make_paper(isolated_papergraph_dir, paper_id, write_extraction=False)
+        store.save_pdf(paper_id, b"%PDF-1.4 fake bytes")
+        store.record_failure(paper_id, {
+            "stage": "extract", "error": "could not parse PDF",
+            "paper_id": paper_id,
         })
         c = _make_client()
         resp = c.post("/api/papers/find-pdfs")

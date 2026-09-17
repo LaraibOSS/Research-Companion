@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot  = path.resolve(__dirname, '..', '..');
 
-const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason, isMissingPdfFailure } = await import(
+const { deriveStatus, dominantRelation, buildRows, sortRows, draftActionFor, needsMetadata, metadataBannerText, formatFailureReason, alignmentNoteModel } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'libraryHelpers.js')).href
 );
 
@@ -251,6 +251,32 @@ test('buildRows carries oa_links through as oaLinks (list-view find-pdf parity)'
   assert.deepEqual(byId.p2.oaLinks, []);
 });
 
+test('buildRows carries acquisition through unchanged (list-view Upload/Find-PDF parity)', () => {
+  const acquisition = { obtained: false, reason: 'blocked_by_host', human_can_help: true,
+    attempts: [], source: null, headline: 'blocked', detail: 'try your browser' };
+  const papers = [
+    { paper_id: 'p1', title: 'Has acquisition', status: 'failed', acquisition },
+    { paper_id: 'p2', title: 'No acquisition field', status: 'failed' },
+  ];
+  const rows = buildRows(papers, null);
+  const byId = Object.fromEntries(rows.map(r => [r.paperId, r]));
+  assert.deepEqual(byId.p1.acquisition, acquisition);
+  assert.equal(byId.p2.acquisition, null);
+});
+
+test('buildRows carries has_pdf through as hasPdf (list-view acquisitionAllowsHelp parity)', () => {
+  const papers = [
+    { paper_id: 'p1', title: 'PDF on disk', status: 'failed', has_pdf: true },
+    { paper_id: 'p2', title: 'No PDF on disk', status: 'failed', has_pdf: false },
+    { paper_id: 'p3', title: 'No has_pdf field', status: 'failed' },
+  ];
+  const rows = buildRows(papers, null);
+  const byId = Object.fromEntries(rows.map(r => [r.paperId, r]));
+  assert.equal(byId.p1.hasPdf, true);
+  assert.equal(byId.p2.hasPdf, false);
+  assert.equal(byId.p3.hasPdf, false);
+});
+
 // ---------------------------------------------------------------------------
 // sortRows
 // ---------------------------------------------------------------------------
@@ -425,44 +451,50 @@ test('formatFailureReason: long reason truncated to ~80 chars with an ellipsis',
   assert.ok(long.startsWith(out.slice(0, -1)));
 });
 
-test('formatFailureReason: "no PDF on disk" reason gets a plain-language hint appended', () => {
-  const out = formatFailureReason('no PDF on disk for doi:10.1234/abcd');
-  assert.ok(out.includes('no PDF on disk for doi:10.1234/abcd'));
-  assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
+test('formatFailureReason: prefers acquisition.headline when present, over the raw reason', () => {
+  const acquisition = { human_can_help: true,
+    headline: 'The PDF download was never attempted.',
+    detail: 'Add the PDF directly and it will work like any other paper.' };
+  const out = formatFailureReason('no PDF on disk for doi:10.1234/abcd', acquisition);
+  assert.equal(out, 'The PDF download was never attempted.');
 });
 
-test('formatFailureReason: hint is appended even when the raw reason needed truncation', () => {
-  const long = 'no PDF on disk for doi:' + '1'.repeat(100);
-  const out = formatFailureReason(long);
-  assert.ok(out.includes('…'));
-  assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
+test('formatFailureReason: an acquisition with no headline falls back to the raw (truncated) reason', () => {
+  const out = formatFailureReason('PDF not found: /some/path/paper.pdf', { human_can_help: true, headline: '' });
+  assert.equal(out, 'PDF not found: /some/path/paper.pdf');
 });
 
-test('formatFailureReason: "PDF not found" reason (retry path) also gets the upload hint', () => {
-  const out = formatFailureReason('PDF not found: /some/path/paper.pdf');
-  assert.ok(out.includes('PDF not found: /some/path/paper.pdf'));
-  assert.ok(out.endsWith('— upload the PDF to ingest this paper'));
+test('formatFailureReason: no acquisition at all falls back to the raw (truncated) reason', () => {
+  assert.equal(formatFailureReason('PDF not found: /some/path/paper.pdf', null),
+    'PDF not found: /some/path/paper.pdf');
+  assert.equal(formatFailureReason('PDF not found: /some/path/paper.pdf'),
+    'PDF not found: /some/path/paper.pdf');
 });
 
-// ---------------------------------------------------------------------------
-// isMissingPdfFailure
-// ---------------------------------------------------------------------------
+// --- alignment evidence marking (spec 8.1) ----------------------------------
 
-test('isMissingPdfFailure: "no PDF on disk" -> true', () => {
-  assert.equal(isMissingPdfFailure('no PDF on disk for doi:10.1234/abcd'), true);
+test('a refused alignment is marked, not rendered as a score', () => {
+  const m = alignmentNoteModel({
+    kind: 'refused', reason: 'no_text', evidence_depth: 'metadata',
+    headline: 'Not scored — this paper has not been read.',
+    detail: 'Add the PDF and it will be scored like any other paper.',
+  });
+  assert.equal(m.show, true);
+  assert.equal(m.label, 'Not scored');
+  assert.match(m.title, /has not been read/);
 });
 
-test('isMissingPdfFailure: "PDF not found" -> true', () => {
-  assert.equal(isMissingPdfFailure('PDF not found: /some/path/paper.pdf'), true);
+test('an abstract-only score says so', () => {
+  const m = alignmentNoteModel({
+    kind: 'abstract_only', evidence_depth: 'abstract',
+    headline: 'Scored from the abstract.', detail: '',
+  });
+  assert.equal(m.show, true);
+  assert.equal(m.label, 'Abstract only');
 });
 
-test('isMissingPdfFailure: unrelated failure reason -> false', () => {
-  assert.equal(isMissingPdfFailure('parser crashed'), false);
-  assert.equal(isMissingPdfFailure('rate limited by anthropic API'), false);
-});
-
-test('isMissingPdfFailure: null/undefined/empty -> false', () => {
-  assert.equal(isMissingPdfFailure(null), false);
-  assert.equal(isMissingPdfFailure(undefined), false);
-  assert.equal(isMissingPdfFailure(''), false);
+test('a full-text score is not marked at all', () => {
+  for (const note of [null, undefined, {}, 'nope', { kind: 'full_text' }]) {
+    assert.equal(alignmentNoteModel(note).show, false);
+  }
 });

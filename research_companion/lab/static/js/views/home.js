@@ -23,6 +23,7 @@ import { ensureActiveResearch } from '../researchGuard.js';
 
 let _el = null;
 let _unsub = null;
+let _unsubJourney = null;   // refetch-on-stale; see mount()
 let _animatedIn = false;
 
 // ---------------------------------------------------------------------------
@@ -33,9 +34,13 @@ export function mount(el) {
   _el = el;
   _animatedIn = false;
   _unsub = store.subscribe(['suggestions', 'journey', 'papers', 'draft', 'settings', 'citations'], _render);
-  api.getJourney()
-    .then(data => store.setJourney(data))
-    .catch(err => console.warn('[home] journey fetch failed', err));
+  // A new draft version makes the journey stale, but the journey is fetched
+  // rather than pushed — before this, Home re-rendered with the same summary
+  // it already had. See reducer.js for why the signal is 'journey_stale' and
+  // not 'journey': setJourney raises 'journey' itself, so keying the refetch
+  // on that would loop.
+  _unsubJourney = store.subscribe(['journey_stale'], _loadJourney);
+  _loadJourney();
   _render();
   // Explainer banner (shown once until dismissed)
   const banner = explainerBanner(
@@ -47,7 +52,15 @@ export function mount(el) {
 
 export function unmount() {
   if (_unsub) { _unsub(); _unsub = null; }
+  if (_unsubJourney) { _unsubJourney(); _unsubJourney = null; }
   _el = null;
+}
+
+/** Pull the journey summary and hand it to the store, which repaints Home. */
+function _loadJourney() {
+  api.getJourney()
+    .then(data => store.setJourney(data))
+    .catch(err => console.warn('[home] journey fetch failed', err));
 }
 
 // ---------------------------------------------------------------------------

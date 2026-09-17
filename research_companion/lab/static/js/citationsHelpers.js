@@ -48,47 +48,7 @@ export function missingCount(counts) {
   return (counts.total || 0) - (counts.in_library || 0);
 }
 
-/**
- * The coverage payload's source, defaulting to 'none'.
- * 'bibliography' = parsed from the draft's reference list; 'related_work' =
- * fell back to the LLM's related-work mentions (bibliography not detected).
- *
- * @param {object|null|undefined} coverage
- * @returns {string}
- */
-export function coverageSource(coverage) {
-  return (coverage && coverage.source) || 'none';
-}
 
-/**
- * Generate the human-readable banner summary text.
- *
- * When the coverage did NOT come from a parsed bibliography (source is
- * 'related_work' or 'none'), the count is the LLM's related-work mentions, not
- * the reference list — so it must not be labelled "cited papers".
- *
- * Uses `counts.usable` (in_library minus ingest-failed) as the analysis-ready
- * count, falling back to `counts.in_library` when `usable` is undefined
- * (backward compat with stale payloads). When some in-library papers are
- * unusable (ingest failed), appends a clarifying suffix so the banner doesn't
- * overclaim coverage.
- *
- * @param {{ total: number, in_library: number, usable?: number }} counts
- * @param {string} [source] — coverage source ('bibliography' | 'related_work' | 'none')
- * @returns {string}
- */
-export function bannerText(counts, source) {
-  if (source && source !== 'bibliography') {
-    return `Based on ${counts.total} related-work mentions (full bibliography not detected)`;
-  }
-  const inLibrary = counts.in_library || 0;
-  const usable = counts.usable !== undefined ? counts.usable : inLibrary;
-  const unreadable = inLibrary - usable;
-  const suffix = unreadable > 0 ? ` (${unreadable} in library but unreadable)` : '';
-  // "cited references" (not "papers") so this reads as draft-bibliography
-  // coverage, distinct from the Library's paper total.
-  return `Analysis covers ${usable} of ${counts.total} cited references${suffix}`;
-}
 
 /**
  * Map a reference entry's status to a display chip.

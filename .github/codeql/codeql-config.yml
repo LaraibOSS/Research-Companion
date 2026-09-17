@@ -1,0 +1,21 @@
+name: "Research Companion CodeQL config"
+
+# Vendored third-party code is excluded from analysis.
+#
+# research_companion/lab/static/vendor/ holds Mozilla's PDF.js (Apache-2.0,
+# ~260 files) shipped verbatim so the reader works offline. CodeQL reports
+# js/xss and js/double-escaping inside it. Those are upstream's findings in
+# upstream's code: we cannot fix them without forking PDF.js, and patching a
+# vendored library to silence a scanner is worse than leaving it alone.
+#
+# They surfaced as "new" alerts on a large pull request only because CodeQL
+# re-attributes pre-existing findings when a diff is big enough — its own
+# summary says so. Scanning noise that blocks merges on code nobody here
+# maintains is worth excluding; the real mitigation is tracking PDF.js
+# releases and re-vendoring.
+#
+# This narrows analysis to code this project actually writes. Everything under
+# research_companion/ outside vendor/, plus scripts/, tests/ and examples/,
+# is still scanned exactly as before.
+paths-ignore:
+  - 'research_companion/lab/static/vendor/**'

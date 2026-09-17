@@ -121,8 +121,17 @@ export function applyEvent(state, evt) {
     case 'alignment_ready': {
       const paper = state.papers.get(evt.paper_id);
       if (paper) {
-        paper.stance = evt.verdict;
-        paper.score = evt.score;
+        // A refusal (alignment.py would not score a paper it has not read)
+        // carries no verdict and no score. Writing evt.score through
+        // unconditionally put a `0.0` on the paper that read as a genuine
+        // neutral result -- the very thing the refusal exists to prevent.
+        // The wording of the refusal is NOT composed here: alignmentFresh
+        // below triggers the debounced GET /api/papers, which brings
+        // `alignment_note` as Python computed it (lab_api._alignment_note).
+        if (evt.skipped !== true) {
+          paper.stance = evt.verdict;
+          paper.score = evt.score;
+        }
         // Flag that stance_counts (server-side aggregate) may be stale;
         // main.js watches for this and triggers a debounced GET /api/papers.
         paper.alignmentFresh = false;
@@ -289,7 +298,11 @@ export function applyEvent(state, evt) {
     }
 
     case 'draft_version_added': {
-      return ['journey'];
+      // 'journey_stale', not 'journey'. The journey is FETCHED, not pushed, so
+      // a listener that refetches has to key on something the fetch does not
+      // itself raise -- store.setJourney notifies 'journey', so subscribing a
+      // refetch to that topic is an infinite loop.
+      return ['journey_stale'];
     }
 
     // W3-F5: gaps analysis completed

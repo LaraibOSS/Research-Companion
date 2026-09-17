@@ -37,7 +37,8 @@ import { mountConversePanel } from './components/conversePanel.js';
 import { mountCitationsPanel } from './components/citationsPanel.js';
 import { mountPlacementPanel } from './components/placementPanel.js';
 import { mountReader } from './components/reader.js';
-import { bannerText, coverageCounts, missingCount, coverageSource } from './citationsHelpers.js';
+import { coverageCounts, missingCount } from './citationsHelpers.js';
+import { libraryGaps, gapsBannerModel } from './libraryGapsHelpers.js';
 import { needsMetadata, metadataBannerText } from './libraryHelpers.js';
 import { activitySummary, citationDownloadTargets, isResolving } from './activityHelpers.js';
 import { themeVars, applyTheme } from './theme.js';
@@ -351,7 +352,13 @@ async function boot() {
   if (citationsBannerLink) {
     citationsBannerLink.addEventListener('click', (e) => {
       e.preventDefault();
-      window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
+      // Two of the three groups are cleared from the Library queue; the
+      // citations panel stays reachable from the top bar for the third.
+      // Handoff, then navigate: the view may not be mounted yet, so leave the
+      // request where it can pick it up on mount (same pattern as __rcPendingPaper).
+      window.__rcPendingFilter = 'needs-you';
+      window.location.hash = '#/library';
+      window.dispatchEvent(new CustomEvent('rc:show-needs-you'));
     });
   }
   if (citationsBannerCollapse) {
@@ -363,17 +370,16 @@ async function boot() {
 
   function updateCitationsBanner() {
     if (!citationsBanner) return;
-    const { draftId, citationCoverage, activeJobs } = store.getState();
+    const { citationCoverage, activeJobs, papers } = store.getState();
     const counts = coverageCounts(citationCoverage);
+    // One count for the whole library, not one per cause: papers a publisher
+    // refused, papers with no free copy anywhere, and works cited but not held.
+    const model = gapsBannerModel(libraryGaps([...(papers ? papers.values() : [])],
+                                              citationCoverage));
     const collapsed = (() => {
       try { return sessionStorage.getItem('rc.citationsBannerCollapsed') === '1'; } catch { return false; }
     })();
-    const visible = !!(
-      draftId &&
-      counts.total > 0 &&
-      counts.in_library < counts.total &&
-      !collapsed
-    );
+    const visible = !!(model.show && !collapsed);
     citationsBanner.classList.toggle('visible', visible);
     if (visible && citationsBannerText) {
       const downloadTargets = citationDownloadTargets(activeJobs);
@@ -383,11 +389,11 @@ async function boot() {
       } else if (isResolving(activeJobs)) {
         citationsBannerText.textContent = 'Checking references…';
       } else {
-        citationsBannerText.textContent = bannerText(counts, coverageSource(citationCoverage));
+        citationsBannerText.textContent = model.summary;
       }
     }
   }
-  store.subscribe(['citations', 'draft', 'activity'], updateCitationsBanner);
+  store.subscribe(['citations', 'draft', 'activity', 'papers'], updateCitationsBanner);
   updateCitationsBanner();
 
   // Missing-metadata banner (aggregate) — session-collapsible

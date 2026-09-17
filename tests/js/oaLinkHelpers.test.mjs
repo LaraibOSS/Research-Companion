@@ -1,12 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findPdfAffordance, oaLinksLine, pollDecision } from '../../research_companion/lab/static/js/oaLinkHelpers.js';
+import { findPdfAffordance, oaLinksLine, pollDecision, acquisitionAllowsHelp } from '../../research_companion/lab/static/js/oaLinkHelpers.js';
 
 test('affordance matrix', () => {
   assert.equal(findPdfAffordance({ status: 'done' }), 'hidden');
-  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'no PDF on disk' }), 'button');
-  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'PDF not found: x' , oa_links: [{label:'DOI page', url:'https://doi.org/10.1/x'}]}), 'button-with-links');
-  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'extraction crashed' }), 'hidden');
+  // No acquisition at all -- a legacy "no PDF on disk"/"PDF not found"
+  // record from before every acquisition attempt carried a typed
+  // Acquisition -- falls back to has_pdf (computed in Python from
+  // store.pdf_path, never guessed here): genuinely missing on disk, so
+  // the affordance shows.
+  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'no PDF on disk', has_pdf: false }), 'button');
+  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'PDF not found: x', has_pdf: false,
+    oa_links: [{label:'DOI page', url:'https://doi.org/10.1/x'}]}), 'button-with-links');
+  // No acquisition, but the PDF IS present on disk (e.g. a parse/OCR
+  // failure) -- must NOT offer to re-fetch and overwrite it.
+  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'could not parse PDF', has_pdf: true }), 'hidden');
+  // No acquisition and no has_pdf signal at all -- must not guess "yes".
+  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'could not parse PDF' }), 'hidden');
+  // An acquisition that explicitly says a person can't help (the machine's
+  // problem, e.g. a transient source-unavailable retry) hides it,
+  // regardless of has_pdf.
+  assert.equal(findPdfAffordance({ status: 'failed', failure_reason: 'timed out',
+    acquisition: { human_can_help: false }, has_pdf: false }), 'hidden');
+});
+
+test('acquisitionAllowsHelp: trusts the backend acquisition flag when present, regardless of hasPdf', () => {
+  assert.equal(acquisitionAllowsHelp({ human_can_help: true }, false), true);
+  assert.equal(acquisitionAllowsHelp({ human_can_help: true }, true), true);
+  assert.equal(acquisitionAllowsHelp({ human_can_help: false }, false), false);
+  assert.equal(acquisitionAllowsHelp({}, undefined), true); // no human_can_help key -> not explicitly false
+});
+
+test('acquisitionAllowsHelp: no acquisition falls back to hasPdf, never guesses true', () => {
+  assert.equal(acquisitionAllowsHelp(null, false), true, 'genuinely no PDF on disk -> helpable');
+  assert.equal(acquisitionAllowsHelp(undefined, false), true);
+  assert.equal(acquisitionAllowsHelp(null, true), false, 'a PDF IS on disk -> must not offer to overwrite it');
+  assert.equal(acquisitionAllowsHelp(null, undefined), false, 'no signal at all -> safe default is NOT helpable');
 });
 
 test('oaLinksLine filters junk and caps at 5', () => {

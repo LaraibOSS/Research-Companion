@@ -799,7 +799,7 @@ function _bindEvents() {
       const paperId = btn.dataset.paperId;
       if (!paperId) return;
       window.__rcPendingPaper = paperId;
-      window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
+      window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperId }, bubbles: true }));
       window.location.hash = '#/library';
     });
   });
@@ -883,7 +883,7 @@ function _bindBriefEvents() {
     const paperId = chip.dataset.paperId;
     if (!paperId) return;
     window.__rcPendingPaper = paperId;
-    window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paper_id: paperId }, bubbles: true }));
+    window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperId }, bubbles: true }));
     window.location.hash = '#/library';
   }));
 }
@@ -938,7 +938,15 @@ async function _saveBriefNote(btn) {
   const bullet = secs[si] && secs[si].bullets ? secs[si].bullets[bi] : null;
   const excerpt = bullet ? String(bullet.text || '') : '';
   try {
-    await api.saveNote(buildNoteRecord('freeform', { comment, sourceExcerpt: excerpt }));
+    // The bullet text is already the excerpt; what was lost is which section
+    // of the brief it sat in. The brief has no stable per-section id, so the
+    // title is the label and the origin renders as text rather than a link.
+    const sectionTitle = String((secs[si] && secs[si].title) || '');
+    await api.saveNote(buildNoteRecord('freeform', {
+      comment,
+      sourceExcerpt: excerpt,
+      origin: { kind: 'brief', id: '', label: sectionTitle },
+    }));
     showToast('Saved to Notes', 'info');
   } catch (err) {
     showToast(err.message || 'Could not save note', 'error');

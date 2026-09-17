@@ -344,12 +344,28 @@ function _renderResult(res) {
       </table>
     `;
 
-  // (4) Footer
+  // (4) Footer. The link used to navigate to #/library and open neither paper,
+  // while both ids sat in the payload it was rendering from.
   const footerHtml = `
     <div class="compare-footer">
-      <a href="#/library" class="compare-library-link">Open both in library &rarr;</a>
+      <a href="#/library" class="compare-library-link" id="cmp-open-both">Open both in library &rarr;</a>
     </div>
   `;
 
   resultEl.innerHTML = summaryHtml + columnsHtml + tableHtml + footerHtml;
+
+  const openBoth = resultEl.querySelector('#cmp-open-both');
+  if (openBoth) {
+    openBoth.addEventListener('click', () => {
+      // Library drains this on mount AND from its rc:open-paper listener, so
+      // this works whether or not we are already on that route.
+      const ids = [res.paper_a, res.paper_b]
+        .map(p => p && p.paper_id)
+        .filter(Boolean);
+      if (!ids.length) return;
+      window.__rcPendingPaper = ids;
+      window.dispatchEvent(new CustomEvent('rc:open-paper', { detail: { paperIds: ids } }));
+      // the href carries the navigation itself
+    });
+  }
 }

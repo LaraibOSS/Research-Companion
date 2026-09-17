@@ -15,6 +15,7 @@
  * server text) and are also safe to interpolate directly.
  */
 import { escapeHtml, stanceIcon } from './format.js';
+import { renderProseHtml } from './answerHtml.js';
 
 // RCS stance vocab (supports/contradicts/neutral, Report Evidence Scoring
 // / RCS, 2e-2) -> the existing strengthens/challenges/alternative icon
@@ -118,7 +119,7 @@ export function reportSectionModel(rawSection) {
 
   return {
     question: escapeHtml(question),
-    answer: escapeHtml(answer),
+    answer: renderProseHtml(answer),
     hasError,
     errorMessage: hasError ? escapeHtml(s.error) : null,
     citations,

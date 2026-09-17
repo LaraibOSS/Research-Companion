@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
+from research_companion.acquire.policy import human_can_help, stored_acquisition
 from research_companion.agents.bus import Bus
 from research_companion.agents.events import event_to_dict
 
@@ -85,7 +86,7 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 class _FindPdfMiss(Exception):
-    """Raised by _find_pdf_for_failure when locate_pdf found no downloadable
+    """Raised by _find_pdf_for_failure when acquire() found no downloadable
     PDF. Carries the candidate-link count so the job wrapper can record a
     distinct "done" (not "failed") outcome — a miss is a completed search,
     not an error."""
@@ -94,17 +95,6 @@ class _FindPdfMiss(Exception):
         self.link_count = link_count
         super().__init__(f"no open-access PDF found ({link_count} links)")
 
-
-def _is_missing_pdf_failure(reason: str | None) -> bool:
-    """True when a failure's error text indicates the paper has no PDF on
-    disk -- the only failure class POST /api/papers/{id}/find-pdf can
-    actually fix. Mirrors research_companion/lab/static/js/libraryHelpers.js's
-    isMissingPdfFailure: two wordings reach here -- "no PDF on disk"
-    (extract.py, first ingest) and "PDF not found" (fetch.py's
-    add_local_pdf, the retry path)."""
-    if not reason:
-        return False
-    return reason.startswith("no PDF on disk") or reason.startswith("PDF not found")
 
 # ---------------------------------------------------------------------------
 # Request body models (module-level so annotations resolve correctly with
@@ -177,6 +167,7 @@ try:
         mcp_cost_cap_usd: float | None = None
         contact_email: str | None = None
         claim_audit: bool | None = None
+        downloads_dir: str | None = None
         keys: dict[str, str | None] | None = None
 
     class _RegenerateBody(_BaseModel):
@@ -284,6 +275,17 @@ try:
         itself is SYNCHRONOUS (one LLM call), unlike refresh's background
         job."""
         topic: str = ""
+
+    class _AcquireArmBody(_BaseModel):
+        """POST /api/acquire/arm body. Arming is additive -- paper_ids union
+        with whatever is already armed, and the window extends rather than
+        replaces. `ttl` is clamped to an UPPER bound of 3600s server-side
+        regardless of what a caller sends, so nothing can arm an unbounded
+        watcher. No lower bound is enforced: a non-positive ttl arms a
+        watcher that is already expired, and the response says so honestly
+        (`armed` reflects real state, never a hardcoded True)."""
+        paper_ids: list[str] = []
+        ttl: int = 600
 
 except ImportError:
     # fastapi/pydantic not installed — placeholders (create_lab_app will fail
@@ -490,6 +492,71 @@ def _discover_error_message(exc: Exception) -> str:
     return f"Discovery search failed: {exc}"
 
 
+def _enrich_acquisition(acquisition: dict | None) -> dict | None:
+    """Attach headline/detail (research_companion.acquire.copy) to a stored
+    acquisition dict, EXTENDING it rather than replacing it -- 7B's
+    "acquisition": info.get("acquisition") shape must keep working verbatim.
+
+    The one place that decides what an enriched acquisition dict looks like:
+    both _build_paper_summary (GET /api/papers, PATCH /api/papers/{id}) and
+    GET /api/acquire/queue call this, so a consumer of either endpoint sees
+    the identical shape rather than the queue re-deriving (or omitting) the
+    copy that the summary already computes.
+    """
+    if acquisition is None:
+        return None
+    try:
+        from research_companion.acquire import Acquisition
+        from research_companion.acquire.copy import reason_detail, reason_headline
+
+        acq_obj = Acquisition.from_dict(acquisition)
+        return {
+            **acquisition,
+            "headline": reason_headline(acq_obj),
+            "detail": reason_detail(acq_obj),
+        }
+    except (KeyError, ValueError, TypeError):
+        return acquisition  # malformed stored acquisition -- serve it as-is rather than 500
+
+
+def _alignment_note(alignment: dict | None) -> dict | None:
+    """What the Lab must say about HOW an alignment was reached, or None when
+    there is nothing to say (a full-text score, or no alignment at all).
+
+    8.1's rule is that a paper scored on less evidence must not look like one
+    scored on more. Alignment already refuses a paper it has not read
+    (alignment.py) and records evidence_depth on the ones it does score --
+    but the Lab consumed neither: a refusal published verdict="" score=0.0
+    and rendered as a neutral score, and an abstract-only score was
+    indistinguishable from a full-text one. Computed here, in Python, and
+    consumed by the UI -- never re-derived in JS, the same rule
+    signalHelpers.js follows.
+    """
+    if not isinstance(alignment, dict):
+        return None
+    depth = str(alignment.get("evidence_depth") or "")
+    if alignment.get("skipped"):
+        return {
+            "kind": "refused",
+            "reason": str(alignment.get("reason") or "no_text"),
+            "evidence_depth": depth or "metadata",
+            "headline": "Not scored — this paper has not been read.",
+            "detail": ("Alignment needs the paper's text or its abstract; only "
+                       "a title is on record. Add the PDF and it will be scored "
+                       "like any other paper."),
+        }
+    if depth == "abstract":
+        return {
+            "kind": "abstract_only",
+            "reason": "",
+            "evidence_depth": depth,
+            "headline": "Scored from the abstract.",
+            "detail": ("No full text was available, so this score rests on the "
+                       "authors' own summary rather than on the paper."),
+        }
+    return None
+
+
 def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> dict:
     """Build the per-paper dict served by GET /api/papers (and returned by
     PATCH /api/papers/{id}). Factored so the two stay identical in shape."""
@@ -499,12 +566,34 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
     status = "pending"
     failure_reason = None
     oa_links: list[dict] = []
+    acquisition: dict | None = None
     for key, info in failures.items():
         if key == paper_id or info.get("paper_id") == paper_id:
             status = "failed"
             failure_reason = info.get("error")
             oa_links = info.get("oa_links") or []
+            # NOT info["acquisition"]: the failure that actually happens most
+            # -- add_doi/add_s2/add_arxiv could not get the PDF, saved the
+            # metadata and did NOT raise, so the failure is recorded three
+            # stages later by research_companion/lab with no acquisition
+            # attached -- only ever carries its outcome on the paper's own
+            # last_acquisition. stored_acquisition is the ONE place that
+            # rule lives; policy.human_can_help reads the same function, so
+            # this summary and the queue cannot disagree about which
+            # acquisition a record is about.
+            acquisition = stored_acquisition(info, key)
             break
+
+    acquisition = _enrich_acquisition(acquisition)
+    # "no PDF on disk for doi:..." is the symptom, observed three steps
+    # downstream of the cause, and it is what every one of the real recorded
+    # failures says. When the acquisition above knows the actual cause, that
+    # cause is what the user reads -- including in the card's full-reason
+    # tooltip, which is otherwise the last place the stale sentence survives.
+    if acquisition is not None and acquisition.get("headline"):
+        failure_reason = " ".join(
+            part for part in (acquisition.get("headline"),
+                              acquisition.get("detail")) if part).strip()
 
     if status != "failed" and store.load_extraction(
             paper_id, prompt_sha=prompt_sha) is not None:
@@ -528,9 +617,11 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         strength = None
 
     stance_counts = {"strengthens": 0, "challenges": 0, "alternative": 0}
+    alignment_note = None
     if draft_id is not None:
         alignment = store.load_alignment(paper_id, draft_paper_id=draft_id)
         if alignment is not None:
+            alignment_note = _alignment_note(alignment)
             for sec in alignment.get("sections", []):
                 rel = sec.get("relation", "")
                 if rel in stance_counts:
@@ -546,10 +637,20 @@ def _build_paper_summary(meta, *, failures: dict, draft_id, prompt_sha: str) -> 
         "strength": strength,
         "is_draft": paper_id == draft_id,
         "stance_counts": stance_counts,
+        # None unless the alignment rests on less than a full text (see
+        # _alignment_note). The UI reads it; it never re-derives it.
+        "alignment_note": alignment_note,
         "added_at": meta.added_at,
         "parse_source": getattr(meta, "parse_source", "") or "",
         "ocr_used": bool(getattr(meta, "ocr_used", False)),
         "oa_links": oa_links,
+        "acquisition": acquisition,
+        # Whether a PDF actually exists on disk for this paper -- the JS
+        # side's only source of truth for the no-acquisition Upload/Find-PDF
+        # fallback (acquisitionAllowsHelp), so it never has to guess at
+        # what's on disk the way the retired isMissingPdfFailure text-match
+        # did.
+        "has_pdf": store.pdf_path(paper_id) is not None,
     }
 
 
@@ -742,6 +843,29 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # Test hook: when set to True, SSE stream terminates after replaying history
     # (mirrors dashboard's done-state pattern; production code leaves this False).
     app.state._sse_done = False
+
+    # The click-to-download watcher (Task 9): one instance per app, so
+    # /api/acquire/arm, /disarm, /status and its own poll() all agree on the
+    # same window. `downloads_dir` is "detect at use time" (settings.py), so
+    # the directory is re-resolved on every arm rather than fixed at startup.
+    def _resolve_downloads_dir() -> Path | None:
+        """The directory the watcher may look at, or None when we do not know
+        of one.
+
+        There is deliberately NO fallback to Path("."): on a machine with no
+        ~/Downloads and no configured directory that made an armed watcher
+        read page one of every new PDF in the server's own working directory
+        -- silently, and nowhere near anything the user pointed at. Not
+        knowing is a state the watcher and the arm endpoint can both report
+        honestly; guessing is not.
+        """
+        from research_companion.settings import default_downloads_dir, get_settings
+        configured = str(get_settings().get("downloads_dir") or "").strip()
+        resolved = configured or default_downloads_dir()
+        return Path(resolved) if resolved else None
+
+    from research_companion.watcher import ArmedWatcher
+    app.state.watcher = ArmedWatcher(_resolve_downloads_dir())
 
     # -----------------------------------------------------------------
     # Mount static files (tolerates sparse/absent directory)
@@ -1195,6 +1319,21 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
             except Exception as exc:
                 app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "add",
                                           "label": label, "target": target}
+                # A failed add otherwise left no trace anywhere once the toast
+                # faded: no library entry, no failure record, nothing to
+                # retry. Record it. When the exception itself carries a real
+                # Acquisition (an actual acquire() attempt was made), use it;
+                # otherwise this add failed before any PDF acquisition was
+                # ever attempted (bad id, no metadata) -- NOT_ATTEMPTED says
+                # exactly that.
+                from research_companion import store
+                from research_companion.acquire import AcquireReason, Acquisition
+                acq = getattr(exc, "acquisition", None)
+                if acq is None:
+                    acq = Acquisition(False, AcquireReason.NOT_ATTEMPTED)
+                store.record_failure(target, {
+                    "stage": "add", "error": str(exc), "acquisition": acq.to_dict(),
+                })
             finally:
                 await _announce_finish(job_id, "add")
                 # add_paper stores metadata BEFORE the pipeline runs, so even a
@@ -1363,16 +1502,17 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
     # -----------------------------------------------------------------
     # find-pdf: locate an open-access PDF for a paper whose ingest failed
-    # because no PDF was available (the OA locator wired in Task 1/2).
+    # because no PDF was available, via the same acquire() chain add_doi/
+    # add_s2/add_arxiv use.
     #
-    # A "miss" (locate_pdf/download found nothing usable) is a COMPLETED
-    # search, not a failed job -- the located candidate links (if any) are
-    # persisted onto the failure record via store.record_failure (a
-    # read-modify-write that preserves the original error/stage/paper_id)
-    # and an IngestFailed event is published so the Library card re-renders
-    # with them. A hit downloads the PDF, saves it, and re-runs the SAME
-    # retry-flow job (_retry_paper_task) the /retry endpoint uses -- no
-    # separate ingest pipeline is implemented here.
+    # A "miss" (acquire() found nothing usable) is a COMPLETED search, not a
+    # failed job -- the candidate links (derived from the Acquisition's
+    # attempted URLs) are persisted onto the failure record via
+    # store.record_failure (a read-modify-write that preserves the original
+    # error/stage/paper_id) and an IngestFailed event is published so the
+    # Library card re-renders with them. A hit downloads the PDF, saves it,
+    # and re-runs the SAME retry-flow job (_retry_paper_task) the /retry
+    # endpoint uses -- no separate ingest pipeline is implemented here.
     # -----------------------------------------------------------------
     async def _find_pdf_for_failure(matched_key: str, paper_id: str) -> None:
         """Locate an OA PDF for one failed paper; on success save it and re-run
@@ -1380,23 +1520,48 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         persist the located links into the failure record and publish the
         failure event so the library card re-renders with them."""
         from research_companion import store
+        from research_companion.acquire import acquire
         from research_companion.agents.events import IngestFailed
-        from research_companion.fetch import _try_download_pdf
-        from research_companion.oa_locator import locate_pdf
 
         meta = store.PaperMetadata.load(paper_id)
         if meta is None:
             raise RuntimeError(f"no metadata for {paper_id!r}")
 
-        loc = await asyncio.to_thread(locate_pdf, meta)
-        pdf_bytes = None
-        if loc.pdf_url:
-            pdf_bytes = await asyncio.to_thread(_try_download_pdf, loc.pdf_url)
+        pdf_bytes, acq = await asyncio.to_thread(acquire, meta)
 
         if pdf_bytes is None:
+            oa_links = [
+                {"label": a.host_class.value.title(), "url": a.url}
+                for a in acq.attempts if a.url
+            ]
+            # oa_locator.locate_pdf used to unconditionally append these two
+            # fallback links (a DOI page and a Google Scholar search) after
+            # whatever the providers found -- exactly the manual-search
+            # escape hatch a user needs most on the misses with NO attempts
+            # to derive links from (NO_LOCATION_FOUND, NOT_ATTEMPTED).
+            # Restore them here, deduplicated by URL, appended after any
+            # attempt-derived links.
+            seen_urls = {link["url"] for link in oa_links}
+
+            def _add_fallback_link(label: str, url: str | None) -> None:
+                if url and url not in seen_urls:
+                    oa_links.append({"label": label, "url": url})
+                    seen_urls.add(url)
+
+            if paper_id.startswith("doi:"):
+                _add_fallback_link(
+                    "DOI page", f"https://doi.org/{paper_id[len('doi:'):]}")
+            title = (meta.title or "").strip()
+            if title:
+                from urllib.parse import quote_plus
+                _add_fallback_link(
+                    "Google Scholar",
+                    f"https://scholar.google.com/scholar?q={quote_plus(title)}")
+
             failures = store.list_failures()
             info = dict(failures.get(matched_key) or {})
-            info["oa_links"] = loc.links
+            info["oa_links"] = oa_links
+            info["acquisition"] = acq.to_dict()
             info.setdefault("paper_id", paper_id)
             store.record_failure(matched_key, info)
             await bus.publish(IngestFailed(
@@ -1404,7 +1569,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                 error=info.get("error") or "no open-access PDF found",
                 paper_id=paper_id,
             ))
-            raise _FindPdfMiss(len(loc.links))
+            raise _FindPdfMiss(len(oa_links))
 
         # _retry_paper_task's first arg is passed straight to
         # fetch.add_local_pdf, which requires an EXISTING filesystem path --
@@ -1432,7 +1597,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         failures = store.list_failures()
         targets: list[tuple[str, str]] = []
         for key, info in failures.items():
-            if not _is_missing_pdf_failure(info.get("error")):
+            if not human_can_help(info, key):
                 continue
             targets.append((key, info.get("paper_id") or key))
 
@@ -1506,7 +1671,7 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         if matched_key is None:
             raise HTTPException(status_code=404, detail=f"No failure record for {paper_id!r}")
 
-        if not _is_missing_pdf_failure(matched_info.get("error")):
+        if not human_can_help(matched_info, paper_id):
             raise HTTPException(status_code=409,
                                 detail="failure is not a missing-PDF failure")
 
@@ -1553,6 +1718,198 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         asyncio.create_task(_run())
         return {"job_id": job_id}
+
+    # -----------------------------------------------------------------
+    # POST /api/acquire/arm, /disarm, GET /status, GET /queue
+    #
+    # Arms/disarms/reads the click-to-download watcher (Task 9's ArmedWatcher)
+    # for the case where a paper cannot be fetched automatically -- a bot
+    # filter refuses even an open-access download, or the paper is paywalled
+    # and only the user's own institutional access can get it. The user
+    # clicks through to the publisher in their own browser; this watcher
+    # catches the PDF they save and matches it to the right paper.
+    # -----------------------------------------------------------------
+    def _acquirable_failures() -> list[dict]:
+        """Every recorded failure a person can help with, as
+        {paper_id, title, acquisition}. `human_can_help` is computed once, in
+        Python (Acquisition.human_can_help) -- this calls the SAME
+        acquire.policy.human_can_help that find-pdf, the sweep and the CLI
+        `acquire --list/--all` call, so there is exactly one rule for queue
+        membership. Requiring a stored `acquisition` dict here instead was
+        drift: it made this endpoint and the Needs-you chip stricter than
+        every other surface claiming the same thing, and put every record
+        written before acquisitions were attached on the wrong side of it.
+        (The row itself still needs an acquisition to render -- queueRowModel
+        demands one -- and `stored_acquisition` supplies it from the paper's
+        own last_acquisition when the record has none.) The `acquisition`
+        dict returned here is run through `_enrich_acquisition` -- the SAME
+        helper _build_paper_summary uses -- so GET /api/acquire/queue carries
+        headline/detail identically to GET /api/papers rather than a consumer
+        having to recompute them. Doubles as the `queued` list the watcher
+        matches a downloaded file against (extra keys are simply ignored by
+        watcher._queued_id / _queued_title)."""
+        from research_companion import store
+
+        out: list[dict] = []
+        for key, info in store.list_failures().items():
+            if not isinstance(info, dict):
+                continue
+            if not human_can_help(info, key):
+                continue
+            acquisition = stored_acquisition(info, key)
+            paper_id = info.get("paper_id") or key
+            meta = store.PaperMetadata.load(paper_id)
+            out.append({
+                "paper_id": paper_id,
+                "title": meta.title if meta is not None else "",
+                "acquisition": _enrich_acquisition(acquisition),
+            })
+        return out
+
+    @app.post("/api/acquire/arm")
+    async def acquire_arm(body: _AcquireArmBody) -> dict:
+        # Clamp the UPPER bound only -- a caller must not be able to arm an
+        # unbounded watcher no matter what ttl it sends. A non-positive ttl
+        # is deliberately NOT clamped to some minimum: it is passed straight
+        # through to arm(), which makes the watcher expire immediately, and
+        # the response below reports that honestly (armed reads real state,
+        # never a literal) rather than claiming "armed: true" for a watcher
+        # that is already expired.
+        ttl = min(int(body.ttl), 3600)
+        directory = _resolve_downloads_dir()
+        if directory is None or not directory.is_dir():
+            # 7.5: the watcher is an accelerant, never a dependency. Refusing
+            # here costs the user the convenience and nothing else -- the
+            # Upload PDF button on the card still does the job -- whereas
+            # arming against a guessed directory reads files the user never
+            # pointed us at.
+            raise HTTPException(
+                status_code=409,
+                detail=("No downloads folder is set, so there is nowhere to "
+                        "watch. Set one in Settings → Downloads folder, then "
+                        "try again — or just use Upload PDF on the paper."))
+        app.state.watcher.directory = directory
+        app.state.watcher.arm(body.paper_ids, ttl=ttl, queued=_acquirable_failures())
+        return {
+            "armed": app.state.watcher.is_armed,
+            "seconds_left": app.state.watcher.seconds_left,
+            "paper_ids": sorted(app.state.watcher.armed_paper_ids),
+        }
+
+    @app.post("/api/acquire/disarm")
+    async def acquire_disarm() -> dict:
+        app.state.watcher.disarm()
+        return {"armed": app.state.watcher.is_armed}
+
+    async def _reingest_caught_pdf(pdf_path: str, paper_id: str) -> str:
+        """Re-run the SAME retry-flow job POST /api/papers/{id}/retry (and
+        upload_paper_pdf, and _find_pdf_for_failure) uses -- no second
+        re-ingest path implemented here. Runs as its own background task
+        (mirrors _run() in every other job-kicking endpoint in this file) so
+        GET /api/acquire/status -- polled continuously to render the arming
+        countdown -- returns immediately rather than blocking on a full
+        pipeline run. Returns the job_id so the caller (and callers' tests)
+        can track completion via GET /api/jobs/{id}."""
+        from research_companion import store
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        retry_label = f"Retrying {paper_id}"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "retry",
+                                  "label": retry_label, "target": ""}
+
+        if app.state.retry_override is not None:
+            coro = app.state.retry_override(pdf_path, paper_id, bus)
+        else:
+            coro = _retry_paper_task(
+                pdf_path, paper_id, bus,
+                pipeline_overrides=app.state.pipeline_overrides,
+            )
+
+        async def _run() -> None:
+            await _announce_start(job_id, "retry", retry_label)
+            try:
+                await coro
+                # clear_failure only on success -- failure entry kept/updated
+                # on error, same care /retry and upload_paper_pdf take.
+                store.clear_failure(pdf_path, paper_id=paper_id)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "retry",
+                                          "label": retry_label, "target": ""}
+                _schedule_coverage_refresh()
+            except Exception as exc:
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc), "kind": "retry",
+                                          "label": retry_label, "target": ""}
+            finally:
+                await _announce_finish(job_id, "retry")
+
+        asyncio.create_task(_run())
+        return job_id
+
+    @app.get("/api/acquire/status")
+    async def acquire_status() -> dict:
+        """Polls the click-to-download watcher before answering -- the UI
+        already polls this endpoint to render the arming countdown, so it is
+        the natural tick for ArmedWatcher.poll() (Task 9 built the watcher;
+        nothing called poll() anywhere until this). A caught file that
+        matched a queued paper is saved against it and re-ingested via the
+        SAME retry-flow job every other "a PDF showed up for this paper"
+        endpoint uses; a caught file that matched nothing is reported by
+        filename ONLY -- per the watcher's own privacy invariant, it is never
+        read again, moved, copied, or deleted by this handler.
+
+        Per-file work is wrapped so one bad (vanished/unreadable) file is
+        skipped, not fatal -- this endpoint is polled continuously and must
+        never start throwing over a single stale catch. But "skipped" must
+        not mean "lost": poll() already marked that path claimed before
+        returning it, so without watcher.release() it would never be
+        offered again for the rest of the arming window, silently -- the
+        user would sit watching a countdown that never picks up the very
+        download that triggered this. release() undoes the claim so the
+        next tick retries it (self-limiting: it stops once the window
+        expires), and the failure is reported in `unreadable` rather than
+        going quiet -- ordinary, transient causes (still being flushed by
+        the browser, momentarily locked by an antivirus scan on Windows,
+        this project's primary platform) are exactly what a retry-next-tick
+        recovers from.
+        """
+        from research_companion import store
+
+        matched: list[dict] = []
+        unmatched: list[str] = []
+        unreadable: list[dict] = []
+        for path, paper_id in app.state.watcher.poll():
+            if paper_id is None:
+                unmatched.append(path.name)
+                continue
+            try:
+                pdf_bytes = await asyncio.to_thread(path.read_bytes)
+                pdf_path = await asyncio.to_thread(store.save_pdf, paper_id, pdf_bytes)
+            except OSError as exc:
+                # Vanished or unreadable between the watcher confirming it and
+                # this handler getting to it -- don't fail the request, and
+                # don't let it block the other catches in this poll. Release
+                # the claim so a later tick (still within the arming window)
+                # gets a fresh look at it instead of losing it for good, and
+                # say so in the response rather than going silent.
+                app.state.watcher.release(path)
+                unreadable.append({"filename": path.name, "error": type(exc).__name__})
+                continue
+
+            job_id = await _reingest_caught_pdf(str(pdf_path), paper_id)
+            matched.append({"paper_id": paper_id, "filename": path.name, "job_id": job_id})
+
+        return {
+            "armed": app.state.watcher.is_armed,
+            "seconds_left": app.state.watcher.seconds_left,
+            "paper_ids": sorted(app.state.watcher.armed_paper_ids),
+            "matched": matched,
+            "unmatched": unmatched,
+            "unreadable": unreadable,
+        }
+
+    @app.get("/api/acquire/queue")
+    async def acquire_queue() -> dict:
+        return {"papers": _acquirable_failures()}
 
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/pdf
@@ -2348,12 +2705,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
                         payload = await asyncio.to_thread(
                             aligner, draft_id, cand_id,
                             llm=resolved_llm, force=force)
+                        skipped = bool(payload.get("skipped"))
                         with suppress(Exception):
                             await bus.publish(AlignmentReady(
                                 paper_id=cand_id,
                                 draft_paper_id=draft_id,
                                 verdict=str(payload.get("verdict", "")),
-                                score=float(payload.get("score", 0.0) or 0.0)))
+                                # `or 0.0` turned a refusal's None into a
+                                # neutral-looking score. A refusal has none.
+                                score=(None if skipped
+                                       else float(payload.get("score", 0.0) or 0.0)),
+                                skipped=skipped,
+                                reason=str(payload.get("reason") or ""),
+                                evidence_depth=str(payload.get("evidence_depth") or "")))
                     except Exception:  # noqa: BLE001 — one paper must not abort the run
                         failed += 1
                     done += 1
@@ -2434,7 +2798,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run() -> None:
             await _announce_start(job_id, "claim-audit", label)
             try:
-                runner = ca.audit_report if target == "report" else ca.audit_alignment
+                # The draft view nests one level deeper than a per-paper
+                # alignment (sections -> alignments -> evidence); audit_alignment
+                # would silently audit nothing and report a total of 0.
+                runner = ca.audit_report if target == "report" else ca.audit_draft_alignment
                 result = await asyncio.to_thread(
                     runner, artifact, load_text=_load_text, llm=resolved_llm)
                 await asyncio.to_thread(store.save_claim_audit, target, result)
@@ -3078,8 +3445,13 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     @app.get("/api/settings")
     async def get_settings_endpoint() -> dict:
-        from research_companion.settings import get_settings
-        return get_settings()
+        from research_companion.settings import default_downloads_dir, get_settings
+        # downloads_dir is "detected, shown, editable" (7.6). The stored value
+        # is empty by default precisely so a machine-specific path never ends
+        # up in a settings file that gets copied between machines -- so the
+        # DETECTED folder is reported alongside it (read-only; it is not a
+        # setting) and the Settings field can show what is actually in use.
+        return {**get_settings(), "downloads_dir_detected": default_downloads_dir()}
 
     # -----------------------------------------------------------------
     # PUT /api/settings

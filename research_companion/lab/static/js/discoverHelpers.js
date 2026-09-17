@@ -20,15 +20,47 @@ function _sourceLabel(source) {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
+/** DOIs are case-insensitive, and arXiv mints one per preprint. */
+function _doiIds(doi) {
+  const d = String(doi).trim().toLowerCase();
+  if (!d) return [];
+  const ids = [`doi:${d}`];
+  // A DataCite arXiv DOI carries the arXiv id inside it. Emitting that id too
+  // is what lets a `10.48550/arXiv.2305.17118` record from one catalogue merge
+  // with a bare `arxiv_id` record from another.
+  const m = d.match(/^10\.48550\/arxiv\.(.+)$/);
+  if (m) ids.push(`arxiv:${m[1]}`);
+  return ids;
+}
+
 /** Namespaced "prefix:id" identifiers present on a raw result/row. */
 function _identifiers(r) {
   const ids = [];
-  if (r.doi) ids.push(`doi:${r.doi}`);
-  if (r.arxiv_id) ids.push(`arxiv:${r.arxiv_id}`);
+  if (r.doi) ids.push(..._doiIds(r.doi));
+  if (r.arxiv_id) ids.push(`arxiv:${String(r.arxiv_id).trim().toLowerCase()}`);
   if (r.s2_id) ids.push(`s2:${r.s2_id}`);
   if (r.pmid) ids.push(`pmid:${r.pmid}`);
   if (r.pmcid) ids.push(`pmcid:${r.pmcid}`);
   return ids;
+}
+
+/**
+ * Title+year key used as a LAST-RESORT identity.
+ *
+ * Catalogues routinely hold one paper twice under unrelated DOIs -- the
+ * proceedings record and the preprint record -- and those two rows share no
+ * identifier at all. Without this the same paper is offered to the user twice,
+ * which is what it did for "Scissorhands" on a live search. Two distinct papers
+ * with a byte-identical title in the same year are rare enough that collapsing
+ * them is the better error: it hides a row, where the alternative shows a
+ * duplicate on every such search.
+ *
+ * Returns '' when there is no title to key on, so untitled rows never merge.
+ */
+function _titleKey(r) {
+  const t = String(r.title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  return `title:${t}|${r.year != null ? r.year : ''}`;
 }
 
 /**
@@ -111,6 +143,22 @@ export function discoverResultModel(raw, libraryIds) {
 }
 
 /**
+ * Keep `winner`, but adopt any identifier only `loser` carried.
+ *
+ * The copy with more citations is not always the copy that can be added: the
+ * proceedings record may have only a DOI where the preprint record had the
+ * arXiv id. Dropping the loser wholesale would throw away a usable add target,
+ * so the identifiers are unioned even though the displayed fields are not.
+ */
+function _merge(winner, loser) {
+  const out = { ...winner };
+  for (const k of ['doi', 'arxiv_id', 's2_id', 'pmid', 'pmcid']) {
+    if (!out[k] && loser && loser[k]) out[k] = loser[k];
+  }
+  return out;
+}
+
+/**
  * Merge discovery results across multiple expanded queries (a second,
  * defensive dedup pass over the raw results[] from GET /api/discover — the
  * backend already dedups, but this keeps the view correct against an
@@ -131,14 +179,19 @@ export function dedupeDiscoverResults(list) {
   for (const raw of arr) {
     if (!raw || typeof raw !== 'object') continue;
     const ids = _identifiers(raw);
+    // Title comes last: it participates in matching, but a real identifier is
+    // always preferred as the token so the grouping stays legible.
+    const keys = ids.slice();
+    const titleKey = _titleKey(raw);
+    if (titleKey) keys.push(titleKey);
+
     let token = null;
-    for (const id of ids) {
-      if (idToToken.has(id)) { token = idToToken.get(id); break; }
+    for (const key of keys) {
+      if (idToToken.has(key)) { token = idToToken.get(key); break; }
     }
-    if (token === null) {
-      token = ids[0] || `title:${String(raw.title || '').toLowerCase().trim()}`;
-    }
-    for (const id of ids) idToToken.set(id, token);
+    if (token === null) token = keys[0];
+    if (token === undefined) continue;
+    for (const key of keys) idToToken.set(key, token);
 
     if (!chosen.has(token)) {
       chosen.set(token, raw);
@@ -147,7 +200,8 @@ export function dedupeDiscoverResults(list) {
       const existing = chosen.get(token);
       const existingCount = typeof existing.citation_count === 'number' ? existing.citation_count : 0;
       const newCount = typeof raw.citation_count === 'number' ? raw.citation_count : 0;
-      if (newCount > existingCount) chosen.set(token, raw);
+      chosen.set(token, _merge(newCount > existingCount ? raw : existing,
+                               newCount > existingCount ? existing : raw));
     }
   }
 

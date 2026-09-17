@@ -12,7 +12,7 @@
 const SECRET_FIELDS = ['anthropic_api_key', 'openai_api_key', 'hf_token'];
 
 /** Non-secret fields that can appear at the top level of a PUT body. */
-const REGULAR_FIELDS = ['provider', 'model', 'theme', 'accent', 'density', 'k_sections', 'char_budget', 'embed_model', 'contact_email'];
+const REGULAR_FIELDS = ['provider', 'model', 'theme', 'accent', 'density', 'k_sections', 'char_budget', 'embed_model', 'contact_email', 'downloads_dir'];
 
 /**
  * Build a minimal PUT /api/settings body from form state compared to original.

@@ -1,0 +1,295 @@
+<title>Research Companion Demo Script</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ink:#11161d; --ink-soft:#4a5766; --ink-faint:#71808f;
+    --ground:#f7f6f3; --panel:#ffffff; --rule:#e2e0da;
+    --accent:#1f6feb;          /* sampled from the running app: rgb(88,166,255) tuned for light */
+    --accent-soft:#e8f0fd;
+    --warn:#a8620b; --warn-soft:#fdf3e4;
+    --say:#11161d; --do:#1f6feb;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+    --serif:"Newsreader",Georgia,"Times New Roman",serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#e9edf2; --ink-soft:#a3b0bf; --ink-faint:#76838f;
+      --ground:#0f1319; --panel:#161c24; --rule:#28313d;
+      --accent:#58a6ff; --accent-soft:#16263d;
+      --warn:#e3a857; --warn-soft:#2a2113;
+      --say:#e9edf2; --do:#58a6ff;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#e9edf2; --ink-soft:#a3b0bf; --ink-faint:#76838f;
+    --ground:#0f1319; --panel:#161c24; --rule:#28313d;
+    --accent:#58a6ff; --accent-soft:#16263d;
+    --warn:#e3a857; --warn-soft:#2a2113;
+    --say:#e9edf2; --do:#58a6ff;
+  }
+
+  body{background:var(--ground); color:var(--ink); font-family:var(--sans); line-height:1.6;
+       padding-block:0; padding-left:16px; padding-right:16px;}
+  .wrap{max-width:60rem; margin:0 auto;}
+
+  header.top{padding-block:3.5rem 2rem; border-bottom:1px solid var(--rule);}
+  .kicker{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
+          color:var(--accent); margin:0 0 .9rem;}
+  h1{font-family:var(--serif); font-weight:600; font-size:clamp(2.1rem,5vw,3.1rem); line-height:1.08;
+     margin:0 0 .6rem; text-wrap:balance; letter-spacing:-.015em;}
+  .standfirst{font-family:var(--serif); font-size:1.15rem; color:var(--ink-soft); margin:0; max-width:46ch;}
+
+  .facts{display:flex; flex-wrap:wrap; gap:0 2.2rem; margin-top:1.8rem;
+         font-family:var(--mono); font-size:.78rem; color:var(--ink-faint);}
+  .facts b{color:var(--ink); font-weight:500;}
+
+  .note{background:var(--warn-soft); border-left:3px solid var(--warn); padding:1rem 1.15rem;
+        margin:2rem 0; border-radius:0 4px 4px 0;}
+  .note h3{margin:0 0 .5rem; font-size:.8rem; font-family:var(--mono); letter-spacing:.1em;
+           text-transform:uppercase; color:var(--warn);}
+  .note ul{margin:.4rem 0 0; padding-left:1.1rem;} .note li{margin:.35rem 0; font-size:.92rem;}
+
+  h2.sec{font-family:var(--mono); font-size:.74rem; letter-spacing:.14em; text-transform:uppercase;
+         color:var(--ink-faint); margin:3.2rem 0 1.2rem; padding-bottom:.5rem;
+         border-bottom:1px solid var(--rule);}
+
+  .beat{background:var(--panel); border:1px solid var(--rule); border-radius:6px;
+        margin:0 0 1rem; overflow:hidden;}
+  .beat-head{display:flex; align-items:baseline; gap:.9rem; flex-wrap:wrap;
+             padding:.85rem 1.15rem; border-bottom:1px solid var(--rule);}
+  .tc{font-family:var(--mono); font-size:.82rem; font-weight:500; color:var(--accent);
+      font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .beat-title{font-weight:600; font-size:1rem;}
+  .dur{margin-left:auto; font-family:var(--mono); font-size:.72rem; color:var(--ink-faint); white-space:nowrap;}
+  .beat-body{padding:1.1rem 1.15rem;}
+
+  .say{font-family:var(--serif); font-size:1.06rem; color:var(--say); margin:0 0 1rem;}
+  .say em{color:var(--accent); font-style:italic;}
+  .say + .say{margin-top:-.4rem;}
+
+  .do{display:flex; gap:.7rem; align-items:flex-start; font-size:.88rem; color:var(--ink-soft);
+      border-top:1px dashed var(--rule); padding-top:.85rem;}
+  .do-label{font-family:var(--mono); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase;
+            color:var(--do); white-space:nowrap; padding-top:.15rem;}
+  .do ul{margin:0; padding-left:1.05rem;} .do li{margin:.22rem 0;}
+  code{font-family:var(--mono); font-size:.85em; background:var(--accent-soft); color:var(--accent);
+       padding:.1em .35em; border-radius:3px;}
+
+  table{width:100%; border-collapse:collapse; margin:1rem 0; font-size:.9rem;}
+  th,td{text-align:left; padding:.55rem .7rem; border-bottom:1px solid var(--rule); vertical-align:top;}
+  th{font-family:var(--mono); font-size:.7rem; letter-spacing:.08em; text-transform:uppercase;
+     color:var(--ink-faint); font-weight:500;}
+  .tbl-wrap{overflow-x:auto;}
+
+  .ok{color:#1a7f37;} .bad{color:#b3261e;}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ok{color:#3fb950;} :root:not([data-theme="light"]) .bad{color:#f85149;}}
+  :root[data-theme="dark"] .ok{color:#3fb950;} :root[data-theme="dark"] .bad{color:#f85149;}
+
+  footer{margin:4rem 0 3rem; padding-top:1.5rem; border-top:1px solid var(--rule);
+         font-size:.85rem; color:var(--ink-faint);}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <p class="kicker">AAAI-27 Demonstrations · recording script</p>
+  <h1>Research Companion</h1>
+  <p class="standfirst">A five-minute demo built around one claim: every single thing the tool shows you can tell you where it came from.</p>
+  <div class="facts">
+    <span>Deadline <b>18 Sep 2026, 11:59 AOE</b></span>
+    <span>Video cap <b>5:00</b></span>
+    <span>Workspace <b>recurrence · 16 papers</b></span>
+    <span>Local <b>127.0.0.1:8799</b></span>
+  </div>
+</header>
+
+<div class="note">
+  <h3>Before you hit record</h3>
+  <ul>
+    <li><b>Dismiss the "Get set up" modal.</b> It fires on load even though both keys read "Added". Load the page, click <i>Maybe later</i>, then start recording.</li>
+    <li><b>Pre-load the Graph tab once and leave it.</b> Verified: the graph canvas runs at ~3&nbsp;FPS and froze the renderer for 45s under inspection. Visit it before recording so the force layout has settled, and keep the on-camera dwell under ~15 seconds. Do not drag nodes.</li>
+    <li><b>The saved report topic is <code>dataset used</code></b> — weak on camera. Either regenerate the report with a real question or keep the shot on the coverage bars and citation chips rather than the topic line.</li>
+    <li><b>Pull the latest commit.</b> The origin link rendered in the browser's default <code>#0000EE</code> (purple once followed) because its CSS never set a colour — nearly invisible on the dark ground, on the exact screen this demo builds to. Fixed in <code>d608ae2</code>. Recording without it would show the centrepiece looking broken.</li>
+    <li><b>Set browser zoom to 80%.</b> Your display runs at 1.25 device pixel ratio; at 100% the cards crop awkwardly at 1536px.</li>
+    <li><b>Delete the note you create in rehearsal</b> so the Notes tab starts with one legacy note, making the new one unmistakable.</li>
+  </ul>
+</div>
+
+<h2 class="sec">The spine</h2>
+<p class="say">Don't tour the tabs. Tabs are a feature list, and a feature list is what every other demo does. Follow one researcher's thread — a question, an answer, a gap, a note, and the way back — and let the tabs appear because the thread runs through them. The thesis that makes this an AI demo rather than a UI tour: <em>grounding is worthless if it stops at the answer.</em> This tool carries provenance all the way to the thing you wrote down at midnight three weeks later.</p>
+
+<h2 class="sec">0:00 – 0:45 &nbsp;·&nbsp; The overview AAAI asks for</h2>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">0:00</span><span class="beat-title">Cold open — the pain</span><span class="dur">45s</span></div>
+  <div class="beat-body">
+    <p class="say">"A literature review means holding fifty papers in your head at once. Three weeks in, you have a folder of PDFs, a document of half-remembered claims, and no reliable way to answer the only question that matters: <em>where did I get that from?</em>"</p>
+    <p class="say">"Research Companion is a local-first research environment that never loses that thread. It builds a knowledge graph over your own papers, answers questions with citations down to the section, surfaces the gaps your library is circling, and — the part I'll spend most of this demo on — remembers where you were standing when you wrote every note."</p>
+    <p class="say">"It runs entirely on your machine. The core analysis is deterministic and needs no API key at all."</p>
+    <div class="do"><span class="do-label">On screen</span>
+      <ul>
+        <li>Home tab, already loaded, modal dismissed.</li>
+        <li>Let the two banners sit visible — they say <i>6 gaps in your library — 6 cited but not held</i> and <i>2 papers need metadata</i>. Don't explain them yet; they pay off at 3:30.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">0:45 – 1:45 &nbsp;·&nbsp; A library that admits what it doesn't have</h2>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">0:45</span><span class="beat-title">Library — evidence strength, not a file list</span><span class="dur">35s</span></div>
+  <div class="beat-body">
+    <p class="say">"Sixteen papers on recurrent-depth language models. This isn't a file list — each card carries an evidence-strength badge computed from what we could actually extract: claims, results, datasets. Strong, moderate, weak."</p>
+    <p class="say">"And note the filter called <em>Needs you</em>. That's papers the tool could not fetch on its own."</p>
+    <div class="do"><span class="do-label">Click</span>
+      <ul>
+        <li><b>Library</b> in the left nav.</li>
+        <li>Hover one <span class="ok">STRONG</span> card, then click the <b>Needs you</b> filter chip.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">1:20</span><span class="beat-title">The honest-failure story</span><span class="dur">25s</span></div>
+  <div class="beat-body">
+    <p class="say">"When a PDF can't be fetched, most tools say 'failed'. We say <em>why</em> — blocked by the publisher, paywalled, no free copy exists — and whether a human can do anything about it. If your own browser can get it, the tool tells you so and watches your downloads folder for exactly that file, once, on a timer that expires."</p>
+    <p class="say">"We never retry a 403. Retrying a block is indistinguishable from an attack, and it turns a host block into an IP ban."</p>
+    <div class="do"><span class="do-label">Say only</span>
+      <ul>
+        <li>No click needed if the filter is empty — the <i>reason taxonomy</i> is the point, not a populated list.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">1:45 – 2:30 &nbsp;·&nbsp; Grounded answers</h2>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">1:45</span><span class="beat-title">Graph — the structure underneath</span><span class="dur">15s</span></div>
+  <div class="beat-body">
+    <p class="say">"Underneath is a typed graph — concepts, methods, datasets, claims and results, four hundred edges across sixteen papers. Retrieval runs over this, not over raw text, which is why answers can point at a section rather than a similarity score."</p>
+    <div class="do"><span class="do-label">Click</span>
+      <ul>
+        <li><b>Graph</b>. Hold ~15 seconds. <b>Do not drag.</b> Move on before it stutters.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">2:00</span><span class="beat-title">Ask — every claim cites a section</span><span class="dur">30s</span></div>
+  <div class="beat-body">
+    <p class="say">"Ask a real question. The answer comes back with citation chips, and each chip goes to the paper <em>and the section</em> the claim came from. The scope is explicitly your library — never the open web. If your papers can't answer it, it says so instead of inventing something."</p>
+    <div class="do"><span class="do-label">Type</span>
+      <ul>
+        <li>Suggested: <i>"What limits the depth a recurrent model can usefully be scaled to?"</i></li>
+        <li>Click one citation chip to show it landing in the source section.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">2:30 – 3:30 &nbsp;·&nbsp; The centrepiece: a note that remembers where it came from</h2>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">2:30</span><span class="beat-title">Gaps — what the field keeps circling</span><span class="dur">25s</span></div>
+  <div class="beat-body">
+    <p class="say">"Gaps are synthesised across the whole library — twelve themes here, each typed as a limitation or future work, each carrying the papers that raised it, each marked open, partial or addressed against your own draft."</p>
+    <div class="do"><span class="do-label">Click</span>
+      <ul><li><b>Gaps</b>. Let the twelve rows and the type/status chips register.</li></ul>
+    </div>
+  </div>
+</div>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">2:55</span><span class="beat-title">Save the note — the move the whole demo builds to</span><span class="dur">20s</span></div>
+  <div class="beat-body">
+    <p class="say">"Here's the part I want to dwell on. I'm reading this gap, I have a thought, I write it down."</p>
+    <div class="do"><span class="do-label">Do</span>
+      <ul>
+        <li>Click <b>Save note</b> on the first row (<i>adaptive depth / architectural innovations</i>).</li>
+        <li>Type slowly enough to read: <i>"Adaptive-depth work is the clearest opening here — worth a section in the draft."</i></li>
+        <li>Click <b>Save</b>. <span class="ok">Verified working end to end in a real browser.</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">3:15</span><span class="beat-title">Notes — and the way back</span><span class="dur">15s</span></div>
+  <div class="beat-body">
+    <p class="say">"Three weeks later that note is still here — and it still knows it came from a gap. <em>Not</em> which paper it was about. Where I was standing when I had the thought."</p>
+    <p class="say">"One click, and I'm back at the exact gap, highlighted."</p>
+    <div class="do"><span class="do-label">Do</span>
+      <ul>
+        <li><b>Notes</b> → point at the <code>◇ Gap</code> chip on the new note.</li>
+        <li>Click it. The Gaps view opens scrolled to that row, outlined in blue. <span class="ok">Verified: correct row, in viewport, outlined.</span></li>
+        <li>Optional, one line: "And if that theme is ever re-clustered away, the note still reads — it just stops being a link. It degrades to less information, never to a broken screen."</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">3:30 – 4:30 &nbsp;·&nbsp; Writing, and being checked</h2>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">3:30</span><span class="beat-title">Draft + Citations</span><span class="dur">35s</span></div>
+  <div class="beat-body">
+    <p class="say">"Point it at your draft and it scores every section against every paper — does this support you, challenge you, offer an alternative — with the supporting quote attached. It refuses to score from a bare title; if we don't have the text, we say we don't have the text."</p>
+    <p class="say">"And it checks your citations: which references you cite but don't hold, and which are cited in the wrong place. Remember that banner from the opening — <em>six cited but not held</em>. That's this."</p>
+    <div class="do"><span class="do-label">Click</span>
+      <ul><li><b>Draft</b> → scroll one alignment card. Then <b>Citations</b> → land on the misplaced flag.</li></ul>
+    </div>
+  </div>
+</div>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">4:05</span><span class="beat-title">Report — cited, and honest about coverage</span><span class="dur">25s</span></div>
+  <div class="beat-body">
+    <p class="say">"A cited literature review over your own library: sub-questions, each answered by the same grounded engine, each with citation chips. And a coverage bar that tells you how much of the relevant material actually made it in — labelled as the BM25 heuristic it is, never dressed up as ground truth."</p>
+    <div class="do"><span class="do-label">Click</span>
+      <ul><li><b>Report</b>. Keep the shot on <b>coverage bars + chips</b>, not the topic line.</li></ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">4:30 – 5:00 &nbsp;·&nbsp; Close</h2>
+
+<div class="beat">
+  <div class="beat-head"><span class="tc">4:30</span><span class="beat-title">What's actually new here</span><span class="dur">30s</span></div>
+  <div class="beat-body">
+    <p class="say">"Grounded question answering isn't new. What we're demonstrating is that grounding shouldn't stop at the answer. The gap knows which papers raised it. The note knows which gap it came from. The alignment knows which quote supports it. The failure knows why it failed."</p>
+    <p class="say">"It's local-first — your papers never leave your machine — the deterministic core runs with no API key, and it's open source. Come find us at the demo session."</p>
+    <div class="do"><span class="do-label">On screen</span>
+      <ul><li>Back to <b>Home</b>, or hold on the Notes → Gaps round trip as the closing image. It's the most memorable thing in the demo.</li></ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">Verification status</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Demo beat</th><th>State</th><th>Evidence</th></tr></thead>
+  <tbody>
+    <tr><td>Library, 16 papers, badges, Needs-you filter</td><td class="ok">Verified</td><td>Rendered live at 8799</td></tr>
+    <tr><td>Gaps — 12 themes, 12 Save-note buttons</td><td class="ok">Verified</td><td>All 12 rows carry <code>data-theme-id</code></td></tr>
+    <tr><td>Save note writes a gap origin</td><td class="ok">Verified</td><td><code>origin_kind:"gap"</code>, correct id + label, <code>kind:"freeform"</code></td></tr>
+    <tr><td>Notes renders the origin link</td><td class="ok">Verified</td><td><code>&lt;a href="#/gaps?theme=…"&gt;</code>, badge <code>◇ Gap</code></td></tr>
+    <tr><td>Click-through highlights the right row</td><td class="ok">Verified</td><td>1 row, correct theme, in viewport, accent outline</td></tr>
+    <tr><td>Highlight is consumed once</td><td class="ok">Verified</td><td>Does not re-fire on filter change</td></tr>
+    <tr><td>Origin link renders in the app accent</td><td class="ok">Fixed</td><td><code>rgb(88,166,255)</code> after <code>d608ae2</code>; was <code>rgb(0,0,238)</code></td></tr>
+    <tr><td>Legacy note without an origin</td><td class="ok">Verified</td><td>Renders with no origin line, no error</td></tr>
+    <tr><td>Draft / Timeline / Report / Ask / Compare / Citations</td><td class="ok">Render</td><td>All return content</td></tr>
+    <tr><td>Graph canvas</td><td class="bad">Fragile</td><td>~3 FPS; froze the renderer 45s under inspection</td></tr>
+    <tr><td>"Get set up" modal on load</td><td class="bad">Cosmetic</td><td>Fires despite both keys showing "Added"</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  Script prepared 15 September 2026 against <code>feat/pdf-acquisition</code>, workspace <code>recurrence</code>.
+  Every "Verified" row above was exercised in a real browser against the running app, not inferred from tests.
+</footer>
+</div>

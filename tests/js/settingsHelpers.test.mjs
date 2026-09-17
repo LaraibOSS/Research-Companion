@@ -99,3 +99,12 @@ test('validateSettings returns [] for empty patch', () => {
   const errors = validateSettings({});
   assert.deepEqual(errors, []);
 });
+
+test('buildSettingsPatch carries downloads_dir', () => {
+  // Spec 7.6: one setting, detected, shown, EDITABLE. Missing from
+  // REGULAR_FIELDS it was silently dropped from every PUT.
+  const patch = buildSettingsPatch(
+    { downloads_dir: 'D:/Downloads', anthropic_api_key: '', openai_api_key: '', hf_token: '' },
+    { downloads_dir: '' });
+  assert.deepEqual(patch, { downloads_dir: 'D:/Downloads' });
+});

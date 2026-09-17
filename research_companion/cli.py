@@ -9,6 +9,7 @@ Subcommands:
     search <query> [--kind K] [--limit N] [--json]
     list
     remove <paper-id>
+    acquire <paper_id> | --all | --list
     stats
     export [--format {markdown,csv,json,obsidian}] [--output DIR]
     discover <topic> [--limit N] [--year-min Y] [--year-max Y] [--add] [--json]
@@ -26,6 +27,8 @@ import time
 from pathlib import Path
 
 from research_companion import __version__
+from research_companion.acquire import acquire
+from research_companion.acquire.copy import reason_headline
 from research_companion.cost import estimate_cost as _estimate_cost
 
 # Consistent status glyphs for terminal output across commands.
@@ -358,6 +361,103 @@ def _cmd_remove(args: argparse.Namespace) -> int:
         print("research-companion: run `research-companion build` to rebuild the graph without it.")
         return 0
     print(f"research-companion: no such paper: {args.paper_id}", file=sys.stderr)
+    return 1
+
+
+def _acquire_meta_for(paper_id: str):
+    """The PaperMetadata to hand to acquire(), even for an id that has no
+    metadata.json yet (a fabricated/target id passed straight on the command
+    line). acquire() only reads .paper_id/.title off it, so a bare stand-in
+    is enough to let the chain run."""
+    from research_companion.store import PaperMetadata
+
+    return PaperMetadata.load(paper_id) or PaperMetadata(
+        paper_id=paper_id, title="", authors=[])
+
+
+def _acquire_candidates() -> list[tuple[str, str, dict]]:
+    """(failure key, paper_id, failure record) for every failure a person
+    could help with.
+
+    Queue membership is decided by research_companion.acquire.policy.human_can_help
+    -- the ONE place both the CLI and the Lab (research_companion/lab_api.py)
+    decide this, so the two surfaces cannot silently drift the way two
+    separately-hand-written copies of the same fallback once did.
+    """
+    from research_companion.acquire.policy import human_can_help
+    from research_companion.store import list_failures
+
+    out = []
+    for key, info in list_failures().items():
+        if not isinstance(info, dict):
+            continue
+        if human_can_help(info, key):
+            out.append((key, info.get("paper_id") or key, info))
+    return out
+
+
+def _acquire_reason_text(info: dict) -> str:
+    """The honest sentence for a queued failure: reason_headline() when a
+    typed Acquisition was recorded, the raw stored error only as a fallback
+    for an older record that predates it."""
+    acquisition = info.get("acquisition")
+    if isinstance(acquisition, dict):
+        from research_companion.acquire import Acquisition
+
+        try:
+            return reason_headline(Acquisition.from_dict(acquisition))
+        except (KeyError, ValueError):
+            pass
+    return info.get("error") or "?"
+
+
+def _acquire_one(paper_id: str) -> tuple[bool, str]:
+    """Retry one paper. Returns (obtained, message) -- the message is always
+    reason_headline() on failure, never a raw exception string."""
+    from research_companion.store import clear_failure, save_pdf
+
+    meta = _acquire_meta_for(paper_id)
+    pdf_bytes, acq = acquire(meta)
+    if pdf_bytes is not None:
+        save_pdf(paper_id, pdf_bytes)
+        clear_failure(paper_id, paper_id=paper_id)
+        return True, f"acquired via {acq.source or 'an open-access source'}"
+    return False, reason_headline(acq)
+
+
+def _cmd_acquire(args: argparse.Namespace) -> int:
+    if args.list:
+        candidates = _acquire_candidates()
+        if not candidates:
+            print("research-companion acquire: nothing waiting")
+            return 0
+        print(f"research-companion acquire: {len(candidates)} paper(s) a person could help with")
+        for _key, paper_id, info in candidates:
+            print(f"  {paper_id}  {_acquire_reason_text(info)}")
+        return 0
+
+    if args.all:
+        candidates = _acquire_candidates()
+        if not candidates:
+            print("research-companion acquire: nothing to retry")
+            return 0
+        failed = 0
+        for _key, paper_id, _info in candidates:
+            obtained, message = _acquire_one(paper_id)
+            print(f"{'+' if obtained else ' '} {paper_id}  {message}")
+            failed += 0 if obtained else 1
+        return 0 if not failed else 1
+
+    if not args.paper_id:
+        print("research-companion: acquire requires a paper_id, or --all/--list",
+              file=sys.stderr)
+        return 1
+
+    obtained, message = _acquire_one(args.paper_id)
+    if obtained:
+        print(f"+ {args.paper_id}  {message}")
+        return 0
+    print(f"{args.paper_id}: {message}")
     return 1
 
 
@@ -1305,6 +1405,21 @@ def _cmd_align(args: argparse.Namespace) -> int:
         return 0
 
     # Human-readable output
+    if payload.get("skipped"):
+        reason = payload.get("reason", "unknown")
+        print(f"\nAlignment: {candidate_id}")
+        print(f"  vs draft: {draft_id}")
+        if reason == "no_text":
+            print(
+                "  skipped: this paper has no readable text and no abstract, "
+                "so it was not scored."
+            )
+            print("  Supply the PDF and it will align like any other paper.")
+        else:
+            print(f"  skipped: {reason}")
+        print()
+        return 0
+
     verdict = payload["verdict"]
     score = payload["score"]
     band = payload["band"]
@@ -1406,15 +1521,38 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     from research_companion.refcheck.validate import validate_bibliography
     from research_companion.store import load_extraction
 
+    # An existing extraction still wins, so a built paper behaves exactly as
+    # before. Only the previously-fatal path changed: verifying that citations
+    # exist is deterministic and network-only, so it must not require a build
+    # that costs model calls.
     ext = load_extraction(args.paper_id, prompt_sha=extraction_prompt_sha256())
-    if ext is None:
-        print(
-            f"research-companion: no extraction for {args.paper_id}. Run `research-companion build` first.",
-            file=sys.stderr,
-        )
-        return 1
+    source, unparsed = "extraction", []
+    if ext is not None:
+        refs = references_from_extraction(ext)
+    else:
+        from research_companion.extract import ensure_text
+        from research_companion.refcheck.parse import references_from_text
 
-    refs = references_from_extraction(ext)
+        text = ensure_text(args.paper_id)
+        if text is None:
+            print(
+                f"research-companion: no extraction and no readable text for "
+                f"{args.paper_id}. Add the paper first, or check the PDF is not "
+                "a scan (the default parser does no OCR on scanned pages).",
+                file=sys.stderr,
+            )
+            return 1
+        refs, unparsed = references_from_text(text)
+        source = "text"
+        if not refs:
+            print(
+                f"research-companion: no bibliography found in {args.paper_id}. "
+                "Looked for a References/Bibliography heading in the extracted "
+                "text. Run `research-companion build` to use the model-extracted "
+                "reference list instead.",
+                file=sys.stderr,
+            )
+            return 1
     conns = _parse_connectors_arg(getattr(args, "connectors", None))
     lookup = default_lookup(connectors=conns) if conns is not None else default_lookup()
     report = validate_bibliography(refs, lookup)
@@ -1423,6 +1561,11 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
     if args.json:
         payload = {
             "paper_id": args.paper_id,
+            # Callers need to know the denominator: which list was checked, and
+            # how much of the bibliography could not be read at all.
+            "source": source,
+            "unparsed_count": len(unparsed),
+            "unparsed": unparsed,
             "counts": counts,
             "references": [
                 {
@@ -1451,19 +1594,53 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
         f"{counts['suspect']} suspect, {counts['unverified']} unverified "
         f"({len(report.entries)} references)"
     )
+    if source == "text":
+        print("References read from the paper's bibliography (no model call).")
+    # State what was NOT read. Without this the summary counts read as the whole
+    # bibliography, and entries never looked up are invisible.
+    if unparsed:
+        print(
+            f"{len(unparsed)} line(s) could not be parsed as references and "
+            "were NOT checked:"
+        )
+        for line in unparsed[:5]:
+            print(f"        - {line[:90]}")
+        if len(unparsed) > 5:
+            print(f"        ... and {len(unparsed) - 5} more")
     return 0
+
+
+def _text_or_report(paper_id: str) -> str | None:
+    """Text for a deterministic check, parsed on demand, or None with a reason.
+
+    Every message here goes to STDERR: these commands support --json, and a
+    progress line on stdout would corrupt output the caller is parsing.
+    """
+    from research_companion.extract import ensure_text
+    from research_companion.store import load_text, pdf_path
+
+    if load_text(paper_id) is None and pdf_path(paper_id) is not None:
+        # Parsing a PDF can take a while (the default parser loads OCR models),
+        # so say what is happening rather than appearing to hang.
+        print(f"research-companion: extracting text from {paper_id} "
+              "(local parse, no model calls)...", file=sys.stderr)
+
+    text = ensure_text(paper_id)
+    if text is None:
+        print(
+            f"research-companion: no text for {paper_id} and none could be "
+            "extracted. Add the paper first, or check the PDF is not a scan "
+            "(the default parser does no OCR on scanned pages).",
+            file=sys.stderr,
+        )
+    return text
 
 
 def _cmd_check_stats(args: argparse.Namespace) -> int:
     from research_companion.statcheck import check_stats
-    from research_companion.store import load_text
 
-    text = load_text(args.paper_id)
+    text = _text_or_report(args.paper_id)
     if text is None:
-        print(
-            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
-            file=sys.stderr,
-        )
         return 1
 
     report = check_stats(text)
@@ -1549,12 +1726,8 @@ def _cmd_check_overlap(args: argparse.Namespace) -> int:
     )
     from research_companion.store import list_papers, load_text
 
-    target = load_text(args.paper_id)
+    target = _text_or_report(args.paper_id)
     if target is None:
-        print(
-            f"research-companion: no text for {args.paper_id}. Add or ingest the paper first.",
-            file=sys.stderr,
-        )
         return 1
 
     corpus = [
@@ -2092,6 +2265,15 @@ def _build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("remove", help="Remove a paper from the store")
     pr.add_argument("paper_id", help="Paper ID, e.g. arxiv:2410.05779 or local:abc123")
     pr.set_defaults(func=_cmd_remove)
+
+    p_acq = sub.add_parser("acquire",
+                           help="retry the PDF for a paper that could not be fetched")
+    p_acq.add_argument("paper_id", nargs="?", default=None)
+    p_acq.add_argument("--all", action="store_true",
+                       help="every paper a person could help with")
+    p_acq.add_argument("--list", action="store_true",
+                       help="show what is waiting, and why")
+    p_acq.set_defaults(func=_cmd_acquire)
 
     ps = sub.add_parser("stats", help="Print graph statistics as JSON")
     ps.set_defaults(func=_cmd_stats)

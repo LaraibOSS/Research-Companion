@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs tests/js/handoffHelpers.test.mjs tests/js/noteOriginHelpers.test.mjs
 Tests:
   - Every file referenced by index.html exists in lab/static
   - index.html contains the module script tag and vendor script tag
@@ -341,18 +341,36 @@ def test_compare_view_not_stub():
     assert "stub-view" not in cmp_js, "compare.js must not be the stub"
 
 
+def _assert_escapes_before_markup(js: str, where: str) -> None:
+    """The answer renderer must escape its whole input before building any tag.
+
+    Checked as an ORDERING inside the shared renderer rather than as a literal
+    ``escapeHtml(answer`` grep: the parameter has been renamed once already
+    (renderProseHtml shares the same body), and a guard that breaks on a rename
+    invites being 'fixed' by loosening it until it no longer guards anything.
+    """
+    start = js.index("function _render(")
+    body = js[start:]
+    param = re.match(r"function _render\(\s*([A-Za-z0-9_$]+)", body).group(1)
+    escape_at = body.find(f"escapeHtml({param}")
+    assert escape_at != -1, \
+        f"{where}: the renderer must pass its whole input through escapeHtml"
+    markup_at = body.find("`<")
+    assert markup_at != -1, f"{where}: expected the renderer to build markup"
+    assert escape_at < markup_at, \
+        f"{where}: escapeHtml must run BEFORE any tag is constructed"
+
+
 def test_ask_view_escapes_before_markup():
     """renderAnswerHtml must call escapeHtml before any tag construction.
     After W3-F4 extraction the canonical location is answerHtml.js; ask.js
     may re-export, so we check either file."""
-    ask_js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
     answer_html_js_path = STATIC_DIR / "js" / "answerHtml.js"
-    if answer_html_js_path.exists():
-        combined = ask_js + answer_html_js_path.read_text(encoding="utf-8")
-    else:
-        combined = ask_js
-    assert re.search(r"escapeHtml\(\s*answer", combined), \
-        "renderAnswerHtml must pass the raw answer through escapeHtml FIRST"
+    # Whichever file owns the renderer is the one to check. Concatenating both
+    # would find views/ask.js's own unrelated _render first.
+    owner = answer_html_js_path if answer_html_js_path.exists() \
+        else STATIC_DIR / "js" / "views" / "ask.js"
+    _assert_escapes_before_markup(owner.read_text(encoding="utf-8"), "renderAnswerHtml")
 
 
 def test_lab_css_has_f4_styles():
@@ -1234,8 +1252,25 @@ def test_answer_html_js_exports_render_answer_html():
     js = (STATIC_DIR / "js" / "answerHtml.js").read_text(encoding="utf-8")
     assert "export function renderAnswerHtml" in js, \
         "answerHtml.js must export renderAnswerHtml"
-    assert re.search(r"escapeHtml\(\s*answer", js), \
-        "answerHtml.js renderAnswerHtml must pass answer through escapeHtml FIRST"
+    _assert_escapes_before_markup(js, "answerHtml.js")
+
+
+def test_answer_html_js_exports_render_prose_html():
+    """The Report tab renders through renderProseHtml; it shares the escaping.
+
+    Report answers used to be escaped and shown verbatim, so a model's
+    ``**bold**`` reached the page as asterisks. They now go through the same
+    renderer as Ask, minus the inline citation markers the Report has no
+    handler for.
+    """
+    js = (STATIC_DIR / "js" / "answerHtml.js").read_text(encoding="utf-8")
+    assert "export function renderProseHtml" in js, \
+        "answerHtml.js must export renderProseHtml"
+    report_helpers = (STATIC_DIR / "js" / "reportHelpers.js").read_text(encoding="utf-8")
+    assert "renderProseHtml(answer)" in report_helpers, \
+        "reportHelpers must render the answer, not merely escape it"
+    assert not re.search(r"answer:\s*escapeHtml\(", report_helpers), \
+        "an escaped-only answer shows the model's raw markdown on the page"
 
 
 def test_cite_mini_card_js_exists():
@@ -1406,12 +1441,6 @@ def test_api_js_has_temporal_and_gaps_endpoints():
     api_js = (STATIC_DIR / "js" / "api.js").read_text(encoding="utf-8")
     for name in ("getTemporal", "getGaps", "refreshGaps"):
         assert f"export const {name}" in api_js, f"api.js must export {name}"
-
-
-def test_store_js_has_gaps_setter():
-    """store.js must export setGaps (W3-F5 additive)."""
-    store_js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
-    assert "export function setGaps" in store_js, "store.js must export setGaps"
 
 
 def test_reducer_handles_gaps_updated():
@@ -3612,3 +3641,169 @@ def test_report_view_original_render_preserved_alongside_export_button():
     assert "report-generate-plan-btn" in text
     assert "report-score-evidence-btn" in text
     assert "report-export-btn" in text
+
+
+# ---------------------------------------------------------------------------
+# Cross-surface handoffs: controls that must do what they say
+# ---------------------------------------------------------------------------
+
+def test_open_paper_dispatchers_and_listener_agree():
+    """Five of seven "open this paper" edges were dead.
+
+    ``views/library.js`` read ``e.detail.paperId``; gaps, report, timeline and
+    brainstorm dispatched ``paper_id``. The mismatch was invisible because each
+    dispatcher also wrote a ``window.__rcPendingPaper`` fallback that is drained
+    on mount -- so the edges "worked" from anywhere except Library itself, where
+    no remount happens and the click did nothing.
+
+    The listener now reads both spellings through one helper. This pins that it
+    keeps doing so, since normalising every caller and trusting it is exactly
+    what failed.
+    """
+    js = (STATIC_DIR / "js" / "views" / "library.js").read_text(encoding="utf-8")
+    assert "paperIdsFromDetail" in js,         "library.js must parse the rc:open-paper detail through handoffHelpers"
+    assert not re.search(r"e\.detail\s*&&\s*e\.detail\.paperId", js),         "library.js must not read one spelling of the id directly again"
+
+
+def test_no_dispatcher_sends_the_non_canonical_paper_id():
+    """Defence in depth, not belt-and-braces.
+
+    The listener tolerates either spelling so this class of drift cannot break
+    navigation again. That is the safety net; callers still being canonical is
+    what keeps a FUTURE listener elsewhere -- one that reads only paperId --
+    from inheriting the same bug.
+    """
+    for name in ("gaps", "report", "timeline", "brainstorm", "suggestions"):
+        js = (STATIC_DIR / "js" / "views" / f"{name}.js").read_text(encoding="utf-8")
+        assert "paper_id: paperId" not in js, (
+            f"views/{name}.js dispatches the non-canonical paper_id; "
+            "use { paperId } so every caller agrees"
+        )
+
+
+def test_handoff_helpers_accept_both_spellings():
+    js = (STATIC_DIR / "js" / "handoffHelpers.js").read_text(encoding="utf-8")
+    assert "export function paperIdFromDetail" in js
+    assert "export function paperIdsFromDetail" in js
+    assert "export function sectionFromHash" in js
+    assert "paper_id" in js and "paperId" in js,         "both spellings must be handled in one place"
+
+
+def test_draft_view_honours_the_section_a_caller_asked_for():
+    """views/suggestions.js links to #/draft?section=<id> and Draft ignored it.
+
+    A suggestion that says "this is about section 4" landed the reader on
+    section 1. views/graph.js already read its own ?section= correctly; Draft
+    now uses the shared helper.
+    """
+    js = (STATIC_DIR / "js" / "views" / "draft.js").read_text(encoding="utf-8")
+    # Substring matching is not enough here: a rename to sectionFromHashXX
+    # still contains "sectionFromHash" and slipped past the first version of
+    # this guard. Pin the import and the actual call.
+    assert re.search(r"import\s*\{[^}]*\bsectionFromHash\b[^}]*\}\s*from", js),         "draft.js must import sectionFromHash from handoffHelpers"
+    assert re.search(r"\bsectionFromHash\s*\(\s*window\.location\.hash\s*\)", js),         "draft.js must honour ?section= -- suggestions.js has always linked to it"
+
+
+def test_journey_refetch_cannot_loop():
+    """The journey is fetched, not pushed, so a refetch must key on a signal it
+    does not itself raise.
+
+    ``store.setJourney`` notifies ``journey``; subscribing a refetch to that
+    topic is an infinite loop. The SSE event therefore raises ``journey_stale``.
+    """
+    reducer = (STATIC_DIR / "js" / "reducer.js").read_text(encoding="utf-8")
+    assert "'journey_stale'" in reducer,         "draft_version_added must raise journey_stale, not journey"
+    home = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "subscribe(['journey_stale']" in home,         "home.js must refetch on journey_stale"
+    assert not re.search(r"subscribe\(\['journey'\]", home),         "subscribing the refetch to 'journey' would loop through setJourney"
+
+
+def test_report_view_clears_its_payloads_on_unmount():
+    """_report and _audit outlived the view, so switching research showed the
+    previous workspace's report and claim audit."""
+    js = (STATIC_DIR / "js" / "views" / "report.js").read_text(encoding="utf-8")
+    unmount = js[js.index("export function unmount"):]
+    unmount = unmount[:unmount.index("\n}")]
+    assert "_report = null" in unmount and "_audit = null" in unmount,         "report.js unmount must clear _report and _audit"
+
+
+def test_compare_footer_opens_both_papers():
+    """The footer said "Open both in library" and opened neither, while both
+    ids sat in the payload it was rendering from."""
+    js = (STATIC_DIR / "js" / "views" / "compare.js").read_text(encoding="utf-8")
+    assert "cmp-open-both" in js and "__rcPendingPaper" in js,         "compare.js must hand both paper ids to the Library view"
+
+
+def test_store_has_no_dead_gaps_field():
+    """setGaps had zero callers and state.gaps zero readers, so it looked like
+    shared state and was permanently null."""
+    js = (STATIC_DIR / "js" / "store.js").read_text(encoding="utf-8")
+    assert "setGaps" not in js, "the dead gaps setter must stay removed"
+
+
+def test_gaps_view_saves_a_note_with_a_gap_origin():
+    """The Gaps view is the one real origin producer.
+
+    Pinned as import-AND-call with word boundaries, not `"buildNoteRecord"
+    in js`: an earlier guard in this branch asserted only that a name was a
+    substring, which a symbol named `sectionFromHashXX` satisfies. That
+    guard stayed green while the feature was broken.
+    """
+    js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert re.search(r"import\s*\{[^}]*\bbuildNoteRecord\b[^}]*\}\s*from", js), \
+        "views/gaps.js must import buildNoteRecord"
+    assert re.search(r"\bbuildNoteRecord\s*\(", js), \
+        "views/gaps.js must CALL buildNoteRecord, not merely import it"
+    assert re.search(r"kind:\s*'gap'", js), \
+        "the gap producer must record origin_kind 'gap'"
+    assert re.search(r"buildNoteRecord\(\s*'freeform'", js), (
+        "the note's own kind stays 'freeform' — 'gap' is the ORIGIN kind, and "
+        "lab_api.py validates `kind` against six values that do not include it"
+    )
+
+
+def test_gaps_view_reads_the_theme_param_and_uses_it():
+    """views/gaps.js:163 has emitted data-theme-id with no reader since it was
+    written — the receiving half of a return path, built and left unwired.
+
+    Import AND call are both pinned, with word boundaries. `"themeFromHash"
+    in js` would pass against a symbol named themeFromHashXX; that exact
+    weakness let a guard in this branch stay green while its feature was
+    broken.
+    """
+    js = (STATIC_DIR / "js" / "views" / "gaps.js").read_text(encoding="utf-8")
+    assert re.search(r"import\s*\{[^}]*\bthemeFromHash\b[^}]*\}\s*from", js), \
+        "views/gaps.js must import themeFromHash"
+    assert re.search(r"\bthemeFromHash\s*\(", js), \
+        "views/gaps.js must CALL themeFromHash, not merely import it"
+    assert re.search(r"[\w.]+\s*=\s*themeFromHash\s*\(", js), (
+        "views/gaps.js must ASSIGN themeFromHash's return value — a bare "
+        "`themeFromHash(hash);` with the result discarded would pass the "
+        "call-is-present check above while leaving the return path dead"
+    )
+    assert "data-theme-id" in js, \
+        "the row anchor the return path scrolls to must still be emitted"
+
+
+def test_ask_note_records_the_question_it_came_from():
+    """An Ask note saved the answer and the top citation and dropped the
+    question — the note recorded a reply to something it did not name."""
+    js = (STATIC_DIR / "js" / "views" / "ask.js").read_text(encoding="utf-8")
+    assert re.search(r"kind:\s*'ask'", js), (
+        "the ask note must record origin_kind 'ask'"
+    )
+    assert re.search(r"label:\s*entry\.question", js), (
+        "the ask note must carry entry.question as its origin label"
+    )
+
+
+def test_brief_note_records_which_section_it_came_from():
+    """A brief note kept the bullet text and dropped which section it sat in."""
+    js = (STATIC_DIR / "js" / "views" / "brainstorm.js").read_text(encoding="utf-8")
+    assert re.search(r"kind:\s*'brief'", js), (
+        "the brief note must record origin_kind 'brief'"
+    )
+    assert re.search(r"label:\s*sectionTitle", js), (
+        "the brief note must carry the section title as its origin label — "
+        "pinned so the label can't regress to the bullet's own excerpt"
+    )

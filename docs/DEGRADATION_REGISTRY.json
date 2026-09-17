@@ -238,6 +238,120 @@
         "tests/test_claim_audit.py::test_a_citation_with_no_anchor_is_uncheckable_not_wrong",
         "tests/test_claim_audit.py::test_summary_does_not_inflate_how_much_was_actually_checked"
       ]
+    },
+    {
+      "mechanism": "acquisition_open_access_host_blocks_download",
+      "trigger": "An index reports a free copy of a paper, but the host serving it answers 403 or 429 to an automated request",
+      "degraded_state": "Classified BLOCKED_BY_HOST rather than PAYWALLED or a generic 'no PDF on disk' — the refusal outranks absence in _classify() because a bot filter on an open-access article is a different situation from a paper with no free copy anywhere. Queued for human help, since a browser can fetch what a robot cannot. The outcome reaches the failure record even though add_doi/add_s2/add_arxiv do not raise: acquire.policy.stored_acquisition falls back to the paper's own PaperMetadata.last_acquisition when the record carries no acquisition block.",
+      "user_visible_signal": "reason_headline reads 'Open access — but ACM blocks automated downloads.'; that sentence replaces the failure record's error text, so the symptom string 'no PDF on disk' reaches no surface; the paper appears under the Library's 'Needs you' chip with an 'Open at publisher' button.",
+      "authority": [
+        {
+          "file": "research_companion/acquire/__init__.py",
+          "anchor": "\"403\" in outcomes or \"429\" in outcomes"
+        },
+        {
+          "file": "research_companion/acquire/policy.py",
+          "anchor": "PaperMetadata.load(paper_id)"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_acquire_chain.py::test_an_open_access_403_is_blocked_by_host_not_paywalled",
+        "tests/test_acquire_http.py::test_a_403_is_never_retried",
+        "tests/test_acquisition_reaches_the_failure_path.py::test_the_symptom_string_reaches_no_surface_the_user_reads",
+        "tests/test_acquisition_reaches_the_failure_path.py::test_the_paper_appears_under_needs_you",
+        "tests/test_acquisition_reaches_the_failure_path.py::test_a_legacy_record_with_no_acquisition_still_gets_there"
+      ]
+    },
+    {
+      "mechanism": "acquisition_never_retries_a_definitive_refusal",
+      "trigger": "A host answers 403, 404, or any other non-retryable 4xx, or returns an HTML body where a PDF was promised",
+      "degraded_state": "download_pdf returns immediately without retrying. Only {429, 500, 502, 503, 504} are treated as the host asking us to come back; retrying a definitive refusal is indistinguishable from an attack and is how a host-level block becomes an IP-level one, which would also take down the arXiv path that has never failed.",
+      "user_visible_signal": "The paper's attempts list records exactly one Attempt for that host, never a retried sequence, for a 403/404/not-a-PDF outcome.",
+      "authority": [
+        {
+          "file": "research_companion/acquire/http.py",
+          "anchor": "RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_acquire_http.py::test_a_403_is_never_retried",
+        "tests/test_acquire_http.py::test_a_404_is_never_retried",
+        "tests/test_acquire_http.py::test_html_is_not_retried"
+      ]
+    },
+    {
+      "mechanism": "acquisition_transient_failure_not_queued_to_a_person",
+      "trigger": "Every acquisition attempt fails with a retryable status (timeout/5xx) that survives all retries",
+      "degraded_state": "Classified SOURCE_UNAVAILABLE, the one reason human_can_help is False for. Retrying a transient network failure is treated as the machine's job, not something a person should be asked to work around by clicking a queue item. Nothing schedules that retry in phase 1, so the copy names the surfaces that DO re-run the download rather than promising a retry nobody performs.",
+      "user_visible_signal": "reason_headline reads \"Couldn't reach the source — the host or the network was down.\" and the detail points at adding the paper again or `research-companion acquire <paper id>`; the paper does not appear in the Library's 'Needs you' queue.",
+      "authority": [
+        {
+          "file": "research_companion/acquire/types.py",
+          "anchor": "_MACHINE_OWNED = frozenset({AcquireReason.SOURCE_UNAVAILABLE})"
+        }
+      ],
+      "pinned_by": [
+        "tests/test_acquire_types.py::test_the_machine_owns_transient_failures",
+        "tests/test_acquire_chain.py::test_a_transient_failure_everywhere_is_source_unavailable",
+        "tests/test_acquire_copy.py::test_a_transient_failure_does_not_promise_a_retry_nobody_performs"
+      ]
+    },
+    {
+      "mechanism": "acquisition_downloads_watcher_disarmed_by_default",
+      "trigger": "The click-armed downloads watcher has not been armed by an explicit user action, or its TTL has expired since it was",
+      "degraded_state": "poll() returns before any directory listing, stat, or page-one read happens — nothing on disk is scanned while disarmed. Arming is a time-boxed action tied to a user clicking 'I downloaded it', never an always-on filesystem watcher.",
+      "user_visible_signal": "No filesystem access occurs; is_armed is False and seconds_left is 0 until the user arms it again.",
+      "authority": [
+        {
+          "file": "research_companion/watcher.py",
+          "anchor": "Reads nothing unless armed."
+        }
+      ],
+      "pinned_by": [
+        "tests/test_watcher.py::test_a_new_watcher_is_not_armed",
+        "tests/test_watcher.py::test_polling_while_disarmed_reads_nothing"
+      ]
+    },
+    {
+      "mechanism": "acquisition_no_downloads_folder_known",
+      "trigger": "No downloads_dir is configured and none can be detected on this machine",
+      "degraded_state": "Arming is refused outright rather than falling back to the server's working directory. The old Path('.') fallback made an armed watcher read page one of every new PDF in whatever directory the server was started from — nowhere near anything the user pointed at. The watcher is an accelerant, never a dependency: Upload PDF on the paper card still does the job.",
+      "user_visible_signal": "POST /api/acquire/arm answers 409 naming Settings → Downloads folder and pointing at Upload PDF; the watcher stays disarmed and poll() reads nothing.",
+      "authority": [
+        {
+          "file": "research_companion/lab_api.py",
+          "anchor": "There is deliberately NO fallback to Path(\".\")"
+        },
+        {
+          "file": "research_companion/watcher.py",
+          "anchor": "None means \"no downloads directory is known\""
+        }
+      ],
+      "pinned_by": [
+        "tests/test_lab_acquire_api.py::test_arming_is_refused_when_no_downloads_folder_is_known",
+        "tests/test_lab_acquire_api.py::test_the_watcher_reads_nothing_when_no_folder_is_known"
+      ]
+    },
+    {
+      "mechanism": "alignment_refuses_to_score_an_unread_paper",
+      "trigger": "A candidate paper has neither full text nor an abstract — only a title",
+      "degraded_state": "align_papers returns and persists a refusal (skipped, reason no_text, evidence_depth metadata) instead of asking the model anyway and producing a confident stance from the title alone. A paper scored from its abstract is scored, but marked as such. Both are visible in the Lab rather than only in the CLI: publishing verdict=\"\" score=0.0 made a refusal render as a neutral score, indistinguishable from a full-text result.",
+      "user_visible_signal": "The Library card and list row carry a 'Not scored' badge reading 'Not scored — this paper has not been read.' (or 'Abstract only' when the score rests on the abstract); no relevance score and no stance chips are shown.",
+      "authority": [
+        {
+          "file": "research_companion/alignment.py",
+          "anchor": "A paper we have not read cannot be scored."
+        },
+        {
+          "file": "research_companion/lab_api.py",
+          "anchor": "def _alignment_note("
+        }
+      ],
+      "pinned_by": [
+        "tests/test_alignment_no_text.py::test_a_paper_with_no_text_and_no_abstract_is_not_scored",
+        "tests/test_alignment_no_text.py::test_the_lab_marks_a_refused_paper_rather_than_scoring_it",
+        "tests/test_alignment_no_text.py::test_the_lab_marks_an_abstract_only_score"
+      ]
     }
   ]
 }

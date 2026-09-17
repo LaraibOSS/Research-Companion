@@ -14,7 +14,7 @@ import {
   reportPlanStatus,
 } from '../../research_companion/lab/static/js/reportHelpers.js';
 
-test('reportSectionModel: happy path escapes question/answer and builds citation chips', () => {
+test('reportSectionModel: happy path renders the answer and builds citation chips', () => {
   const m = reportSectionModel({
     question: 'What methods <b>are</b> used?',
     answer: 'Graph retrieval is used [S1].',
@@ -25,7 +25,7 @@ test('reportSectionModel: happy path escapes question/answer and builds citation
     unverified_quotes: [],
   });
   assert.equal(m.question, 'What methods &lt;b&gt;are&lt;/b&gt; used?');
-  assert.equal(m.answer, 'Graph retrieval is used [S1].');
+  assert.equal(m.answer, '<p>Graph retrieval is used [S1].</p>');
   assert.equal(m.hasError, false);
   assert.equal(m.errorMessage, null);
   assert.equal(m.citations.length, 1);
@@ -50,6 +50,27 @@ test('reportSectionModel: escapes unverified quotes', () => {
     unverified_quotes: ['<script>bad</script> a long enough quote span'],
   });
   assert.equal(m.unverifiedQuotes[0], '&lt;script&gt;bad&lt;/script&gt; a long enough quote span');
+});
+
+// The Report tab rendered the model's markdown verbatim, so a report answer
+// showed literal "**Model Partitioning**" and "- " bullets on the page.
+test('reportSectionModel: the answer is rendered, not shown as raw markdown', () => {
+  const m = reportSectionModel({ answer: 'A **bold** claim.\n\n- one\n- two' });
+  assert.match(m.answer, /<strong>bold<\/strong>/);
+  assert.match(m.answer, /<ul><li>one<\/li><li>two<\/li><\/ul>/);
+  assert.ok(!m.answer.includes('**'), 'no asterisks survive to the page');
+});
+
+test('reportSectionModel: rendering the answer does not stop escaping it', () => {
+  const m = reportSectionModel({ answer: '<script>bad()</script>' });
+  assert.ok(!m.answer.includes('<script>'));
+  assert.match(m.answer, /&lt;script&gt;/);
+});
+
+test('reportSectionModel: citation markers stay literal where nothing handles a click', () => {
+  const m = reportSectionModel({ answer: 'Shown in [S3].' });
+  assert.ok(!m.answer.includes('<sup'), 'the Report lists its sources as chips instead');
+  assert.match(m.answer, /\[S3\]/);
 });
 
 test('reportSectionModel: missing/malformed fields default safely', () => {

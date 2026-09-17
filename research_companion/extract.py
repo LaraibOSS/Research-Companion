@@ -61,6 +61,43 @@ def pdf_to_text(pdf_file: Path) -> str:
     return get_parser().parse(pdf_file).text
 
 
+def ensure_text(paper_id: str) -> str | None:
+    """Stored text for a paper, parsing it from the PDF if it is not there yet.
+
+    Extracting text is a LOCAL parse -- no model, no network, no cost. But only
+    the ingest path saved it, so the deterministic checks that need nothing but
+    text (statcheck/GRIM, self-overlap) failed on a freshly added local PDF with
+    "no text for <id>", pointing the user at an LLM-costing ingest to satisfy a
+    free check.
+
+    Returns None only when there is genuinely nothing to work from: no stored
+    text and no PDF on disk. A parse that fails or yields nothing also returns
+    None rather than caching an empty string, so a scanned PDF is retried next
+    time instead of being remembered as "checked, empty".
+    """
+    from research_companion.store import load_text, pdf_path, save_text
+
+    cached = load_text(paper_id)
+    if cached is not None:
+        return cached
+
+    pdf = pdf_path(paper_id)
+    if pdf is None or not pdf.exists():
+        return None
+
+    try:
+        from research_companion.parsers import get_parser
+
+        text = get_parser().parse(pdf).text or ""
+    except Exception:  # noqa: BLE001 - an unparseable PDF is not a crash
+        return None
+
+    if not text.strip():
+        return None
+    save_text(paper_id, text)
+    return text
+
+
 def get_paper_text(meta: PaperMetadata, *, force: bool = False) -> str:
     """Cached text extraction. Re-extracts if `force` is True."""
     if not force:
@@ -129,6 +166,41 @@ def _parse_pdf(pdf: Path):
 _DOCLING_TIMEOUT_S = 600
 
 
+#: Signatures of an out-of-memory death in the docling child. Native
+#: allocations fail with std::bad_alloc; Python-level ones raise MemoryError;
+#: an OS kill leaves SIGKILL (-9, or 137 through a shell).
+_OOM_MARKERS = ("bad_alloc", "MemoryError", "Cannot allocate memory",
+                "Out of memory", "std::length_error")
+
+
+def _docling_failure_message(proc) -> str:
+    """Say WHY the child died, using its stderr.
+
+    Discarding stderr here cost a real debugging session. Docling exhausted
+    memory, the caller fell back to pypdfium, pypdfium failed for its own
+    unrelated reason, and the recorded failure read "PDFium: Data format error"
+    on a perfectly valid PDF -- sending the user to inspect a file that was
+    fine, and hiding the actual cause completely.
+
+    Out of memory and malformed input need different responses (retry smaller
+    or with OCR off, versus replace the file), so they must not share a message.
+    """
+    err = ""
+    try:
+        err = (proc.stderr or b"").decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - never fail while building an error
+        err = ""
+
+    if any(m in err for m in _OOM_MARKERS) or proc.returncode in (-9, 137):
+        return (f"docling ran out of memory converting this PDF "
+                f"(exit {proc.returncode}). The file is not corrupt -- retry "
+                "with fewer concurrent ingests, or with full-page OCR off.")
+
+    tail = " ".join(err.strip().splitlines()[-2:])[:200]
+    return (f"docling subprocess failed (exit {proc.returncode})"
+            + (f": {tail}" if tail else ""))
+
+
 def _run_docling_subprocess(pdf: Path, *, full_page_ocr: bool = False,
                             timeout: int = _DOCLING_TIMEOUT_S):
     """Run one Docling conversion in a child process and return its ParsedDoc.
@@ -156,8 +228,7 @@ def _run_docling_subprocess(pdf: Path, *, full_page_ocr: bool = False,
         except subprocess.TimeoutExpired as exc:
             raise ParserError(f"docling subprocess timed out after {timeout}s") from exc
         if proc.returncode != 0:
-            raise ParserError(
-                f"docling subprocess failed (exit {proc.returncode})")
+            raise ParserError(_docling_failure_message(proc))
         try:
             data = json.loads(Path(out_path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:

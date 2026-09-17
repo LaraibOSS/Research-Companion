@@ -1,6 +1,6 @@
 # Roadmap — Research Companion
 
-Phased plan grounded in `RESEARCH_EVALUATOR_PLAN.md` (evidence) and `COMPETITOR_ARCHITECTURES.md` (what to borrow/beat).
+Phased plan grounded in `RESEARCH_EVALUATOR_PLAN.md` (evidence).
 
 Legend: 🟢 ship first · 🟡 differentiator · 🔵 reach/moat
 Status: ✅ shipped · 🟠 partial · ⬜ not started

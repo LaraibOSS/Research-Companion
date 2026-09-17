@@ -4,15 +4,14 @@
 
 | Version | Status |
 | --- | --- |
-| `main` / source `0.7.1` | Actively maintained; security reports accepted |
+| `main` / source `0.8.0` | Actively maintained; security reports accepted |
 | PyPI `0.5.14` | Legacy installable release; **not equivalent** to the current source |
 | Releases older than `0.5.14` | Unsupported |
 
-The source tree is at `0.7.1`, which is unreleased — publishing to PyPI is
-currently held, so the latest PyPI distribution is `0.5.14`. **Until publishing
-resumes, security fixes are applied to `main`.** Users of the legacy PyPI release
-may need to install the corrected version from source, as a patched PyPI
-distribution is not currently guaranteed.
+The source tree is at `0.8.0`, which is not yet published, so the latest PyPI
+distribution remains `0.5.14`. **Security fixes are applied to `main` first.**
+Users of the legacy PyPI release may need to install the corrected version from
+source until `0.8.0` ships.
 
 ## Reporting a vulnerability
 

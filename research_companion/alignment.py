@@ -54,6 +54,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 
 from research_companion import store
+from research_companion.extract import get_paper_text
 from research_companion.locator import anchor_quote
 from research_companion.prompts import alignment_prompt_sha256, format_alignment_prompt
 from research_companion.rebuttal.verify import verify_quote as _verify_quote_fn
@@ -196,6 +197,16 @@ def rank_draft_sections(
     return [(sec, score) for score, _idx, sec in scored[:k]]
 
 
+def _should_persist(persist: bool | None, draft_id: str) -> bool:
+    """True = always write; False = never; None = write only when this IS the
+    configured draft. Factored out so the refusal above and the score below
+    obey the identical rule rather than one of them quietly not persisting.
+    """
+    if persist is not None:
+        return persist
+    return draft_id == store.get_draft_paper_id()
+
+
 # ---------------------------------------------------------------------------
 # align_papers (main entry point)
 # ---------------------------------------------------------------------------
@@ -246,14 +257,38 @@ def align_papers(
             return cached
 
     # Step 3: Load draft sections and candidate text
-    from research_companion.extract import get_paper_text
     draft_sections = build_and_save_sections(draft_id)
 
-    # Load candidate text (raises FileNotFoundError if no PDF; we treat "" gracefully)
+    # A paper we have not read cannot be scored. This used to fall through to
+    # the model with cand_text = "", producing a confident stance from the
+    # title alone with nothing in the payload marking it.
     try:
         cand_text = get_paper_text(cand_meta)
     except FileNotFoundError:
         cand_text = ""
+    abstract = (getattr(cand_meta, "abstract", "") or "").strip()
+    if not cand_text and not abstract:
+        # Persisted, and under the draft_paper_id/candidate_paper_id keys
+        # store.load_alignment matches on, so the REFUSAL is loadable the
+        # way a score is. Returned-only, it reached nothing: the Lab saw no
+        # alignment at all and rendered the paper as merely unscored --
+        # 8.1's "indistinguishable from its siblings" relocated rather than
+        # removed. sections is empty, so GET /api/draft/alignment and the
+        # summary's stance counts are unaffected.
+        skipped = {"draft_id": draft_id, "candidate_id": candidate_id,
+                   "draft_paper_id": draft_id, "candidate_paper_id": candidate_id,
+                   "skipped": True, "reason": "no_text",
+                   "relation": None, "score": None,
+                   "verdict": "", "band": "", "sections": [],
+                   "computed_at": datetime.now(timezone.utc).isoformat().replace(
+                       "+00:00", "Z"),
+                   "evidence_depth": "metadata"}
+        if _should_persist(persist, draft_id):
+            store.save_alignment(candidate_id, skipped)
+        return skipped
+    evidence_depth = "full_text" if cand_text else "abstract"
+    if not cand_text:
+        cand_text = abstract
 
     # Load candidate extraction (may be None)
     from research_companion.prompts import extraction_prompt_sha256
@@ -414,19 +449,11 @@ def align_papers(
             "lexical_overlap": lx_signal,
         },
         "sections": relevant_sections,
+        "evidence_depth": evidence_depth,
     }
 
     # Step 8: Persist per rules
-    should_persist: bool
-    if persist is True:
-        should_persist = True
-    elif persist is False:
-        should_persist = False
-    else:
-        # persist=None: write only when draft_id == configured draft
-        should_persist = (draft_id == store.get_draft_paper_id())
-
-    if should_persist:
+    if _should_persist(persist, draft_id):
         store.save_alignment(candidate_id, payload)
 
     return payload
