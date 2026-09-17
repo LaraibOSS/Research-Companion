@@ -1,28 +1,221 @@
 <div align="center">
 
-# Research Companion
+<img src="docs/images/logo.png" alt="Research Companion" width="190">
 
-**Turn a pile of papers into a knowledge graph you can question — and get a submission‑ready read on your own draft.**
+<h1>Research&nbsp;Companion</h1>
 
-[![CI](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml/badge.svg)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)](pyproject.toml)
-[![Local-first](https://img.shields.io/badge/local--first-no%20cloud%20required-brightgreen)](#configuration--security)
+**Every AI research tool generates. This one checks.**
 
-Drop in arXiv URLs, DOIs, or PDFs → get a concept‑level knowledge graph and a chat that answers **with citations to the exact paper and section**. Runs on your machine. Open source.
+[![research-companion on PyPI](https://img.shields.io/pypi/v/research-companion?style=flat-square&label=research-companion%20on%20PyPI&color=0b7285)](https://pypi.org/project/research-companion/)
+[![MIT licensed](https://img.shields.io/badge/MIT-licensed-informational?style=flat-square)](LICENSE)
+[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue?style=flat-square)](pyproject.toml)
+[![CI](https://img.shields.io/github/actions/workflow/status/LaraibOSS/Research-Companion/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 
-<img src="docs/images/graph.png" alt="Research Companion — live concept knowledge graph in the browser" width="820">
+[![4,404 tests, ratcheted so coverage cannot shrink](https://img.shields.io/badge/4%2C404%20tests-ratcheted%20so%20coverage%20cannot%20shrink-2b8a3e?style=flat-square)](tests)
+[![Deterministic core runs with no API key](https://img.shields.io/badge/deterministic%20core-runs%20with%20no%20API%20key-8250df?style=flat-square)](#why-research-companion)
+[![20 degradation mechanisms proved in CI](https://img.shields.io/badge/20%20degradation%20mechanisms-proved%20in%20CI-c2255c?style=flat-square)](docs/DEGRADATION_REGISTRY.json)
+[![Your papers never leave your machine](https://img.shields.io/badge/your%20papers-never%20leave%20your%20machine-e8590c?style=flat-square)](#configuration--security)
+
+Drop in papers. Get a knowledge graph you can question, answers with citations to
+the exact page, and a read on your own draft before a reviewer sees it.
+
+**[Take the tour ↓](#the-tour) · [See it in full](https://laraiboss.github.io/Research-Companion/) · [Walkthrough](docs/WALKTHROUGH.md) · [Install](#installation) · [Skills](#claude-code-skills)**
 
 </div>
 
 ---
 
+## The tour
+
+Ten steps, each one building on the last. Every screenshot below is one run on
+one library — eleven papers on efficient LLM inference, plus a draft — so what
+you see in step 9 is what step 1 grew into.
+
+You can stop at any step and still have something useful.
+
+<br>
+
+### 1 · Add papers
+
+Paste an arXiv ID, a DOI, a URL, or point it at a folder of PDFs.
+That is the whole setup.
+
+```bash
+research-companion add 2309.06180
+```
+
+<img src="docs/images/library.png" alt="The Library tab: papers added, shown as cards with authors, year and evidence strength">
+
+If a publisher blocks the automatic download — some do, even for articles they
+themselves mark open access — the tool looks for a legitimate free copy
+elsewhere first, including the paper's own arXiv preprint by title. What it
+still cannot fetch is queued under **Needs you** with a plain-language reason
+naming the publisher that refused, and a button that opens the article in
+your browser. Download the PDF yourself and add it, or retry the whole queue
+later with `research-companion acquire --all`.
+
+<br>
+
+### 2 · It maps the ideas, not the citations
+
+Five papers using one method become **one node** linked to all five — concepts,
+methods, datasets, claims and results, drawn from the papers themselves. This is
+what your corpus is actually made of.
+
+<img src="docs/images/graph.png" alt="The Graph tab: a concept-level knowledge graph of concepts, methods, datasets and claims">
+
+> **What it is honest about:** this is density *within your corpus*, not the field.
+> Load six papers on one method and that method will look dominant.
+
+<br>
+
+### 3 · Ask it anything
+
+Plain language in, an answer out — with a citation after every claim, down to the
+**paper and section**. Click any citation to open the source at that passage.
+
+<img src="docs/images/ask.png" alt="The Ask tab answering a question with inline citation chips to specific papers and sections">
+
+> **What it is honest about:** if your library does not cover the question, it says
+> so rather than guessing. That refusal is the feature.
+
+<br>
+
+### 4 · Put two papers side by side
+
+Shared ground, unique contributions, and a metric table built from what each
+paper actually reported — a dash where a paper simply did not measure that.
+
+<img src="docs/images/compare.png" alt="The Compare tab: two papers with shared and unique concepts and a table of reported metrics">
+
+<br>
+
+### 5 · See what is still unsolved
+
+Every paper's own stated limitations and future work, gathered across the whole
+library and marked open, partial or addressed. Not the tool guessing where the
+gaps are — **the authors saying it**, with the quote to prove they did.
+
+<img src="docs/images/gaps.png" alt="The Gaps tab: research gaps synthesised across the library, typed, status-marked and citing sources">
+
+The same gaps laid over a timeline of when each concept, method and dataset
+entered your corpus — so "this is new" becomes something you can look at.
+
+<img src="docs/images/timeline.png" alt="The Timeline tab: concepts and methods plotted by year, with open gaps marked">
+
+Read a gap, have a thought, write it down — and the note remembers **where you
+were standing when you had it**. Not just which paper it concerned: the gap you
+were looking at, with one click back to it.
+
+<img src="docs/images/notes.png" alt="The Notes tab: a note carrying a ◇ Gap origin chip that links back to the gap it was written from, beside an older note with no origin">
+
+Three weeks later that is the difference between a sentence you trust and a
+sentence you have to re-derive. And if the gap is ever re-clustered away, the
+note still reads — it just stops being a link. Less information, never a broken
+screen.
+
+<br>
+
+### 6 · Or start with no papers at all
+
+Type a topic and it searches real catalogues — OpenAlex, Semantic Scholar,
+arXiv, Crossref, PubMed — and hands you the results to add one at a time.
+
+<img src="docs/images/brainstorm.png" alt="The Brainstorm tab: a topic search returning real papers from OpenAlex with abstracts and Add buttons">
+
+Then it turns what you collected into directions you could actually work on,
+each one citing the papers and the open gaps behind it — and telling you exactly
+how much it read to get there.
+
+<img src="docs/images/directions.png" alt="Research Directions: proposed directions, each scored and citing the papers and gaps it came from">
+
+<br>
+
+### 7 · Write, with the literature beside you
+
+Set your draft and every section is checked against your papers: which strengthen
+it, which challenge it, which offer an alternative — each with the located quote
+behind the judgement, marked verified or unverified.
+
+<img src="docs/images/draft.png" alt="The Draft tab: per-section alignment cards showing stance, relevance and supporting quotes">
+
+<br>
+
+### 8 · Check where you cited it, not just whether
+
+Every reference in your bibliography matched against your library, and every
+in-text citation compared against the section it is *most relevant to*. Citing a
+paper in Related Work when it belongs in Results is the kind of thing a reviewer
+notices and you do not.
+
+<img src="docs/images/citations.png" alt="The Citation placement panel: each cited paper with where it is cited, where it is most relevant, and a misplaced flag">
+
+<br>
+
+### 9 · Get a cited review of your own library
+
+A topic becomes investigation questions you can edit **before** paying to answer
+them — planning is one model call, answering is one per question.
+
+<img src="docs/images/report.png" alt="The Report tab: a cited literature review with per-question coverage bars and citation chips">
+
+> **What it is honest about:** the coverage number in that screenshot reads 1%,
+> and it is left there. It counts passages our own keyword search judged relevant
+> — a low number means the search cast a wide net, not that the answer is wrong.
+> Reporting it flattered would make it useless.
+
+<br>
+
+### 10 · Check it before anyone else does
+
+The last step costs nothing at all — no API key, no network beyond the public
+catalogues. Every reference looked up for real, every reported statistic
+recomputed, every venue rule checked.
+
+```bash
+research-companion refcheck    <paper_id>             # do the references exist?
+research-companion check-stats <paper_id>             # do the numbers add up?
+research-companion check-compliance <paper_id> --venue neurips
+```
+
+```text
+OK [verified]   Vaswani et al. Attention is all you need. NeurIPS
+OK [verified]   Devlin et al. BERT: pre-training of deep bidirectional transformers
+XX [unverified] Zzyzx Q. Nonexistent. A paper that was never written anywhere.
+
+Summary: 39 verified, 0 suspect, 1 unverified (40 references)
+```
+
+<br>
+
+---
+
+## What makes it different
+
+Most tools give you one axis: right or wrong, green or red. Research Companion
+separates **four** states, everywhere, and refuses to collapse them.
+
+| | means | shown as |
+|---|---|---|
+| **Verified** | a completed check established it | ✓ green |
+| **Advisory** | a model judged it — not a fact | ⚑ amber |
+| **Could not check** | attempted, could not finish | – muted |
+| **Not applicable** | meaningless for this document | – muted |
+
+A missing reference is never called *fabricated*. Zero statistics found is never
+reported as *passed*. An unreachable catalogue is never evidence of absence.
+That distinction is enforced in the type system, not left to copy discipline.
+
+---
+
 ## Contents
 
+- [The tour](#the-tour)
+- [What makes it different](#what-makes-it-different)
 - [Why Research Companion](#why-research-companion)
 - [Quickstart](#quickstart)
-- [A look inside](#a-look-inside)
 - [Features](#features)
+- [Claude Code skills](#claude-code-skills)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Documentation](#documentation)
@@ -82,19 +275,7 @@ python examples/demo_offline.py        # agentic review pipeline (6 lanes + rebu
 python examples/demo_lab_offline.py    # Research Lab event replay (papers, graph, strength)
 ```
 
-> **Note on versions:** the source tree is at `0.7.1`; the latest PyPI release is `0.5.14` (publishing is currently held), so an editable install from source is ahead of PyPI.
-
----
-
-## A look inside
-
-<table>
-  <tr>
-    <td width="33%" align="center"><img src="docs/images/draft.png" alt="Draft alignment view" width="260"><br><sub><b>Draft alignment</b> — each paper scored strengthens / challenges / alternative, with evidence quotes</sub></td>
-    <td width="33%" align="center"><img src="docs/images/ask.png" alt="Ask — grounded Q&A" width="260"><br><sub><b>Ask</b> — section‑scoped Q&A; every answer cites the exact section it used</sub></td>
-    <td width="33%" align="center"><img src="docs/images/timeline.png" alt="Timeline and gap analysis" width="260"><br><sub><b>Timeline</b> — concepts and methods over time, with gap analysis</sub></td>
-  </tr>
-</table>
+> **Note on versions:** the source tree is at `0.8.0`; the latest PyPI release is `0.5.14`, so an editable install from source is ahead of PyPI until `0.8.0` ships.
 
 ---
 
@@ -121,6 +302,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 - **Domain connectors** — opt‑in **PubMed**, **Europe PMC**, and **DBLP** so biomedical and CS references verify and prior‑art reaches beyond the general databases.
 - **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
 - **MCP trust‑layer server** — four deterministic, key‑free verification tools for any MCP‑capable agent (plus two opt‑in costed tools behind an explicit setting and cost cap).
+- **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code, on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
 
 ### 🧪 Research Lab (browser)
 - **Live‑growing graph** over SSE, section‑wise subgraphs that keep retrieval focused, a built‑in reader (Text + original‑PDF tabs), a **Simplified** plain‑English reader, **Notes** you can capture anywhere and export as a revision checklist, an adaptive **Home** dashboard (a genuinely empty workspace opens on a two‑path first‑run chooser — *Brainstorm from an idea* or *I already have a draft* — then a product intro with quick‑nav to every tab, then a compact journey view with next‑steps and a timeline once you have a draft), and a **Researches** tab: a sortable table tracking every research — papers/analyzed/failed, draft + version count, citation coverage, strength mix, open items, and draft‑updated / last‑activity / created — with a persistent **+ New research** button plus rename / archive / delete.
@@ -129,9 +311,37 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 - **Report tab** — turn a topic into a structured, cited literature review over your own library: 4–6 LLM-generated investigation sub-questions grounded in your library's own concepts and papers, each answered by the same grounded, quote-verified Q&A engine behind Ask — with citation chips back to the exact paper/section — run as a background job with live "Answering N/M" progress; scope is explicitly your library, never the open web. Before running the (more expensive) answering pass, an editable **research plan** lets you review, edit, add, remove, and reorder the generated investigation questions — then **Run report** answers exactly the set you approved; the original one-click "Generate report" one-shot flow still works unchanged for anyone who wants to skip the checkpoint. An opt-in **Score evidence** pass rates each citation for relevance to its question and stance (supports/contradicts/neutral) toward its answer — an honest, clearly-labeled AI judgment, never presented as "verified". Every report also carries a free, LLM-free **coverage** signal — a per-question and overall bar showing how much of the library material our own search judged relevant actually made it into the citations, always labeled a BM25 heuristic (not ground truth) with auditable raw counts. A one-click **Download (.md)** lets you save or share the whole report as a plain markdown file — the same citations, badges, and honesty caveats, never stripped of context.
 - **Honest "no research selected" state** — fresh installs and fully‑emptied libraries show a plain **Research: none** in the top bar instead of a hidden default workspace; `main` is now an ordinary, renamable research like any other.
 
-<sub>📄 Full version history lives in the release notes: [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)</sub>
+<sub>📄 Full version history lives in the release notes: [0.8](docs/RELEASE_0.8.md) · [0.7](docs/RELEASE_0.7.md) · [0.6](docs/RELEASE_0.6.md) · [0.5](docs/RELEASE_0.5.md) · [0.4](docs/RELEASE_0.4.md) · [0.3](docs/RELEASE_0.3.md) · [0.2](docs/RELEASE_0.2.md)</sub>
 
 ---
+
+## Claude Code skills
+
+The checks that need no model also need no UI. Two [Claude Code](https://claude.com/claude-code)
+skills live in [`skills/`](skills/) and answer a question directly on a PDF:
+
+| skill | question | cost |
+|---|---|---|
+| [`/submission-check`](skills/submission-check/SKILL.md) | Would this get desk-rejected? Venue rules, statcheck/GRIM, self-overlap. | free |
+| [`/refcheck`](skills/refcheck/SKILL.md) | Do these references actually exist? CrossRef / OpenAlex / arXiv. | free (network only) |
+
+```bash
+cp -r skills/refcheck skills/submission-check ~/.claude/skills/
+```
+
+```
+/refcheck paper.pdf
+/submission-check paper.pdf --venue neurips
+```
+
+They also trigger on the question phrased naturally — "are these citations real?",
+"will this get desk-rejected?".
+
+Both default to a **scratch workspace**, so an agent invoked from any directory
+cannot write into whichever research you last had open. And both follow the same
+reporting rule as the rest of the tool: a check that did not run is never shown
+as a check that passed, and a reference that could not be found is reported as
+*not found*, never as fabricated. Details and the rationale: [`skills/README.md`](skills/README.md).
 
 ## Installation
 
@@ -283,6 +493,7 @@ No embedding step: the graph topology is the relevance signal. For research pape
 
 ## Documentation
 
+- **[Walkthrough](docs/WALKTHROUGH.md)** ([PDF](docs/WALKTHROUGH.pdf)) — start here. One researcher, one topic, every feature in order: create a research, brainstorm it into a library, build the graph, and take a draft through to submission checks. Diagrams at each stage.
 - **[Full Documentation](docs/DOCUMENTATION.md)** ([PDF](docs/DOCUMENTATION.pdf)) — the single consolidated reference: overview, architecture, every feature, CLI, agents, Lab UI, tech stack, and roadmap.
 - **[User Manual](docs/USER_MANUAL.md)** ([PDF](docs/USER_MANUAL.pdf)) — every feature, how to use it, and how to read outputs honestly.
 - **[Developer Guide](docs/DEVELOPER_GUIDE.md)** — how the ingestion pipeline works end to end and how to extend or test it.
@@ -297,11 +508,15 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `PAPERGRAPH_DIR` | Where papers + graph are stored | `~/.research-companion/` |
+| `RESEARCH_COMPANION_DIR` | Where papers + graph are stored | `~/.research-companion/` |
+| `RESEARCH_COMPANION_WORKSPACE` | Force a research (workspace) for one command | active workspace |
 | `ANTHROPIC_API_KEY` | Required for `--provider anthropic` (default) | – |
 | `OPENAI_API_KEY` | Required for `--provider openai` | – |
+| `RESEARCH_COMPANION_PROVIDER` | Default provider (`anthropic` / `openai`) | `anthropic` |
+| `RESEARCH_COMPANION_MODEL` | Override the model id | provider default |
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
+| `NCBI_EMAIL` / `NCBI_API_KEY` | Optional — raises PubMed/E-utilities rate limits | – |
 
 Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `research-companion cost-estimate` to project costs before building.
 
