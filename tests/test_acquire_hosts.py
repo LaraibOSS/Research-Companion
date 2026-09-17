@@ -7,6 +7,8 @@ candidate to fall back to.
 """
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import pytest
 
 from research_companion.acquire import HostClass
@@ -48,8 +50,10 @@ def test_ranking_puts_a_repository_before_a_publisher():
         "https://dl.acm.org/doi/pdf/10.1145/3767742",
         "https://ink.library.smu.edu.sg/cgi/viewcontent.cgi?article=1",
     ])
-    assert "smu.edu.sg" in out[0]
-    assert "dl.acm.org" in out[1]
+    # Compare the parsed host, not a substring: "dl.acm.org" appears inside
+    # evil-dl.acm.org.example too, so `in` is the wrong test for a host.
+    assert urlparse(out[0]).netloc == "ink.library.smu.edu.sg"
+    assert urlparse(out[1]).netloc == "dl.acm.org"
 
 
 def test_ranking_puts_native_first_of_all():

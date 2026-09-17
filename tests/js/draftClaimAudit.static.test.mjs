@@ -92,7 +92,11 @@ test('view state is reset on unmount so a stale audit cannot leak across drafts'
 
 test('the badge tones have styles in all three states', () => {
   for (const tone of ['ok', 'warn', 'muted']) {
-    assert.match(CSS, new RegExp(`\.draft-audit-badge\.audit-${tone}`),
+    // `\.` inside a template literal is NOT an escape — it collapses to a bare
+    // `.`, so this regex used to mean "any character" where a literal dot was
+    // intended, matching far more than the selector it claims to pin. `\\.`
+    // puts a real `\.` into the pattern.
+    assert.match(CSS, new RegExp(`\\.draft-audit-badge\\.audit-${tone}`),
       `no style for audit-${tone}; the badge would render unstyled`);
   }
 });

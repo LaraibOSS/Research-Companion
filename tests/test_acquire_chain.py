@@ -7,6 +7,7 @@ a paywall, and neither may be reported as 'not found'.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import httpx
 
@@ -64,7 +65,7 @@ def test_the_repository_copy_is_tried_before_the_publisher():
     # dl.acm.org may never be tried at all: the repository candidate is
     # ranked first and succeeds, short-circuiting the loop. "never tried"
     # still counts as "after", so a missing publisher attempt sorts last.
-    publisher_index = next((i for i, u in enumerate(urls) if "dl.acm.org" in u),
+    publisher_index = next((i for i, u in enumerate(urls) if urlparse(u).netloc == "dl.acm.org"),
                           len(urls))
     assert repo_index < publisher_index, "repository before publisher"
 

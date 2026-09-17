@@ -32,6 +32,7 @@ user ends up with. Its absence is why the gap survived review.
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlparse
 
 import httpx
 import pytest
@@ -55,10 +56,11 @@ def _acm_refuses(request):
     """ACM answers 403 with an HTML body for an article ACM itself declares
     open access -- verified live against two of the real URLs."""
     url = str(request.url)
-    if "doi.org" in url:
+    host = urlparse(url).netloc
+    if host == "doi.org":
         # The DOI resolver hands the robot straight to the publisher.
         return httpx.Response(302, headers={"location": ACM_PDF})
-    if "dl.acm.org" in url:
+    if host == "dl.acm.org":
         return httpx.Response(403, headers={"content-type": "text/html"},
                               text="<html>Forbidden</html>")
     return httpx.Response(404)
