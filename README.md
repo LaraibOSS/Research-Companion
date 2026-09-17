@@ -9,6 +9,7 @@
 [![research-companion on PyPI](https://img.shields.io/pypi/v/research-companion?style=flat-square&label=research-companion%20on%20PyPI&color=0b7285)](https://pypi.org/project/research-companion/)
 [![MIT licensed](https://img.shields.io/badge/MIT-licensed-informational?style=flat-square)](LICENSE)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue?style=flat-square)](pyproject.toml)
+[![CI](https://img.shields.io/github/actions/workflow/status/LaraibOSS/Research-Companion/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 
 [![4,404 tests, ratcheted so coverage cannot shrink](https://img.shields.io/badge/4%2C404%20tests-ratcheted%20so%20coverage%20cannot%20shrink-2b8a3e?style=flat-square)](tests)
 [![Deterministic core runs with no API key](https://img.shields.io/badge/deterministic%20core-runs%20with%20no%20API%20key-8250df?style=flat-square)](#why-research-companion)
