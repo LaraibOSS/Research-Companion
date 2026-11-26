@@ -25,6 +25,7 @@ Paper IDs:
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -186,6 +187,59 @@ def save_registry(reg: dict) -> None:
     tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
     _active_cache.pop(str(root_dir()), None)
+
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write *text* to *path* so a reader never sees a half-written file.
+
+    A plain write_text truncates first and writes second; a crash, a sleep or
+    a second process reading in between leaves a truncated file. Every loader
+    here treats an unparseable file as "empty", so the NEXT save would then
+    replace the user's data with almost nothing. Writing a sibling temp file
+    and os.replace()-ing it over the target is atomic on POSIX and Windows.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        # No fsync: the guarantee wanted here is that a reader or a killed
+        # process never meets a half-written file, which the rename gives.
+        # Forcing each write to the platter as well made every save several
+        # times slower for protection against power loss only.
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+
+
+def preserve_if_corrupt(path: Path | None) -> Path | None:
+    """Move an unparseable JSON file aside before a read-modify-write replaces it.
+
+    The loaders for notes, failures and config return "empty" for a file they
+    cannot parse, which is right for a reader and destructive for a writer:
+    load -> append -> save would overwrite everything the file held. Call this
+    first in such a writer. A file that parses, or does not exist, is left
+    alone. Returns the path the bad file was moved to, else None.
+    """
+    if path is None or not path.exists():
+        return None
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+        return None
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        pass
+    except OSError:
+        return None
+    from datetime import datetime, timezone
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    kept = path.with_name(f"{path.name}.corrupt-{stamp}")
+    try:
+        os.replace(path, kept)
+    except OSError:
+        return None
+    return kept
 
 
 def _slugify_workspace(name: str) -> str:
@@ -493,7 +547,7 @@ class PaperMetadata:
 
     def save(self) -> None:
         p = paper_dir(self.paper_id) / "metadata.json"
-        p.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+        atomic_write_text(p, json.dumps(asdict(self), indent=2, ensure_ascii=False))
 
     @classmethod
     def load(cls, paper_id: str) -> PaperMetadata | None:
@@ -601,7 +655,7 @@ def save_extraction(paper_id: str, extraction: dict[str, Any], *, prompt_sha: st
     """Save extraction keyed on the prompt SHA so prompt changes invalidate cache."""
     payload = {"prompt_sha256": prompt_sha, "extraction": extraction}
     p = paper_dir(paper_id) / "extraction.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -631,7 +685,7 @@ def save_simplified(paper_id: str, payload: dict) -> Path:
     """Save the LLM 'Simplify further' rewrite to papers/<dir>/simplified.json.
     Display-only comprehension aid — never read by Ask/Draft/analysis paths."""
     p = paper_dir(paper_id) / "simplified.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -653,7 +707,7 @@ def save_citation_polarity(paper_id: str, mapping: dict[str, Any]) -> Path:
     """Persist per-citation polarity for a paper, keyed by the raw related_work
     string. Consumed by build_graph to type cites edges."""
     p = paper_dir(paper_id) / "citation_polarity.json"
-    p.write_text(json.dumps(mapping, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(mapping, indent=2, ensure_ascii=False))
     return p
 
 
@@ -756,8 +810,9 @@ def load_config() -> dict:
 def save_config(cfg: dict) -> None:
     """Save config dict to config.json with indent=2, utf-8 encoding."""
     p = config_path()
+    preserve_if_corrupt(p)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(cfg, indent=2, ensure_ascii=False))
 
 
 def get_draft_paper_id() -> str | None:
@@ -779,7 +834,7 @@ def set_draft_paper_id(paper_id: str | None) -> None:
 def save_sections(paper_id: str, payload: dict) -> Path:
     """Save sections JSON to papers/<dir>/sections.json."""
     p = paper_dir(paper_id) / "sections.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -813,7 +868,7 @@ def save_structure(paper_id: str, payload: dict) -> Path:
     layout-aware parser (docling) recovers tables/figures. Not read back yet.
     """
     p = paper_dir(paper_id) / "structure.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -836,7 +891,7 @@ def load_structure(paper_id: str) -> dict | None:
 def save_alignment(paper_id: str, payload: dict) -> Path:
     """Save alignment JSON to papers/<dir>/alignment.json."""
     p = paper_dir(paper_id) / "alignment.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -866,7 +921,7 @@ def load_alignment(paper_id: str, *, draft_paper_id: str | None = None) -> dict 
 def save_strength(paper_id: str, payload: dict) -> Path:
     """Save strength JSON to papers/<dir>/strength.json."""
     p = paper_dir(paper_id) / "strength.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -914,7 +969,7 @@ def save_embeddings(paper_id: str, payload: dict) -> Path:
     bare ``section_id`` still load, but composite lookups miss them (cache-miss).
     """
     p = paper_dir(paper_id) / "embeddings.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -949,6 +1004,7 @@ def failed_json_path() -> Path | None:
 
 def record_failure(key: str, info: dict) -> None:
     """Record or update a failure entry under key. Adds 'at' timestamp if absent."""
+    preserve_if_corrupt(failed_json_path())
     failures = list_failures()
 
     # Add timestamp if not present
@@ -961,7 +1017,7 @@ def record_failure(key: str, info: dict) -> None:
 
     p = failed_json_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(failures, indent=2, ensure_ascii=False))
 
 
 def clear_failure(key: str, *, paper_id: str | None = None) -> None:
@@ -973,6 +1029,7 @@ def clear_failure(key: str, *, paper_id: str | None = None) -> None:
     match by paper_id OR key, so a stale entry under the old key would otherwise
     keep pinning the paper to 'failed' after a successful re-ingest.
     """
+    preserve_if_corrupt(failed_json_path())
     failures = list_failures()
     to_remove = {k for k in failures if k == key}
     if paper_id is not None:
@@ -984,7 +1041,7 @@ def clear_failure(key: str, *, paper_id: str | None = None) -> None:
         for k in to_remove:
             del failures[k]
         p = failed_json_path()
-        p.write_text(json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8")
+        atomic_write_text(p, json.dumps(failures, indent=2, ensure_ascii=False))
 
 
 def list_failures() -> dict[str, dict]:
@@ -1016,7 +1073,7 @@ def save_review_report(paper_id: str, report: dict) -> Path:
     """Save a review report dict to the reviews store. Returns the saved path."""
     p = review_report_path(paper_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(report, indent=2, ensure_ascii=False))
     return p
 
 
@@ -1048,7 +1105,7 @@ def save_gaps(paper_id: str, payload: dict, *, prompt_sha: str | None = None) ->
         payload = dict(payload)
         payload["prompt_sha256"] = prompt_sha
     p = paper_dir(paper_id) / "gaps.json"
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -1087,7 +1144,7 @@ def save_gap_resolution(payload: dict) -> Path:
     """Save store-level gap resolution to gap_resolution.json."""
     p = gap_resolution_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -1121,7 +1178,7 @@ def save_gap_synthesis(payload: dict) -> Path | None:
     if p is None:
         return None
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -1161,7 +1218,7 @@ def save_brainstorm_session(payload: dict) -> Path | None:
     if p is None:
         return None
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -1198,7 +1255,7 @@ def save_report(payload: dict) -> Path | None:
     if p is None:
         return None
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 
@@ -1234,7 +1291,7 @@ def save_claim_audit(target: str, payload: dict) -> Path | None:
     if p is None:
         return None
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(p, json.dumps(payload, indent=2, ensure_ascii=False))
     return p
 
 

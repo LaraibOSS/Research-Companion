@@ -5090,7 +5090,7 @@ class TestNoveltyEndpoint:
         assert data["prior_works"][0]["title"] == "Graph retrieval for code"
         assert "error" not in data
 
-    def test_post_novelty_no_active_workspace_still_returns_200_with_verdict(
+    def test_post_novelty_no_active_workspace_still_returns_200_without_inventing_a_verdict(
             self, isolated_papergraph_dir, monkeypatch):
         from research_companion import discover, store
         monkeypatch.setattr(store, "active_workspace_id", lambda: None)
@@ -5100,7 +5100,10 @@ class TestNoveltyEndpoint:
         resp = c.post("/api/novelty", json={"title": "Some cold topic", "rationale": ""})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["verdict"] == "novel"  # zero prior works -> honest low-confidence novel
+        # Zero prior works is absence of evidence, not novelty: no verdict,
+        # a rationale saying so, and no error (the search itself succeeded).
+        assert data["verdict"] is None
+        assert "not evidence" in data["rationale"]
         assert "error" not in data
 
     def test_post_novelty_search_failure_never_500s(self, isolated_papergraph_dir, monkeypatch):

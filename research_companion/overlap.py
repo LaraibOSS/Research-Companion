@@ -123,6 +123,9 @@ def near_duplicate_passages(
         "findings": findings,
         "summary": {
             "n_passages": len(findings),
+            # How many other papers there were to compare against. Zero means
+            # the check established nothing, which is not the same as clean.
+            "n_compared": len(corpus_shingles),
             "papers": sorted(by_paper),
             "max_score": round(max(by_paper.values()), 4) if by_paper else 0.0,
             "text": text,
