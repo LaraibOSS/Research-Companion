@@ -29,6 +29,12 @@ from research_companion.rank import tokenize
 
 _VERDICTS = {"novel", "incremental", "overlaps", "anticipated"}
 
+NO_CANDIDATES_RATIONALE = (
+    "The search returned no papers, so novelty could not be assessed. "
+    "That is not evidence the direction is new: try broader wording or a "
+    "wider year range."
+)
+
 
 def _field(p, name: str, default=None):
     """Attribute accessor safe against non-DiscoveredPaper items. A bare
@@ -188,9 +194,14 @@ def check_novelty(
     top = _rank_prior_works(direction_text, papers, top_n=top_n)
 
     if not top:
+        # An empty search is the ABSENCE of evidence, not evidence of novelty:
+        # a query that is too narrow, a catalogue that returned nothing, or a
+        # year window with no coverage all land here. Returning "novel" would
+        # make the weakest possible search produce the most flattering verdict.
+        # No verdict is given; the rationale says why and what to try.
         return {
-            "verdict": "novel", "confidence": 0.3,
-            "rationale": "No prior work found for this direction in the searched sources.",
+            "verdict": None, "confidence": 0.0,
+            "rationale": NO_CANDIDATES_RATIONALE,
             "closest_prior": [], "prior_works": [], "query": query, "llm_error": None,
         }
 
@@ -212,7 +223,14 @@ def check_novelty(
 
     verdict = parsed.get("verdict")
     if verdict not in _VERDICTS:
-        verdict = "novel"
+        # An answer we cannot read is a failed check, never a "novel" one.
+        # Coercing it would turn every malformed or off-vocabulary response
+        # into the most flattering verdict available.
+        return {
+            "verdict": None, "confidence": 0.0, "rationale": "",
+            "closest_prior": [], "prior_works": prior_works, "query": query,
+            "llm_error": f"the model returned an unrecognised verdict ({verdict!r})",
+        }
     confidence = _clamp01(parsed.get("confidence", 0.0))
     out_rationale = str(parsed.get("rationale") or "")
     raw_closest = parsed.get("closest_prior")

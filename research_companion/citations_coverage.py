@@ -521,8 +521,14 @@ def _recount(payload: dict) -> None:
 # 6. compute_coverage (offline)
 # ---------------------------------------------------------------------------
 
-def compute_coverage(draft_id: str) -> dict:
+def compute_coverage(draft_id: str, *, persist: bool = True) -> dict:
     """Parse + library-match the draft's bibliography; persist and return.
+
+    ``persist=False`` computes and returns WITHOUT writing. There is one
+    coverage file per workspace, belonging to the current draft, so a
+    read-only caller (the MCP tool) computing coverage for some other paper
+    must not save: doing so replaced the draft's stored coverage, discarding
+    its manual citation links and its resolution timestamp.
 
     Never hits the network. Resolution results from a previous run are carried
     over by exact raw-string match so paid lookups are never discarded.
@@ -614,7 +620,8 @@ def compute_coverage(draft_id: str) -> dict:
         "references": refs_out,
     }
     _recount(payload)
-    save_coverage(payload)
+    if persist:
+        save_coverage(payload)
     return payload
 
 

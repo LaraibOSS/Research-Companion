@@ -110,7 +110,8 @@ def citation_coverage(*, paper_id: str) -> dict:
     """
     from research_companion.citations_coverage import compute_coverage
 
-    payload = compute_coverage(paper_id)
+    # Read-only: this tool is advertised as a lookup, so it must never write.
+    payload = compute_coverage(paper_id, persist=False)
     return {
         "paper_id": paper_id,
         "counts": payload.get("counts", {}),

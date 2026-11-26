@@ -252,18 +252,17 @@ def _apply_alignment_rules(alignments: list[dict], now_str: str) -> list[dict]:
                     source={"type": "paper", "paper_id": candidate_id, "section_id": section_id},
                     now_str=now_str,
                 ))
-            elif relation == "alternative":
-                if relevance >= 0.5:
-                    sugs.append(_sug(
-                        kind="related_work",
-                        severity="medium",
-                        source_key=f"{candidate_id}:{section_id}:{relation}",
-                        title=f"Discuss {paper_label} as an alternative in related work",
-                        detail=rationale or f"Section '{section_title}' presents an alternative approach. Discuss similarities and differences.",
-                        section_id=section_id,
-                        source={"type": "paper", "paper_id": candidate_id, "section_id": section_id},
-                        now_str=now_str,
-                    ))
+            elif relation == "alternative" and relevance >= 0.5:
+                sugs.append(_sug(
+                    kind="related_work",
+                    severity="medium",
+                    source_key=f"{candidate_id}:{section_id}:{relation}",
+                    title=f"Discuss {paper_label} as an alternative in related work",
+                    detail=rationale or f"Section '{section_title}' presents an alternative approach. Discuss similarities and differences.",
+                    section_id=section_id,
+                    source={"type": "paper", "paper_id": candidate_id, "section_id": section_id},
+                    now_str=now_str,
+                ))
     return sugs
 
 

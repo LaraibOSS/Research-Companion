@@ -106,6 +106,47 @@ def _extract_overlap(data: dict) -> list[dict]:
     return []
 
 
+# --- Did a lane that ran actually examine anything? ---------------------------
+#
+# "Ran without finding a problem" and "ran and had nothing to look at" are
+# different facts, and only the first supports the word "ready". A lane with no
+# entry here always examines the paper's text and so always establishes
+# something.
+
+def _examined_compliance(data: dict) -> bool:
+    # Every check skipped (unknown venue, no rule for it) is nothing checked.
+    return any(c.get("status") in ("ok", "finding") for c in data.get("checks", []) or [])
+
+
+def _examined_citation(data: dict) -> bool:
+    c = data.get("counts", {}) or {}
+    return (c.get("verified", 0) + c.get("suspect", 0) + c.get("unverified", 0)) > 0
+
+
+def _examined_statsoundness(data: dict) -> bool:
+    s = data.get("summary", {}) or {}
+    return (s.get("n_tests", 0) + s.get("n_means", 0)) > 0
+
+
+def _examined_novelty(data: dict) -> bool:
+    c = data.get("counts", {}) or {}
+    return any(c.get(v, 0) for v in ("novel", "incremental", "overlaps", "anticipated"))
+
+
+def _examined_overlap(data: dict) -> bool:
+    # Absent on results from before the field existed: assume compared.
+    return (data.get("summary", {}) or {}).get("n_compared", 1) > 0
+
+
+_EXAMINED = {
+    "compliance": (_examined_compliance, "no venue rule could be applied"),
+    "citation": (_examined_citation, "no references were found to check"),
+    "statsoundness": (_examined_statsoundness, "no statistics were found to check"),
+    "novelty": (_examined_novelty, "no contribution could be assessed"),
+    "overlap": (_examined_overlap, "no other papers to compare against"),
+}
+
+
 _EXTRACTORS = {
     "compliance": _extract_compliance,
     "statsoundness": _extract_statsoundness,
@@ -123,8 +164,11 @@ def _summary(verdict: str, blockers: list, warnings: list, coverage: dict) -> st
         "not_ready": f"Not ready — {len(blockers)} blocker(s) to fix",
         "revise": f"Revise — {len(warnings)} item(s) to review, no hard blockers",
         "ready": "Ready to submit, based on the checks that ran",
+        "not_assessed": "Not assessed — the checks that ran had nothing to examine",
     }[verdict]
     caveats = []
+    for lane, why in (coverage.get("nothing_checked") or {}).items():
+        caveats.append(f"{lane}: {why}")
     nr = set(coverage["not_run"])
     if nr & set(_VENUE_LANES):
         caveats.append("venue/compliance checks not run — pass --venue")
@@ -147,6 +191,7 @@ def build_readiness(lanes: dict) -> dict:
     ran: list[str] = []
     not_run: list[str] = []
     failed: list[str] = []
+    nothing_checked: dict[str, str] = {}
     for name in KNOWN_LANES:
         entry = lanes.get(name)
         if entry is None:
@@ -159,14 +204,30 @@ def build_readiness(lanes: dict) -> dict:
         if name == "venuefit" and data.get("skipped"):
             not_run.append(name)
             continue
-        ran.append(name)
         extractor = _EXTRACTORS.get(name)
-        for item in (extractor(data) if extractor else []):
+        items = extractor(data) if extractor else []
+        for item in items:
             (blockers if item["severity"] == "blocker" else warnings).append(item)
-    if not ran:
+        examined, why = _EXAMINED.get(name, (None, ""))
+        if not items and examined is not None and not examined(data):
+            # It returned, but looked at nothing: zero references parsed, zero
+            # statistics found, every venue check skipped. Counting that as a
+            # lane that "ran" is what let an empty review say "ready".
+            nothing_checked[name] = why
+            continue
+        ran.append(name)
+    if not ran and not nothing_checked:
         return {}
     warnings.sort(key=lambda i: _WARNING_ORDER.get(i["lane"], 99))
-    verdict = "not_ready" if blockers else ("revise" if warnings else "ready")
-    coverage = {"ran": ran, "not_run": not_run, "failed": failed}
+    if blockers:
+        verdict = "not_ready"
+    elif warnings:
+        verdict = "revise"
+    elif ran:
+        verdict = "ready"
+    else:
+        verdict = "not_assessed"
+    coverage = {"ran": ran, "not_run": not_run, "failed": failed,
+                "nothing_checked": nothing_checked}
     return {"verdict": verdict, "blockers": blockers, "warnings": warnings,
             "coverage": coverage, "summary": _summary(verdict, blockers, warnings, coverage)}

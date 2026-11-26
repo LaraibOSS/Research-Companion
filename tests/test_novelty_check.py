@@ -149,7 +149,7 @@ def test_check_novelty_calls_search_with_expected_args():
     assert calls == [("Graph retrieval for code", 10, 2020, 2024)]
 
 
-def test_check_novelty_zero_prior_works_returns_honest_novel_no_llm_call():
+def test_check_novelty_zero_prior_works_gives_no_verdict_and_no_llm_call():
     from research_companion.novelty_check import check_novelty
 
     def fake_search(query, *, limit, year_min, year_max):
@@ -159,9 +159,13 @@ def test_check_novelty_zero_prior_works_returns_honest_novel_no_llm_call():
         raise AssertionError("llm must not be called when there are zero prior works")
 
     out = check_novelty("Some obscure idea", "rationale", search=fake_search, llm=exploding_llm)
-    assert out["verdict"] == "novel"
-    assert out["confidence"] == 0.3
-    assert out["rationale"] == "No prior work found for this direction in the searched sources."
+    # An empty search is absence of evidence, not evidence of novelty: the
+    # weakest possible search must not produce the most flattering verdict.
+    from research_companion.novelty_check import NO_CANDIDATES_RATIONALE
+    assert out["verdict"] is None
+    assert out["confidence"] == 0.0
+    assert out["rationale"] == NO_CANDIDATES_RATIONALE
+    assert "not evidence" in out["rationale"]
     assert out["prior_works"] == []
     assert out["closest_prior"] == []
     assert out["llm_error"] is None
@@ -275,7 +279,7 @@ def test_rank_and_block_are_safe_against_bare_string_items():
     assert block.startswith("[1] Untitled (n.d.)")
 
 
-def test_check_novelty_normalizes_unknown_verdict_to_novel():
+def test_check_novelty_unknown_verdict_is_a_failed_check_not_novel():
     from research_companion.novelty_check import check_novelty
     papers = [_paper(title="X", abstract="x")]
 
@@ -287,7 +291,10 @@ def test_check_novelty_normalizes_unknown_verdict_to_novel():
                             "closest_prior": [], "rationale": "r"})
 
     out = check_novelty("Topic", "rationale", search=fake_search, llm=fake_llm)
-    assert out["verdict"] == "novel"
+    # Coercing an unreadable answer to "novel" is fail-open: it must surface
+    # as a retryable error with no verdict.
+    assert out["verdict"] is None
+    assert out["llm_error"] and "groundbreaking" in out["llm_error"]
 
 
 def test_check_novelty_clamps_confidence_to_0_1():

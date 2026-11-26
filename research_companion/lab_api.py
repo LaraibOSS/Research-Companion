@@ -743,6 +743,43 @@ def require_active_workspace() -> None:
         raise NoActiveWorkspaceError()
 
 
+
+def cross_origin_rejection(*, path: str, host: str | None, origin: str | None,
+                           sec_fetch_site: str | None) -> str | None:
+    """Why an /api request from another web origin must be refused, else None.
+
+    The Lab has no login: being reachable only from this machine is the whole
+    access model. A browser will happily send a request from any page the user
+    has open to http://127.0.0.1:<port>, so "local" has to mean "from the Lab's
+    own page", not merely "arrived on loopback".
+
+    Rule, for paths under /api/ only (the page itself must stay linkable):
+      * an ``Origin`` header that is not this server's own origin is refused.
+        Browsers attach Origin to every cross-origin POST/PUT/DELETE and to
+        cross-origin fetch() GETs, and a page cannot forge or remove it.
+      * ``Sec-Fetch-Site: cross-site`` is refused. This covers the requests
+        that carry no Origin: an <img>, <script> or link pointing at a GET
+        endpoint that has side effects.
+    A request with neither header is not from a browser page (the CLI, curl,
+    the test client, an MCP host) and is allowed, as before.
+    """
+    if not path.startswith("/api/"):
+        return None
+    if (sec_fetch_site or "").strip().lower() == "cross-site":
+        return "request came from another site"
+    if origin is None:
+        return None
+    origin = origin.strip().lower()
+    if origin == "null":
+        # Sandboxed iframes, file:// pages and some redirects send the literal
+        # "null". None of those is the Lab's own page.
+        return "request came from an opaque origin"
+    own = (host or "").strip().lower()
+    for scheme in ("http://", "https://"):
+        if origin.startswith(scheme) and origin[len(scheme):] == own and own:
+            return None
+    return "request came from another origin"
+
 def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     """Create and return the Lab FastAPI application.
 
@@ -797,6 +834,24 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "testserver"],
     )
+
+    # Cross-site request defense. The Host allowlist above stops DNS rebinding,
+    # but not a page on another origin simply POSTing to http://127.0.0.1:<port>:
+    # the browser sends that request (the page just cannot read the reply), and
+    # several endpoints here start paid model calls or change state with no body
+    # at all. See cross_origin_rejection() for the rule.
+    @app.middleware("http")
+    async def _reject_cross_origin(request, call_next):
+        reason = cross_origin_rejection(
+            path=request.url.path,
+            host=request.headers.get("host"),
+            origin=request.headers.get("origin"),
+            sec_fetch_site=request.headers.get("sec-fetch-site"),
+        )
+        if reason:
+            return JSONResponse(status_code=403,
+                                content={"error": "cross_origin_rejected", "detail": reason})
+        return await call_next(request)
 
     app.state.recorder = recorder
     app.state.bus = bus

@@ -67,8 +67,12 @@ def list_notes() -> list[dict]:
 
 def _write(notes: list[dict]) -> None:
     p = _path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(notes, indent=2, ensure_ascii=False), encoding="utf-8")
+    from research_companion.store import atomic_write_text, preserve_if_corrupt
+    # Notes are the user's own writing. list_notes() reads an unparseable file
+    # as [], so without this a truncated notes.json would be replaced by
+    # whatever single note is being saved now.
+    preserve_if_corrupt(p)
+    atomic_write_text(p, json.dumps(notes, indent=2, ensure_ascii=False))
 
 
 def save_note(record: dict) -> dict:

@@ -87,7 +87,11 @@ class NoveltyAgent(Agent):
                     llm, format_comparison_prompt(c.get("text", ""), prior_block)
                 )
                 cmp = _parse_json(raw_cmp, "comparison")
-                verdict = cmp.get("verdict", "novel")
+                # A missing or off-vocabulary verdict is "unassessed", never
+                # "novel": the default must not be the flattering answer.
+                verdict = cmp.get("verdict")
+                if verdict not in ("novel", "incremental", "overlaps", "anticipated"):
+                    verdict = "unassessed"
                 entry = {
                     "text": c.get("text", ""),
                     "kind": c.get("kind", ""),
