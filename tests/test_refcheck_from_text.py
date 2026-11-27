@@ -377,3 +377,64 @@ def test_author_agreement_survives_accents_particles_and_missing_authors():
     # No authors on the record is "nothing to compare", not a disagreement.
     assert _m.authors_corroborate("Anyone. Anything.", []) is None
     assert _m.authors_corroborate("Anyone. Anything.", ["Somebody Else"]) is False
+
+
+# ---------------------------------------------------------------------------
+# Bibliographies with no numeric markers and no blank lines between entries.
+#
+# These used to come back as ONE reference with nothing unparsed -- a single
+# lookup reported as full coverage of a list that was never split.
+# ---------------------------------------------------------------------------
+
+from research_companion.refcheck.parse import split_reference_entries as _split  # noqa: E402
+
+_APA = """Vaswani, A., Shazeer, N., & Parmar, N. (2017). Attention is all you need. NeurIPS.
+Devlin, J., Chang, M.-W., & Lee, K. (2019). BERT: Pre-training of deep bidirectional transformers. NAACL.
+He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for image recognition. CVPR.
+Kingma, D. P., & Ba, J. (2015). Adam: A method for stochastic optimization. ICLR."""
+
+
+def test_author_year_entries_one_per_line_are_split():
+    entries, unparsed = _split(_APA)
+    assert len(entries) == 4 and unparsed == []
+    assert entries[1].startswith("Devlin, J.")
+
+
+def test_a_wrapped_tail_stays_with_its_own_entry():
+    text = ("Vaswani, A., Shazeer, N., & Parmar, N. (2017). Attention is all you need.\n"
+            "In Advances in Neural Information Processing Systems, pp. 5998-6008.\n"
+            "Devlin, J., Chang, M.-W., & Lee, K. (2019). BERT: Pre-training of deep\n"
+            "bidirectional transformers for language understanding. NAACL.")
+    entries, unparsed = _split(text)
+    assert len(entries) == 2 and unparsed == []
+    assert entries[0].endswith("pp. 5998-6008.")
+    assert entries[1].startswith("Devlin, J.") and entries[1].endswith("NAACL.")
+
+
+def test_alpha_labelled_entries_are_split_and_labels_removed():
+    text = ("[Vas17] A. Vaswani, N. Shazeer. Attention is all you need. NeurIPS, 2017.\n"
+            "[DCLT19] J. Devlin, M. Chang. BERT: Pre-training of deep bidirectional\n"
+            "  transformers. NAACL, 2019.\n"
+            "[He16] K. He, X. Zhang. Deep residual learning for image recognition. CVPR, 2016.")
+    entries, unparsed = _split(text)
+    assert len(entries) == 3 and unparsed == []
+    assert not any(e.startswith("[") for e in entries)
+    assert "transformers. NAACL, 2019." in entries[1]
+
+
+def test_bulleted_entries_are_split_and_a_page_number_is_reported_not_glued():
+    text = ("- A. Vaswani, N. Shazeer. Attention is all you need. NeurIPS, 2017.\n"
+            "- J. Devlin, M. Chang. BERT: Pre-training of deep bidirectional transformers. 2019.\n"
+            "7\n"
+            "- K. He, X. Zhang. Deep residual learning for image recognition. CVPR, 2016.")
+    entries, unparsed = _split(text)
+    assert len(entries) == 3
+    assert unparsed == ["7"]
+    assert not any(e.endswith(" 7") for e in entries)
+
+
+def test_a_single_wrapped_entry_is_still_one_entry():
+    text = ("Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L. (2017). Attention\n"
+            "is all you need. In Advances in Neural Information Processing Systems.")
+    entries, unparsed = _split(text)
+    assert len(entries) == 1 and unparsed == []

@@ -145,6 +145,25 @@ _POST_BIB_HEADING_RE = re.compile(
 _ENTRY_MARKER_RE = re.compile(
     r"^\s*(?:[-*•]\s+)?(?:\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+")
 
+#: A labelled entry marker: "[Vas17]", "[VSP+17]", "[Devlin2019]" (alpha and
+#: author-year BibTeX styles). Must contain a letter, so "[12]" stays numeric.
+_LABEL_MARKER_RE = re.compile(
+    r"^\s*(?:[-*•]\s+)?\[(?=[^\]]*[A-Za-z])[A-Za-z0-9+\-.:]{2,20}\]\s+")
+
+#: A bare list bullet. Only treated as an entry marker when several lines carry
+#: one, since a single dash is as likely to be a wrapped hyphenation.
+_BULLET_MARKER_RE = re.compile(r"^\s*[-*•]\s+(?=\S)")
+
+_ENTRY_YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}[a-z]?(?!\d)")
+
+#: How an author-year entry opens: "Vaswani, A.", "A. Vaswani", "Vaswani A."
+#: or "Vaswani et al". Used only to tell a new entry from a wrapped tail.
+_AUTHOR_START_RE = re.compile(
+    r"^\s*(?:[A-ZÀ-Þ][\w'’\-]+,\s"              # Surname, ...
+    r"|(?:[A-Z]\.\s?){1,3}[A-ZÀ-Þ][\w'’\-]+"     # A. B. Surname
+    r"|[A-ZÀ-Þ][\w'’\-]+\s+(?:[A-Z]\.|et\s+al)"  # Surname A. / Surname et al
+    r")")
+
 #: A page number or running-header artifact left in the extracted text: a line
 #: that is nothing but digits (optionally "Page 7" / "- 7 -").
 _PAGE_ARTIFACT_RE = re.compile(r"^\s*(?:page\s+)?[-–—\s]*\d{1,4}[-–—\s]*\s*$",
@@ -176,6 +195,80 @@ def bibliography_section(text: str) -> str:
             end = j
             break
     return "\n".join(lines[start:end]).strip()
+
+
+def _split_on_marker(lines: list[str], marker: re.Pattern) -> list[str]:
+    """Entries delimited by *marker*; unmarked lines continue the entry above."""
+    blocks, current = [], []
+    for ln in lines:
+        if marker.match(ln):
+            if current:
+                blocks.append(" ".join(current))
+            current = [marker.sub("", ln).strip()]
+        elif _PAGE_ARTIFACT_RE.match(ln):
+            blocks.append(ln.strip())          # short: lands in `unparsed`
+        elif current:
+            current.append(ln.strip())
+        else:
+            blocks.append(ln.strip())
+    if current:
+        blocks.append(" ".join(current))
+    return blocks
+
+
+def _split_unnumbered_block(block: str) -> list[str]:
+    """Split one blank-line-delimited block that has no numeric markers.
+
+    A bibliography with no "[1]" markers and no blank lines between entries
+    (APA one-per-line, bulleted lists, "[Vas17]" labels) used to come back as
+    ONE reference with nothing unparsed: a single lookup, reported as full
+    coverage of a list that was never split. That is the worst failure this
+    module can have, so each layout is recognised here.
+
+    Order: labelled markers, then bullets, then a year-anchored pass. The last
+    one treats a line as the end of an entry once the entry so far contains a
+    publication year and the line ends a sentence. Pieces with no year in them
+    are merged back into the entry above, so a wrapped tail such as
+    "In NeurIPS, pp. 5998-6008." never becomes a reference of its own.
+    """
+    lines = [ln for ln in block.splitlines() if ln.strip()]
+    if len(lines) <= 1:
+        return [" ".join(block.split())]
+
+    if sum(1 for ln in lines if _LABEL_MARKER_RE.match(ln)) >= 2:
+        return _split_on_marker(lines, _LABEL_MARKER_RE)
+    if sum(1 for ln in lines if _BULLET_MARKER_RE.match(ln)) >= 2:
+        return _split_on_marker(lines, _BULLET_MARKER_RE)
+
+    pieces, current = [], []
+    for ln in lines:
+        if _PAGE_ARTIFACT_RE.match(ln):
+            pieces.append(ln.strip())
+            continue
+        if (not current and pieces and not _PAGE_ARTIFACT_RE.match(pieces[-1])
+                and not _ENTRY_YEAR_RE.search(ln) and not _AUTHOR_START_RE.match(ln)):
+            # The entry above already closed, and this line neither carries a
+            # year nor opens with an author: it is that entry's wrapped tail
+            # ("In Advances in ..., pp. 5998-6008."), not the start of the next.
+            pieces[-1] = f"{pieces[-1]} {ln.strip()}"
+            continue
+        current.append(ln.strip())
+        joined = " ".join(current)
+        if _ENTRY_YEAR_RE.search(joined) and joined.rstrip().endswith((".", ")", "]")):
+            pieces.append(joined)
+            current = []
+    if current:
+        pieces.append(" ".join(current))
+
+    merged: list[str] = []
+    for piece in pieces:
+        if (merged and not _PAGE_ARTIFACT_RE.match(piece)
+                and not _ENTRY_YEAR_RE.search(piece)
+                and not _PAGE_ARTIFACT_RE.match(merged[-1])):
+            merged[-1] = f"{merged[-1]} {piece}"
+        else:
+            merged.append(piece)
+    return merged
 
 
 def split_reference_entries(section: str) -> tuple[list[str], list[str]]:
@@ -213,7 +306,9 @@ def split_reference_entries(section: str) -> tuple[list[str], list[str]]:
             blocks.append(" ".join(current))
         blocks.extend(strays)
     else:
-        blocks = [" ".join(b.split()) for b in re.split(r"\n\s*\n", section)]
+        blocks = []
+        for para in re.split(r"\n\s*\n", section):
+            blocks.extend(_split_unnumbered_block(para))
 
     entries, unparsed = [], []
     for b in blocks:
