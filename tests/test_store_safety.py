@@ -75,3 +75,53 @@ def test_a_failed_write_keeps_the_previous_content(tmp_path, monkeypatch):
         store.atomic_write_text(target, "new")
     assert target.read_text(encoding="utf-8") == "old"
     assert [p.name for p in target.parent.iterdir()] == ["x.json"]
+
+
+def test_a_briefly_locked_target_is_retried_not_failed(tmp_path, monkeypatch):
+    """On Windows a rename onto a file another thread has open fails with
+    'Access is denied' for a moment. Seen in the suite as a find-pdf job
+    failing on metadata.json. The write retries instead of losing the save."""
+    target = tmp_path / "own" / "x.json"
+    store.atomic_write_text(target, "old")
+    real_replace = store.os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(store.os, "replace", flaky)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    store.atomic_write_text(target, "new")
+    assert target.read_text(encoding="utf-8") == "new"
+    assert calls["n"] == 3
+    assert [p.name for p in target.parent.iterdir()] == ["x.json"]
+
+
+def test_concurrent_writers_never_share_a_temp_file(tmp_path):
+    """Two threads saving the same file used the same temp name (it carried
+    only the process id), so one could rename the other's half-written temp."""
+    import json as _json
+    import threading
+
+    target = tmp_path / "own" / "shared.json"
+    errors = []
+
+    def writer(n):
+        try:
+            for i in range(40):
+                store.atomic_write_text(target, _json.dumps({"writer": n, "i": i, "pad": "x" * 2000}))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    data = _json.loads(target.read_text(encoding="utf-8"))   # always whole, never torn
+    assert data["i"] == 39
+    assert [p.name for p in target.parent.iterdir()] == ["shared.json"]
