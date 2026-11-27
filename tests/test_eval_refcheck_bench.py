@@ -9,11 +9,16 @@ pinned through the real parse -> lookup -> validate path.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from research_companion.eval import refcheck_bench as rb
 from research_companion.eval._common import BenchFormatError, fmt_rate, rate
+
+REPO = Path(__file__).resolve().parents[1]
+SMOKE = REPO / "eval" / "cases" / "refcheck_smoke.jsonl"
+CATALOGUE = REPO / "eval" / "cases" / "refcheck_smoke_catalogue.json"
 
 
 def _row(label, status, checked=True, type_=None):
@@ -172,6 +177,76 @@ def test_bibtex_entry_keeps_structured_authors_and_identifiers():
     assert line.arxiv_id == "1607.06450" and line.authors == []
 
 
+# ---------------------------------------------------------------------------
+# the smoke set, through the real matcher
+# ---------------------------------------------------------------------------
+
+def test_the_smoke_set_has_the_promised_shape():
+    loaded = rb.load_entries(SMOKE)
+    assert loaded.skipped == []
+    labels = [e.label for e in loaded.entries]
+    assert len(labels) == 30
+    assert labels.count("real") == 15 and labels.count("fabricated") == 15
+
+
+def test_smoke_set_results_are_pinned():
+    """The current matcher's numbers on the smoke set. Every miss below was
+    investigated and is a real property of the checker, not of the harness:
+
+    * wrong_authors (freeform lines): parse_reference_string extracts no
+      authors, and authors are only consulted when a title matched by
+      containment, so a whole-title match with invented authors verifies.
+      The same mistake in BibTeX (structured authors) is caught.
+    * wrong_year, invented_venue: neither year nor venue is compared.
+    * short_title_prefix_real_authors: the containment rule asks for one
+      author in common; a fabrication that reuses the real authors has one.
+    * real_short_title ("Deep learning", Nature 2015): the 15-character
+      shared-run floor deliberately rejects short generic phrases
+      (test_the_floor_still_blocks_a_short_generic_phrase), and it rejects
+      this real citation with them -- the one false accusation.
+
+    If the matcher improves, update these numbers in the same change and say
+    which entries moved.
+    """
+    result = rb.evaluate(SMOKE, rb.fixture_lookup(CATALOGUE))
+    m = result["metrics"]
+    assert m["not_checked"] == {"total": 0, "real": 0, "fabricated": 0}
+    assert m["fabricated"] == {
+        "total": 15, "checked": 15, "detected": 9, "detected_as_suspect": 2,
+        "detected_as_not_found": 7, "missed": 6, "detection_rate": 0.6}
+    assert m["real"] == {
+        "total": 15, "checked": 15, "accepted": 14, "falsely_accused": 1,
+        "accused_as_suspect": 0, "accused_as_not_found": 1,
+        "false_accusation_rate": 0.0667}
+    per = {(g["type"], g["label"]): (g["checked"], g["flagged"]) for g in m["per_type"]}
+    assert per == {
+        ("invented_title", "fabricated"): (3, 3),
+        ("invented_venue", "fabricated"): (2, 1),
+        ("short_title_prefix", "fabricated"): (3, 3),
+        ("short_title_prefix_real_authors", "fabricated"): (1, 0),
+        ("wrong_authors", "fabricated"): (2, 0),
+        ("wrong_authors_bibtex", "fabricated"): (1, 1),
+        ("wrong_identifier", "fabricated"): (1, 1),
+        ("wrong_year", "fabricated"): (2, 0),
+        ("real", "real"): (12, 0),
+        ("real_bibtex", "real"): (2, 0),
+        ("real_short_title", "real"): (1, 1),
+    }
+    errors = {(r["line"], r["outcome"]) for r in result["rows"]
+              if r["outcome"] in ("missed", "falsely_accused")}
+    assert errors == {(11, "falsely_accused"), (19, "missed"), (20, "missed"),
+                      (25, "missed"), (26, "missed"), (27, "missed"), (28, "missed")}
+
+
+def test_the_containment_fix_holds_on_the_smoke_set():
+    """The fix this harness was built to measure: a short real title inside a
+    longer invented one, with no author in common, is not verified."""
+    result = rb.evaluate(SMOKE, rb.fixture_lookup(CATALOGUE))
+    prefix = [r for r in result["rows"] if r["type"] == "short_title_prefix"]
+    assert len(prefix) == 3
+    assert all(r["status"] != "verified" for r in prefix)
+
+
 def test_an_unreachable_catalogue_is_not_checked_not_a_failure(tmp_path):
     """Through the real validator: a lookup that cannot reach anything yields
     "unverified", and the harness must not score that as a detection."""
@@ -280,3 +355,54 @@ def test_a_truncated_cache_line_from_an_interrupted_run_is_ignored(tmp_path):
     reloaded = rb.CatalogueCache(cache_file)
     assert reloaded.get("openalex", "q2") == (True, [])
     assert reloaded.unreadable_lines == 1
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def test_cli_human_summary_states_denominators(capsys):
+    code = rb.main([str(SMOKE), "--catalogue", str(CATALOGUE)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Detection rate:        60.0% (9 of 15 checked)" in out
+    assert "False-accusation rate: 6.7% (1 of 15 checked)" in out
+    assert "Not checked (no catalogue reachable): 0" in out
+    assert "excluded from both rates" in out
+    assert "line 11 [real/real_short_title] -> unverified" in out
+
+
+def test_cli_json_output_and_limit(capsys):
+    code = rb.main([str(SMOKE), "--catalogue", str(CATALOGUE), "--json", "--limit", "5"])
+    data = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert data["limit"] == 5 and data["usable_rows"] == 30
+    assert data["metrics"]["entries_run"] == 5
+    assert len(data["rows"]) == 5
+    assert set(data["metrics"]["definitions"]) == {
+        "detection_rate", "false_accusation_rate", "not_checked"}
+
+
+def test_cli_rejects_a_mismatched_file_with_the_expected_fields(tmp_path, capsys):
+    p = _write(tmp_path, [{"citation": "x"}])
+    code = rb.main([str(p), "--catalogue", str(CATALOGUE)])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert '"entry"' in err and '"bibtex"' in err
+
+
+def test_cli_live_mode_uses_the_cache_flag(tmp_path, capsys, monkeypatch):
+    calls = []
+    real_build = rb.build_live_lookup
+
+    def offline_build(**kw):
+        return real_build(**kw, **_fake_sources(calls))
+
+    monkeypatch.setattr(rb, "build_live_lookup", offline_build)
+    cache_file = tmp_path / "c.jsonl"
+    code = rb.main([str(_cases(tmp_path)), "--cache", str(cache_file), "--delay", "0",
+                    "--limit", "1"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Live run" in captured.err
+    assert f"Cache {cache_file}: 0 responses replayed, 1 recorded" in captured.out
