@@ -137,6 +137,12 @@ try:
         paper_a: str = ""
         paper_b: str = ""
 
+    class _RunAgentsBody(_BaseModel):
+        paper_id: str
+        agents: list[str]
+        venue: str | None = None
+        problem_statement: str | None = None
+
     class _AddPaperBody(_BaseModel):
         target: str = ""
 
@@ -295,6 +301,7 @@ except ImportError:
     _AlignBody = None  # type: ignore[assignment,misc]
     _AskBody = None  # type: ignore[assignment,misc]
     _CompareBody = None  # type: ignore[assignment,misc]
+    _RunAgentsBody = None  # type: ignore[assignment,misc]
     _AddPaperBody = None  # type: ignore[assignment,misc]
     _SettingsPatchBody = None  # type: ignore[assignment,misc]
     _RegenerateBody = None  # type: ignore[assignment,misc]
@@ -896,6 +903,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     app.state._coverage_lock = asyncio.Lock()
     # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
     app.state.auto_added_targets: set = set()
+    # Papers with an agent run in progress (one run per paper at a time).
+    app.state.agent_runs: set = set()
+    # Test seam: fake _lookup/_search for agent runs. None in production.
+    app.state.agent_context_overrides = None
     # How many auto-downloads each draft has used of AUTO_ADD_LIMIT.
     app.state.auto_added_per_draft: dict = {}
     # Bounds concurrent add-paper pipelines (see max_concurrent_ingests).
@@ -3542,14 +3553,103 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # GET /api/settings
     # -----------------------------------------------------------------
     @app.get("/api/agents")
-    async def list_agents_endpoint() -> dict:
+    async def list_agents_endpoint(paper_id: str | None = None) -> dict:
         """The agent catalogue: what each agent does, costs and hands on.
 
-        Read-only and workspace-independent: it describes the product, not a
-        research, so it is available before any workspace exists.
+        Workspace-independent: it describes the product, so it is available
+        before any research exists. With ``paper_id``, each agent also carries
+        its last result on that paper (done / failed / not run).
         """
         from research_companion.agents.catalog import catalog, handoffs
-        return {"agents": catalog(), "handoffs": handoffs()}
+        from research_companion.agents.runner import lane_summary
+
+        rows = catalog()
+        lanes: dict = {}
+        if paper_id:
+            from research_companion import store
+            with suppress(Exception):
+                lanes = (store.load_review_report(paper_id) or {}).get("lanes") or {}
+        for row in rows:
+            if paper_id:
+                row["last"] = lane_summary(row["name"], lanes.get(row["name"]))
+        return {"agents": rows, "handoffs": handoffs(),
+                "model_configured": _llm_provider_configured()}
+
+    @app.post("/api/agents/run", status_code=202,
+              dependencies=[Depends(require_active_workspace)])
+    async def run_agents_endpoint(body: _RunAgentsBody) -> dict:
+        """Run the chosen agents (and what they depend on) on one paper.
+
+        Refuses up front, with every reason at once, rather than starting a
+        run that is bound to fail: unknown agents, missing inputs, a paid
+        agent with no model configured, an unknown paper, or a run already in
+        progress on the same paper.
+        """
+        from research_companion import store
+        from research_companion.agents.runner import plan_run
+
+        inputs = {"venue": body.venue, "problem_statement": body.problem_statement}
+        plan = plan_run(list(body.agents), inputs=inputs)
+        problems = list(plan.problems)
+        if store.PaperMetadata.load(body.paper_id) is None:
+            problems.append("That paper is not in this research.")
+        if plan.uses_model and app.state.llm is None and not _llm_provider_configured():
+            problems.append("Some of these agents use a model, and no model is set up. "
+                            "Add a key in Settings, or choose only free agents.")
+        if body.paper_id in app.state.agent_runs:
+            problems.append("Agents are already running on this paper.")
+        if problems:
+            raise HTTPException(status_code=400, detail={"problems": problems})
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Running {len(plan.agents)} agent(s)"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "agents",
+                                  "label": label, "target": body.paper_id}
+        app.state.agent_runs.add(body.paper_id)
+
+        async def _run():
+            await _announce_start(job_id, "agents", label, body.paper_id)
+            try:
+                await _run_agent_plan(body.paper_id, plan, inputs)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "agents",
+                                          "label": label, "target": body.paper_id}
+            except Exception as exc:  # noqa: BLE001 - a failed run is reported, not raised
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc),
+                                          "kind": "agents", "label": label,
+                                          "target": body.paper_id}
+            finally:
+                app.state.agent_runs.discard(body.paper_id)
+                await _announce_finish(job_id, "agents")
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id, "agents": plan.agents, "added": plan.added,
+                "uses_model": plan.uses_model, "uses_network": plan.uses_network}
+
+    async def _run_agent_plan(paper_id: str, plan, inputs: dict) -> None:
+        """Execute a plan on the Lab's event bus and fold it into the saved review."""
+        from research_companion import store
+        from research_companion.agents.base import AgentContext
+        from research_companion.agents.orchestrator import run_agents
+        from research_companion.agents.runner import build_agents, context_data, merge_report
+        from research_companion.report import build_report_json
+
+        llm = None
+        if plan.uses_model:
+            llm = app.state.llm if app.state.llm is not None else _resolve_llm(json_mode=True)
+        overrides = app.state.agent_context_overrides or {}
+        data = context_data(plan, inputs=inputs, llm=llm,
+                            lookup=overrides.get("_lookup"), search=overrides.get("_search"))
+        # Agent events go to the same bus as everything else, so progress
+        # reaches the browser through the existing event stream.
+        ctx = AgentContext(paper_id=paper_id, bus=bus, data=data)
+        results = await run_agents(build_agents(plan), ctx)
+
+        meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+        fresh = build_report_json(paper_id, meta.title if meta else "", results)
+        previous = await asyncio.to_thread(store.load_review_report, paper_id)
+        merged = merge_report(previous, fresh)
+        await asyncio.to_thread(store.save_review_report, paper_id, merged)
 
     @app.get("/api/settings")
     async def get_settings_endpoint() -> dict:
