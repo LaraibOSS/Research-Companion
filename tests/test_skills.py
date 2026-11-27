@@ -107,6 +107,23 @@ def test_every_flag_the_skill_passes_to_a_command_exists(skill):
     assert not bad, f"{skill.parent.name} passes flags the CLI does not accept: {bad}"
 
 
+@pytest.mark.parametrize("skill", SKILL_FILES, ids=lambda p: p.parent.name)
+def test_every_workspace_subcommand_the_skill_names_exists(skill):
+    """`workspace` exists, so the top-level binding passed while both original
+    skills told the agent to run `workspace remove` -- a subcommand that has
+    never existed. Bind the nested name too."""
+    from research_companion.cli import _build_parser
+
+    parser = _build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    ws = sub.choices["workspace"]
+    ws_sub = next(a for a in ws._actions if isinstance(a, argparse._SubParsersAction))
+    text = skill.read_text(encoding="utf-8")
+    named = set(re.findall(r"research-companion\s+workspace\s+([a-z][a-z-]+)", text))
+    unknown = named - set(ws_sub.choices)
+    assert not unknown, f"{skill.parent.name} names non-existent workspace commands: {unknown}"
+
+
 @pytest.mark.parametrize("name", STATES_BOTH_RULES)
 def test_the_skill_states_both_honesty_rules(name):
     """The project's one promise: a check that did not run is never a pass, and

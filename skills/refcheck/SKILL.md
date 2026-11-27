@@ -180,6 +180,10 @@ Say it in one closing line. It checks that references **exist**, not that they s
 
 The scratch workspace persists so re-checks are fast. Remove it only if asked:
 
-```bash
-research-companion workspace remove refcheck-scratch
+There is **no command** that removes it. A workspace chosen with `RESEARCH_COMPANION_WORKSPACE` is never added to the workspace list (so `research-companion workspace list` does not show it); it is just a folder:
+
 ```
+~/.research-companion/workspaces/refcheck-scratch
+```
+
+(under `$RESEARCH_COMPANION_DIR/workspaces/` instead, if that variable is set). To remove it, delete that one folder — show the user the full path and get a yes first. Never delete any other folder there: each one is one of the user's researches.
