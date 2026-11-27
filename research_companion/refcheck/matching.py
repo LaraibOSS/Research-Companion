@@ -7,6 +7,7 @@ any expensive lookup or LLM call.
 from __future__ import annotations
 
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 
@@ -59,6 +60,66 @@ def title_is_cited(cited: str, authoritative: str) -> bool:
     # 20-char floor.
     match = SequenceMatcher(None, na, nb).find_longest_match(0, len(na), 0, len(nb))
     return match.size >= 15 and (match.size / len(nb)) >= 0.4
+
+
+def _fold(text: str) -> str:
+    """Strip accents so "Müller" and "Muller" compare equal."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def title_matched_by_containment(cited: str, authoritative: str,
+                                 cited_title: str | None = None) -> bool:
+    """True when ``title_is_cited`` passes only through its shared-run rule.
+
+    ``cited_title`` is the caller's best guess at the title inside the cited
+    line (``parse.probable_title``). When that guess itself matches the record
+    the match is a whole-title one after all -- the line merely carried an
+    identifier or a venue beside it -- and no second opinion is needed.
+
+    That rule measures the shared run against the RECORD's title alone, which
+    it has to: the cited line carries authors and venue, so its own length
+    says nothing. The consequence is that a short record title sitting inside
+    a longer cited title passes at 100% -- "Deep Reinforcement Learning" is
+    wholly contained in a line citing "Deep reinforcement learning for protein
+    folding dynamics in zero gravity". The title alone cannot tell those
+    apart, so a containment match needs a second, independent agreement
+    before it is believed (see ``authors_corroborate``).
+    """
+    if not title_is_cited(cited, authoritative):
+        return False
+    if cited_title and title_similarity(cited_title, authoritative) >= 0.9:
+        return False
+    return title_similarity(cited, authoritative) < 0.9
+
+
+def authors_corroborate(cited: str, record_authors: list[str]) -> bool | None:
+    """Does the cited line name any author of the matched record?
+
+    A bibliography line carries its authors, so when a record was matched on
+    title containment alone, finding one of the record's surnames in the line
+    is cheap independent evidence it is the same work -- and finding none is
+    evidence it is not. Returns None when the record lists no usable authors:
+    there is nothing to compare, which is not the same as a disagreement.
+
+    One surname is enough. Lines routinely give only a first author and
+    "et al.", and catalogues disagree on author order and completeness.
+    """
+    keys = {_last_name(_fold(a)) for a in record_authors or []}
+    keys.discard("")
+    if not keys:
+        return None
+    folded = _fold(cited).lower()
+    words = set(re.sub(r"[^a-z0-9\s]", " ", folded).split())
+    squashed = re.sub(r"[^a-z0-9]", "", folded)
+    for key in keys:
+        if key in words:
+            return True
+        # Hyphenated or spaced surnames ("Chang-Wei", "van der Maaten") do not
+        # survive as one word. Only long keys may match as a substring: a
+        # two-letter surname would otherwise be found inside any sentence.
+        if len(key) >= 5 and key in squashed:
+            return True
+    return False
 
 
 def _last_name(author: str) -> str:

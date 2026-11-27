@@ -94,8 +94,18 @@ def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
     # reference read from a paper's bibliography carries authors and venue
     # around the title (see matching.title_is_cited).
     cited_text = ref.raw or ref.title
+    # Imported here: parse imports Reference from this module.
+    from research_companion.refcheck.parse import probable_title
     if not matching.title_is_cited(cited_text, record.get("title", "")):
         reasons.append("Title does not match the authoritative record")
+    elif (matching.title_matched_by_containment(cited_text, record.get("title", ""),
+                                                probable_title(cited_text))
+          and matching.authors_corroborate(cited_text, record.get("authors") or []) is False):
+        # The record's title appears inside the cited line, but none of its
+        # authors do. A short title is contained in many longer ones, so this
+        # is a different work until something else agrees.
+        reasons.append("The matched record's title appears in the citation, "
+                       "but none of its authors do: it may be a different work")
     if ref.authors and (
         matching.author_overlap(ref.authors, record.get("authors", [])) < AUTHOR_OVERLAP_THRESHOLD
     ):

@@ -108,7 +108,15 @@ def _best_match(
         record = parser(item)
         score = matching.title_similarity(ref.title, record["title"])
         if matching.title_is_cited(cited, record["title"]):
-            score = max(score, floor)
+            # A short catalogue title contained in a longer cited title passes
+            # the title test on its own. Without an author in common it is a
+            # different work, and accepting it would report a reference that
+            # may not exist as found.
+            contained_only = matching.title_matched_by_containment(
+                cited, record["title"], probable_title(cited))
+            if not (contained_only and matching.authors_corroborate(
+                    cited, record.get("authors") or []) is False):
+                score = max(score, floor)
         if score > best_score:
             best_score, best_record = score, record
     if best_record is None or best_score < floor:

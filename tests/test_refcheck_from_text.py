@@ -310,3 +310,70 @@ def test_the_lookup_queries_the_extracted_title():
     assert "items = search(ref.title)" not in src
     # and candidate acceptance must use the whole-line comparison too
     assert "title_is_cited(cited" in src
+
+
+# ---------------------------------------------------------------------------
+# A short catalogue title inside a longer cited title is not the same work.
+#
+# title_is_cited measures the shared run against the RECORD's title only, so
+# "Deep Reinforcement Learning" sits at 100% inside a line citing a paper that
+# merely starts with those words. That verified a reference nobody wrote.
+# ---------------------------------------------------------------------------
+
+from research_companion.refcheck import matching as _m  # noqa: E402
+from research_companion.refcheck.parse import probable_title as _pt  # noqa: E402
+from research_companion.refcheck.validate import Reference as _Ref  # noqa: E402
+from research_companion.refcheck.validate import validate_reference as _validate  # noqa: E402
+
+_FAKE = ("J. Doe and A. Nobody. Deep reinforcement learning for protein folding "
+         "dynamics in zero gravity. NeurIPS 2023.")
+_SHORT_RECORD = {"title": "Deep Reinforcement Learning", "authors": ["Yuxi Li"], "year": 2018}
+
+
+def test_the_title_test_alone_cannot_tell_them_apart():
+    # Pins WHY the second check exists: this still passes on title alone.
+    assert title_is_cited(_FAKE, _SHORT_RECORD["title"])
+    assert _m.title_matched_by_containment(_FAKE, _SHORT_RECORD["title"], _pt(_FAKE))
+
+
+def test_a_fabricated_reference_is_not_verified_by_a_shorter_real_title():
+    ref = _Ref(title=_FAKE, raw=_FAKE)
+    verdict = _validate(ref, lambda r: _SHORT_RECORD)
+    assert verdict.status != "verified"
+    assert any("authors" in r for r in verdict.reasons)
+
+
+def test_best_match_does_not_accept_a_contained_title_with_no_author_in_common():
+    from research_companion.refcheck.retrieval import _best_match
+    ref = _Ref(title=_FAKE, raw=_FAKE)
+    assert _best_match(ref, [_SHORT_RECORD], lambda item: item, floor=0.6) is None
+
+
+def test_a_real_citation_with_surrounding_text_still_verifies():
+    line = "Vaswani et al. Attention is all you need. NeurIPS 2017"
+    record = {"title": "Attention Is All You Need",
+              "authors": ["Ashish Vaswani", "Noam Shazeer"], "year": 2017}
+    assert _validate(_Ref(title=line, raw=line), lambda r: record).status == "verified"
+
+
+def test_a_truncated_real_citation_still_verifies():
+    line = "Devlin, Chang, Lee. BERT: pre-training of deep bidirectional transformers. NAACL"
+    record = {"title": "BERT: Pre-training of Deep Bidirectional Transformers for "
+                       "Language Understanding",
+              "authors": ["Jacob Devlin", "Ming-Wei Chang"], "year": 2019}
+    assert _validate(_Ref(title=line, raw=line), lambda r: record).status == "verified"
+
+
+def test_a_title_plus_identifier_needs_no_author():
+    # LLM-extracted references are often "Title. arXiv:id" with no authors.
+    line = "Attention Is All You Need. arXiv:1706.03762"
+    assert not _m.title_matched_by_containment(line, "Attention Is All You Need", _pt(line))
+
+
+def test_author_agreement_survives_accents_particles_and_missing_authors():
+    assert _m.authors_corroborate("K. Müller. A title.", ["Klaus Muller"]) is True
+    assert _m.authors_corroborate("L. van der Maaten and G. Hinton. t-SNE.",
+                                  ["Laurens van der Maaten"]) is True
+    # No authors on the record is "nothing to compare", not a disagreement.
+    assert _m.authors_corroborate("Anyone. Anything.", []) is None
+    assert _m.authors_corroborate("Anyone. Anything.", ["Somebody Else"]) is False
