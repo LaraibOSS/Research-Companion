@@ -3849,3 +3849,26 @@ def test_agents_view_escapes_what_it_renders():
             assert "escapeHtml(" in expr, expr
             continue
         raise AssertionError(f"unescaped interpolation in agents.js: ${{{expr}}}")
+
+
+def test_every_frontend_module_parses():
+    """A syntax error in one view module stops the whole Lab from loading,
+    because main.js imports every view up front. Nothing else in the suite
+    parses the views (the node tests import helpers only), so an unescaped
+    quote in a view once shipped green and blanked every page."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    js_root = STATIC_DIR / "js"
+    files = sorted(p for p in js_root.rglob("*.js"))
+    assert files, "no frontend modules found"
+    broken = []
+    for path in files:
+        proc = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+        if proc.returncode != 0:
+            first = (proc.stderr or proc.stdout).strip().splitlines()
+            broken.append(f"{path.relative_to(STATIC_DIR)}: {first[-1] if first else 'error'}")
+    assert not broken, "frontend modules that do not parse:\n" + "\n".join(broken)
