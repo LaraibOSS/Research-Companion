@@ -151,6 +151,12 @@ try:
     class _AddPaperBody(_BaseModel):
         target: str = ""
 
+    class _ZoteroImportBody(_BaseModel):
+        """POST /api/zotero/import. dry_run defaults to True: a request that
+        forgets the flag previews instead of importing a whole library."""
+        collection_key: str | None = None
+        dry_run: bool = True
+
     class _SettingsPatchBody(_BaseModel):
         """Arbitrary subset of settings fields for PUT /api/settings."""
         provider: str | None = None
@@ -1761,6 +1767,79 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         asyncio.create_task(_run())
         return {"job_id": job_id, "count": len(targets)}
+
+    # -----------------------------------------------------------------
+    # Zotero import (read-only, through Zotero's local API)
+    #   GET  /api/zotero/status       is Zotero reachable, and is its API on?
+    #   GET  /api/zotero/collections  the user's collections
+    #   POST /api/zotero/import       background job; dry_run previews only
+    # The GETs only read the user's own Zotero on this machine; nothing there
+    # changes state or spends money, so they need no workspace.
+    # -----------------------------------------------------------------
+    @app.get("/api/zotero/status")
+    async def zotero_status() -> dict:
+        from research_companion.interop import zotero
+        return await asyncio.to_thread(zotero.check)
+
+    @app.get("/api/zotero/collections")
+    async def zotero_collections() -> Any:
+        from research_companion.interop import zotero
+        try:
+            cols = await asyncio.to_thread(zotero.list_collections)
+        except zotero.ZoteroError as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+        return {"collections": cols}
+
+    @app.post("/api/zotero/import", status_code=202,
+              dependencies=[Depends(require_active_workspace)])
+    async def zotero_import(body: _ZoteroImportBody) -> dict:
+        from research_companion.interop import zotero
+
+        if any(info.get("status") == "running" and info.get("kind") == "zotero-import"
+               for info in app.state.jobs.values()):
+            raise HTTPException(status_code=409,
+                                detail="A Zotero import is already running")
+        status = await asyncio.to_thread(zotero.check)
+        if not status.get("ok"):
+            raise HTTPException(status_code=503, detail=status.get("message"))
+        collection = (body.collection_key or "").strip() or None
+        dry_run = bool(body.dry_run)
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = "Previewing Zotero import" if dry_run else "Importing from Zotero"
+        job = {"status": "running", "detail": None, "kind": "zotero-import",
+               "label": label, "target": collection or "", "dry_run": dry_run,
+               "progress": {"done": 0, "total": 0}, "report": None}
+        app.state.jobs[job_id] = job
+
+        def _progress(done: int, total: int, _row: dict) -> None:
+            job["progress"] = {"done": done, "total": total}
+
+        def _work() -> dict:
+            items = zotero.list_items(collection)
+            job["progress"] = {"done": 0, "total": len(items)}
+            # Sequential: each DOI/arXiv add goes through the throttled
+            # acquisition chain. Nothing is parsed or analysed here, so the
+            # ingest slots (which bound parsing) are not held.
+            return zotero.import_items(items, dry_run=dry_run, progress=_progress)
+
+        async def _run() -> None:
+            await _announce_start(job_id, "zotero-import", label, collection or "")
+            try:
+                report = await asyncio.to_thread(_work)
+                job.update({"status": "done", "report": report})
+            except Exception as exc:  # noqa: BLE001 -- reported on the job
+                job.update({"status": "failed", "detail": str(exc)})
+            finally:
+                await _announce_finish(job_id, "zotero-import")
+                if not dry_run:
+                    # The refresh the other add paths trigger: new papers can
+                    # change which of the draft's citations are in the library.
+                    _schedule_coverage_refresh()
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id, "dry_run": dry_run}
 
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/find-pdf
