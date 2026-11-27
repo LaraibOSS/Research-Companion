@@ -173,7 +173,7 @@ catalogues. Every reference looked up for real, every reported statistic
 recomputed, every venue rule checked.
 
 ```bash
-research-companion refcheck    <paper_id>             # do the references exist?
+research-companion refcheck    <paper_id>             # do the references exist? has any been retracted?
 research-companion check-stats <paper_id>             # do the numbers add up?
 research-companion check-compliance <paper_id> --venue neurips
 ```
