@@ -15,7 +15,13 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SKILLS = REPO / "skills"
 SKILL_FILES = sorted(SKILLS.glob("*/SKILL.md"))
-EXPECTED = {"refcheck", "submission-check"}
+EXPECTED = {"refcheck", "submission-check", "literature-scout", "paper-review",
+            "rebuttal", "research-agents"}
+# Skills added after the first two state the project's two honesty rules in
+# their own words, in a section of their own.
+STATES_BOTH_RULES = ("literature-scout", "paper-review", "rebuttal", "research-agents")
+# Skills that can make paid model calls.
+CAN_SPEND = ("paper-review", "rebuttal")
 
 
 def _cli_subcommands() -> set[str]:
@@ -30,7 +36,7 @@ def _cli_subcommands() -> set[str]:
     return names
 
 
-def test_both_skills_are_shipped():
+def test_every_skill_is_shipped():
     assert {p.parent.name for p in SKILL_FILES} == EXPECTED
     assert (SKILLS / "README.md").is_file(), "skills/ needs a README for GitHub readers"
 
@@ -70,6 +76,123 @@ def test_a_skipped_check_is_never_presented_as_a_pass(skill):
     """The reporting rule the whole tool is built on."""
     text = skill.read_text(encoding="utf-8").lower()
     assert "not checked" in text
+
+
+def _subparser_options() -> dict[str, set[str]]:
+    """Option strings each top-level subcommand accepts."""
+    from research_companion.cli import _build_parser
+
+    out: dict[str, set[str]] = {}
+    for action in _build_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, sub in action.choices.items():
+                out[name] = {o for a in sub._actions for o in a.option_strings}
+    return out
+
+
+@pytest.mark.parametrize("skill", SKILL_FILES, ids=lambda p: p.parent.name)
+def test_every_flag_the_skill_passes_to_a_command_exists(skill):
+    """A command can exist while the flag the skill hands it does not -- argparse
+    then exits 2 in front of the user. Bind every `--flag` on a
+    `research-companion <cmd>` line to that command's real options."""
+    options = _subparser_options()
+    bad = []
+    for line in skill.read_text(encoding="utf-8").splitlines():
+        for m in re.finditer(r"research-companion\s+([a-z][a-z-]+)([^`|]*)", line):
+            cmd, rest = m.group(1), m.group(2)
+            if cmd not in options:
+                continue  # unknown commands are the other test's failure
+            bad += [(cmd, f) for f in re.findall(r"(?<![\w-])(--[a-z][a-z-]+)", rest)
+                    if f not in options[cmd]]
+    assert not bad, f"{skill.parent.name} passes flags the CLI does not accept: {bad}"
+
+
+@pytest.mark.parametrize("name", STATES_BOTH_RULES)
+def test_the_skill_states_both_honesty_rules(name):
+    """The project's one promise: a check that did not run is never a pass, and
+    something not found is never called fabricated."""
+    text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "a check that did not run is never presented as a pass" in text
+    assert "something not found is never called fabricated" in text
+
+
+@pytest.mark.parametrize("name", CAN_SPEND)
+def test_a_skill_that_can_spend_money_says_so_before_running(name):
+    """Cost must be stated before it is spent, with the estimate the CLI gives."""
+    text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+    front = text.split("---", 2)[1].lower()
+    assert "paid" in front, "the routing description must not hide the cost"
+    body = text.lower()
+    assert "say this before running anything" in body
+    assert "research-companion cost-estimate" in body
+    assert re.search(r"(ask first|after a yes|wait for a yes)", body)
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED - set(CAN_SPEND)))
+def test_a_free_skill_runs_nothing_that_costs_model_calls(name):
+    """A skill advertised as free must never tell an agent to run `build`, the
+    paid extraction. The two existing skills mention it only as an option to
+    offer, never as a command line to run."""
+    text = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+    assert "research-companion build" not in text.replace("`research-companion build`", "")
+
+
+def test_paper_review_reads_the_readiness_block_the_code_emits():
+    """The skill teaches verdicts and coverage keys by name. Pin them to what
+    readiness.build_readiness actually produces."""
+    from research_companion import readiness
+
+    sample = readiness.build_readiness(
+        {"citation": {"ok": True, "data": {"counts": {"verified": 1}}}})
+    text = (SKILLS / "paper-review" / "SKILL.md").read_text(encoding="utf-8")
+    for key in sample["coverage"]:
+        assert f"`{key}`" in text or f"coverage.{key}" in text, f"coverage key {key} not taught"
+    for verdict in ("not_ready", "revise", "ready", "not_assessed"):
+        assert f"`{verdict}`" in text
+    # the verdict set is closed: a new one must be taught before it ships
+    src = (REPO / "research_companion" / "readiness.py").read_text(encoding="utf-8")
+    emitted = set(re.findall(r'verdict = "([a-z_]+)"', src))
+    assert emitted == {"not_ready", "revise", "ready", "not_assessed"}
+    assert "not a pass" in text.lower()
+
+
+def test_refcheck_teaches_the_retraction_fields_the_cli_emits():
+    """Retraction is reported over its own denominator. The skill must name
+    every count the CLI returns and every notice value it can carry."""
+    from research_companion.cli import _NOTICE_LABELS
+    from research_companion.refcheck.validate import BibReport
+
+    text = (SKILLS / "refcheck" / "SKILL.md").read_text(encoding="utf-8")
+    for key in BibReport().retraction_counts():
+        assert f"`{key}`" in text, f"retraction.{key} not explained"
+    for notice in _NOTICE_LABELS:
+        assert f"`{notice}`" in text, f"notice {notice} not explained"
+    assert "`retraction_checked`" in text
+    assert "flagged of checked" in text.lower()
+    assert "a retracted paper exists" in text.lower()
+
+
+def test_rebuttal_reads_evidence_status_not_the_verified_flag():
+    """`verified` is True for a reply that quotes nothing. The skill must route
+    the report through evidence_status, whose values are pinned to the code."""
+    src = (REPO / "research_companion" / "rebuttal" / "draft.py").read_text(encoding="utf-8")
+    statuses = set(re.findall(r'evidence_status = "([a-z_]+)"', src))
+    assert statuses == {"verified", "unverified", "no_quotes"}
+    text = (SKILLS / "rebuttal" / "SKILL.md").read_text(encoding="utf-8")
+    for s in statuses:
+        assert f"`{s}`" in text
+    assert "read `evidence_status`, not `verified`" in text.lower()
+    assert "drafts are drafts" in text.lower()
+
+
+def test_research_agents_explains_every_cost_word_the_catalogue_uses():
+    from research_companion.agents.catalog import catalog
+
+    costs = {row["cost"] for row in catalog()}
+    text = (SKILLS / "research-agents" / "SKILL.md").read_text(encoding="utf-8")
+    for cost in costs:
+        assert f"| `{cost}` |" in text, f"cost word {cost!r} not explained"
+    assert "reachable_from" in text and "cannot be run from any command yet" in text
 
 
 def test_refcheck_forbids_calling_a_missing_reference_fake():
