@@ -7561,3 +7561,8 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   color: var(--color-warn);
   font-size: 0.9em;
 }
+
+/* Gaps: how many gaps were actually compared with later work */
+.gaps-coverage { margin: var(--space-1) 0 0; font-size: 0.85em; }
+.gaps-coverage--muted { color: var(--color-muted); }
+.gaps-coverage--warn  { color: var(--color-warn); }

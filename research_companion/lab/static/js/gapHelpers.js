@@ -137,3 +137,36 @@ export function filterGapThemes(rows, filters) {
     return true;
   });
 }
+
+
+/**
+ * One sentence on how many gaps were actually compared with later work.
+ *
+ * "Open" alone covers several situations: the gap was compared with later
+ * papers and judged still open, there was no later paper to compare it with,
+ * nothing similar was found, or the check failed. Only the first is a
+ * judgement. GET /api/gaps returns the tally as `resolution_checks`; this
+ * turns it into a line a reader can weigh "N open" against. Returns null when
+ * there is nothing to say (no tally, or no gaps).
+ *
+ * @param {object|null|undefined} checks — { judged, no_candidates, no_similar,
+ *   failed, not_run, unknown }
+ * @returns {{text:string, tone:'muted'|'warn'}|null}
+ */
+export function resolutionCoverageLine(checks) {
+  if (!checks || typeof checks !== 'object') return null;
+  const n = (k) => (Number.isFinite(checks[k]) && checks[k] > 0 ? checks[k] : 0);
+  const total = ['judged', 'no_candidates', 'no_similar', 'failed', 'not_run', 'unknown']
+    .reduce((sum, k) => sum + n(k), 0);
+  if (!total) return null;
+  const parts = [];
+  if (n('no_candidates')) parts.push(`${n('no_candidates')} had no later paper to compare with`);
+  if (n('no_similar')) parts.push(`${n('no_similar')} had no similar later work`);
+  if (n('not_run') || n('unknown')) parts.push(`${n('not_run') + n('unknown')} were not compared`);
+  if (n('failed')) parts.push(`${n('failed')} could not be checked (try Refresh)`);
+  const head = `${n('judged')} of ${total} gaps were compared with later papers in your library`;
+  return {
+    text: parts.length ? `${head}; ${parts.join(', ')}.` : `${head}.`,
+    tone: n('failed') ? 'warn' : 'muted',
+  };
+}
