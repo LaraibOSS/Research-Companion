@@ -3541,6 +3541,16 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # GET /api/settings
     # -----------------------------------------------------------------
+    @app.get("/api/agents")
+    async def list_agents_endpoint() -> dict:
+        """The agent catalogue: what each agent does, costs and hands on.
+
+        Read-only and workspace-independent: it describes the product, not a
+        research, so it is available before any workspace exists.
+        """
+        from research_companion.agents.catalog import catalog, handoffs
+        return {"agents": catalog(), "handoffs": handoffs()}
+
     @app.get("/api/settings")
     async def get_settings_endpoint() -> dict:
         from research_companion.settings import default_downloads_dir, get_settings
