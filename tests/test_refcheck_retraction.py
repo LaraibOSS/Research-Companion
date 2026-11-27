@@ -94,7 +94,7 @@ def test_counts_state_the_denominator():
         Reference(title="Vaswani. Attention is all you need."),
         Reference(title="Nobody. A paper that no catalogue has ever heard of."),
     ]
-    table = dict(zip([r.title for r in refs], [retracted, clean, arxiv, None]))
+    table = dict(zip([r.title for r in refs], [retracted, clean, arxiv, None], strict=True))
     for r in refs:
         r.raw = r.title
     report = validate_bibliography(refs, lambda r: table[r.title])

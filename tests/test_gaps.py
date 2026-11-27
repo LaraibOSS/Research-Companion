@@ -1446,3 +1446,102 @@ class TestSynthesizeGaps:
         result = synthesize_gaps({"papers": [], "draft_addresses": [], "stale": False}, llm=_stub_llm)
         assert result["generated_from_sha"] == gap_synthesis_prompt_sha256()
 
+
+
+# ---------------------------------------------------------------------------
+# "open" must say WHY it is open
+#
+# The same status used to cover: no later paper to compare, nothing similar
+# found, the model call failing, and the model's answer being unreadable. Only
+# a real comparison is a judgement that the gap is still open.
+# ---------------------------------------------------------------------------
+
+class TestResolutionSaysWhy:
+    # Borrow the fixture without inheriting (which would re-run every test in
+    # TestResolveGaps a second time under this class).
+    _setup_two_papers = TestResolveGaps._setup_two_papers
+
+    def _extract(self, pid):
+        extract_gaps(pid, llm=lambda p: json.dumps({"gaps": [{
+            "statement": "We could not scale to large datasets.",
+            "kind": "limitation",
+            "evidence_quote": "We could not scale to large datasets.",
+        }]}))
+
+    def _only(self, result):
+        (res,) = result["resolutions"].values()
+        return res
+
+    def test_a_real_judgement_is_marked_judged(self, isolated_papergraph_dir):
+        from research_companion.gaps import CHECK_JUDGED
+        pid_s, pid_c = self._setup_two_papers()
+        self._extract(pid_s)
+        res = self._only(resolve_gaps(sim_threshold=0.0, llm=lambda p: json.dumps({
+            "status": "open", "resolved_by": None, "rationale": "Not addressed.",
+            "evidence_quote": ""})))
+        assert res["status"] == "open" and res["check"] == CHECK_JUDGED
+
+    def test_a_failed_model_call_is_not_a_judgement(self, isolated_papergraph_dir):
+        from research_companion.gaps import CHECK_FAILED
+        pid_s, _ = self._setup_two_papers()
+        self._extract(pid_s)
+
+        def boom(prompt):
+            raise RuntimeError("provider down")
+
+        res = self._only(resolve_gaps(sim_threshold=0.0, llm=boom))
+        assert res["status"] == "open" and res["check"] == CHECK_FAILED
+        assert "not judged" in res["rationale"]
+
+    def test_an_unreadable_answer_is_not_a_judgement(self, isolated_papergraph_dir):
+        from research_companion.gaps import CHECK_FAILED
+        pid_s, _ = self._setup_two_papers()
+        self._extract(pid_s)
+        for raw in ("I think this is probably solved.", '{"status": "resolved"}', "{}"):
+            res = self._only(resolve_gaps(sim_threshold=0.0, force=True, llm=lambda p, r=raw: r))
+            assert res["check"] == CHECK_FAILED, raw
+            assert res["status"] == "open"
+
+    def test_nothing_similar_is_recorded_as_such(self, isolated_papergraph_dir):
+        from research_companion.gaps import CHECK_NO_SIMILAR
+        pid_s, _ = self._setup_two_papers()
+        self._extract(pid_s)
+
+        def must_not_call(prompt):
+            raise AssertionError("no model call below the threshold")
+
+        res = self._only(resolve_gaps(sim_threshold=1e9, llm=must_not_call))
+        assert res["check"] == CHECK_NO_SIMILAR
+
+    def test_no_later_paper_is_recorded_as_such(self, isolated_papergraph_dir):
+        from research_companion.gaps import CHECK_NO_CANDIDATES
+        pid_s, _ = self._setup_two_papers(source_year=2023, cand_year=2019)
+        self._extract(pid_s)
+        res = self._only(resolve_gaps(llm=lambda p: "{}"))
+        assert res["check"] == CHECK_NO_CANDIDATES
+
+    def test_addressed_with_no_quote_at_all_is_downgraded(self, isolated_papergraph_dir):
+        """An unverifiable quote was already downgraded; NO quote escaped."""
+        pid_s, pid_c = self._setup_two_papers()
+        self._extract(pid_s)
+        res = self._only(resolve_gaps(sim_threshold=0.0, llm=lambda p: json.dumps({
+            "status": "addressed", "resolved_by": pid_c, "rationale": "Solved.",
+            "evidence_quote": ""})))
+        assert res["status"] == "partially"
+
+    def test_overview_counts_why_each_gap_has_its_status(self, isolated_papergraph_dir):
+        from research_companion.gaps import gaps_overview, resolution_check_counts
+        pid_s, _ = self._setup_two_papers()
+        self._extract(pid_s)
+
+        def boom(prompt):
+            raise RuntimeError("provider down")
+
+        resolve_gaps(sim_threshold=0.0, llm=boom)
+        counts = gaps_overview()["resolution_checks"]
+        assert counts["failed"] == 1 and counts["judged"] == 0
+
+        # Legacy and placeholder results are not silently counted as judged.
+        legacy = {"status": "open", "rationale": "old", "checked_papers": ["x"]}
+        tally = resolution_check_counts([legacy, {"status": "open"}])
+        assert tally["unknown"] == 1 and tally["not_run"] == 1 and tally["judged"] == 0
