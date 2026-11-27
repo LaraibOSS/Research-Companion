@@ -3899,3 +3899,43 @@ def test_every_frontend_module_parses():
             first = (proc.stderr or proc.stdout).strip().splitlines()
             broken.append(f"{path.relative_to(STATIC_DIR)}: {first[-1] if first else 'error'}")
     assert not broken, "frontend modules that do not parse:\n" + "\n".join(broken)
+
+
+def test_home_renders_the_research_path_first():
+    """Home shows the five-stage path and one next step above everything else,
+    refetches its inputs when a stage could have changed, and drops a stale
+    response (the same seq guard as views/agents.js)."""
+    src = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "import { researchPath } from '../pathHelpers.js';" in src
+    assert "import { researchPathHtml } from '../components/researchPath.js';" in src
+    view = src[src.index('<div class="home-view${animate}">'):]
+    assert view.index("${pathHtml}") < view.index("${zone1Html}"), \
+        "the path must render above the hero"
+    assert "store.subscribe(['graph', 'gaps', 'draft', 'activity'], _schedulePathLoad)" in src
+    assert "if (_unsubPath) { _unsubPath(); _unsubPath = null; }" in src
+    assert "if (seq !== _pathSeq || !_el) return;" in src
+    # A failed fetch must leave the input null (read as not done), not throw.
+    assert "Promise.allSettled(" in src
+
+
+def test_research_path_component_escapes_and_is_accessible():
+    """Every interpolation in the path's markup goes through escapeHtml, the
+    current stage is marked for assistive tech, status is written in words,
+    and the next step is a real button."""
+    import re
+
+    src = (STATIC_DIR / "js" / "components" / "researchPath.js").read_text(encoding="utf-8")
+    allowed = {"cur", "target", "withModel", "path.stages.map(_stageHtml).join('')"}
+    for expr in re.findall(r"\$\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", src):
+        expr = expr.strip()
+        if expr.startswith("escapeHtml(") or expr in allowed:
+            continue
+        if expr.startswith("next.withModel"):
+            assert "escapeHtml(" in expr, expr
+            continue
+        raise AssertionError(f"unescaped interpolation in researchPath.js: ${{{expr}}}")
+    assert 'aria-current="step"' in src
+    assert '<ol class="home-path-stages">' in src
+    assert "stage.statusText" in src
+    assert '<button type="button" class="btn btn-accent home-next-go"' in src
+    assert "<h2 " in src and "<h3 " in src

@@ -3,6 +3,8 @@
  * W3-F2.
  *
  * Zones:
+ *   path Research path: five stages + one costed next step (pathHelpers.js).
+ *        Not shown on first run, where the A/B chooser asks the one question.
  *   0/1  Hero (draft) or the "Research Companion" welcome hero (no draft)
  *   2    Next-best-action strip (up to 3 cards)
  *   3    Top-3 open suggestions compact list
@@ -20,11 +22,17 @@ import { emptyHeroModel, homeNavModel, isFirstRun, abChooserModel } from '../hom
 import { confirmDialog } from '../components/confirmDialog.js';
 import { shouldSuggestNewResearch } from '../researchNudgeHelpers.js';
 import { ensureActiveResearch } from '../researchGuard.js';
+import { researchPath } from '../pathHelpers.js';
+import { researchPathHtml } from '../components/researchPath.js';
 
 let _el = null;
 let _unsub = null;
 let _unsubJourney = null;   // refetch-on-stale; see mount()
 let _animatedIn = false;
+let _unsubPath = null;      // refetch the path's own inputs; see _loadPath()
+let _pathData = { lab: null, gaps: null, brainstorm: null, agents: null };
+let _pathSeq = 0;
+let _pathTimer = null;
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -40,7 +48,14 @@ export function mount(el) {
   // not 'journey': setJourney raises 'journey' itself, so keying the refetch
   // on that would loop.
   _unsubJourney = store.subscribe(['journey_stale'], _loadJourney);
+  // The path reads four endpoints the store does not hold. Refetch them when
+  // something that could change a stage happens: the graph grew, gaps were
+  // refreshed, the draft changed, or a job (an agent run, a gap refresh)
+  // finished.
+  _pathData = { lab: null, gaps: null, brainstorm: null, agents: null };
+  _unsubPath = store.subscribe(['graph', 'gaps', 'draft', 'activity'], _schedulePathLoad);
   _loadJourney();
+  _loadPath();
   _render();
   // Explainer banner (shown once until dismissed)
   const banner = explainerBanner(
@@ -53,6 +68,9 @@ export function mount(el) {
 export function unmount() {
   if (_unsub) { _unsub(); _unsub = null; }
   if (_unsubJourney) { _unsubJourney(); _unsubJourney = null; }
+  if (_unsubPath) { _unsubPath(); _unsubPath = null; }
+  if (_pathTimer) { clearTimeout(_pathTimer); _pathTimer = null; }
+  _pathSeq++;               // drop any fetch still in flight
   _el = null;
 }
 
@@ -61,6 +79,33 @@ function _loadJourney() {
   api.getJourney()
     .then(data => store.setJourney(data))
     .catch(err => console.warn('[home] journey fetch failed', err));
+}
+
+/** Coalesce bursts of events (an ingest raises many) into one refetch. */
+function _schedulePathLoad() {
+  if (_pathTimer) clearTimeout(_pathTimer);
+  _pathTimer = setTimeout(() => { _pathTimer = null; _loadPath(); }, 400);
+}
+
+/**
+ * Fetch what the path needs beyond the store. A response that arrives after
+ * a newer request, or after Home was left, is dropped (the same guard as
+ * views/agents.js). A failed request leaves that input null, which the path
+ * reads as "not done" — never as done.
+ */
+async function _loadPath() {
+  const seq = ++_pathSeq;
+  const draftId = store.getState().draftId;
+  const [lab, gaps, brainstorm, agents] = await Promise.allSettled([
+    api.getLab(),
+    api.getGaps(),
+    api.getBrainstormSession(),
+    draftId ? api.getAgents(draftId) : Promise.resolve(null),
+  ]);
+  if (seq !== _pathSeq || !_el) return;
+  const val = (r) => (r.status === 'fulfilled' ? r.value : null);
+  _pathData = { lab: val(lab), gaps: val(gaps), brainstorm: val(brainstorm), agents: val(agents) };
+  _render();
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +162,11 @@ function _render() {
     zone1Html = _emptyHeroHtml(state);
   }
 
+  // Path — five stages and one next step, at the top
+  const pathHtml = firstRun ? '' : researchPathHtml(researchPath({
+    papers, draftId, settings, ..._pathData,
+  }));
+
   // Zone 2 — NBA strip
   const actions = selectNextActions({
     settings,
@@ -151,6 +201,7 @@ function _render() {
 
   _el.innerHTML = `
     <div class="home-view${animate}">
+      ${pathHtml}
       ${zone1Html}
       ${navRow}
       ${zone2Html}
@@ -191,6 +242,15 @@ function _render() {
     });
   }
 
+  // Wire the path's next-step button (a real <button>: Enter/Space are native)
+  const go = _el.querySelector('.home-next-go');
+  if (go) {
+    go.addEventListener('click', () => {
+      if (go.dataset.pathRoute) window.location.hash = go.dataset.pathRoute;
+      else _runAction(go.dataset.pathAction, { guard: true });
+    });
+  }
+
   // Wire NBA card clicks (and keyboard activation — Enter/Space)
   _el.querySelectorAll('[data-nba-route]').forEach(card => {
     const activate = () => {
@@ -205,18 +265,7 @@ function _render() {
     });
   });
   _el.querySelectorAll('[data-nba-action]').forEach(card => {
-    const activate = () => {
-      const action = card.dataset.nbaAction;
-      if (action === 'open-suggestions') {
-        window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
-      } else if (action === 'open-ingest') {
-        openModal('upload');
-      } else if (action === 'open-ingest-draft') {
-        _addDraftWithNudge();
-      } else if (action === 'open-citations') {
-        window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
-      }
-    };
+    const activate = () => _runAction(card.dataset.nbaAction);
     card.addEventListener('click', activate);
     card.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -245,6 +294,25 @@ function _render() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
     });
   });
+}
+
+/**
+ * One dispatcher for the actions Home's cards and the path can name. The
+ * path's button guards the upload actions with ensureActiveResearch (a new
+ * user may not have named a research yet); the NBA cards keep their
+ * original, unguarded behaviour.
+ */
+function _runAction(action, { guard = false } = {}) {
+  const run = guard ? ensureActiveResearch : (fn) => fn();
+  if (action === 'open-suggestions') {
+    window.dispatchEvent(new CustomEvent('rc:toggle-suggestions'));
+  } else if (action === 'open-ingest') {
+    run(() => openModal('upload'));
+  } else if (action === 'open-ingest-draft') {
+    run(() => _addDraftWithNudge());
+  } else if (action === 'open-citations') {
+    window.dispatchEvent(new CustomEvent('rc:toggle-citations'));
+  }
 }
 
 // ---------------------------------------------------------------------------
