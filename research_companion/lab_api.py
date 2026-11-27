@@ -49,7 +49,9 @@ def _pipeline_provider_model() -> tuple[str, str | None]:
 
 
 def _llm_provider_configured() -> bool:
-    """True iff an API key is present for the RESOLVED pipeline provider.
+    """True iff the RESOLVED pipeline provider has what it needs to make a
+    call: an API key for the hosted providers, a model name (and for
+    openai_compatible a server URL) for the self-hosted ones.
 
     VERIFIED (Task 2 brief): _resolve_llm() below never fails at construction
     time for a missing key -- it only resolves (provider, model) and returns a
@@ -62,11 +64,14 @@ def _llm_provider_configured() -> bool:
     module is the same source get_settings()["keys"] uses for the Settings
     page's masked key display, so this can never disagree with the UI.
     """
-    from research_companion.settings import get_settings
+    from research_companion.llm import provider_ready
 
-    provider, _model = _pipeline_provider_model()
-    keys = get_settings().get("keys", {})
-    return bool(keys.get(f"{provider}_api_key", {}).get("set"))
+    # Not every provider needs a key: Ollama needs none, an OpenAI-compatible
+    # server may not, and both need a model name instead. provider_ready is
+    # the one rule; get_settings()["provider_ready"] uses it too, so the
+    # Settings page and this answer cannot disagree.
+    provider, model = _pipeline_provider_model()
+    return provider_ready(provider, model)
 
 
 def _simplify_char_budget() -> int:
@@ -174,6 +179,9 @@ try:
         contact_email: str | None = None
         claim_audit: bool | None = None
         downloads_dir: str | None = None
+        base_url: str | None = None
+        ollama_url: str | None = None
+        ollama_num_ctx: int | None = None
         keys: dict[str, str | None] | None = None
 
     class _RegenerateBody(_BaseModel):

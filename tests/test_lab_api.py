@@ -1979,6 +1979,9 @@ class TestSettingsEndpoints:
             "contact_email": "me@example.org",
             "claim_audit": True,
             "downloads_dir": "/tmp/downloads",
+            "base_url": "http://localhost:8000/v1",
+            "ollama_url": "http://localhost:11434",
+            "ollama_num_ctx": 32768,
         }
         c = _make_client()
         unsettable = []

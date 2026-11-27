@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from research_companion.llm import PROVIDERS as LLM_PROVIDERS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -30,6 +32,9 @@ SECRET_KEYS: dict[str, str] = {
     # Semantic Scholar issues free keys with far higher rate limits than the
     # shared anonymous pool, which throttles ordinary Brainstorm use.
     "s2_api_key": "S2_API_KEY",
+    # Optional: many self-hosted OpenAI-compatible servers need no key at all.
+    # Named <provider>_api_key so key lookups keyed on the provider find it.
+    "openai_compatible_api_key": "RESEARCH_COMPANION_API_KEY",
 }
 
 DEFAULTS: dict[str, Any] = {
@@ -57,9 +62,27 @@ DEFAULTS: dict[str, Any] = {
     # Where the click-armed watcher looks for a PDF you downloaded yourself.
     # "" means detect the OS downloads folder at use time.
     "downloads_dir": "",
+    # Self-hosted model servers (see llm.py). "" means "not set" for base_url
+    # and "use the default (http://localhost:11434)" for ollama_url.
+    "base_url": "",
+    "ollama_url": "",
+    "ollama_num_ctx": 16384,
 }
 
-_VALID_PROVIDERS = {"anthropic", "openai"}
+# Mirrored into os.environ on save, like provider/model, so every model call
+# in the process sees the change without a restart.
+_ENV_MIRRORED: dict[str, str] = {
+    "base_url": "RESEARCH_COMPANION_BASE_URL",
+    "ollama_url": "RESEARCH_COMPANION_OLLAMA_URL",
+    "ollama_num_ctx": "RESEARCH_COMPANION_OLLAMA_NUM_CTX",
+}
+
+_VALID_PROVIDERS = set(LLM_PROVIDERS)
+
+# Ollama context length bounds: below 2048 nothing this app sends fits; the
+# upper bound is far above any current model and only catches typos.
+_MIN_NUM_CTX = 2048
+_MAX_NUM_CTX = 1_048_576
 _VALID_THEMES = {"dark", "light"}
 _VALID_ACCENTS = {"blue", "teal", "violet"}
 _VALID_DENSITIES = {"comfortable", "compact"}
@@ -244,6 +267,15 @@ def mask_secret(value: str) -> str:
     return "****" + value[-4:]
 
 
+def _is_http_url(value: str) -> bool:
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
 # ---------------------------------------------------------------------------
 # get_settings
 # ---------------------------------------------------------------------------
@@ -273,6 +305,17 @@ def get_settings() -> dict:
         env_model = os.environ.get("RESEARCH_COMPANION_MODEL", "").strip()
         if env_model:
             result["model"] = env_model
+    for field, env_var in _ENV_MIRRORED.items():
+        if field in saved:
+            continue
+        env_val = os.environ.get(env_var, "").strip()
+        if not env_val:
+            continue
+        if field == "ollama_num_ctx":
+            with contextlib.suppress(ValueError):
+                result[field] = int(env_val)
+        else:
+            result[field] = env_val
 
     # Build keys block
     keys_block: dict[str, dict] = {}
@@ -284,6 +327,12 @@ def get_settings() -> dict:
             keys_block[name] = {"set": False, "masked": None}
 
     result["keys"] = keys_block
+    # Whether the selected provider has what it needs to attempt a call
+    # (a key for the hosted ones; a model name -- and a server URL for
+    # openai_compatible -- for the self-hosted ones). The UI's "Connect a
+    # model" prompt reads this instead of re-deriving it per provider.
+    from research_companion.llm import provider_ready
+    result["provider_ready"] = provider_ready(result["provider"], result.get("model"))
     return result
 
 
@@ -295,7 +344,7 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
     """Validate and apply a settings patch.
 
     Validation rules:
-    - provider must be in {anthropic, openai}
+    - provider must be in {anthropic, openai, openai_compatible, ollama}
     - theme must be in {dark, light}
     - accent must be in {blue, teal, violet}
     - density must be in {comfortable, compact}
@@ -306,12 +355,16 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
     - 0.0 <= semantic_overlap_threshold <= 1.0
     - 0.0 <= mcp_cost_cap_usd <= 100.0
     - contact_email must be a string (may be empty)
+    - base_url / ollama_url must be "" or an http(s) URL
+    - ollama_num_ctx must be an int in [2048, 1048576]
     - Unknown top-level fields -> SettingsError
     - patch["keys"][name] = "" -> SettingsError (use null to delete)
 
     Side effects:
     - Non-secrets written to config.json["settings"]
     - provider/model mirrored to RESEARCH_COMPANION_PROVIDER / RESEARCH_COMPANION_MODEL
+    - base_url / ollama_url / ollama_num_ctx mirrored to RESEARCH_COMPANION_BASE_URL /
+      RESEARCH_COMPANION_OLLAMA_URL / RESEARCH_COMPANION_OLLAMA_NUM_CTX ("" removes)
     - model = None -> removes RESEARCH_COMPANION_MODEL from os.environ
     - keys[name] = str -> write_env_keys + os.environ[env_var] = value
     - keys[name] = None -> delete from file + os.environ.pop
@@ -400,6 +453,24 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
         if not isinstance(v, str):
             raise SettingsError(f"contact_email must be a string (may be empty), got {v!r}")
 
+    for url_field in ("base_url", "ollama_url"):
+        if url_field in regular_patch:
+            v = regular_patch[url_field]
+            if not isinstance(v, str):
+                raise SettingsError(f"{url_field} must be a string, got {v!r}")
+            v = v.strip()
+            if v and not _is_http_url(v):
+                raise SettingsError(
+                    f"{url_field} must be an http:// or https:// address, got {v!r}")
+            regular_patch[url_field] = v
+
+    if "ollama_num_ctx" in regular_patch:
+        v = regular_patch["ollama_num_ctx"]
+        if not isinstance(v, int) or isinstance(v, bool) or not (_MIN_NUM_CTX <= v <= _MAX_NUM_CTX):
+            raise SettingsError(
+                f"ollama_num_ctx must be a whole number between {_MIN_NUM_CTX} and "
+                f"{_MAX_NUM_CTX}, got {v!r}")
+
     # Validate keys patch (before writing anything)
     if keys_patch is not None:
         for name, value in keys_patch.items():
@@ -429,6 +500,15 @@ def update_settings(patch: dict, *, env_path: Path | None = None) -> dict:
             os.environ.pop("RESEARCH_COMPANION_MODEL", None)
         else:
             os.environ["RESEARCH_COMPANION_MODEL"] = model_val
+
+    for field, env_var in _ENV_MIRRORED.items():
+        if field not in regular_patch:
+            continue
+        val = regular_patch[field]
+        if val == "" or val is None:
+            os.environ.pop(env_var, None)
+        else:
+            os.environ[env_var] = str(val)
 
     # Apply keys patch
     if keys_patch is not None:
