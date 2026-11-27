@@ -1824,6 +1824,128 @@ def _cmd_import_bib(args: argparse.Namespace) -> int:
     return 0
 
 
+_ZOTERO_METHOD_WORDS = {
+    "arxiv": "by arXiv id",
+    "doi": "by DOI",
+    "pdf": "from the PDF in Zotero",
+    "metadata": "details only (no identifier or PDF)",
+}
+
+
+def _zotero_row_line(row: dict) -> str:
+    title = row.get("title") or "(untitled)"
+    if len(title) > 70:
+        title = title[:67] + "..."
+    outcome = row.get("outcome")
+    how = _ZOTERO_METHOD_WORDS.get(row.get("method") or "", "")
+    if outcome == "already_in_library":
+        return f"  = already in library  {title}  ({row.get('paper_id')})"
+    if outcome == "failed":
+        return f"  ! could not add       {title}  -- {row.get('reason')}"
+    if outcome in ("would_add", "would_add_metadata_only"):
+        return f"  + would add           {title}  ({how})"
+    if outcome == "metadata_only":
+        return f"  + added details only  {title}"
+    pdf_note = "" if row.get("has_pdf") else "; no PDF yet"
+    return f"  + added               {title}  ({how}{pdf_note})"
+
+
+def _cmd_import_zotero(args: argparse.Namespace) -> int:
+    import contextlib
+    import json
+
+    from research_companion.interop import zotero
+    from research_companion.store import papergraph_dir
+
+    status = zotero.check()
+    if not status["ok"]:
+        if args.json:
+            print(json.dumps({"status": status}, indent=2))
+        else:
+            print(f"research-companion: {status['message']}", file=sys.stderr)
+        return 1
+
+    if args.list_collections:
+        try:
+            cols = zotero.list_collections()
+        except zotero.ZoteroError as exc:
+            print(f"research-companion: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"collections": cols}, indent=2, ensure_ascii=False))
+            return 0
+        if not cols:
+            print("Your Zotero library has no collections. Run without "
+                  "--collection to import the whole library.")
+            return 0
+        print("Zotero collections (use the key with --collection):")
+        for c in cols:
+            n = c.get("items")
+            count = f"  ({n} items)" if isinstance(n, int) else ""
+            print(f"  {c['key']}  {c['name']}{count}")
+        return 0
+
+    if papergraph_dir() is None:
+        print("research-companion: no active research. Create one first: "
+              "research-companion workspace create <name>", file=sys.stderr)
+        return 1
+
+    try:
+        items = zotero.list_items(args.collection)
+    except zotero.ZoteroError as exc:
+        print(f"research-companion: {exc}", file=sys.stderr)
+        return 1
+
+    if not items:
+        msg = "That collection has no papers." if args.collection else             "Your Zotero library has no papers to import."
+        if args.json:
+            print(json.dumps({"report": {"total": 0, "added": 0,
+                                         "already_in_library": 0, "metadata_only": 0,
+                                         "no_pdf": 0, "failed": [], "items": [],
+                                         "dry_run": bool(args.dry_run)}}, indent=2))
+        else:
+            print(msg)
+        return 0
+
+    def _progress(done: int, total: int, row: dict) -> None:
+        if not args.json:
+            print(_zotero_row_line(row))
+
+    if not args.json:
+        verb = "Checking" if args.dry_run else "Importing"
+        print(f"{verb} {len(items)} Zotero item{'s' if len(items) != 1 else ''}, "
+              "one at a time:")
+    # The fetch functions print download warnings to stdout. With --json that
+    # would corrupt the output a caller is parsing, so send them to stderr.
+    redirect = (contextlib.redirect_stdout(sys.stderr) if args.json
+                else contextlib.nullcontext())
+    with redirect:
+        report = zotero.import_items(items, dry_run=args.dry_run, progress=_progress)
+
+    if args.json:
+        print(json.dumps({"report": report}, indent=2, ensure_ascii=False))
+        return 1 if report["failed"] and len(report["failed"]) == report["total"] else 0
+
+    print()
+    if args.dry_run:
+        print(f"Dry run: nothing was added. Of {report['total']} items, "
+              f"{report['added']} would be added, "
+              f"{report['metadata_only']} would be added as details only, "
+              f"{report['already_in_library']} are already in your library, "
+              f"{len(report['failed'])} could not be checked.")
+        print("Run again without --dry-run to import.")
+    else:
+        print(f"Of {report['total']} items: {report['added']} added"
+              + (f" ({report['no_pdf']} still without a PDF)" if report["no_pdf"] else "")
+              + f", {report['metadata_only']} added as details only, "
+              f"{report['already_in_library']} already in your library, "
+              f"{len(report['failed'])} could not be added.")
+        if report["added"] or report["metadata_only"]:
+            print("Nothing was analysed yet. Analysing papers uses your model "
+                  "and is started separately (for example from the Lab).")
+    return 1 if report["failed"] and len(report["failed"]) == report["total"] else 0
+
+
 def _cmd_check_overlap(args: argparse.Namespace) -> int:
     from research_companion.overlap import (
         check_external,
@@ -2466,6 +2588,26 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Import a .bib file (e.g. a Zotero/Mendeley export) into the library")
     pib.add_argument("file", help="Path to a .bib file")
     pib.set_defaults(func=_cmd_import_bib)
+
+    pzo = sub.add_parser(
+        "import-zotero",
+        help="Import papers from the Zotero desktop app (read-only; start with --dry-run)",
+        description=(
+            "Read your Zotero library through Zotero's local API and add its papers: "
+            "by arXiv id or DOI when the item has one, else from the PDF Zotero holds, "
+            "else as details only. Nothing is written to Zotero, and no Zotero account "
+            "or key is needed. Zotero 7 or later must be running, with Settings > "
+            "Advanced > 'Allow other applications on this computer to communicate with "
+            "Zotero' turned on. Run with --dry-run first to see what would happen."),
+    )
+    pzo.add_argument("--collection", metavar="KEY",
+                     help="Import only this collection (see --list-collections)")
+    pzo.add_argument("--list-collections", action="store_true",
+                     help="List your Zotero collections and their keys, then stop")
+    pzo.add_argument("--dry-run", action="store_true",
+                     help="Show what would be added, without adding anything (recommended first)")
+    pzo.add_argument("--json", action="store_true", help="JSON output")
+    pzo.set_defaults(func=_cmd_import_zotero)
 
     pct = sub.add_parser("cite-tex",
                          help="Read \\cite keys from a .tex draft; resolve them against a .bib")
