@@ -200,6 +200,8 @@ def catalog() -> list[dict]:
         row["depends_on"] = list(cls.depends_on) if cls else []
         for key in ("needs", "reads", "writes", "reachable_from"):
             row[key] = list(row[key])
+        from research_companion.agents.runner import runnable_here
+        row["runnable_here"] = runnable_here(card.name)
         rows.append(row)
     return rows
 

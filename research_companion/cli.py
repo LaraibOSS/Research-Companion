@@ -496,9 +496,94 @@ def _cmd_agents(args: argparse.Namespace) -> int:
         if row["reachable_from"]:
             cmds = ", ".join(f"research-companion {c}" for c in row["reachable_from"])
             print(f"      Runs as part of: {cmds}")
-        else:
+        if row["runnable_here"]:
+            print(f"      Run it alone: research-companion run-agents <paper_id> {row['name']}")
+        elif not row["reachable_from"]:
             print("      Not available from a command yet.")
     return 0
+
+
+#: Test seam: shared-context values for run-agents (fake _llm/_lookup/_search).
+RUN_AGENTS_OVERRIDES: dict = {}
+
+
+def _cmd_run_agents(args: argparse.Namespace) -> int:
+    """Run chosen agents (and what they depend on) on one paper."""
+    import asyncio
+
+    from research_companion.agents.base import AgentContext
+    from research_companion.agents.bus import Bus
+    from research_companion.agents.catalog import card_for
+    from research_companion.agents.orchestrator import run_agents
+    from research_companion.agents.runner import build_agents, context_data, merge_report, plan_run
+    from research_companion.report import build_report_json
+    from research_companion.store import (
+        PaperMetadata,
+        load_review_report,
+        papergraph_dir,
+        save_review_report,
+    )
+
+    if papergraph_dir() is None:
+        print("research-companion: no active research. Create one first: "
+              "research-companion workspace create <name>", file=sys.stderr)
+        return 1
+
+    inputs = {"venue": args.venue, "problem_statement": args.problem_statement}
+    plan = plan_run(args.agents, inputs=inputs)
+    problems = list(plan.problems)
+    meta = PaperMetadata.load(args.paper_id)
+    if meta is None:
+        problems.append(f"{args.paper_id} is not in this research.")
+    overrides = dict(RUN_AGENTS_OVERRIDES)
+    if plan.uses_model and "_llm" not in overrides:
+        from research_companion.cost import configured_provider
+        if configured_provider() is None:
+            problems.append("Some of these agents use a model, and no model key is set. "
+                            "Set one, or choose only free agents.")
+    if problems:
+        for p in problems:
+            print(f"research-companion: {p}", file=sys.stderr)
+        return 1
+
+    # Notices go to stderr under --json so stdout stays parseable JSON.
+    notice_stream = sys.stderr if args.json else sys.stdout
+    if plan.added:
+        added = ", ".join(card_for(n).title for n in plan.added)
+        print(f"Also running, because the chosen agents need them: {added}",
+              file=notice_stream)
+    if plan.uses_model:
+        print("This run makes paid calls to your model provider.", file=notice_stream)
+
+    data = context_data(plan, inputs=inputs, llm=overrides.get("_llm"),
+                        lookup=overrides.get("_lookup"), search=overrides.get("_search"))
+    ctx = AgentContext(paper_id=args.paper_id, bus=Bus(), data=data)
+    results = asyncio.run(run_agents(build_agents(plan), ctx))
+
+    fresh = build_report_json(args.paper_id, meta.title, results)
+    merged = merge_report(load_review_report(args.paper_id), fresh)
+    save_review_report(args.paper_id, merged)
+
+    if args.json:
+        print(json.dumps({"paper_id": args.paper_id, "ran": plan.agents,
+                          "lanes": fresh["lanes"], "readiness": merged.get("readiness")},
+                         indent=2, ensure_ascii=False, default=str))
+        return 0 if all(r.ok for r in results.values()) else 1
+
+    for name in plan.agents:
+        result = results.get(name)
+        title = card_for(name).title
+        if result is None:
+            print(f"  -  {title}: did not run")
+        elif result.ok:
+            print(f"  ok {title}")
+        else:
+            print(f"  !! {title}: {result.error}")
+    readiness = merged.get("readiness") or {}
+    if readiness.get("summary"):
+        print(f"\nOverall: {readiness['summary']}")
+    print("Saved to this paper's review; earlier results from other agents are kept.")
+    return 0 if all(r.ok for r in results.values()) else 1
 
 
 def _cmd_stats(args: argparse.Namespace) -> int:
@@ -2351,6 +2436,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "agents", help="List the agents: what each does, what it costs, how to run it")
     pag.add_argument("--json", action="store_true", help="Emit JSON instead of text")
     pag.set_defaults(func=_cmd_agents)
+
+    pra = sub.add_parser(
+        "run-agents",
+        help="Run chosen agents on one paper (their dependencies are added for you)")
+    pra.add_argument("paper_id")
+    pra.add_argument("agents", nargs="+", help="Agent names, as listed by `agents`")
+    pra.add_argument("--venue", default=None, help="Target venue, for agents that need one")
+    pra.add_argument("--problem-statement", dest="problem_statement", default=None,
+                     help="Your problem statement, for the problem statement refiner")
+    pra.add_argument("--json", action="store_true", help="Emit JSON instead of text")
+    pra.set_defaults(func=_cmd_run_agents)
 
     pe = sub.add_parser("export", help="Export the knowledge graph to a portable format")
     pe.add_argument("--format", choices=["markdown", "csv", "json", "obsidian"],
