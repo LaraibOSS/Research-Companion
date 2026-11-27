@@ -27,7 +27,7 @@ the exact page, and a read on your own draft before a reviewer sees it.
 
 ## The tour
 
-Ten steps, each one building on the last. Every screenshot below is one run on
+Eleven steps, each one building on the last. Every screenshot below is one run on
 one library — eleven papers on efficient LLM inference, plus a draft — so what
 you see in step 9 is what step 1 grew into.
 
@@ -185,6 +185,32 @@ XX [unverified] Zzyzx Q. Nonexistent. A paper that was never written anywhere.
 
 Summary: 39 verified, 0 suspect, 1 unverified (40 references)
 ```
+
+<br>
+
+### 11 · Or let the agents do it
+
+Every check and analysis above is also an **agent**: a named helper that does
+one job on a paper and reports back. Open **Agents** in the Lab, tick the ones
+you want, and press Run. Before you do, the page tells you which other agents
+will run because yours depend on them, and whether anything will cost money.
+Afterwards each agent says what it found, with the count it found it in
+("9 found, 1 with mismatched details, 2 not found, of 12 references").
+
+```bash
+research-companion agents                                   # what each one does, and what it costs
+research-companion run-agents <paper_id> citation statsoundness
+research-companion run-agents <paper_id> problem --problem-statement "..."
+```
+
+| Cost label | Meaning |
+|---|---|
+| Free | Runs on your machine. No key, nothing sent anywhere. |
+| Free, online | Looks titles and identifiers up in public catalogues. No key. |
+| Uses your model | Makes paid calls to your model provider, or none if it is a local model. |
+
+Results are added to the paper's review; running one agent never erases what
+another found earlier.
 
 <br>
 
