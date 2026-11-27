@@ -350,7 +350,17 @@ def _llm_check_addressed(
         units: list[dict] = []
         if sections_payload:
             for sec in sections_payload.get("sections", []):
-                sec_text = sec.get("text", "")
+                # sections.json stores offsets into the draft text, not the
+                # text itself. Reading a "text" key that does not exist made
+                # every unit empty, so the paid check below could never return
+                # True. Slice the draft; keep "text" as a fallback for callers
+                # that pass pre-materialised sections.
+                sec_text = sec.get("text") or ""
+                if not sec_text:
+                    try:
+                        sec_text = draft_text[int(sec["char_start"]):int(sec["char_end"])]
+                    except (KeyError, TypeError, ValueError):
+                        sec_text = ""
                 units.append({
                     "paper_id": new_draft_id,
                     "section_id": sec.get("section_id", ""),
