@@ -156,7 +156,7 @@ function _agentHtml(a) {
       <span class="agent-cost agent-tone-${cost.tone}" title="${escapeHtml(cost.hint)}">${escapeHtml(cost.text)}</span>
       <p class="agent-does">${escapeHtml(a.does)}</p>
       ${needs}${onlyCli}
-      ${a.last ? `<div class="agent-last agent-tone-${last.tone}">Last result: ${escapeHtml(last.text)}</div>${lastDetail}` : ''}
+      ${a.last ? `<div class="agent-last agent-tone-${last.tone}">Last run: ${escapeHtml(last.text)}</div>${lastDetail}` : ''}
     </li>`;
 }
 

@@ -94,3 +94,9 @@ test('a refusal lists every reason the server gave', () => {
   assert.deepEqual(refusalReasons(new Error('plain')), ['plain']);
   assert.equal(refusalReasons(null).length, 1);
 });
+
+test('a finished agent shows what it found, not just "Done"', () => {
+  assert.equal(lastResultLabel({ state: 'done', headline: '3 found, 0 not found, of 3 references.' }).text,
+    '3 found, 0 not found, of 3 references.');
+  assert.equal(lastResultLabel({ state: 'done', headline: null }).text, 'Done');
+});

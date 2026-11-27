@@ -121,7 +121,10 @@ export function selectionSummary(agents, selected, opts = {}) {
 /** How an agent's last result on the chosen paper is shown. */
 export function lastResultLabel(last) {
   const state = last && last.state;
-  if (state === 'done')   return { text: 'Done', tone: 'ok' };
+  if (state === 'done') {
+    const line = (last.headline || '').trim();
+    return { text: line || 'Done', tone: 'ok' };
+  }
   if (state === 'failed') return { text: 'Failed', tone: 'fail', detail: (last.error || '').trim() };
   return { text: 'Not run yet', tone: 'muted' };
 }

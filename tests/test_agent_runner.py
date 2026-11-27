@@ -73,7 +73,7 @@ def test_merging_keeps_earlier_lanes_and_recomputes_readiness():
 def test_lane_summary_states():
     assert lane_summary("x", None)["state"] == "not_run"
     assert lane_summary("x", {"ok": False, "error": "boom"}) == {
-        "agent": "x", "state": "failed", "error": "boom"}
+        "agent": "x", "state": "failed", "error": "boom", "headline": None}
     assert lane_summary("x", {"ok": True})["state"] == "done"
 
 
@@ -228,3 +228,36 @@ def test_the_two_formerly_unreachable_agents_can_now_run(isolated_papergraph_dir
     assert payload["lanes"]["tracker"]["ok"] is True
     assert "problem" in payload["lanes"]
     assert rc in (0, 1)
+
+
+# --- what a finished agent says ------------------------------------------------
+
+def test_headlines_state_what_was_found_and_the_denominator():
+    from research_companion.agents.headlines import headline
+
+    assert headline("citation", {"counts": {"verified": 9, "suspect": 1, "unverified": 2}}) == (
+        "9 found, 1 with mismatched details, 2 not found, of 12 references.")
+    assert headline("citation", {"counts": {}}) == "No references were found to check."
+    assert headline("statsoundness", {"summary": {"text": "no parseable statistics found"}}) == (
+        "No parseable statistics found.")
+    assert headline("compliance", {"checks": [{"status": "skipped"}]}) == (
+        "No venue rule could be applied.")
+    assert headline("compliance", {"checks": [{"status": "ok"}, {"status": "finding"}]}) == (
+        "1 problem in 2 rules checked.")
+    assert headline("novelty", {"counts": {"novel": 1, "unassessed": 2}}) == (
+        "1 novel, 2 unassessed.")
+    assert headline("venuefit", {"skipped": True, "reason": "unknown venue: x"}) == (
+        "Not assessed: unknown venue: x.")
+
+
+def test_an_unknown_or_malformed_result_gets_no_headline():
+    from research_companion.agents.headlines import headline
+
+    assert headline("problem", {"anything": 1}) is None
+    assert headline("citation", None) is None
+    assert headline("citation", {"counts": "not a dict"}) is None
+
+
+def test_lane_summary_carries_the_headline():
+    lane = {"ok": True, "data": {"count": 3}}
+    assert lane_summary("priorart", lane)["headline"] == "Found 3 related papers."

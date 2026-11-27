@@ -157,7 +157,10 @@ def merge_report(previous: dict | None, fresh: dict) -> dict:
 def lane_summary(name: str, lane: dict | None) -> dict:
     """One agent's last result, reduced to what a list of agents can show."""
     if not lane:
-        return {"agent": name, "state": "not_run", "error": ""}
+        return {"agent": name, "state": "not_run", "error": "", "headline": None}
     if not lane.get("ok"):
-        return {"agent": name, "state": "failed", "error": str(lane.get("error") or "")}
-    return {"agent": name, "state": "done", "error": ""}
+        return {"agent": name, "state": "failed", "error": str(lane.get("error") or ""),
+                "headline": None}
+    from research_companion.agents.headlines import headline
+    return {"agent": name, "state": "done", "error": "",
+            "headline": headline(name, lane.get("data"))}
