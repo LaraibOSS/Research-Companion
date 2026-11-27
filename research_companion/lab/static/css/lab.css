@@ -7547,6 +7547,10 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
 }
 .agents-added,
 .agents-cost { font-size: 0.9em; }
+.agents-footer .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .agents-blockers {
   margin: 0;
   padding-left: 1.2em;
