@@ -744,6 +744,33 @@ def require_active_workspace() -> None:
 
 
 
+#: Cited papers downloaded and analysed without being asked, per draft. Each
+#: one is a paid extraction and a paid alignment, so "automatic" needs a
+#: ceiling: a 60-reference draft used to start 45 of them at once with no
+#: estimate shown. The rest stay listed with their Add button.
+AUTO_ADD_LIMIT = 10
+
+_DEFAULT_MAX_INGESTS = 2
+
+
+def max_concurrent_ingests() -> int:
+    """How many add-paper pipelines may run at once (1 to 8, default 2).
+
+    Each pipeline parses a PDF, and with Docling installed each parse is its
+    own model-loading subprocess. Nothing bounded them, so adding many papers
+    exhausted memory and the papers failed with an error advising "fewer
+    concurrent ingests" -- which no setting could provide. Override with
+    RESEARCH_COMPANION_MAX_INGESTS.
+    """
+    import os
+    raw = os.environ.get("RESEARCH_COMPANION_MAX_INGESTS", "").strip()
+    try:
+        value = int(raw) if raw else _DEFAULT_MAX_INGESTS
+    except ValueError:
+        value = _DEFAULT_MAX_INGESTS
+    return max(1, min(8, value))
+
+
 def cross_origin_rejection(*, path: str, host: str | None, origin: str | None,
                            sec_fetch_site: str | None) -> str | None:
     """Why an /api request from another web origin must be refused, else None.
@@ -869,6 +896,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     app.state._coverage_lock = asyncio.Lock()
     # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
     app.state.auto_added_targets: set = set()
+    # How many auto-downloads each draft has used of AUTO_ADD_LIMIT.
+    app.state.auto_added_per_draft: dict = {}
+    # Bounds concurrent add-paper pipelines (see max_concurrent_ingests).
+    app.state.ingest_slots = asyncio.Semaphore(max_concurrent_ingests())
     app.state.retry_override = None
     # find-pdf (OA locator) seams: find_pdf_override mirrors retry_override for
     # tests; find_pdf_sweep_running guards the batch endpoint against overlapping
@@ -1356,10 +1387,12 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "add",
                                   "label": label, "target": target}
 
-        if app.state.add_paper_override is not None:
-            coro = app.state.add_paper_override(target, bus)
-        else:
-            coro = _add_paper_task(
+        # Built only once a slot is free: a coroutine created now and left
+        # queued behind the limit would never be awaited if the server stops.
+        def _make_coro():
+            if app.state.add_paper_override is not None:
+                return app.state.add_paper_override(target, bus)
+            return _add_paper_task(
                 target,
                 bus,
                 pipeline_overrides=app.state.pipeline_overrides,
@@ -1368,7 +1401,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
         async def _run():
             await _announce_start(job_id, "add", label, target)
             try:
-                await coro
+                # Wait for a slot. The job is already announced, so it shows as
+                # in progress while it queues behind the ones ahead of it.
+                async with app.state.ingest_slots:
+                    await _make_coro()
                 app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "add",
                                           "label": label, "target": target}
             except Exception as exc:
@@ -2217,12 +2253,19 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
             # Auto-queue downloads for available refs (session-deduped so a
             # failing add cannot retry-storm; the row keeps its manual button)
+            used = app.state.auto_added_per_draft.get(draft_id, 0)
             for rec in payload.get("references", []):
+                if used >= AUTO_ADD_LIMIT:
+                    # The rest stay "available" with their Add button: the
+                    # reader decides whether to pay for them.
+                    break
                 target = rec.get("add_target")
                 if (rec.get("status") == "available" and target
                         and target not in app.state.auto_added_targets):
                     app.state.auto_added_targets.add(target)
+                    used += 1
                     _queue_add_paper(target)
+            app.state.auto_added_per_draft[draft_id] = used
 
             # One automatic resolution pass per draft text (resolved_at is the
             # marker); newly available refs auto-queue on the next refresh.
