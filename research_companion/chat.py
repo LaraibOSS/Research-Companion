@@ -8,7 +8,6 @@ Every answer cites paper titles in square brackets so users can verify.
 """
 from __future__ import annotations
 
-import os
 import re
 from collections import deque
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from typing import Any
 
 import networkx as nx
 
+from research_companion import llm
 from research_companion.graph import load_graph
 from research_companion.prompts import CHAT_SYSTEM_PROMPT, render_chat_user_prompt
 from research_companion.rank import STOPWORDS
@@ -153,39 +153,23 @@ def _format_paper_list(papers: list[dict[str, Any]]) -> str:
 # LLM call
 # ---------------------------------------------------------------------------
 
+_CHAT_MAX_OUTPUT_TOKENS = 1024
+
+
+def _call_llm(provider: str, system: str, user: str, *, model: str) -> tuple[str, dict]:
+    """One chat call through the model layer. Chat answers are prose: no JSON mode."""
+    r = llm.complete(user, system=system, provider=provider, model=model,
+                     max_output_tokens=_CHAT_MAX_OUTPUT_TOKENS, json_mode=False)
+    return r.text.strip(), {"input_tokens": r.input_tokens, "output_tokens": r.output_tokens}
+
+
+# Per-provider seams kept with their old signatures (tests monkeypatch them).
 def _call_anthropic(system: str, user: str, *, model: str) -> tuple[str, dict]:
-    from anthropic import Anthropic
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    resp = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-    return text.strip(), {
-        "input_tokens": resp.usage.input_tokens,
-        "output_tokens": resp.usage.output_tokens,
-    }
+    return _call_llm("anthropic", system, user, model=model)
 
 
 def _call_openai(system: str, user: str, *, model: str) -> tuple[str, dict]:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.0,
-        max_tokens=1024,
-    )
-    text = (resp.choices[0].message.content or "").strip()
-    return text, {
-        "input_tokens": resp.usage.prompt_tokens if resp.usage else 0,
-        "output_tokens": resp.usage.completion_tokens if resp.usage else 0,
-    }
+    return _call_llm("openai", system, user, model=model)
 
 
 # ---------------------------------------------------------------------------
@@ -248,14 +232,15 @@ def chat(
         question=question,
     )
 
+    if provider not in llm.PROVIDERS:
+        raise ValueError(f"unknown provider {provider!r}")
+    model = llm.resolve_model(provider, model)
     if provider == "anthropic":
-        model = model or "claude-sonnet-4-7"
         answer, usage = _call_anthropic(CHAT_SYSTEM_PROMPT, user_prompt, model=model)
     elif provider == "openai":
-        model = model or "gpt-4o-2024-11-20"
         answer, usage = _call_openai(CHAT_SYSTEM_PROMPT, user_prompt, model=model)
     else:
-        raise ValueError(f"unknown provider {provider!r}")
+        answer, usage = _call_llm(provider, CHAT_SYSTEM_PROMPT, user_prompt, model=model)
 
     return ChatAnswer(
         answer=answer,

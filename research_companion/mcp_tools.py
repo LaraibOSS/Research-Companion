@@ -180,6 +180,21 @@ def _refusal(estimated: float, cap: float) -> dict:
     }
 
 
+def _unpriced_refusal(provider: str, cap: float) -> dict:
+    """An unknown price cannot be checked against the cap. Treating it as $0
+    would let any call through a cap the user set to bound spending, so the
+    costed tool refuses instead. Local models (ollama) are priced at $0 and
+    are not affected; an OpenAI-compatible server is, because it may be a
+    paid gateway. Use the CLI or the Lab for those calls."""
+    return {
+        "error": (f"price not known for provider {provider!r}, so the estimated cost "
+                  f"cannot be checked against the mcp_cost_cap_usd cap (${cap:.2f}); "
+                  "refusing. Use the CLI or the Lab for this provider."),
+        "estimated_cost_usd": None,
+        "cap_usd": cap,
+    }
+
+
 def _provider_for_estimate() -> str:
     from research_companion.cost import configured_provider
     resolved = configured_provider()
@@ -201,9 +216,12 @@ def ask_library(*, question: str, k: int | None = None,
         char_budget = int(get_settings().get("char_budget", 8000))
     except Exception:
         char_budget = 8000
+    provider = _provider_for_estimate()
     est = estimate_cost(chars_to_tokens(char_budget + len(question)),
-                        _ASK_OUTPUT_TOKENS, _provider_for_estimate())
+                        _ASK_OUTPUT_TOKENS, provider)
     cap = _cap_usd()
+    if est is None:
+        return _unpriced_refusal(provider, cap)
     if est > cap:
         return _refusal(est, cap)
 
@@ -242,11 +260,13 @@ def review_draft(*, paper_id: str, venue: str | None = None, fast: bool = False,
 
         n_lanes = 0 if fast else _N_LLM_LANES_FULL + (1 if venue else 0)  # venuefit is the LLM venue lane
         in_tokens = n_lanes * chars_to_tokens(min(len(text or ""), _REVIEW_INPUT_CHARS_PER_LANE))
-        est = estimate_cost(in_tokens, n_lanes * _REVIEW_OUTPUT_TOKENS_PER_LANE,
-                            _provider_for_estimate())
+        provider = _provider_for_estimate()
+        est = estimate_cost(in_tokens, n_lanes * _REVIEW_OUTPUT_TOKENS_PER_LANE, provider)
         cap = _cap_usd()
     except Exception as exc:
         return {"error": str(exc)}
+    if est is None:
+        return _unpriced_refusal(provider, cap)
     if est > cap:
         return _refusal(est, cap)
 

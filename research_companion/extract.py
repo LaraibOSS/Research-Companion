@@ -19,6 +19,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from research_companion import llm as _llm
+from research_companion.llm import DEFAULT_MODELS as _DEFAULT_MODELS_BY_PROVIDER  # noqa: F401
+from research_companion.llm import resolve_model  # noqa: F401  (re-export)
 from research_companion.prompts import extraction_prompt_sha256, render_extraction_prompt
 from research_companion.store import (
     PaperMetadata,
@@ -33,18 +36,9 @@ from research_companion.store import (
 # Claude/GPT context with room for the prompt and response. Most papers are 10-30 pages.
 MAX_PAPER_CHARS = 50_000
 
-# Default models per provider — single source of truth used by resolve_model().
-_DEFAULT_MODELS_BY_PROVIDER: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-7",
-    "openai": "gpt-4o-2024-11-20",
-}
-
-
-def resolve_model(provider: str, model: str | None = None) -> str:
-    """Return the model to use for *provider*, falling back to its default."""
-    if model:
-        return model
-    return _DEFAULT_MODELS_BY_PROVIDER.get(provider, _DEFAULT_MODELS_BY_PROVIDER["anthropic"])
+# The default-model table and resolve_model live in llm.py (the one model
+# layer); they are re-exported from the imports above so existing imports
+# (`from research_companion.extract import resolve_model`) keep working.
 
 
 # ---------------------------------------------------------------------------
@@ -346,59 +340,27 @@ def _truncate(text: str, max_chars: int = MAX_PAPER_CHARS) -> str:
 
 
 def _call_anthropic(prompt: str, *, model: str, max_output_tokens: int = 2048) -> tuple[str, dict]:
-    """Returns (text, usage_dict)."""
-    from anthropic import Anthropic
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_output_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = "".join(block.text for block in resp.content if getattr(block, "type", "") == "text")
-    usage = {
-        "input_tokens": resp.usage.input_tokens,
-        "output_tokens": resp.usage.output_tokens,
-    }
-    return text, usage
+    """Returns (text, usage_dict). Delegates to the model layer (llm.complete).
 
-
-def _openai_request_kwargs(*, model: str, max_output_tokens: int, json_mode: bool,
-                           prompt: str = "") -> dict:
-    """Request kwargs for the OpenAI chat call. json_mode forces a JSON object
-    response (extraction/novelty/alignment need it); prose callers (qa, compare
-    narrative) must pass json_mode=False or the model mangles free text.
-
-    Safety net: OpenAI REJECTS `response_format=json_object` outright (HTTP 400)
-    unless the messages contain the word "json". A prose prompt routed here in
-    JSON mode is a wiring mistake, and forcing the format would fail the whole
-    request; dropping it degrades to a working prose call instead. `prompt=""`
-    (callers that do not pass it) keeps the previous behavior.
+    Kept as a module attribute with this signature because call sites route
+    the hosted providers through it (llm.call_text) and tests monkeypatch it.
+    usage_dict also carries ``truncated`` (answer cut at the output limit).
     """
-    kwargs = {
-        "model": model,
-        "max_tokens": max_output_tokens,
-        "temperature": 0.0,
-    }
-    if json_mode and (not prompt or "json" in prompt.lower()):
-        kwargs["response_format"] = {"type": "json_object"}
-    return kwargs
+    r = _llm.complete(prompt, provider="anthropic", model=model,
+                      max_output_tokens=max_output_tokens)
+    return r.text, r.usage()
+
+
+# Kept under its old name for importers; the implementation lives in llm.py.
+_openai_request_kwargs = _llm.openai_request_kwargs
 
 
 def _call_openai(prompt: str, *, model: str, max_output_tokens: int = 2048,
                  json_mode: bool = True) -> tuple[str, dict]:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    resp = client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        **_openai_request_kwargs(model=model, max_output_tokens=max_output_tokens,
-                                 json_mode=json_mode, prompt=prompt),
-    )
-    text = (resp.choices[0].message.content or "").strip()
-    usage = {
-        "input_tokens": resp.usage.prompt_tokens if resp.usage else 0,
-        "output_tokens": resp.usage.completion_tokens if resp.usage else 0,
-    }
-    return text, usage
+    """Returns (text, usage_dict). Delegates to the model layer (llm.complete)."""
+    r = _llm.complete(prompt, provider="openai", model=model,
+                      max_output_tokens=max_output_tokens, json_mode=json_mode)
+    return r.text, r.usage()
 
 
 def _strip_code_fences(s: str) -> str:
@@ -534,12 +496,21 @@ def extract_paper(
         section_outline=section_outline,
     )
 
-    if provider == "anthropic":
-        raw, usage = _call_anthropic(prompt, model=resolve_model(provider, model))
-    elif provider == "openai":
-        raw, usage = _call_openai(prompt, model=resolve_model(provider, model))
-    else:
-        raise ValueError(f"unknown provider {provider!r} (expected 'anthropic' or 'openai')")
+    if provider not in _llm.PROVIDERS:
+        raise ValueError(
+            f"unknown provider {provider!r} (expected one of {', '.join(_llm.PROVIDERS)})")
+    raw, usage = _llm.call_text(prompt, provider=provider,
+                                model=resolve_model(provider, model))  # JSON mode (default)
+
+    # A reply cut off at the output limit is half a JSON object. Reporting it
+    # as "invalid JSON" sends the reader to blame the model's formatting; the
+    # actual cause is the token limit, so say that.
+    if usage.get("truncated"):
+        raise ExtractionError(
+            f"the model's answer for {meta.paper_id} was cut off at the output limit "
+            f"({usage.get('output_tokens', '?')} tokens) before the JSON was complete. "
+            "Try a model with a larger output limit."
+        )
 
     raw = _strip_code_fences(raw)
     try:

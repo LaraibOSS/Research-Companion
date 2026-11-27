@@ -11,10 +11,31 @@
 
 const WELCOME_SEEN_KEY = 'rc.welcomeShown';
 
-/** Name of the secret key required by the currently-selected provider. */
+/** Plain labels for every provider the backend accepts (settings._VALID_PROVIDERS). */
+export const PROVIDER_LABELS = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  ollama: 'Local model (Ollama)',
+  openai_compatible: 'Other OpenAI-compatible server',
+};
+
+/** Providers that run on the user's own machine or server (no default model). */
+const SELF_HOSTED = new Set(['ollama', 'openai_compatible']);
+
+export function isSelfHosted(provider) {
+  return SELF_HOSTED.has(provider);
+}
+
+/**
+ * Name of the secret key the currently-selected provider uses, or null when
+ * it uses none (Ollama). For openai_compatible the key is optional.
+ */
 export function activeKeyName(settings) {
   const provider = (settings && settings.provider) || 'anthropic';
-  return provider === 'openai' ? 'openai_api_key' : 'anthropic_api_key';
+  if (provider === 'openai') return 'openai_api_key';
+  if (provider === 'openai_compatible') return 'openai_compatible_api_key';
+  if (provider === 'ollama') return null;
+  return 'anthropic_api_key';
 }
 
 function _keySet(settings, name) {
@@ -22,10 +43,24 @@ function _keySet(settings, name) {
   return !!(keys[name] && keys[name].set);
 }
 
-/** True when the active provider's LLM key is not set (analysis is blocked). */
+/**
+ * True when the selected provider has what it needs to make a call.
+ * The backend computes this (settings.provider_ready, from llm.provider_ready)
+ * because "ready" is not "a key is set" for every provider: Ollama needs no
+ * key but needs a model name. The key check is only the fallback for a
+ * payload without the flag.
+ */
+export function providerReady(settings) {
+  if (!settings) return false;
+  if (typeof settings.provider_ready === 'boolean') return settings.provider_ready;
+  const name = activeKeyName(settings);
+  return name ? _keySet(settings, name) : false;
+}
+
+/** True when the active provider is not ready to make a call (analysis is blocked). */
 export function missingLlmKey(settings) {
   if (!settings || !settings.keys) return false; // unknown yet — don't nag
-  return !_keySet(settings, activeKeyName(settings));
+  return !providerReady(settings);
 }
 
 /** True when the optional Hugging Face token is not set. */
@@ -61,14 +96,15 @@ export function noKeyBannerModel(settings) {
 }
 
 /**
- * Whether to show the first-launch welcome dialog.
- * Shows when the LLM key is missing, OR on the very first launch (seen flag
- * not yet persisted) so new users always see the "get set up" guidance once.
- * Never shows before settings have loaded (settings.keys absent).
+ * Whether to show the first-launch welcome dialog: once, then never again
+ * once dismissed. Never before settings have loaded (settings.keys absent).
+ *
+ * It used to reappear on every page load while no model key was set. That
+ * made the free checks feel locked behind a key, and the persistent
+ * "Connect a model" banner (noKeyBannerModel) already covers a missing key.
  */
 export function shouldShowWelcome(settings, { seen } = {}) {
   if (!settings || !settings.keys) return false;
-  if (missingLlmKey(settings)) return true;
   return !seen;
 }
 

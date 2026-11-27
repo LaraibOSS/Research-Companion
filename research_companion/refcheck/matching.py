@@ -122,6 +122,41 @@ def authors_corroborate(cited: str, record_authors: list[str]) -> bool | None:
     return False
 
 
+def short_title_matches_exactly(cited: str, authoritative: str, cited_title: str | None,
+                                record_authors: list[str]) -> bool:
+    """A short real title, cited whole, by one of its own authors.
+
+    ``title_is_cited`` refuses shared runs under 15 characters so that a
+    generic phrase ("Deep learning") cannot verify any longer record that
+    begins with it. That floor also rejected the real paper titled exactly
+    "Deep learning" (LeCun, Bengio, Hinton, Nature 2015): a false accusation.
+
+    Accept a short title only when the title extracted from the line equals
+    the record's title AND the line names one of the record's authors. The
+    generic-phrase case still fails: a different record has different authors.
+    """
+    if not cited_title or not authoritative:
+        return False
+    if title_similarity(cited_title, authoritative) < 0.9:
+        return False
+    return authors_corroborate(cited, record_authors) is True
+
+
+def names_people(cited: str, cited_title: str | None) -> bool:
+    """Does the cited line carry an author segment before its title?
+
+    Lines extracted by a model are often the title alone ("Attention Is All
+    You Need. arXiv:1706.03762"). Asking such a line for an author in common
+    would accuse every one of them, so the author check below applies only
+    when the line actually names someone ahead of the title.
+    """
+    if not cited_title:
+        return False
+    head = _fold(cited).lower().split(_fold(cited_title).lower().strip(), 1)[0]
+    words = [w for w in re.split(r"[^a-z]+", head) if len(w) >= 2 and w not in ("et", "al", "and")]
+    return len(words) >= 1
+
+
 def _last_name(author: str) -> str:
     """Best-effort surname extraction, normalized to lowercase alphanumerics.
 

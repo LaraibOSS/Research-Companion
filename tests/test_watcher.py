@@ -220,3 +220,18 @@ def test_release_lets_a_later_poll_offer_the_file_again(tmp_path):
 def test_release_of_an_untracked_path_is_a_no_op(tmp_path):
     w = ArmedWatcher(tmp_path)
     w.release(tmp_path / "never-seen.pdf")  # must not raise
+
+
+def test_the_countdown_never_exceeds_the_window_it_was_armed_for(tmp_path):
+    """(now + ttl) - now is not exactly ttl in floating point. On a clock that
+    has not ticked since arming, the remainder read as 3600.000000000001 for a
+    3600s window: more time left than the cap allows. Seen on Windows CI,
+    where the monotonic clock is coarse enough for two reads to be equal."""
+    from research_companion.watcher import ArmedWatcher
+
+    frozen = 6190.872243333312          # a value where the sum rounds upward
+    assert (frozen + 3600) - frozen > 3600
+    watcher = ArmedWatcher(tmp_path, now=lambda: frozen)
+    watcher.arm(["a"], ttl=3600)
+    assert watcher.seconds_left == 3600
+    assert watcher.is_armed

@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
-const { buildSettingsPatch, validateSettings } = await import(
+const { buildSettingsPatch, validateSettings, providerFields, isHttpUrlOrEmpty } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'settingsHelpers.js')).href
 );
 
@@ -107,4 +107,46 @@ test('buildSettingsPatch carries downloads_dir', () => {
     { downloads_dir: 'D:/Downloads', anthropic_api_key: '', openai_api_key: '', hf_token: '' },
     { downloads_dir: '' });
   assert.deepEqual(patch, { downloads_dir: 'D:/Downloads' });
+});
+
+test('buildSettingsPatch carries the self-hosted model fields', () => {
+  // Missing from REGULAR_FIELDS/SECRET_FIELDS, they would be dropped from every PUT.
+  const patch = buildSettingsPatch(
+    { provider: 'ollama', model: 'llama3.1:8b', base_url: 'http://localhost:8000/v1',
+      ollama_url: 'http://gpu:11434', ollama_num_ctx: 32768,
+      openai_compatible_api_key: 'sk-local', anthropic_api_key: '', openai_api_key: '', hf_token: '' },
+    { provider: 'anthropic', model: null, base_url: '', ollama_url: '', ollama_num_ctx: 16384 });
+  assert.deepEqual(patch, {
+    provider: 'ollama', model: 'llama3.1:8b', base_url: 'http://localhost:8000/v1',
+    ollama_url: 'http://gpu:11434', ollama_num_ctx: 32768,
+    keys: { openai_compatible_api_key: 'sk-local' },
+  });
+});
+
+test('buildSettingsPatch omits an empty optional server key', () => {
+  const patch = buildSettingsPatch(
+    { provider: 'openai_compatible', openai_compatible_api_key: '' },
+    { provider: 'openai_compatible' });
+  assert.deepEqual(patch, {});
+});
+
+test('providerFields shows only what each provider uses', () => {
+  assert.deepEqual(providerFields('anthropic'), {
+    anthropicKey: true, openaiKey: false, baseUrl: false, compatKey: false,
+    ollamaUrl: false, ollamaNumCtx: false, modelRequired: false });
+  assert.equal(providerFields('openai').openaiKey, true);
+  const ollama = providerFields('ollama');
+  assert.ok(ollama.ollamaUrl && ollama.ollamaNumCtx && ollama.modelRequired);
+  assert.ok(!ollama.anthropicKey && !ollama.openaiKey && !ollama.compatKey);
+  const compat = providerFields('openai_compatible');
+  assert.ok(compat.baseUrl && compat.compatKey && compat.modelRequired && !compat.ollamaUrl);
+});
+
+test('validateSettings checks the context length and URLs', () => {
+  assert.deepEqual(validateSettings({ ollama_num_ctx: 16384, ollama_url: '', base_url: 'https://x/v1' }), []);
+  assert.equal(validateSettings({ ollama_num_ctx: 1024 }).length, 1);
+  assert.equal(validateSettings({ ollama_num_ctx: 4096.5 }).length, 1);
+  assert.equal(validateSettings({ base_url: 'localhost:8000' }).length, 1);
+  assert.equal(validateSettings({ ollama_url: 'ftp://h' }).length, 1);
+  assert.ok(isHttpUrlOrEmpty('') && !isHttpUrlOrEmpty('http://'));
 });

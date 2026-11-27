@@ -134,6 +134,15 @@ const _HELP = {
     basedOn: 'Notes you wrote yourself.',
     aiUsed: false,
   },
+  agents: {
+    title: 'Agents',
+    what: 'Each agent does one job on a paper and reports back: checking references or '
+      + 'statistics, finding related work, judging novelty. Tick the ones you want; agents they '
+      + 'depend on are added for you, and the page says before you run whether it is paid.',
+    basedOn: 'The chosen paper, your library, and, for some agents, public catalogues or your '
+      + 'model provider. Each agent states which.',
+    aiUsed: true,
+  },
   researches: {
     title: 'Researches',
     what: 'Every research project you have. Each one is a separate workspace with its own '

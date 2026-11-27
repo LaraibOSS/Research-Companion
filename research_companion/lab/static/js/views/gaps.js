@@ -20,6 +20,7 @@ import {
   gapThemeRowModel,
   sortGapThemes,
   filterGapThemes,
+  resolutionCoverageLine,
 } from '../gapHelpers.js';
 import { buildNoteRecord } from '../noteRecord.js';
 import { themeFromHash } from '../noteOriginHelpers.js';
@@ -116,6 +117,7 @@ function _render() {
         <div class="gaps-header-main">
           <h2>Gaps <span class="gaps-count">${escapeHtml(String(sorted.length))}</span></h2>
           <p class="muted">Research gaps synthesized across your library — what's missing, and whether it's still open.</p>
+          ${_coverageHtml()}
         </div>
         <button class="btn btn-secondary btn-sm gaps-refresh-btn">Refresh gaps</button>
       </div>
@@ -140,6 +142,12 @@ function _render() {
     // gap_ids, so re-clustering can retire one — the note's link still
     // opens Gaps, which is more useful than an error the reader cannot act on.
   }
+}
+
+function _coverageHtml() {
+  const line = resolutionCoverageLine(_gaps && _gaps.resolution_checks);
+  if (!line) return '';
+  return `<p class="gaps-coverage gaps-coverage--${escapeHtml(line.tone)}">${escapeHtml(line.text)}</p>`;
 }
 
 function _controlsHtml() {

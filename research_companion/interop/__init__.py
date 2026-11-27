@@ -8,6 +8,9 @@ common bibliography formats:
 - ``ris`` — export to RIS (EndNote / Zotero / most reference managers).
 - ``latex`` — read ``\\cite`` keys from a ``.tex`` draft and resolve them against a
   ``.bib`` file, so LaTeX-native drafts get citation coverage without a PDF.
+- ``zotero`` — read a Zotero library through Zotero's local API (no account, no
+  key, read-only) and add its items by arXiv id, DOI, the PDF Zotero holds, or
+  metadata alone. Imported lazily: ``from research_companion.interop import zotero``.
 """
 from research_companion.interop.bibtex import papers_to_bibtex, parse_bibtex
 from research_companion.interop.latex import extract_cite_keys, resolve_tex_citations

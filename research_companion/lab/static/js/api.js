@@ -16,8 +16,14 @@ async function _handleResponse(res) {
     } catch {
       detail = await res.text().catch(() => res.statusText);
     }
-    const err = new Error(detail || `HTTP ${res.status}`);
+    // A structured detail ({problems: [...]}) is kept as-is on err.detail so
+    // a view can list every reason; the message stays readable either way.
+    const message = (detail && typeof detail === 'object')
+      ? (Array.isArray(detail.problems) ? detail.problems.join(' ') : JSON.stringify(detail))
+      : detail;
+    const err = new Error(message || `HTTP ${res.status}`);
     err.status = res.status;
+    err.detail = detail;
     throw err;
   }
   // No content responses (DELETE returning 204, etc.)
@@ -169,6 +175,16 @@ export const getFailures = () => get('/api/failures');
 
 /** GET /api/jobs/{id} */
 export const getJob = (jobId) => get(`/api/jobs/${encodeURIComponent(jobId)}`);
+
+/** GET /api/zotero/status — { state, ok, message, url } */
+export const getZoteroStatus = () => get('/api/zotero/status');
+
+/** GET /api/zotero/collections — { collections: [{key, name, parent, items}] } */
+export const getZoteroCollections = () => get('/api/zotero/collections');
+
+/** POST /api/zotero/import — { job_id, dry_run }. Read-only on the Zotero side. */
+export const importZotero = (collectionKey, dryRun) =>
+  post('/api/zotero/import', { collection_key: collectionKey || null, dry_run: !!dryRun });
 
 /** POST /api/ingest — body: { folder: string, paths?: string[] } */
 export const ingest = (folder, paths) => post('/api/ingest', paths ? { folder, paths } : { folder });
@@ -420,6 +436,23 @@ export const unlinkCitation = (index) =>
  * Used at boot for hydration. Non-fatal when 404 (older server).
  */
 export const getJobs = () => get('/api/jobs');
+
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
+
+/** GET /api/agents[?paper_id=] — { agents, handoffs, model_configured } */
+export const getAgents = (paperId) =>
+  get(paperId ? `/api/agents?paper_id=${encodeURIComponent(paperId)}` : '/api/agents');
+
+/** POST /api/agents/run — { job_id, agents, added, uses_model, uses_network } */
+export const runAgents = (paperId, agents, inputs = {}) =>
+  post('/api/agents/run', {
+    paper_id: paperId,
+    agents,
+    venue: inputs.venue || null,
+    problem_statement: inputs.problem_statement || null,
+  });
 
 // ---------------------------------------------------------------------------
 // Draft opportunities + revision notes endpoints (uncited-paper opportunities)

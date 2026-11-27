@@ -139,7 +139,11 @@ def _best_match(
     for item in items:
         record = parser(item)
         score = matching.title_similarity(ref.title, record["title"])
-        if matching.title_is_cited(cited, record["title"]):
+        if not matching.title_is_cited(cited, record["title"]) and \
+                matching.short_title_matches_exactly(
+                    cited, record["title"], probable_title(cited), record.get("authors") or []):
+            score = max(score, floor)
+        elif matching.title_is_cited(cited, record["title"]):
             # A short catalogue title contained in a longer cited title passes
             # the title test on its own. Without an author in common it is a
             # different work, and accepting it would report a reference that
@@ -176,6 +180,18 @@ def _record_transport_failure(resolver: str, exc: BaseException) -> None:
     sink = _transport_failures.get()
     if sink is not None:
         sink.append(f"{resolver}: {type(exc).__name__}: {exc}")
+
+
+def transport_failures_recorded() -> int | None:
+    """How many transport failures the active lookup has recorded so far.
+
+    None outside :func:`lookup_with_outcome`, where nothing is listening and
+    a failure cannot be told apart from an empty answer. A caller that caches
+    catalogue responses compares this before and after a call, so it never
+    stores an outage as if the catalogue had answered "nothing found".
+    """
+    sink = _transport_failures.get()
+    return None if sink is None else len(sink)
 
 
 def _crossref_search(query: str, *, rows: int = 5, timeout: float = 30.0) -> list[dict]:

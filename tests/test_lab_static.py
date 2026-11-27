@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs tests/js/handoffHelpers.test.mjs tests/js/noteOriginHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs tests/js/handoffHelpers.test.mjs tests/js/noteOriginHelpers.test.mjs tests/js/agentsHelpers.test.mjs tests/js/pathHelpers.test.mjs tests/js/zoteroHelpers.test.mjs
 Tests:
   - Every file referenced by index.html exists in lab/static
   - index.html contains the module script tag and vendor script tag
@@ -1010,6 +1010,33 @@ def test_user_facing_toggles_have_a_settings_control():
     assert "s-claim-audit" in settings_js
     assert "per citation" in settings_js
     assert "Advisory" in settings_js or "advisory" in settings_js
+
+
+def test_settings_ui_offers_every_backend_provider_and_its_fields():
+    """Every provider settings.py accepts must be selectable, with a plain
+    label, and its server fields must reach the PUT body -- a field missing
+    from settingsHelpers' REGULAR_FIELDS is silently dropped from every save."""
+    from research_companion.settings import _VALID_PROVIDERS
+
+    key_js = (STATIC_DIR / "js" / "keyPromptHelpers.js").read_text(encoding="utf-8")
+    helpers_js = (STATIC_DIR / "js" / "settingsHelpers.js").read_text(encoding="utf-8")
+    settings_js = (STATIC_DIR / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+
+    for provider in _VALID_PROVIDERS:
+        assert f"{provider}:" in key_js, f"provider {provider!r} has no label in the UI"
+    assert "Local model (Ollama)" in key_js
+    assert "Other OpenAI-compatible server" in key_js
+    assert "PROVIDER_LABELS" in settings_js
+
+    for field in ("base_url", "ollama_url", "ollama_num_ctx"):
+        assert f"'{field}'" in helpers_js, f"{field} missing from REGULAR_FIELDS"
+        assert f"{field}:" in settings_js, f"{field} never sent by the Save handler"
+    assert "'openai_compatible_api_key'" in helpers_js
+
+    # Server-supplied values are escaped where they enter innerHTML.
+    for expr in ("escapeHtml(s.base_url", "escapeHtml(s.ollama_url",
+                 "escapeHtml(String(s.ollama_num_ctx", "escapeHtml(label)"):
+        assert expr in settings_js, f"{expr} not escaped"
 
 
 def test_report_surfaces_claim_audit_without_overclaiming():
@@ -2979,7 +3006,7 @@ def test_lab_css_has_task4_notebook_styles():
 # ---------------------------------------------------------------------------
 
 ALL_NAV_LABELS = ("Home", "Researches", "Library", "Graph", "Draft", "Timeline",
-                  "Ask", "Compare", "Citations", "Notes", "Help", "Settings")
+                  "Ask", "Compare", "Citations", "Notes", "Agents", "Help", "Settings")
 
 
 def test_index_html_has_researches_nav_button_positioned_correctly():
@@ -3807,3 +3834,108 @@ def test_brief_note_records_which_section_it_came_from():
         "the brief note must carry the section title as its origin label — "
         "pinned so the label can't regress to the bullet's own excerpt"
     )
+
+
+def test_agents_page_is_routed_navigable_and_helped():
+    """The Agents page must be reachable: a nav button after Notes and before
+    the spacer, a registered route, and its own help entry."""
+    html = _index_text()
+    notes_pos = html.find('data-route="/notes"')
+    agents_pos = html.find('data-route="/agents"')
+    spacer_pos = html.find("nav-spacer")
+    assert -1 < notes_pos < agents_pos < spacer_pos
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "./views/agents.js" in main_js and "registerRoute('/agents'" in main_js
+    help_js = (STATIC_DIR / "js" / "helpContent.js").read_text(encoding="utf-8")
+    assert "  agents: {" in help_js
+
+
+def test_agents_view_escapes_what_it_renders():
+    """Every interpolation into the Agents page's HTML goes through escapeHtml,
+    except values the view computes itself (counts, booleans, fixed attributes)."""
+    import re
+
+    src = (STATIC_DIR / "js" / "views" / "agents.js").read_text(encoding="utf-8")
+    allowed = {"cost.tone", "last.tone", "count", "count === 1 ? '' : 's'",
+               "summary.usesModel ? 'warn' : 'ok'", "checked", "disabled ? ' disabled' : ''",
+               "disabled ? ' agent-card-disabled' : ''", "sel", "disabled", "needs", "onlyCli",
+               "lastDetail", "added", "blockerHtml", "options",
+               "fields.join('')", "group.agents.map(_agentHtml).join('')",
+               "groupByStage(_agents).map(_groupHtml).join('')", "_paperPickerHtml()",
+               "_inputsHtml(summary)", "_footerHtml(summary)",
+               "res.agents.length", "res.agents.length === 1 ? '' : 's'"}
+    for expr in re.findall(r"\$\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", src):
+        expr = expr.strip()
+        if expr.startswith("escapeHtml(") or expr in allowed:
+            continue
+        if ".map(" in expr and "=> `" in expr:
+            # A list built by mapping a template: each item must be escaped.
+            assert "escapeHtml(" in expr, expr
+            continue
+        if expr.startswith(("_loadError ?", "a.last ?", "count ?")):
+            assert "escapeHtml(" in expr, expr
+            continue
+        raise AssertionError(f"unescaped interpolation in agents.js: ${{{expr}}}")
+
+
+def test_every_frontend_module_parses():
+    """A syntax error in one view module stops the whole Lab from loading,
+    because main.js imports every view up front. Nothing else in the suite
+    parses the views (the node tests import helpers only), so an unescaped
+    quote in a view once shipped green and blanked every page."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    js_root = STATIC_DIR / "js"
+    files = sorted(p for p in js_root.rglob("*.js"))
+    assert files, "no frontend modules found"
+    broken = []
+    for path in files:
+        proc = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+        if proc.returncode != 0:
+            first = (proc.stderr or proc.stdout).strip().splitlines()
+            broken.append(f"{path.relative_to(STATIC_DIR)}: {first[-1] if first else 'error'}")
+    assert not broken, "frontend modules that do not parse:\n" + "\n".join(broken)
+
+
+def test_home_renders_the_research_path_first():
+    """Home shows the five-stage path and one next step above everything else,
+    refetches its inputs when a stage could have changed, and drops a stale
+    response (the same seq guard as views/agents.js)."""
+    src = (STATIC_DIR / "js" / "views" / "home.js").read_text(encoding="utf-8")
+    assert "import { researchPath } from '../pathHelpers.js';" in src
+    assert "import { researchPathHtml } from '../components/researchPath.js';" in src
+    view = src[src.index('<div class="home-view${animate}">'):]
+    assert view.index("${pathHtml}") < view.index("${zone1Html}"), \
+        "the path must render above the hero"
+    assert "store.subscribe(['graph', 'gaps', 'draft', 'activity'], _schedulePathLoad)" in src
+    assert "if (_unsubPath) { _unsubPath(); _unsubPath = null; }" in src
+    assert "if (seq !== _pathSeq || !_el) return;" in src
+    # A failed fetch must leave the input null (read as not done), not throw.
+    assert "Promise.allSettled(" in src
+
+
+def test_research_path_component_escapes_and_is_accessible():
+    """Every interpolation in the path's markup goes through escapeHtml, the
+    current stage is marked for assistive tech, status is written in words,
+    and the next step is a real button."""
+    import re
+
+    src = (STATIC_DIR / "js" / "components" / "researchPath.js").read_text(encoding="utf-8")
+    allowed = {"cur", "target", "withModel", "path.stages.map(_stageHtml).join('')"}
+    for expr in re.findall(r"\$\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", src):
+        expr = expr.strip()
+        if expr.startswith("escapeHtml(") or expr in allowed:
+            continue
+        if expr.startswith("next.withModel"):
+            assert "escapeHtml(" in expr, expr
+            continue
+        raise AssertionError(f"unescaped interpolation in researchPath.js: ${{{expr}}}")
+    assert 'aria-current="step"' in src
+    assert '<ol class="home-path-stages">' in src
+    assert "stage.statusText" in src
+    assert '<button type="button" class="btn btn-accent home-next-go"' in src
+    assert "<h2 " in src and "<h3 " in src

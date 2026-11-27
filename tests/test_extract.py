@@ -125,6 +125,60 @@ def test_extract_paper_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch,
         extract.extract_paper(meta, provider="anthropic")
 
 
+def test_extract_paper_reports_truncation_not_invalid_json(monkeypatch: pytest.MonkeyPatch,
+                                                            fake_pdf_bytes: bytes, tmp_path):
+    """A reply cut at the output limit is half a JSON object. The error must
+    name the limit, not blame the JSON -- driven through the real seam and the
+    model layer, with only the SDK client faked."""
+    from types import SimpleNamespace
+
+    import anthropic
+
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    meta = fetch.add_local_pdf(pdf, title="t")
+
+    class _Truncating:
+        def __init__(self, api_key=None):
+            self.messages = SimpleNamespace(create=lambda **kw: SimpleNamespace(
+                content=[SimpleNamespace(type="text", text='{"concepts": [{"name": "x')],
+                usage=SimpleNamespace(input_tokens=9000, output_tokens=2048),
+                stop_reason="max_tokens",
+            ))
+
+    monkeypatch.setattr(anthropic, "Anthropic", _Truncating)
+    with pytest.raises(extract.ExtractionError) as ei:
+        extract.extract_paper(meta, provider="anthropic")
+    msg = str(ei.value)
+    assert "cut off at the output limit" in msg
+    assert "2048" in msg
+    assert "valid JSON" not in msg
+    # Nothing half-parsed was cached.
+    assert store.load_extraction(meta.paper_id,
+                                 prompt_sha=prompts.extraction_prompt_sha256()) is None
+
+
+def test_extract_paper_reports_truncation_for_ollama(monkeypatch: pytest.MonkeyPatch,
+                                                    fake_pdf_bytes: bytes, tmp_path):
+    import httpx
+
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    meta = fetch.add_local_pdf(pdf, title="t")
+    monkeypatch.setenv("RESEARCH_COMPANION_OLLAMA_NUM_CTX", "65536")
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"message": {"content": '{"concepts": ['}, "prompt_eval_count": 1,
+                    "eval_count": 2048, "done_reason": "length"}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _Resp())
+    with pytest.raises(extract.ExtractionError, match="cut off at the output limit"):
+        extract.extract_paper(meta, provider="ollama", model="llama3.1:8b")
+
+
 def test_resolve_model_defaults_per_provider():
     from research_companion.extract import resolve_model
     assert resolve_model("anthropic")           # non-empty default

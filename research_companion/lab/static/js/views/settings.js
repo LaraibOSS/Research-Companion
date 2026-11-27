@@ -18,7 +18,11 @@ import * as api from '../api.js';
 import * as store from '../store.js';
 import { navigateBack } from '../router.js';
 import { themeVars, applyTheme } from '../theme.js';
-import { buildSettingsPatch, validateSettings, buildConnectorsPatch } from '../settingsHelpers.js';
+import {
+  buildSettingsPatch, validateSettings, buildConnectorsPatch, providerFields,
+  OLLAMA_NUM_CTX_MIN, OLLAMA_NUM_CTX_MAX,
+} from '../settingsHelpers.js';
+import { PROVIDER_LABELS } from '../keyPromptHelpers.js';
 import { showToast } from '../components/toast.js';
 import { escapeHtml } from '../format.js';
 import { tip } from '../glossary.js';
@@ -78,6 +82,8 @@ function _render(s) {
   const anthropicInfo = keyInfo.anthropic_api_key || { set: false, masked: null };
   const openaiInfo    = keyInfo.openai_api_key    || { set: false, masked: null };
   const hfInfo        = keyInfo.hf_token          || { set: false, masked: null };
+  const compatInfo    = keyInfo.openai_compatible_api_key || { set: false, masked: null };
+  const fields = providerFields(s.provider || 'anthropic');
 
   _el.innerHTML = `
 <div class="settings-view">
@@ -90,25 +96,53 @@ function _render(s) {
   <div class="settings-card" id="sc-model">
     <div class="settings-card-title">Model Provider</div>
     <div class="settings-field">
-      <label class="settings-label">Provider</label>
+      <label class="settings-label" for="s-provider">Provider</label>
       <select class="settings-select" id="s-provider">
-        <option value="anthropic" ${escapeHtml(s.provider) === 'anthropic' ? 'selected' : ''}>Anthropic</option>
-        <option value="openai"    ${escapeHtml(s.provider) === 'openai'    ? 'selected' : ''}>OpenAI</option>
+        ${Object.entries(PROVIDER_LABELS).map(([value, label]) =>
+          `<option value="${escapeHtml(value)}" ${s.provider === value ? 'selected' : ''}>${escapeHtml(label)}</option>`
+        ).join('')}
       </select>
     </div>
     <div class="settings-field">
-      <label class="settings-label">Model name (optional override)</label>
-      <input type="text" class="settings-input" id="s-model" value="${escapeHtml(s.model || '')}" placeholder="e.g. claude-3-5-sonnet-20241022">
+      <label class="settings-label" for="s-model" id="s-model-label">${fields.modelRequired ? 'Model name (required)' : 'Model name (optional override)'}</label>
+      <input type="text" class="settings-input" id="s-model" value="${escapeHtml(s.model || '')}" placeholder="${escapeHtml(_modelPlaceholder(s.provider))}">
     </div>
-    <div class="settings-field">
+    <div class="settings-field" data-provider-field="anthropicKey" ${fields.anthropicKey ? '' : 'hidden'}>
       <label class="settings-label">Anthropic API key</label>
       <input type="password" class="settings-input" id="s-anthropic-key" autocomplete="new-password"
         placeholder="${anthropicInfo.set ? 'Saved: ' + escapeHtml(anthropicInfo.masked || '****') + ' — type to replace' : 'sk-ant-…'}">
     </div>
-    <div class="settings-field">
+    <div class="settings-field" data-provider-field="openaiKey" ${fields.openaiKey ? '' : 'hidden'}>
       <label class="settings-label">OpenAI API key</label>
       <input type="password" class="settings-input" id="s-openai-key" autocomplete="new-password"
         placeholder="${openaiInfo.set ? 'Saved: ' + escapeHtml(openaiInfo.masked || '****') + ' — type to replace' : 'sk-…'}">
+    </div>
+    <div class="settings-field" data-provider-field="baseUrl" ${fields.baseUrl ? '' : 'hidden'}>
+      <label class="settings-label" for="s-base-url">Server URL</label>
+      <input type="text" class="settings-input" id="s-base-url"
+        value="${escapeHtml(s.base_url || '')}" placeholder="http://localhost:8000/v1">
+      <span class="settings-hint">The address of a server that speaks the OpenAI chat API
+        (vLLM, LM Studio, llama.cpp server, a hosted gateway). Usually ends in <code>/v1</code>.
+        Its price is not known here, so cost estimates read &ldquo;price not known&rdquo;.</span>
+    </div>
+    <div class="settings-field" data-provider-field="compatKey" ${fields.compatKey ? '' : 'hidden'}>
+      <label class="settings-label">API key (optional)</label>
+      <input type="password" class="settings-input" id="s-compat-key" autocomplete="new-password"
+        placeholder="${compatInfo.set ? 'Saved: ' + escapeHtml(compatInfo.masked || '****') + ' — type to replace' : 'Leave blank if your server needs none'}">
+    </div>
+    <div class="settings-field" data-provider-field="ollamaUrl" ${fields.ollamaUrl ? '' : 'hidden'}>
+      <label class="settings-label" for="s-ollama-url">Ollama URL</label>
+      <input type="text" class="settings-input" id="s-ollama-url"
+        value="${escapeHtml(s.ollama_url || '')}" placeholder="http://localhost:11434">
+      <span class="settings-hint">Leave blank for Ollama on this machine. Runs locally: no key, no per-token cost.</span>
+    </div>
+    <div class="settings-field" data-provider-field="ollamaNumCtx" ${fields.ollamaNumCtx ? '' : 'hidden'}>
+      <label class="settings-label" for="s-ollama-num-ctx">Context length (tokens)</label>
+      <input type="number" class="settings-input" id="s-ollama-num-ctx"
+        value="${escapeHtml(String(s.ollama_num_ctx || 16384))}" min="${OLLAMA_NUM_CTX_MIN}" max="${OLLAMA_NUM_CTX_MAX}" step="1024">
+      <span class="settings-hint">How much text the model sees at once. Paper extraction needs
+        about 14,000; requests that do not fit are refused with a message rather than silently cut.
+        Must be within what your model supports. Default: 16384.</span>
     </div>
     <div class="settings-section-actions">
       <button class="btn btn-accent btn-sm" id="save-model">Save</button>
@@ -322,6 +356,23 @@ function _wireEvents(s) {
     });
   });
 
+  // Provider change: show only the fields that provider uses.
+  const providerSelect = _el.querySelector('#s-provider');
+  if (providerSelect) {
+    providerSelect.addEventListener('change', () => {
+      const f = providerFields(providerSelect.value);
+      _el.querySelectorAll('[data-provider-field]').forEach(node => {
+        node.hidden = !f[node.dataset.providerField];
+      });
+      const modelLabel = _el.querySelector('#s-model-label');
+      if (modelLabel) {
+        modelLabel.textContent = f.modelRequired ? 'Model name (required)' : 'Model name (optional override)';
+      }
+      const modelInput = _el.querySelector('#s-model');
+      if (modelInput) modelInput.placeholder = _modelPlaceholder(providerSelect.value);
+    });
+  }
+
   // Save model section
   const saveModel = _el.querySelector('#save-model');
   if (saveModel) {
@@ -330,14 +381,30 @@ function _wireEvents(s) {
       const model = _el.querySelector('#s-model').value.trim() || null;
       const anthropicKey = _el.querySelector('#s-anthropic-key').value;
       const openaiKey = _el.querySelector('#s-openai-key').value;
+      const compatKey = _el.querySelector('#s-compat-key').value;
+      const baseUrl = _el.querySelector('#s-base-url').value.trim();
+      const ollamaUrl = _el.querySelector('#s-ollama-url').value.trim();
+      const numCtxRaw = _el.querySelector('#s-ollama-num-ctx').value.trim();
+      const ollamaNumCtx = numCtxRaw === '' ? (s.ollama_num_ctx || 16384) : Number(numCtxRaw);
       const formState = {
         provider, model,
         theme: s.theme, accent: s.accent, density: s.density,
         k_sections: s.k_sections, char_budget: s.char_budget,
+        base_url: baseUrl,
+        ollama_url: ollamaUrl,
+        ollama_num_ctx: ollamaNumCtx,
         anthropic_api_key: anthropicKey,
         openai_api_key: openaiKey,
+        openai_compatible_api_key: compatKey,
         hf_token: '',
       };
+      const errors = validateSettings({
+        base_url: baseUrl, ollama_url: ollamaUrl, ollama_num_ctx: ollamaNumCtx,
+      });
+      if (providerFields(provider).modelRequired && !model) {
+        errors.unshift('Enter the model name your server runs (for example llama3.1:8b).');
+      }
+      if (errors.length) { showToast(errors[0], 'error'); return; }
       await _savePatch(formState, s, saveModel);
     });
   }
@@ -503,6 +570,13 @@ function _wireEvents(s) {
       window.location.hash = '#/home';
     });
   }
+}
+
+function _modelPlaceholder(provider) {
+  if (provider === 'ollama') return 'e.g. llama3.1:8b (as listed by `ollama list`)';
+  if (provider === 'openai_compatible') return 'the model name your server serves';
+  if (provider === 'openai') return 'e.g. gpt-4o-2024-11-20';
+  return 'e.g. claude-3-5-sonnet-20241022';
 }
 
 // ---------------------------------------------------------------------------

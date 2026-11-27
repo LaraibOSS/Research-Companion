@@ -157,8 +157,12 @@ Rules for the report:
 
 The scratch workspace persists, which makes re-checking the same paper fast. If the user wants it gone:
 
-```bash
-research-companion workspace remove submission-scratch
+There is **no command** that removes it. A workspace chosen with `RESEARCH_COMPANION_WORKSPACE` is never added to the workspace list (so `research-companion workspace list` does not show it); it is just a folder:
+
 ```
+~/.research-companion/workspaces/submission-scratch
+```
+
+(under `$RESEARCH_COMPANION_DIR/workspaces/` instead, if that variable is set). To remove it, delete that one folder — show the user the full path and get a yes first. Never delete any other folder there: each one is one of the user's researches.
 
 Do not remove it automatically.

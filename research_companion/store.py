@@ -190,6 +190,10 @@ def save_registry(reg: dict) -> None:
 
 
 
+#: How many times atomic_write_text tries the final rename (about 1.5 s in all).
+_REPLACE_ATTEMPTS = 12
+
+
 def atomic_write_text(path: Path, text: str) -> None:
     """Write *text* to *path* so a reader never sees a half-written file.
 
@@ -199,15 +203,31 @@ def atomic_write_text(path: Path, text: str) -> None:
     replace the user's data with almost nothing. Writing a sibling temp file
     and os.replace()-ing it over the target is atomic on POSIX and Windows.
     """
+    import time
+    import uuid
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    # Unique per write, not per process: the Lab writes from several threads,
+    # and two writers sharing one temp name overwrite each other's temp file.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         # No fsync: the guarantee wanted here is that a reader or a killed
         # process never meets a half-written file, which the rename gives.
         # Forcing each write to the platter as well made every save several
         # times slower for protection against power loss only.
         tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        # On Windows, replacing a file fails with "Access is denied" while any
+        # other handle has it open (a reader in another thread, an indexer, an
+        # antivirus scan). That lasts milliseconds, so retry briefly before
+        # giving up; on other platforms the first attempt always succeeds.
+        for attempt in range(_REPLACE_ATTEMPTS):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == _REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(0.005 * (2 ** min(attempt, 6)))
     finally:
         if tmp.exists():
             with contextlib.suppress(OSError):

@@ -1,0 +1,362 @@
+{
+  "agents": [
+    {
+      "name": "ingest",
+      "title": "Reader",
+      "does": "Loads the paper and what was extracted from it, and places it in your library's graph.",
+      "stage": "prepare",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [
+        "_graph",
+        "_extraction"
+      ],
+      "reachable_from": [
+        "review",
+        "rebuttal"
+      ],
+      "depends_on": [],
+      "runnable_here": true
+    },
+    {
+      "name": "priorart",
+      "title": "Literature scout",
+      "does": "Searches scholarly catalogues for work related to the paper.",
+      "stage": "prepare",
+      "cost": "network",
+      "needs": [],
+      "reads": [
+        "_extraction",
+        "_search"
+      ],
+      "writes": [
+        "_priorart_papers"
+      ],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "citation",
+      "title": "Reference checker",
+      "does": "Looks every reference up and reports it as found, found with mismatched details, or not found.",
+      "stage": "check",
+      "cost": "network",
+      "needs": [],
+      "reads": [
+        "_extraction",
+        "_lookup"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "statsoundness",
+      "title": "Statistics checker",
+      "does": "Recomputes reported p-values and tests whether reported means are arithmetically possible.",
+      "stage": "check",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "overlap",
+      "title": "Overlap checker",
+      "does": "Flags passages that closely repeat another paper in your own library.",
+      "stage": "check",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "compliance",
+      "title": "Venue rules checker",
+      "does": "Checks the paper against the target venue's submission rules.",
+      "stage": "check",
+      "cost": "free",
+      "needs": [
+        "venue"
+      ],
+      "reads": [
+        "_extraction",
+        "_venue"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "reproducibility",
+      "title": "Reproducibility checker",
+      "does": "Looks for public code and data, an availability statement, and a complete methods description.",
+      "stage": "check",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest",
+        "citation"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "ethics",
+      "title": "Declarations checker",
+      "does": "Looks for funding, conflict-of-interest, ethics and consent statements.",
+      "stage": "check",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "novelty",
+      "title": "Novelty assessor",
+      "does": "Compares each claimed contribution with the related work that was found.",
+      "stage": "position",
+      "cost": "model",
+      "needs": [],
+      "reads": [
+        "_llm",
+        "_priorart_papers"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "priorart"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "citation_polarity",
+      "title": "Citation stance reader",
+      "does": "Labels how the paper uses each citation: builds on it, supports it, or contrasts with it.",
+      "stage": "position",
+      "cost": "model",
+      "needs": [],
+      "reads": [
+        "_extraction",
+        "_llm"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "taxonomy",
+      "title": "Theme mapper",
+      "does": "Groups the related work into labelled themes.",
+      "stage": "position",
+      "cost": "model",
+      "needs": [],
+      "reads": [
+        "_llm",
+        "_priorart_papers"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "priorart"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "benchmark",
+      "title": "Benchmark finder",
+      "does": "Suggests evaluation benchmarks that related work used.",
+      "stage": "position",
+      "cost": "free",
+      "needs": [],
+      "reads": [
+        "_graph",
+        "_priorart_papers"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest",
+        "priorart"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "venuefit",
+      "title": "Venue fit assessor",
+      "does": "Judges whether the paper's scope matches the target venue.",
+      "stage": "position",
+      "cost": "model",
+      "needs": [
+        "venue"
+      ],
+      "reads": [
+        "_extraction",
+        "_llm",
+        "_venue"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "problem",
+      "title": "Problem statement refiner",
+      "does": "Sharpens your problem statement against your library and the related work found.",
+      "stage": "position",
+      "cost": "model",
+      "needs": [
+        "problem statement"
+      ],
+      "reads": [
+        "_graph",
+        "_llm",
+        "_priorart_papers",
+        "_problem_statement"
+      ],
+      "writes": [],
+      "reachable_from": [],
+      "depends_on": [
+        "ingest",
+        "priorart"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "tracker",
+      "title": "New work watcher",
+      "does": "Sweeps recent publications for new work on the paper's topics.",
+      "stage": "position",
+      "cost": "network",
+      "needs": [],
+      "reads": [
+        "_extraction",
+        "_search_recent"
+      ],
+      "writes": [],
+      "reachable_from": [],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "confidence",
+      "title": "Confidence scorer",
+      "does": "Gives each claim a confidence value and an uncertainty band from the checks above.",
+      "stage": "prioritise",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "citation",
+        "novelty"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "severity",
+      "title": "Triage",
+      "does": "Ranks every finding so you fix what matters first.",
+      "stage": "prioritise",
+      "cost": "free",
+      "needs": [],
+      "reads": [],
+      "writes": [],
+      "reachable_from": [
+        "review"
+      ],
+      "depends_on": [
+        "citation",
+        "novelty",
+        "confidence"
+      ],
+      "runnable_here": true
+    },
+    {
+      "name": "rebuttal",
+      "title": "Rebuttal drafter",
+      "does": "Drafts a response to each reviewer concern, grounded in the paper.",
+      "stage": "respond",
+      "cost": "model",
+      "needs": [
+        "reviewer comments"
+      ],
+      "reads": [
+        "_concerns",
+        "_llm",
+        "_reviews_text",
+        "_tone"
+      ],
+      "writes": [],
+      "reachable_from": [
+        "rebuttal"
+      ],
+      "depends_on": [
+        "ingest"
+      ],
+      "runnable_here": false
+    }
+  ]
+}

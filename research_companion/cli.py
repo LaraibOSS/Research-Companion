@@ -30,6 +30,8 @@ from research_companion import __version__
 from research_companion.acquire import acquire
 from research_companion.acquire.copy import reason_headline
 from research_companion.cost import estimate_cost as _estimate_cost
+from research_companion.llm import DEFAULT_MODELS as _DEFAULT_MODELS  # the one table
+from research_companion.llm import PROVIDERS as _LLM_PROVIDERS
 
 # Consistent status glyphs for terminal output across commands.
 # Every value is a fixed-width 2-character code so per-item rows in refcheck,
@@ -140,10 +142,6 @@ def _cmd_add(args: argparse.Namespace) -> int:
     return 0 if not failed else 1
 
 
-_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-7",
-    "openai":    "gpt-4o-2024-11-20",
-}
 
 # Approximate output tokens per extraction (response is ~500-1000 tokens).
 _EST_OUTPUT_TOKENS_PER_PAPER = 800
@@ -159,13 +157,10 @@ def _resolve_provider_model(args: argparse.Namespace) -> tuple[str, str | None]:
     user actually passed the flag; this is what lets RESEARCH_COMPANION_PROVIDER
     take effect when the flag is omitted.
     """
-    import os
+    from research_companion.llm import resolve_provider_and_model
 
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    return provider, model
+    return resolve_provider_and_model(getattr(args, "provider", None),
+                                      getattr(args, "model", None), default_model=False)
 
 
 def _cmd_cost_estimate(args: argparse.Namespace) -> int:
@@ -180,7 +175,11 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
         return 1
 
     provider, model_flag = _resolve_provider_model(args)
-    model = model_flag or _DEFAULT_MODELS.get(provider, _DEFAULT_MODELS["anthropic"])
+    from research_companion.llm import LLMConfigError, resolve_model
+    try:
+        model = resolve_model(provider, model_flag)
+    except LLMConfigError:
+        model = "(not set)"
     prompt_sha = extraction_prompt_sha256()
 
     cached_n = 0
@@ -217,7 +216,13 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
     print()
     print(f"  Estimated input tokens:   ~{est_input_tokens:>,}")
     print(f"  Estimated output tokens:  ~{est_output_tokens:>,}")
-    print(f"  Estimated cost:           ~${est_cost:,.2f}")
+    if est_cost is None:
+        # An OpenAI-compatible server may be free or a paid gateway: a dollar
+        # figure here would be invented.
+        print(f"  Estimated cost:           price not known for {provider} "
+              "(check your server's pricing)")
+    else:
+        print(f"  Estimated cost:           ~${est_cost:,.2f}")
     print()
     print("Run `research-companion build` to proceed. Cached papers are free.")
     print()
@@ -227,6 +232,7 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
 def _cmd_build(args: argparse.Namespace) -> int:
     from research_companion.extract import ExtractionError, extract_paper
     from research_companion.graph import build_graph, graph_stats, save_graph
+    from research_companion.llm import LLMContextError
     from research_companion.store import list_papers
 
     papers = list_papers()
@@ -246,7 +252,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
         prefix = f"  [{i}/{len(papers)}]"
         try:
             _, usage = extract_paper(meta, provider=provider, model=model, force=args.force)
-        except ExtractionError as e:
+        except (ExtractionError, LLMContextError) as e:
+            # Per-paper: one long paper not fitting the context does not mean
+            # the others will not. Config/connection errors abort in main().
             print(f"{prefix} FAILED  {meta.title[:60]}: {e}", file=sys.stderr)
             failed.append(meta.paper_id)
             continue
@@ -264,8 +272,12 @@ def _cmd_build(args: argparse.Namespace) -> int:
     if total_in + total_out > 0:
         model_label = model or _DEFAULT_MODELS.get(provider, provider)
         est = _estimate_cost(total_in, total_out, provider)
-        print(f"research-companion: estimated cost: ~${est:,.2f} "
-              f"(based on {provider} {model_label} pricing)")
+        if est is None:
+            print(f"research-companion: estimated cost: price not known for {provider} "
+                  f"({model_label})")
+        else:
+            print(f"research-companion: estimated cost: ~${est:,.2f} "
+                  f"(based on {provider} {model_label} pricing)")
 
     print("research-companion: building cross-paper graph...")
     G = build_graph(papers)
@@ -459,6 +471,131 @@ def _cmd_acquire(args: argparse.Namespace) -> int:
         return 0
     print(f"{args.paper_id}: {message}")
     return 1
+
+
+_COST_WORDS = {
+    "free": "free, runs on this machine",
+    "network": "free, looks things up online",
+    "model": "uses your model provider (paid)",
+}
+_STAGE_HEADINGS = {
+    "prepare": "Prepare",
+    "check": "Check the paper",
+    "position": "Position the work",
+    "prioritise": "Decide what to fix first",
+    "respond": "Respond to reviewers",
+}
+
+
+def _cmd_agents(args: argparse.Namespace) -> int:
+    """List the agents: what each does, what it costs, and how to run it."""
+    from research_companion.agents.catalog import catalog
+
+    rows = catalog()
+    if args.json:
+        print(json.dumps({"agents": rows}, indent=2, ensure_ascii=False))
+        return 0
+
+    stage = None
+    for row in rows:
+        if row["stage"] != stage:
+            stage = row["stage"]
+            print(f"\n{_STAGE_HEADINGS[stage]}")
+        print(f"  {row['title']}  ({_COST_WORDS[row['cost']]})")
+        print(f"      {row['does']}")
+        if row["needs"]:
+            print(f"      Needs: {', '.join(row['needs'])}.")
+        if row["reachable_from"]:
+            cmds = ", ".join(f"research-companion {c}" for c in row["reachable_from"])
+            print(f"      Runs as part of: {cmds}")
+        if row["runnable_here"]:
+            print(f"      Run it alone: research-companion run-agents <paper_id> {row['name']}")
+        elif not row["reachable_from"]:
+            print("      Not available from a command yet.")
+    return 0
+
+
+#: Test seam: shared-context values for run-agents (fake _llm/_lookup/_search).
+RUN_AGENTS_OVERRIDES: dict = {}
+
+
+def _cmd_run_agents(args: argparse.Namespace) -> int:
+    """Run chosen agents (and what they depend on) on one paper."""
+    import asyncio
+
+    from research_companion.agents.base import AgentContext
+    from research_companion.agents.bus import Bus
+    from research_companion.agents.catalog import card_for
+    from research_companion.agents.orchestrator import run_agents
+    from research_companion.agents.runner import build_agents, context_data, merge_report, plan_run
+    from research_companion.report import build_report_json
+    from research_companion.store import (
+        PaperMetadata,
+        load_review_report,
+        papergraph_dir,
+        save_review_report,
+    )
+
+    if papergraph_dir() is None:
+        print("research-companion: no active research. Create one first: "
+              "research-companion workspace create <name>", file=sys.stderr)
+        return 1
+
+    inputs = {"venue": args.venue, "problem_statement": args.problem_statement}
+    plan = plan_run(args.agents, inputs=inputs)
+    problems = list(plan.problems)
+    meta = PaperMetadata.load(args.paper_id)
+    if meta is None:
+        problems.append(f"{args.paper_id} is not in this research.")
+    overrides = dict(RUN_AGENTS_OVERRIDES)
+    if plan.uses_model and "_llm" not in overrides:
+        from research_companion.cost import configured_provider
+        if configured_provider() is None:
+            problems.append("Some of these agents use a model, and no model key is set. "
+                            "Set one, or choose only free agents.")
+    if problems:
+        for p in problems:
+            print(f"research-companion: {p}", file=sys.stderr)
+        return 1
+
+    # Notices go to stderr under --json so stdout stays parseable JSON.
+    notice_stream = sys.stderr if args.json else sys.stdout
+    if plan.added:
+        added = ", ".join(card_for(n).title for n in plan.added)
+        print(f"Also running, because the chosen agents need them: {added}",
+              file=notice_stream)
+    if plan.uses_model:
+        print("This run makes paid calls to your model provider.", file=notice_stream)
+
+    data = context_data(plan, inputs=inputs, llm=overrides.get("_llm"),
+                        lookup=overrides.get("_lookup"), search=overrides.get("_search"))
+    ctx = AgentContext(paper_id=args.paper_id, bus=Bus(), data=data)
+    results = asyncio.run(run_agents(build_agents(plan), ctx))
+
+    fresh = build_report_json(args.paper_id, meta.title, results)
+    merged = merge_report(load_review_report(args.paper_id), fresh)
+    save_review_report(args.paper_id, merged)
+
+    if args.json:
+        print(json.dumps({"paper_id": args.paper_id, "ran": plan.agents,
+                          "lanes": fresh["lanes"], "readiness": merged.get("readiness")},
+                         indent=2, ensure_ascii=False, default=str))
+        return 0 if all(r.ok for r in results.values()) else 1
+
+    for name in plan.agents:
+        result = results.get(name)
+        title = card_for(name).title
+        if result is None:
+            print(f"  -  {title}: did not run")
+        elif result.ok:
+            print(f"  ok {title}")
+        else:
+            print(f"  !! {title}: {result.error}")
+    readiness = merged.get("readiness") or {}
+    if readiness.get("summary"):
+        print(f"\nOverall: {readiness['summary']}")
+    print("Saved to this paper's review; earlier results from other agents are kept.")
+    return 0 if all(r.ok for r in results.values()) else 1
 
 
 def _cmd_stats(args: argparse.Namespace) -> int:
@@ -1064,22 +1201,9 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
         return injected
 
     # Real provider wiring (lazy import, mirrors agents/novelty.py::_default_llm)
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(getattr(args, "provider", None), getattr(args, "model", None))
 
 
 def _resolve_llm_for_review(args: argparse.Namespace, ctx_data: dict) -> object | None:
@@ -1103,22 +1227,9 @@ def _resolve_llm_for_review(args: argparse.Namespace, ctx_data: dict) -> object 
     if not (getattr(args, "provider", None) or getattr(args, "model", None)):
         return None
 
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(getattr(args, "provider", None), getattr(args, "model", None))
 
 
 def _resolve_llm_for_rebuttal(args: argparse.Namespace, ctx_data: dict) -> object | None:
@@ -1135,22 +1246,9 @@ def _resolve_llm_for_rebuttal(args: argparse.Namespace, ctx_data: dict) -> objec
     if not (getattr(args, "provider", None) or getattr(args, "model", None)):
         return None
 
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(getattr(args, "provider", None), getattr(args, "model", None))
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
@@ -1166,25 +1264,11 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         llm = COMPARE_CONTEXT_OVERRIDES.get("llm")
         if llm is None:
             # Wire real provider (mirrors _resolve_llm_for_align pattern)
-            import os
+            from research_companion import llm as _llm_layer
 
-            from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-            provider = getattr(args, "provider", None) or os.environ.get(
-                "RESEARCH_COMPANION_PROVIDER", "anthropic"
-            )
-            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-            resolved_model = resolve_model(provider, model)
-
-            def _real_llm(prompt: str) -> str:
-                if provider == "openai":
-                    # Narrative summary is prose: JSON mode would mangle it.
-                    text, _usage = _call_openai(prompt, model=resolved_model, json_mode=False)
-                else:
-                    text, _usage = _call_anthropic(prompt, model=resolved_model)
-                return text
-
-            llm = _real_llm
+            # Narrative summary is prose: JSON mode would mangle it.
+            llm = _llm_layer.text_callable(getattr(args, "provider", None),
+                                           getattr(args, "model", None), json_mode=False)
 
     try:
         result = compare_papers(paper_a, paper_b, llm=llm)
@@ -1740,6 +1824,128 @@ def _cmd_import_bib(args: argparse.Namespace) -> int:
     return 0
 
 
+_ZOTERO_METHOD_WORDS = {
+    "arxiv": "by arXiv id",
+    "doi": "by DOI",
+    "pdf": "from the PDF in Zotero",
+    "metadata": "details only (no identifier or PDF)",
+}
+
+
+def _zotero_row_line(row: dict) -> str:
+    title = row.get("title") or "(untitled)"
+    if len(title) > 70:
+        title = title[:67] + "..."
+    outcome = row.get("outcome")
+    how = _ZOTERO_METHOD_WORDS.get(row.get("method") or "", "")
+    if outcome == "already_in_library":
+        return f"  = already in library  {title}  ({row.get('paper_id')})"
+    if outcome == "failed":
+        return f"  ! could not add       {title}  -- {row.get('reason')}"
+    if outcome in ("would_add", "would_add_metadata_only"):
+        return f"  + would add           {title}  ({how})"
+    if outcome == "metadata_only":
+        return f"  + added details only  {title}"
+    pdf_note = "" if row.get("has_pdf") else "; no PDF yet"
+    return f"  + added               {title}  ({how}{pdf_note})"
+
+
+def _cmd_import_zotero(args: argparse.Namespace) -> int:
+    import contextlib
+    import json
+
+    from research_companion.interop import zotero
+    from research_companion.store import papergraph_dir
+
+    status = zotero.check()
+    if not status["ok"]:
+        if args.json:
+            print(json.dumps({"status": status}, indent=2))
+        else:
+            print(f"research-companion: {status['message']}", file=sys.stderr)
+        return 1
+
+    if args.list_collections:
+        try:
+            cols = zotero.list_collections()
+        except zotero.ZoteroError as exc:
+            print(f"research-companion: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"collections": cols}, indent=2, ensure_ascii=False))
+            return 0
+        if not cols:
+            print("Your Zotero library has no collections. Run without "
+                  "--collection to import the whole library.")
+            return 0
+        print("Zotero collections (use the key with --collection):")
+        for c in cols:
+            n = c.get("items")
+            count = f"  ({n} items)" if isinstance(n, int) else ""
+            print(f"  {c['key']}  {c['name']}{count}")
+        return 0
+
+    if papergraph_dir() is None:
+        print("research-companion: no active research. Create one first: "
+              "research-companion workspace create <name>", file=sys.stderr)
+        return 1
+
+    try:
+        items = zotero.list_items(args.collection)
+    except zotero.ZoteroError as exc:
+        print(f"research-companion: {exc}", file=sys.stderr)
+        return 1
+
+    if not items:
+        msg = "That collection has no papers." if args.collection else             "Your Zotero library has no papers to import."
+        if args.json:
+            print(json.dumps({"report": {"total": 0, "added": 0,
+                                         "already_in_library": 0, "metadata_only": 0,
+                                         "no_pdf": 0, "failed": [], "items": [],
+                                         "dry_run": bool(args.dry_run)}}, indent=2))
+        else:
+            print(msg)
+        return 0
+
+    def _progress(done: int, total: int, row: dict) -> None:
+        if not args.json:
+            print(_zotero_row_line(row))
+
+    if not args.json:
+        verb = "Checking" if args.dry_run else "Importing"
+        print(f"{verb} {len(items)} Zotero item{'s' if len(items) != 1 else ''}, "
+              "one at a time:")
+    # The fetch functions print download warnings to stdout. With --json that
+    # would corrupt the output a caller is parsing, so send them to stderr.
+    redirect = (contextlib.redirect_stdout(sys.stderr) if args.json
+                else contextlib.nullcontext())
+    with redirect:
+        report = zotero.import_items(items, dry_run=args.dry_run, progress=_progress)
+
+    if args.json:
+        print(json.dumps({"report": report}, indent=2, ensure_ascii=False))
+        return 1 if report["failed"] and len(report["failed"]) == report["total"] else 0
+
+    print()
+    if args.dry_run:
+        print(f"Dry run: nothing was added. Of {report['total']} items, "
+              f"{report['added']} would be added, "
+              f"{report['metadata_only']} would be added as details only, "
+              f"{report['already_in_library']} are already in your library, "
+              f"{len(report['failed'])} could not be checked.")
+        print("Run again without --dry-run to import.")
+    else:
+        print(f"Of {report['total']} items: {report['added']} added"
+              + (f" ({report['no_pdf']} still without a PDF)" if report["no_pdf"] else "")
+              + f", {report['metadata_only']} added as details only, "
+              f"{report['already_in_library']} already in your library, "
+              f"{len(report['failed'])} could not be added.")
+        if report["added"] or report["metadata_only"]:
+            print("Nothing was analysed yet. Analysing papers uses your model "
+                  "and is started separately (for example from the Lab).")
+    return 1 if report["failed"] and len(report["failed"]) == report["total"] else 0
+
+
 def _cmd_check_overlap(args: argparse.Namespace) -> int:
     from research_companion.overlap import (
         check_external,
@@ -1986,24 +2192,10 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
         # Resolve LLM
         llm = GAPS_CONTEXT_OVERRIDES.get("llm")
         if llm is None:
-            import os
+            from research_companion import llm as _llm_layer
 
-            from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-            provider = getattr(args, "provider", None) or os.environ.get(
-                "RESEARCH_COMPANION_PROVIDER", "anthropic"
-            )
-            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-            resolved_model = resolve_model(provider, model)
-
-            def _real_llm(prompt: str) -> str:
-                if provider == "openai":
-                    text, _usage = _call_openai(prompt, model=resolved_model, json_mode=True)
-                else:
-                    text, _usage = _call_anthropic(prompt, model=resolved_model)
-                return text
-
-            llm = _real_llm
+            llm = _llm_layer.text_callable(getattr(args, "provider", None),
+                                           getattr(args, "model", None), json_mode=True)
 
         print("research-companion: extracting gaps...")
         extract_all_gaps(llm=llm)
@@ -2255,14 +2447,14 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.set_defaults(func=_cmd_add)
 
     pb = sub.add_parser("build", help="Run extraction on all papers and build the graph")
-    pb.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pb.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pb.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pb.add_argument("--force", action="store_true", help="Re-extract even if cached")
     pb.set_defaults(func=_cmd_build)
 
     pce = sub.add_parser("cost-estimate", help="Estimate API cost for the next build")
-    pce.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pce.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pce.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pce.set_defaults(func=_cmd_cost_estimate)
@@ -2273,7 +2465,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     pc = sub.add_parser("chat", help="Ask a question (one-shot if argument given, else REPL)")
     pc.add_argument("question", nargs="?", help="Question (omit for interactive REPL)")
-    pc.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pc.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pc.add_argument("--model", default=None)
     pc.add_argument("--depth", type=int, default=2, help="BFS hop depth (default 2)")
@@ -2306,6 +2498,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ps = sub.add_parser("stats", help="Print graph statistics as JSON")
     ps.set_defaults(func=_cmd_stats)
+
+    pag = sub.add_parser(
+        "agents", help="List the agents: what each does, what it costs, how to run it")
+    pag.add_argument("--json", action="store_true", help="Emit JSON instead of text")
+    pag.set_defaults(func=_cmd_agents)
+
+    pra = sub.add_parser(
+        "run-agents",
+        help="Run chosen agents on one paper (their dependencies are added for you)")
+    pra.add_argument("paper_id")
+    pra.add_argument("agents", nargs="+", help="Agent names, as listed by `agents`")
+    pra.add_argument("--venue", default=None, help="Target venue, for agents that need one")
+    pra.add_argument("--problem-statement", dest="problem_statement", default=None,
+                     help="Your problem statement, for the problem statement refiner")
+    pra.add_argument("--json", action="store_true", help="Emit JSON instead of text")
+    pra.set_defaults(func=_cmd_run_agents)
 
     pe = sub.add_parser("export", help="Export the knowledge graph to a portable format")
     pe.add_argument("--format", choices=["markdown", "csv", "json", "obsidian"],
@@ -2381,6 +2589,26 @@ def _build_parser() -> argparse.ArgumentParser:
     pib.add_argument("file", help="Path to a .bib file")
     pib.set_defaults(func=_cmd_import_bib)
 
+    pzo = sub.add_parser(
+        "import-zotero",
+        help="Import papers from the Zotero desktop app (read-only; start with --dry-run)",
+        description=(
+            "Read your Zotero library through Zotero's local API and add its papers: "
+            "by arXiv id or DOI when the item has one, else from the PDF Zotero holds, "
+            "else as details only. Nothing is written to Zotero, and no Zotero account "
+            "or key is needed. Zotero 7 or later must be running, with Settings > "
+            "Advanced > 'Allow other applications on this computer to communicate with "
+            "Zotero' turned on. Run with --dry-run first to see what would happen."),
+    )
+    pzo.add_argument("--collection", metavar="KEY",
+                     help="Import only this collection (see --list-collections)")
+    pzo.add_argument("--list-collections", action="store_true",
+                     help="List your Zotero collections and their keys, then stop")
+    pzo.add_argument("--dry-run", action="store_true",
+                     help="Show what would be added, without adding anything (recommended first)")
+    pzo.add_argument("--json", action="store_true", help="JSON output")
+    pzo.set_defaults(func=_cmd_import_zotero)
+
     pct = sub.add_parser("cite-tex",
                          help="Read \\cite keys from a .tex draft; resolve them against a .bib")
     pct.add_argument("tex_file", help="Path to a .tex file")
@@ -2414,7 +2642,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
     prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
-    prv.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    prv.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER). "
                           "Passing this also enables LLM-based taxonomy labeling "
                           "(keyword-based otherwise).")
@@ -2427,7 +2655,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prb.add_argument("--emit-segments", help="Segment reviews, write JSON here, and stop")
     prb.add_argument("--segments", help="Resume from an edited segments JSON file")
     prb.add_argument("--tone", choices=["deferential", "balanced", "firm"], default="balanced")
-    prb.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    prb.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None)
     prb.add_argument("--model", default=None, help="Model override")
     prb.add_argument("--json", action="store_true", help="JSON output")
     prb.set_defaults(func=_cmd_rebuttal)
@@ -2444,7 +2672,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pal.add_argument("paper_id", help="Candidate paper ID to align against the draft")
     pal.add_argument("--against", metavar="PAPER_ID",
                      help="Draft paper ID (overrides configured draft)")
-    pal.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pal.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pal.add_argument("--model", default=None, help="Model override")
     pal.add_argument("--force", action="store_true", help="Re-run even if cached")
@@ -2465,7 +2693,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pcmp = sub.add_parser("compare", help="Compare two papers: entity overlap and metrics")
     pcmp.add_argument("paper_a", help="First paper ID")
     pcmp.add_argument("paper_b", help="Second paper ID")
-    pcmp.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pcmp.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pcmp.add_argument("--model", default=None, help="Model override (for summary LLM)")
     pcmp.add_argument("--no-summary", action="store_true", help="Skip LLM summary generation")
@@ -2476,7 +2704,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pgaps = sub.add_parser("gaps", help="Show research gaps from corpus papers vs your draft")
     pgaps.add_argument("--refresh", action="store_true",
                        help="Re-extract and re-resolve gaps before displaying")
-    pgaps.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    pgaps.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None)
     pgaps.add_argument("--model", default=None, help="Model override")
     pgaps.add_argument("--json", action="store_true", help="JSON output")
     pgaps.set_defaults(func=_cmd_gaps)
@@ -2491,7 +2719,7 @@ def _build_parser() -> argparse.ArgumentParser:
     plab_ingest = lab_sub.add_parser("ingest", help="Ingest a folder of PDFs into the knowledge graph")
     plab_ingest.add_argument("folder", help="Path to folder containing PDF files")
     plab_ingest.add_argument("--no-align", action="store_true", help="Skip alignment stage")
-    plab_ingest.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    plab_ingest.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                              help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     plab_ingest.add_argument("--model", default=None, help="Model override")
     plab_ingest.set_defaults(func=_cmd_lab_ingest)
@@ -2545,7 +2773,15 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    from research_companion.llm import LLMError
+    try:
+        return args.func(args)
+    except LLMError as e:
+        # A model-layer error (no model set, local server not running, prompt
+        # too large for the context) already says what to do; a traceback on
+        # top of it only hides the sentence.
+        print(f"research-companion: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

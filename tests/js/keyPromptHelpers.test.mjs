@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
 const {
   activeKeyName, missingLlmKey, missingHfToken, noKeyBannerModel, shouldShowWelcome,
+  providerReady, isSelfHosted, PROVIDER_LABELS,
 } = await import(
   pathToFileURL(path.join(repoRoot, 'research_companion', 'lab', 'static', 'js', 'keyPromptHelpers.js')).href
 );
@@ -87,8 +88,11 @@ test('shouldShowWelcome false before settings loaded', () => {
   assert.equal(shouldShowWelcome(null, { seen: false }), false);
 });
 
-test('shouldShowWelcome true when LLM key missing (even if seen)', () => {
-  assert.equal(shouldShowWelcome(withKeys('anthropic', {}), { seen: true }), true);
+test('shouldShowWelcome stays dismissed even with no LLM key (the banner covers it)', () => {
+  // It used to reappear on every load while no key was set, which made the
+  // free checks feel locked behind a key.
+  assert.equal(shouldShowWelcome(withKeys('anthropic', {}), { seen: true }), false);
+  assert.equal(shouldShowWelcome(withKeys('anthropic', {}), { seen: false }), true);
 });
 
 test('shouldShowWelcome true on first launch when not seen', () => {
@@ -97,4 +101,42 @@ test('shouldShowWelcome true on first launch when not seen', () => {
 
 test('shouldShowWelcome false when keys set and already seen', () => {
   assert.equal(shouldShowWelcome(withKeys('anthropic', { anthropic: true }), { seen: true }), false);
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted providers: "ready" is not "a key is set"
+// ---------------------------------------------------------------------------
+
+test('PROVIDER_LABELS names every backend provider in plain words', () => {
+  assert.deepEqual(Object.keys(PROVIDER_LABELS).sort(),
+    ['anthropic', 'ollama', 'openai', 'openai_compatible']);
+  assert.equal(PROVIDER_LABELS.ollama, 'Local model (Ollama)');
+  assert.equal(PROVIDER_LABELS.openai_compatible, 'Other OpenAI-compatible server');
+});
+
+test('activeKeyName: ollama uses no key; openai_compatible its optional key', () => {
+  assert.equal(activeKeyName({ provider: 'ollama' }), null);
+  assert.equal(activeKeyName({ provider: 'openai_compatible' }), 'openai_compatible_api_key');
+  assert.ok(isSelfHosted('ollama') && isSelfHosted('openai_compatible'));
+  assert.ok(!isSelfHosted('anthropic'));
+});
+
+test('providerReady trusts the backend flag over key presence', () => {
+  // Ollama with a model set: no key anywhere, still ready.
+  assert.equal(providerReady({ provider: 'ollama', keys: {}, provider_ready: true }), true);
+  assert.equal(missingLlmKey({ provider: 'ollama', keys: {}, provider_ready: true }), false);
+  // Anthropic key present but the backend says not ready: not ready.
+  const s = withKeys('anthropic', { anthropic: true });
+  assert.equal(providerReady({ ...s, provider_ready: false }), false);
+});
+
+test('providerReady without the flag falls back to the key, and ollama is not ready', () => {
+  assert.equal(providerReady(withKeys('openai', { openai: true })), true);
+  assert.equal(providerReady({ provider: 'ollama', keys: {} }), false);
+});
+
+test('no-key banner hides for a ready local model', () => {
+  const m = noKeyBannerModel({ provider: 'ollama', provider_ready: true,
+    keys: { hf_token: { set: true } } });
+  assert.equal(m.visible, false);
 });

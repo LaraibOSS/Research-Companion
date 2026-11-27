@@ -438,3 +438,42 @@ def test_a_single_wrapped_entry_is_still_one_entry():
             "is all you need. In Advances in Neural Information Processing Systems.")
     entries, unparsed = _split(text)
     assert len(entries) == 1 and unparsed == []
+
+
+# ---------------------------------------------------------------------------
+# Authors as a second opinion, measured on eval/cases/refcheck_smoke.jsonl:
+# detection 60% -> 73%, false accusations 6.7% -> 0%.
+# ---------------------------------------------------------------------------
+
+_DL = {"title": "Deep learning", "authors": ["Yann LeCun", "Yoshua Bengio", "Geoffrey Hinton"],
+       "year": 2015}
+
+
+def test_a_real_short_title_cited_by_its_authors_verifies():
+    line = "Yann LeCun, Yoshua Bengio, and Geoffrey Hinton. Deep learning. Nature, 521:436-444, 2015."
+    assert _validate(_Ref(title=line, raw=line), lambda r: _DL).status == "verified"
+
+
+def test_the_generic_phrase_guard_still_holds_for_a_different_work():
+    # Same short phrase, authors who did not write the record: still refused.
+    line = "Jones. Deep learning. 2019"
+    assert not _m.short_title_matches_exactly(line, _DL["title"], _pt(line), _DL["authors"])
+    assert _validate(_Ref(title=line, raw=line), lambda r: _DL).status != "verified"
+
+
+def test_invented_authors_on_a_real_title_are_flagged():
+    record = {"title": "Attention Is All You Need",
+              "authors": ["Ashish Vaswani", "Noam Shazeer"], "year": 2017}
+    line = "Daniel Okoro and Sarah Whitfield. Attention is all you need. In NeurIPS, 2017."
+    verdict = _validate(_Ref(title=line, raw=line), lambda r: record)
+    assert verdict.status == "suspect"
+    assert any("authors appear" in r for r in verdict.reasons)
+
+
+def test_a_title_only_line_is_not_asked_for_authors():
+    # Model-extracted references are often the title alone; asking them for
+    # an author in common would accuse every one.
+    record = {"title": "Attention Is All You Need", "authors": ["Ashish Vaswani"], "year": 2017}
+    for line in ("Attention Is All You Need. arXiv:1706.03762", "Attention is all you need"):
+        assert not _m.names_people(line, _pt(line))
+        assert _validate(_Ref(title=line, raw=line), lambda r: record).status == "verified"

@@ -46,6 +46,8 @@ graphify-out/
 .edge-cdp-profile*/
 paper/.edge-cdp-profile*/
 paper-review/
+# ...but not the shipped Claude Code skill of the same name
+!skills/paper-review/
 paper/draft_for_review.pdf
 
 # Unpublished research material — kept local, never published

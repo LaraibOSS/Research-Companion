@@ -1,0 +1,2246 @@
+{
+  "empty": {
+    "note": "A new research with nothing in it.",
+    "papers": [],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 0,
+      "node_count": 0,
+      "edge_count": 0
+    },
+    "gaps": {
+      "papers": [],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 0,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": null
+    },
+    "agents": null
+  },
+  "collected_unread": {
+    "note": "Papers added; none read yet.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "pending",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 2,
+      "node_count": 0,
+      "edge_count": 0
+    },
+    "gaps": {
+      "papers": [],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 0,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": null
+    },
+    "agents": null
+  },
+  "read_no_graph": {
+    "note": "A paper is read, but the graph is still empty.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 2,
+      "node_count": 0,
+      "edge_count": 0
+    },
+    "gaps": {
+      "papers": [],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 0,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": null
+    },
+    "agents": null
+  },
+  "understood": {
+    "note": "A paper is read and mapped into the graph.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 2,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 0,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": null
+    },
+    "agents": null
+  },
+  "gaps_unthemed": {
+    "note": "Per-paper gaps exist; no themes yet.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 2,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": null
+    },
+    "agents": null
+  },
+  "gaps_themed": {
+    "note": "Open problems grouped into themes.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 2,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": [
+        {
+          "theme_id": "t1",
+          "title": "Long-context evaluation",
+          "gap_ids": [
+            "g1"
+          ]
+        }
+      ]
+    },
+    "brainstorm": {
+      "session": null
+    },
+    "agents": null
+  },
+  "directions": {
+    "note": "Directions generated in Brainstorm.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": null,
+      "paper_count": 2,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": [
+        {
+          "theme_id": "t1",
+          "title": "Long-context evaluation",
+          "gap_ids": [
+            "g1"
+          ]
+        }
+      ]
+    },
+    "brainstorm": {
+      "session": {
+        "v": 1,
+        "topic": "LLM inference",
+        "rawDirections": [
+          {
+            "id": "d1",
+            "title": "Adaptive drafting"
+          }
+        ],
+        "directionsHasGenerated": true
+      }
+    },
+    "agents": null
+  },
+  "draft_unread": {
+    "note": "A draft is set; it has not been read.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "local:draft0001",
+        "title": "My Draft",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "pending",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": true,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": "local:draft0001",
+      "paper_count": 3,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": {
+        "v": 1,
+        "topic": "LLM inference",
+        "rawDirections": [
+          {
+            "id": "d1",
+            "title": "Adaptive drafting"
+          }
+        ],
+        "directionsHasGenerated": true
+      }
+    },
+    "agents": {
+      "agents": [
+        {
+          "name": "ingest",
+          "stage": "prepare",
+          "cost": "free",
+          "last": {
+            "agent": "ingest",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "priorart",
+          "stage": "prepare",
+          "cost": "network",
+          "last": {
+            "agent": "priorart",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation",
+          "stage": "check",
+          "cost": "network",
+          "last": {
+            "agent": "citation",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "statsoundness",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "statsoundness",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "overlap",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "overlap",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "compliance",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "compliance",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "reproducibility",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "reproducibility",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "ethics",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "ethics",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "novelty",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "novelty",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation_polarity",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "citation_polarity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "taxonomy",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "taxonomy",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "benchmark",
+          "stage": "position",
+          "cost": "free",
+          "last": {
+            "agent": "benchmark",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "venuefit",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "venuefit",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "problem",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "problem",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "tracker",
+          "stage": "position",
+          "cost": "network",
+          "last": {
+            "agent": "tracker",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "confidence",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "confidence",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "severity",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "severity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "rebuttal",
+          "stage": "respond",
+          "cost": "model",
+          "last": {
+            "agent": "rebuttal",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        }
+      ]
+    }
+  },
+  "draft_read": {
+    "note": "The draft is read; no checks have run.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "local:draft0001",
+        "title": "My Draft",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": true,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": "local:draft0001",
+      "paper_count": 3,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": {
+        "v": 1,
+        "topic": "LLM inference",
+        "rawDirections": [
+          {
+            "id": "d1",
+            "title": "Adaptive drafting"
+          }
+        ],
+        "directionsHasGenerated": true
+      }
+    },
+    "agents": {
+      "agents": [
+        {
+          "name": "ingest",
+          "stage": "prepare",
+          "cost": "free",
+          "last": {
+            "agent": "ingest",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "priorart",
+          "stage": "prepare",
+          "cost": "network",
+          "last": {
+            "agent": "priorart",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation",
+          "stage": "check",
+          "cost": "network",
+          "last": {
+            "agent": "citation",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "statsoundness",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "statsoundness",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "overlap",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "overlap",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "compliance",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "compliance",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "reproducibility",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "reproducibility",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "ethics",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "ethics",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "novelty",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "novelty",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation_polarity",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "citation_polarity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "taxonomy",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "taxonomy",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "benchmark",
+          "stage": "position",
+          "cost": "free",
+          "last": {
+            "agent": "benchmark",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "venuefit",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "venuefit",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "problem",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "problem",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "tracker",
+          "stage": "position",
+          "cost": "network",
+          "last": {
+            "agent": "tracker",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "confidence",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "confidence",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "severity",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "severity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "rebuttal",
+          "stage": "respond",
+          "cost": "model",
+          "last": {
+            "agent": "rebuttal",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        }
+      ]
+    }
+  },
+  "draft_reader_only": {
+    "note": "Only the Reader agent has run on the draft.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "local:draft0001",
+        "title": "My Draft",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": true,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": "local:draft0001",
+      "paper_count": 3,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": {
+        "v": 1,
+        "topic": "LLM inference",
+        "rawDirections": [
+          {
+            "id": "d1",
+            "title": "Adaptive drafting"
+          }
+        ],
+        "directionsHasGenerated": true
+      }
+    },
+    "agents": {
+      "agents": [
+        {
+          "name": "ingest",
+          "stage": "prepare",
+          "cost": "free",
+          "last": {
+            "agent": "ingest",
+            "state": "done",
+            "error": "",
+            "headline": "Read the paper. Your library graph now has 0 nodes."
+          }
+        },
+        {
+          "name": "priorart",
+          "stage": "prepare",
+          "cost": "network",
+          "last": {
+            "agent": "priorart",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation",
+          "stage": "check",
+          "cost": "network",
+          "last": {
+            "agent": "citation",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "statsoundness",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "statsoundness",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "overlap",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "overlap",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "compliance",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "compliance",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "reproducibility",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "reproducibility",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "ethics",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "ethics",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "novelty",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "novelty",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation_polarity",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "citation_polarity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "taxonomy",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "taxonomy",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "benchmark",
+          "stage": "position",
+          "cost": "free",
+          "last": {
+            "agent": "benchmark",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "venuefit",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "venuefit",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "problem",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "problem",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "tracker",
+          "stage": "position",
+          "cost": "network",
+          "last": {
+            "agent": "tracker",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "confidence",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "confidence",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "severity",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "severity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "rebuttal",
+          "stage": "respond",
+          "cost": "model",
+          "last": {
+            "agent": "rebuttal",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        }
+      ]
+    }
+  },
+  "draft_check_failed": {
+    "note": "A check ran on the draft and failed.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "local:draft0001",
+        "title": "My Draft",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": true,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": "local:draft0001",
+      "paper_count": 3,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": {
+        "v": 1,
+        "topic": "LLM inference",
+        "rawDirections": [
+          {
+            "id": "d1",
+            "title": "Adaptive drafting"
+          }
+        ],
+        "directionsHasGenerated": true
+      }
+    },
+    "agents": {
+      "agents": [
+        {
+          "name": "ingest",
+          "stage": "prepare",
+          "cost": "free",
+          "last": {
+            "agent": "ingest",
+            "state": "done",
+            "error": "",
+            "headline": "Read the paper. Your library graph now has 0 nodes."
+          }
+        },
+        {
+          "name": "priorart",
+          "stage": "prepare",
+          "cost": "network",
+          "last": {
+            "agent": "priorart",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation",
+          "stage": "check",
+          "cost": "network",
+          "last": {
+            "agent": "citation",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "statsoundness",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "statsoundness",
+            "state": "failed",
+            "error": "no statistics found",
+            "headline": null
+          }
+        },
+        {
+          "name": "overlap",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "overlap",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "compliance",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "compliance",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "reproducibility",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "reproducibility",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "ethics",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "ethics",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "novelty",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "novelty",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation_polarity",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "citation_polarity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "taxonomy",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "taxonomy",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "benchmark",
+          "stage": "position",
+          "cost": "free",
+          "last": {
+            "agent": "benchmark",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "venuefit",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "venuefit",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "problem",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "problem",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "tracker",
+          "stage": "position",
+          "cost": "network",
+          "last": {
+            "agent": "tracker",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "confidence",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "confidence",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "severity",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "severity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "rebuttal",
+          "stage": "respond",
+          "cost": "model",
+          "last": {
+            "agent": "rebuttal",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        }
+      ]
+    }
+  },
+  "draft_checked": {
+    "note": "The reference checker has run on the draft.",
+    "papers": [
+      {
+        "paper_id": "arxiv:2401.00001",
+        "title": "Fast Inference via Speculation",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "arxiv:2401.00002",
+        "title": "Paged Attention",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "failed",
+        "failure_reason": "no PDF on disk for arxiv:2401.00002",
+        "strength": null,
+        "is_draft": false,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      },
+      {
+        "paper_id": "local:draft0001",
+        "title": "My Draft",
+        "authors": [
+          "A. Author"
+        ],
+        "year": 2024,
+        "status": "done",
+        "failure_reason": null,
+        "strength": null,
+        "is_draft": true,
+        "stance_counts": {
+          "strengthens": 0,
+          "challenges": 0,
+          "alternative": 0
+        },
+        "alignment_note": null,
+        "added_at": "2026-01-01T00:00:00Z",
+        "parse_source": "",
+        "ocr_used": false,
+        "oa_links": [],
+        "acquisition": null,
+        "has_pdf": false
+      }
+    ],
+    "lab": {
+      "draft_id": "local:draft0001",
+      "paper_count": 3,
+      "node_count": 3,
+      "edge_count": 2
+    },
+    "gaps": {
+      "papers": [
+        {
+          "paper_id": "arxiv:2401.00001",
+          "title": "Fast Inference via Speculation",
+          "year": 2024,
+          "gaps": [
+            {
+              "gap_id": "g1",
+              "statement": "Does not evaluate long contexts.",
+              "kind": "limitation",
+              "evidence": {
+                "quote": "",
+                "verified": false,
+                "match": ""
+              },
+              "resolution": {
+                "status": "open"
+              }
+            }
+          ]
+        }
+      ],
+      "draft_addresses": [],
+      "stale": true,
+      "resolution_checks": {
+        "judged": 0,
+        "no_candidates": 0,
+        "no_similar": 0,
+        "failed": 0,
+        "not_run": 1,
+        "unknown": 0
+      },
+      "themes": []
+    },
+    "brainstorm": {
+      "session": {
+        "v": 1,
+        "topic": "LLM inference",
+        "rawDirections": [
+          {
+            "id": "d1",
+            "title": "Adaptive drafting"
+          }
+        ],
+        "directionsHasGenerated": true
+      }
+    },
+    "agents": {
+      "agents": [
+        {
+          "name": "ingest",
+          "stage": "prepare",
+          "cost": "free",
+          "last": {
+            "agent": "ingest",
+            "state": "done",
+            "error": "",
+            "headline": "Read the paper. Your library graph now has 0 nodes."
+          }
+        },
+        {
+          "name": "priorart",
+          "stage": "prepare",
+          "cost": "network",
+          "last": {
+            "agent": "priorart",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation",
+          "stage": "check",
+          "cost": "network",
+          "last": {
+            "agent": "citation",
+            "state": "done",
+            "error": "",
+            "headline": "3 found, 0 with mismatched details, 1 not found, of 4 references."
+          }
+        },
+        {
+          "name": "statsoundness",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "statsoundness",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "overlap",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "overlap",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "compliance",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "compliance",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "reproducibility",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "reproducibility",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "ethics",
+          "stage": "check",
+          "cost": "free",
+          "last": {
+            "agent": "ethics",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "novelty",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "novelty",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "citation_polarity",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "citation_polarity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "taxonomy",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "taxonomy",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "benchmark",
+          "stage": "position",
+          "cost": "free",
+          "last": {
+            "agent": "benchmark",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "venuefit",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "venuefit",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "problem",
+          "stage": "position",
+          "cost": "model",
+          "last": {
+            "agent": "problem",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "tracker",
+          "stage": "position",
+          "cost": "network",
+          "last": {
+            "agent": "tracker",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "confidence",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "confidence",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "severity",
+          "stage": "prioritise",
+          "cost": "free",
+          "last": {
+            "agent": "severity",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        },
+        {
+          "name": "rebuttal",
+          "stage": "respond",
+          "cost": "model",
+          "last": {
+            "agent": "rebuttal",
+            "state": "not_run",
+            "error": "",
+            "headline": null
+          }
+        }
+      ]
+    }
+  }
+}

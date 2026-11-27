@@ -11,7 +11,7 @@
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue?style=flat-square)](pyproject.toml)
 [![CI](https://img.shields.io/github/actions/workflow/status/LaraibOSS/Research-Companion/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 
-[![4,459 tests, both suites ratcheted in CI](https://img.shields.io/badge/4%2C459%20tests-both%20suites%20ratcheted%20in%20CI-2b8a3e?style=flat-square)](tests)
+[![4,809 tests, both suites ratcheted in CI](https://img.shields.io/badge/4%2C809%20tests-both%20suites%20ratcheted%20in%20CI-2b8a3e?style=flat-square)](tests)
 [![Deterministic core runs with no API key](https://img.shields.io/badge/deterministic%20core-runs%20with%20no%20API%20key-8250df?style=flat-square)](#why-research-companion)
 [![20 degradation mechanisms proved in CI](https://img.shields.io/badge/20%20degradation%20mechanisms-proved%20in%20CI-c2255c?style=flat-square)](docs/DEGRADATION_REGISTRY.json)
 [![Your library is stored on your machine](https://img.shields.io/badge/your%20library-stored%20on%20your%20machine-e8590c?style=flat-square)](#configuration--security)
@@ -27,7 +27,7 @@ the exact page, and a read on your own draft before a reviewer sees it.
 
 ## The tour
 
-Ten steps, each one building on the last. Every screenshot below is one run on
+Eleven steps, each one building on the last. Every screenshot below is one run on
 one library — eleven papers on efficient LLM inference, plus a draft — so what
 you see in step 9 is what step 1 grew into.
 
@@ -53,6 +53,23 @@ still cannot fetch is queued under **Needs you** with a plain-language reason
 naming the publisher that refused, and a button that opens the article in
 your browser. Download the PDF yourself and add it, or retry the whole queue
 later with `research-companion acquire --all`.
+
+**Already using Zotero?** Bring the library in with one step. Zotero 7 or
+later serves your library to other programs on this computer once you tick
+*Settings → Advanced → "Allow other applications on this computer to
+communicate with Zotero"*. No Zotero account or key is involved, and nothing
+is written back to Zotero.
+
+```bash
+research-companion import-zotero --dry-run    # see what would happen first
+research-companion import-zotero              # or --collection KEY (see --list-collections)
+```
+
+Each item is added by its arXiv id or DOI when it has one, else from the PDF
+Zotero already holds, else as details only; items already in your library are
+skipped. In the Lab, the same import is the **Import from Zotero** tab of *Add
+papers*, with a Preview before anything is added. Importing does not start
+any paid analysis.
 
 <br>
 
@@ -188,6 +205,32 @@ Summary: 39 verified, 0 suspect, 1 unverified (40 references)
 
 <br>
 
+### 11 · Or let the agents do it
+
+Every check and analysis above is also an **agent**: a named helper that does
+one job on a paper and reports back. Open **Agents** in the Lab, tick the ones
+you want, and press Run. Before you do, the page tells you which other agents
+will run because yours depend on them, and whether anything will cost money.
+Afterwards each agent says what it found, with the count it found it in
+("9 found, 1 with mismatched details, 2 not found, of 12 references").
+
+```bash
+research-companion agents                                   # what each one does, and what it costs
+research-companion run-agents <paper_id> citation statsoundness
+research-companion run-agents <paper_id> problem --problem-statement "..."
+```
+
+| Cost label | Meaning |
+|---|---|
+| Free | Runs on your machine. No key, nothing sent anywhere. |
+| Free, online | Looks titles and identifiers up in public catalogues. No key. |
+| Uses your model | Makes paid calls to your model provider, or none if it is a local model. |
+
+Results are added to the paper's review; running one agent never erases what
+another found earlier.
+
+<br>
+
 ---
 
 ## What makes it different
@@ -300,9 +343,9 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 ### 🔎 Discover & interoperate
 - **Discover missing papers** — topic search and citation‑expansion via Semantic Scholar (free, no key), deduped against your library.
 - **Domain connectors** — opt‑in **PubMed**, **Europe PMC**, and **DBLP** so biomedical and CS references verify and prior‑art reaches beyond the general databases.
-- **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
+- **Interoperability** — read‑only Zotero import through Zotero's local API, BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
 - **MCP trust‑layer server** — four deterministic, key‑free verification tools for any MCP‑capable agent (plus two opt‑in costed tools behind an explicit setting and cost cap).
-- **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code, on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
+- **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code; `/literature-scout`, `/research-agents`, `/paper-review` and `/rebuttal` cover reading lists, choosing an agent, a pre-submission review and answering reviewers, stating any cost before it is spent. All run on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
 
 ### 🧪 Research Lab (browser)
 - **Live‑growing graph** over SSE, section‑wise subgraphs that keep retrieval focused, a built‑in reader (Text + original‑PDF tabs), a **Simplified** plain‑English reader, **Notes** you can capture anywhere and export as a revision checklist, an adaptive **Home** dashboard (a genuinely empty workspace opens on a two‑path first‑run chooser — *Brainstorm from an idea* or *I already have a draft* — then a product intro with quick‑nav to every tab, then a compact journey view with next‑steps and a timeline once you have a draft), and a **Researches** tab: a sortable table tracking every research — papers/analyzed/failed, draft + version count, citation coverage, strength mix, open items, and draft‑updated / last‑activity / created — with a persistent **+ New research** button plus rename / archive / delete.
@@ -317,28 +360,36 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 
 ## Claude Code skills
 
-The checks that need no model also need no UI. Two [Claude Code](https://claude.com/claude-code)
-skills live in [`skills/`](skills/) and answer a question directly on a PDF:
+Research Companion's commands also work without the UI. Six [Claude Code](https://claude.com/claude-code)
+skills live in [`skills/`](skills/) and answer a researcher's question directly:
 
 | skill | question | cost |
 |---|---|---|
 | [`/submission-check`](skills/submission-check/SKILL.md) | Would this get desk-rejected? Venue rules, statcheck/GRIM, self-overlap. | free |
-| [`/refcheck`](skills/refcheck/SKILL.md) | Do these references actually exist? CrossRef / OpenAlex / arXiv. | free (network only) |
+| [`/refcheck`](skills/refcheck/SKILL.md) | Do these references actually exist? Are any retracted? CrossRef / OpenAlex / arXiv. | free (network only) |
+| [`/literature-scout`](skills/literature-scout/SKILL.md) | What should I read on this topic? Candidates from Semantic Scholar. | free (network only) |
+| [`/research-agents`](skills/research-agents/SKILL.md) | Which agent do I want, and what will it cost? | free |
+| [`/paper-review`](skills/paper-review/SKILL.md) | What would a reviewer flag? A readiness verdict with the checks that did not run. | fast review free after a one-time paid extraction; full review paid — asks first |
+| [`/rebuttal`](skills/rebuttal/SKILL.md) | Help me answer these reviews. Drafts grounded in quotes checked against the paper. | paid (model calls per concern) — asks first |
 
 ```bash
-cp -r skills/refcheck skills/submission-check ~/.claude/skills/
+cp -r skills/refcheck skills/submission-check skills/literature-scout \
+      skills/paper-review skills/rebuttal skills/research-agents ~/.claude/skills/
 ```
 
 ```
 /refcheck paper.pdf
 /submission-check paper.pdf --venue neurips
+/literature-scout speculative decoding
+/paper-review paper.pdf
 ```
 
 They also trigger on the question phrased naturally — "are these citations real?",
-"will this get desk-rejected?".
+"will this get desk-rejected?", "help me answer these reviews".
 
-Both default to a **scratch workspace**, so an agent invoked from any directory
-cannot write into whichever research you last had open. And both follow the same
+All default to a **scratch workspace**, so an agent invoked from any directory
+cannot write into whichever research you last had open. The two that can spend
+money show the estimate and ask before any paid call. And all follow the same
 reporting rule as the rest of the tool: a check that did not run is never shown
 as a check that passed, and a reference that could not be found is reported as
 *not found*, never as fabricated. Details and the rationale: [`skills/README.md`](skills/README.md).
@@ -434,6 +485,7 @@ research-companion mcp serve                                           # MCP tru
 # Interoperability
 research-companion export-bib [--format bibtex|ris] [--output FILE]
 research-companion import-bib <file.bib>
+research-companion import-zotero [--collection KEY] [--list-collections] [--dry-run] [--json]
 research-companion cite-tex <paper.tex>
 ```
 </details>
@@ -512,22 +564,29 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 | `RESEARCH_COMPANION_WORKSPACE` | Force a research (workspace) for one command | active workspace |
 | `ANTHROPIC_API_KEY` | Required for `--provider anthropic` (default) | – |
 | `OPENAI_API_KEY` | Required for `--provider openai` | – |
-| `RESEARCH_COMPANION_PROVIDER` | Default provider (`anthropic` / `openai`) | `anthropic` |
-| `RESEARCH_COMPANION_MODEL` | Override the model id | provider default |
+| `RESEARCH_COMPANION_PROVIDER` | Default provider (`anthropic` / `openai` / `ollama` / `openai_compatible`) | `anthropic` |
+| `RESEARCH_COMPANION_MODEL` | Override the model id. Required for `ollama` and `openai_compatible` | provider default |
+| `RESEARCH_COMPANION_OLLAMA_URL` | Ollama server address | `http://localhost:11434` |
+| `RESEARCH_COMPANION_OLLAMA_NUM_CTX` | Context length sent to Ollama (tokens). A request that does not fit is refused, not cut | `16384` |
+| `RESEARCH_COMPANION_BASE_URL` | Base URL of an OpenAI-compatible server (vLLM, LM Studio, llama.cpp…) | – |
+| `RESEARCH_COMPANION_API_KEY` | Optional key for that OpenAI-compatible server | – |
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
 | `RESEARCH_COMPANION_MAX_INGESTS` | How many papers are parsed and analysed at once in the Lab (1–8). Lower it if adding many papers runs out of memory | `2` |
+| `RESEARCH_COMPANION_ZOTERO_URL` | Where Zotero's local API answers, for `import-zotero` | `http://localhost:23119` |
 | `NCBI_EMAIL` / `NCBI_API_KEY` | Optional — raises PubMed/E-utilities rate limits | – |
 
 **What leaves your machine.** Your papers, notes, graph and reports are stored on disk under `RESEARCH_COMPANION_DIR`, and nothing is uploaded to a Research Companion service: there isn't one. Three things do go out, each to a service you chose:
 
-- **AI steps** (extraction, Ask, reports, gaps, directions, alignment, claim audit) send paper text to your model provider, Anthropic or OpenAI.
+- **AI steps** (extraction, Ask, reports, gaps, directions, alignment, claim audit) send paper text to your model provider: Anthropic, OpenAI, or the server you configured. With a local Ollama model they stay on your machine.
 - **Semantic search**, only when `HF_TOKEN` is set, sends section text to Hugging Face's hosted embedding API.
 - **Lookups** (adding by DOI or arXiv id, discovery, reference checking) send titles and identifiers to public catalogues such as Crossref, OpenAlex, arXiv and Semantic Scholar.
 
 The key-free checks on a local PDF (`check-stats`, `check-overlap`, `check-compliance`) send nothing.
 
 Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `research-companion cost-estimate` to project costs before building.
+
+**Using a local model.** Install [Ollama](https://ollama.com), pull a model (`ollama pull llama3.1:8b`), then pick *Local model (Ollama)* in Settings and enter the model name — or set `RESEARCH_COMPANION_PROVIDER=ollama` and `RESEARCH_COMPANION_MODEL=llama3.1:8b`. No key is needed and the cost is $0. Paper extraction needs about 14,000 tokens of context, so keep `RESEARCH_COMPANION_OLLAMA_NUM_CTX` at 16384 or more (within what your model supports); a request that does not fit is refused with a message rather than silently truncated. Small local models follow the JSON instructions less reliably than the hosted ones, so expect more failed extractions. Any other server that speaks the OpenAI chat API works through *Other OpenAI-compatible server* (`RESEARCH_COMPANION_BASE_URL`); its price is not known to the tool, so cost estimates say so, and the costed MCP tools refuse rather than treat it as free.
 
 ---
 

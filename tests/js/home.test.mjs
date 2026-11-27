@@ -342,3 +342,22 @@ test('severityDonut: only low severity', () => {
   assert.equal(segs.length, 1);
   assert.equal(segs[0].frac, 1);
 });
+
+test('a ready local model needs no API key: no connect action, no connect step', () => {
+  const state = makeState({
+    settings: { provider: 'ollama', provider_ready: true, keys: {} },
+  });
+  const ids = selectNextActions(state).map(a => a.id);
+  assert.ok(!ids.includes('connect'));
+  assert.notEqual(onboardingStep(state), 'connect');
+});
+
+test('a local model without a model name asks to set the model, not a key', () => {
+  const state = makeState({
+    settings: { provider: 'ollama', provider_ready: false, keys: {} },
+  });
+  const connect = selectNextActions(state).find(a => a.id === 'connect');
+  assert.ok(connect);
+  assert.match(connect.detail, /local model/);
+  assert.equal(onboardingStep(state), 'connect');
+});

@@ -133,3 +133,48 @@ def test_review_draft_corrupt_metadata_returns_error_dict(monkeypatch):
     monkeypatch.setattr("research_companion.store.PaperMetadata.load", _boom)
     out = mcp_tools.review_draft(paper_id="x")
     assert "error" in out
+
+
+# ---------------------------------------------------------------------------
+# Self-hosted providers: a local model is $0; an unknown price is NOT $0.
+# ---------------------------------------------------------------------------
+
+
+def _self_hosted(monkeypatch, provider):
+    monkeypatch.setenv("RESEARCH_COMPANION_PROVIDER", provider)
+    monkeypatch.setenv("RESEARCH_COMPANION_MODEL", "local-model")
+    monkeypatch.setenv("RESEARCH_COMPANION_BASE_URL", "http://localhost:8000/v1")
+
+
+def test_ask_library_local_ollama_is_free_and_passes_a_zero_cap(monkeypatch):
+    _self_hosted(monkeypatch, "ollama")
+    _settings(monkeypatch, cap=0.0)
+    _seed_paper_with_text(monkeypatch)
+    out = mcp_tools.ask_library(question="what is attention",
+                                llm=lambda p: "Attention weights tokens [S1].")
+    assert "error" not in out
+    assert out["estimated_cost_usd"] == 0.0
+
+
+def test_ask_library_unknown_price_refuses_instead_of_passing_as_zero(monkeypatch):
+    _self_hosted(monkeypatch, "openai_compatible")
+    _settings(monkeypatch, cap=100.0)   # even the largest cap cannot check an unknown price
+    calls = []
+    out = mcp_tools.ask_library(question="q", llm=lambda p: calls.append(p) or "x")
+    assert "price not known" in out["error"]
+    assert out["estimated_cost_usd"] is None and out["cap_usd"] == 100.0
+    assert calls == []
+
+
+def test_review_draft_unknown_price_refuses_full_but_allows_fast(monkeypatch):
+    _self_hosted(monkeypatch, "openai_compatible")
+    _settings(monkeypatch, cap=100.0)
+    pid = _seed_paper_with_text(monkeypatch)
+    called = []
+    monkeypatch.setattr("research_companion.review_runner.run_review",
+                        lambda p, **kw: called.append(p) or {"paper_id": p})
+    out = mcp_tools.review_draft(paper_id=pid, fast=False)
+    assert "price not known" in out["error"] and called == []
+    # The fast review makes no model call, so its cost is known: $0.
+    out = mcp_tools.review_draft(paper_id=pid, fast=True)
+    assert out["estimated_cost_usd"] == 0.0 and called == [pid]

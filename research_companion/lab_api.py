@@ -49,7 +49,9 @@ def _pipeline_provider_model() -> tuple[str, str | None]:
 
 
 def _llm_provider_configured() -> bool:
-    """True iff an API key is present for the RESOLVED pipeline provider.
+    """True iff the RESOLVED pipeline provider has what it needs to make a
+    call: an API key for the hosted providers, a model name (and for
+    openai_compatible a server URL) for the self-hosted ones.
 
     VERIFIED (Task 2 brief): _resolve_llm() below never fails at construction
     time for a missing key -- it only resolves (provider, model) and returns a
@@ -62,11 +64,14 @@ def _llm_provider_configured() -> bool:
     module is the same source get_settings()["keys"] uses for the Settings
     page's masked key display, so this can never disagree with the UI.
     """
-    from research_companion.settings import get_settings
+    from research_companion.llm import provider_ready
 
-    provider, _model = _pipeline_provider_model()
-    keys = get_settings().get("keys", {})
-    return bool(keys.get(f"{provider}_api_key", {}).get("set"))
+    # Not every provider needs a key: Ollama needs none, an OpenAI-compatible
+    # server may not, and both need a model name instead. provider_ready is
+    # the one rule; get_settings()["provider_ready"] uses it too, so the
+    # Settings page and this answer cannot disagree.
+    provider, model = _pipeline_provider_model()
+    return provider_ready(provider, model)
 
 
 def _simplify_char_budget() -> int:
@@ -137,8 +142,20 @@ try:
         paper_a: str = ""
         paper_b: str = ""
 
+    class _RunAgentsBody(_BaseModel):
+        paper_id: str
+        agents: list[str]
+        venue: str | None = None
+        problem_statement: str | None = None
+
     class _AddPaperBody(_BaseModel):
         target: str = ""
+
+    class _ZoteroImportBody(_BaseModel):
+        """POST /api/zotero/import. dry_run defaults to True: a request that
+        forgets the flag previews instead of importing a whole library."""
+        collection_key: str | None = None
+        dry_run: bool = True
 
     class _SettingsPatchBody(_BaseModel):
         """Arbitrary subset of settings fields for PUT /api/settings."""
@@ -168,6 +185,9 @@ try:
         contact_email: str | None = None
         claim_audit: bool | None = None
         downloads_dir: str | None = None
+        base_url: str | None = None
+        ollama_url: str | None = None
+        ollama_num_ctx: int | None = None
         keys: dict[str, str | None] | None = None
 
     class _RegenerateBody(_BaseModel):
@@ -295,6 +315,7 @@ except ImportError:
     _AlignBody = None  # type: ignore[assignment,misc]
     _AskBody = None  # type: ignore[assignment,misc]
     _CompareBody = None  # type: ignore[assignment,misc]
+    _RunAgentsBody = None  # type: ignore[assignment,misc]
     _AddPaperBody = None  # type: ignore[assignment,misc]
     _SettingsPatchBody = None  # type: ignore[assignment,misc]
     _RegenerateBody = None  # type: ignore[assignment,misc]
@@ -896,6 +917,10 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     app.state._coverage_lock = asyncio.Lock()
     # Session-scoped dedupe for citation auto-downloads (prevents retry storms)
     app.state.auto_added_targets: set = set()
+    # Papers with an agent run in progress (one run per paper at a time).
+    app.state.agent_runs: set = set()
+    # Test seam: fake _lookup/_search for agent runs. None in production.
+    app.state.agent_context_overrides = None
     # How many auto-downloads each draft has used of AUTO_ADD_LIMIT.
     app.state.auto_added_per_draft: dict = {}
     # Bounds concurrent add-paper pipelines (see max_concurrent_ingests).
@@ -1742,6 +1767,79 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
 
         asyncio.create_task(_run())
         return {"job_id": job_id, "count": len(targets)}
+
+    # -----------------------------------------------------------------
+    # Zotero import (read-only, through Zotero's local API)
+    #   GET  /api/zotero/status       is Zotero reachable, and is its API on?
+    #   GET  /api/zotero/collections  the user's collections
+    #   POST /api/zotero/import       background job; dry_run previews only
+    # The GETs only read the user's own Zotero on this machine; nothing there
+    # changes state or spends money, so they need no workspace.
+    # -----------------------------------------------------------------
+    @app.get("/api/zotero/status")
+    async def zotero_status() -> dict:
+        from research_companion.interop import zotero
+        return await asyncio.to_thread(zotero.check)
+
+    @app.get("/api/zotero/collections")
+    async def zotero_collections() -> Any:
+        from research_companion.interop import zotero
+        try:
+            cols = await asyncio.to_thread(zotero.list_collections)
+        except zotero.ZoteroError as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+        return {"collections": cols}
+
+    @app.post("/api/zotero/import", status_code=202,
+              dependencies=[Depends(require_active_workspace)])
+    async def zotero_import(body: _ZoteroImportBody) -> dict:
+        from research_companion.interop import zotero
+
+        if any(info.get("status") == "running" and info.get("kind") == "zotero-import"
+               for info in app.state.jobs.values()):
+            raise HTTPException(status_code=409,
+                                detail="A Zotero import is already running")
+        status = await asyncio.to_thread(zotero.check)
+        if not status.get("ok"):
+            raise HTTPException(status_code=503, detail=status.get("message"))
+        collection = (body.collection_key or "").strip() or None
+        dry_run = bool(body.dry_run)
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = "Previewing Zotero import" if dry_run else "Importing from Zotero"
+        job = {"status": "running", "detail": None, "kind": "zotero-import",
+               "label": label, "target": collection or "", "dry_run": dry_run,
+               "progress": {"done": 0, "total": 0}, "report": None}
+        app.state.jobs[job_id] = job
+
+        def _progress(done: int, total: int, _row: dict) -> None:
+            job["progress"] = {"done": done, "total": total}
+
+        def _work() -> dict:
+            items = zotero.list_items(collection)
+            job["progress"] = {"done": 0, "total": len(items)}
+            # Sequential: each DOI/arXiv add goes through the throttled
+            # acquisition chain. Nothing is parsed or analysed here, so the
+            # ingest slots (which bound parsing) are not held.
+            return zotero.import_items(items, dry_run=dry_run, progress=_progress)
+
+        async def _run() -> None:
+            await _announce_start(job_id, "zotero-import", label, collection or "")
+            try:
+                report = await asyncio.to_thread(_work)
+                job.update({"status": "done", "report": report})
+            except Exception as exc:  # noqa: BLE001 -- reported on the job
+                job.update({"status": "failed", "detail": str(exc)})
+            finally:
+                await _announce_finish(job_id, "zotero-import")
+                if not dry_run:
+                    # The refresh the other add paths trigger: new papers can
+                    # change which of the draft's citations are in the library.
+                    _schedule_coverage_refresh()
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id, "dry_run": dry_run}
 
     # -----------------------------------------------------------------
     # POST /api/papers/{id}/find-pdf
@@ -3541,6 +3639,105 @@ def create_lab_app(bus: Bus, *, llm=None):  # -> FastAPI
     # -----------------------------------------------------------------
     # GET /api/settings
     # -----------------------------------------------------------------
+    @app.get("/api/agents")
+    async def list_agents_endpoint(paper_id: str | None = None) -> dict:
+        """The agent catalogue: what each agent does, costs and hands on.
+
+        Workspace-independent: it describes the product, so it is available
+        before any research exists. With ``paper_id``, each agent also carries
+        its last result on that paper (done / failed / not run).
+        """
+        from research_companion.agents.catalog import catalog, handoffs
+        from research_companion.agents.runner import lane_summary
+
+        rows = catalog()
+        lanes: dict = {}
+        if paper_id:
+            from research_companion import store
+            with suppress(Exception):
+                lanes = (store.load_review_report(paper_id) or {}).get("lanes") or {}
+        for row in rows:
+            if paper_id:
+                row["last"] = lane_summary(row["name"], lanes.get(row["name"]))
+        return {"agents": rows, "handoffs": handoffs(),
+                "model_configured": _llm_provider_configured()}
+
+    @app.post("/api/agents/run", status_code=202,
+              dependencies=[Depends(require_active_workspace)])
+    async def run_agents_endpoint(body: _RunAgentsBody) -> dict:
+        """Run the chosen agents (and what they depend on) on one paper.
+
+        Refuses up front, with every reason at once, rather than starting a
+        run that is bound to fail: unknown agents, missing inputs, a paid
+        agent with no model configured, an unknown paper, or a run already in
+        progress on the same paper.
+        """
+        from research_companion import store
+        from research_companion.agents.runner import plan_run
+
+        inputs = {"venue": body.venue, "problem_statement": body.problem_statement}
+        plan = plan_run(list(body.agents), inputs=inputs)
+        problems = list(plan.problems)
+        if store.PaperMetadata.load(body.paper_id) is None:
+            problems.append("That paper is not in this research.")
+        if plan.uses_model and app.state.llm is None and not _llm_provider_configured():
+            problems.append("Some of these agents use a model, and no model is set up. "
+                            "Add a key in Settings, or choose only free agents.")
+        if body.paper_id in app.state.agent_runs:
+            problems.append("Agents are already running on this paper.")
+        if problems:
+            raise HTTPException(status_code=400, detail={"problems": problems})
+
+        app.state.job_counter += 1
+        job_id = f"job-{app.state.job_counter}"
+        label = f"Running {len(plan.agents)} agent(s)"
+        app.state.jobs[job_id] = {"status": "running", "detail": None, "kind": "agents",
+                                  "label": label, "target": body.paper_id}
+        app.state.agent_runs.add(body.paper_id)
+
+        async def _run():
+            await _announce_start(job_id, "agents", label, body.paper_id)
+            try:
+                await _run_agent_plan(body.paper_id, plan, inputs)
+                app.state.jobs[job_id] = {"status": "done", "detail": None, "kind": "agents",
+                                          "label": label, "target": body.paper_id}
+            except Exception as exc:  # noqa: BLE001 - a failed run is reported, not raised
+                app.state.jobs[job_id] = {"status": "failed", "detail": str(exc),
+                                          "kind": "agents", "label": label,
+                                          "target": body.paper_id}
+            finally:
+                app.state.agent_runs.discard(body.paper_id)
+                await _announce_finish(job_id, "agents")
+
+        asyncio.create_task(_run())
+        return {"job_id": job_id, "agents": plan.agents, "added": plan.added,
+                "uses_model": plan.uses_model, "uses_network": plan.uses_network}
+
+    async def _run_agent_plan(paper_id: str, plan, inputs: dict) -> None:
+        """Execute a plan on the Lab's event bus and fold it into the saved review."""
+        from research_companion import store
+        from research_companion.agents.base import AgentContext
+        from research_companion.agents.orchestrator import run_agents
+        from research_companion.agents.runner import build_agents, context_data, merge_report
+        from research_companion.report import build_report_json
+
+        llm = None
+        if plan.uses_model:
+            llm = app.state.llm if app.state.llm is not None else _resolve_llm(json_mode=True)
+        overrides = app.state.agent_context_overrides or {}
+        data = context_data(plan, inputs=inputs, llm=llm,
+                            lookup=overrides.get("_lookup"), search=overrides.get("_search"))
+        # Agent events go to the same bus as everything else, so progress
+        # reaches the browser through the existing event stream.
+        ctx = AgentContext(paper_id=paper_id, bus=bus, data=data)
+        results = await run_agents(build_agents(plan), ctx)
+
+        meta = await asyncio.to_thread(store.PaperMetadata.load, paper_id)
+        fresh = build_report_json(paper_id, meta.title if meta else "", results)
+        previous = await asyncio.to_thread(store.load_review_report, paper_id)
+        merged = merge_report(previous, fresh)
+        await asyncio.to_thread(store.save_review_report, paper_id, merged)
+
     @app.get("/api/settings")
     async def get_settings_endpoint() -> dict:
         from research_companion.settings import default_downloads_dir, get_settings
@@ -4716,19 +4913,10 @@ def _resolve_llm(*, json_mode: bool = True):
     format does not mangle free text.
     """
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+    from research_companion import llm
 
     provider, model = _pipeline_provider_model()
-    resolved_model = resolve_model(provider, model)
-
-    def _real_llm(prompt: str) -> str:
-        if provider == "openai":
-            text, _usage = _call_openai(prompt, model=resolved_model, json_mode=json_mode)
-        else:
-            text, _usage = _call_anthropic(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(provider, model, json_mode=json_mode)
 
 
 # ---------------------------------------------------------------------------

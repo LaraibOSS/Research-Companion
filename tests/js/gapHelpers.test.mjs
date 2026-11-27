@@ -198,3 +198,28 @@ test('filterGapThemes: never mutates input, handles non-array input', () => {
   assert.deepEqual(filterGapThemes(null, {}), []);
   assert.deepEqual(filterGapThemes(undefined, {}), []);
 });
+
+// ---- resolutionCoverageLine ----
+
+test('resolutionCoverageLine states how many gaps were really compared', async () => {
+  const { resolutionCoverageLine } = await import(
+    '../../research_companion/lab/static/js/gapHelpers.js');
+  const line = resolutionCoverageLine({ judged: 3, no_candidates: 2, no_similar: 1, failed: 0 });
+  assert.equal(line.text,
+    '3 of 6 gaps were compared with later papers in your library; '
+    + '2 had no later paper to compare with, 1 had no similar later work.');
+  assert.equal(line.tone, 'muted');
+});
+
+test('resolutionCoverageLine flags failed checks and nothing-to-say cases', async () => {
+  const { resolutionCoverageLine } = await import(
+    '../../research_companion/lab/static/js/gapHelpers.js');
+  const failed = resolutionCoverageLine({ judged: 0, failed: 2, not_run: 1, unknown: 1 });
+  assert.equal(failed.tone, 'warn');
+  assert.match(failed.text, /^0 of 4 gaps/);
+  assert.match(failed.text, /2 were not compared/);
+  assert.match(failed.text, /2 could not be checked \(try Refresh\)/);
+  assert.equal(resolutionCoverageLine(null), null);
+  assert.equal(resolutionCoverageLine({}), null);
+  assert.equal(resolutionCoverageLine({ judged: 'x' }), null);
+});

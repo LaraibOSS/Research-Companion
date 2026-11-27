@@ -135,6 +135,60 @@ def test_build_then_stats_then_view(monkeypatch: pytest.MonkeyPatch, tmp_path,
     assert store.graph_html_path().exists()
 
 
+def test_build_with_local_model_unreachable_prints_plain_message(
+        monkeypatch: pytest.MonkeyPatch, tmp_path, fake_pdf_bytes, capsys):
+    """A local server that is not running is a sentence, not a traceback."""
+    import httpx
+
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    cli.main(["add", str(pdf), "--title", "GraphRAG paper"])
+    capsys.readouterr()
+    monkeypatch.delenv("RESEARCH_COMPANION_OLLAMA_URL", raising=False)
+
+    def _refuse(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "post", _refuse)
+    rc = cli.main(["build", "--provider", "ollama", "--model", "llama3.1:8b"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "Could not reach Ollama at http://localhost:11434. Is it running?" in err
+    assert "Traceback" not in err
+
+
+def test_build_with_local_model_but_no_model_name(monkeypatch: pytest.MonkeyPatch, tmp_path,
+                                                  fake_pdf_bytes, capsys):
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    cli.main(["add", str(pdf), "--title", "GraphRAG paper"])
+    capsys.readouterr()
+    monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+    rc = cli.main(["build", "--provider", "ollama"])
+    assert rc == 1
+    assert "RESEARCH_COMPANION_MODEL" in capsys.readouterr().err
+
+
+def test_cost_estimate_local_and_unpriced(monkeypatch: pytest.MonkeyPatch, tmp_path,
+                                          fake_pdf_bytes, capsys):
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    cli.main(["add", str(pdf), "--title", "GraphRAG paper"])
+    capsys.readouterr()
+    monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+
+    assert cli.main(["cost-estimate", "--provider", "ollama", "--model", "llama3.1:8b"]) == 0
+    out = capsys.readouterr().out
+    assert "Estimated cost:           ~$0.00" in out
+
+    # An OpenAI-compatible server's price is unknown: no invented dollar figure.
+    assert cli.main(["cost-estimate", "--provider", "openai_compatible"]) == 0
+    out = capsys.readouterr().out
+    assert "price not known for openai_compatible" in out
+    assert "model: (not set)" in out
+    assert "$" not in out.split("Estimated cost:")[1].splitlines()[0]
+
+
 # ---------------------------------------------------------------------------
 # build --provider: flag > RESEARCH_COMPANION_PROVIDER > "anthropic" default.
 #

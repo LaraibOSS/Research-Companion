@@ -554,6 +554,19 @@ individually.
   reach this code). **Caveat for the novelty lane:** it issues one LLM call
   per extracted claim, so actual cost scales with claim count and can exceed
   the pre-call estimate — the cap is a safety rail, not a hard guarantee.
+- **Self-hosted providers and the cap** — `ollama` is priced at `$0` (it runs
+  on the user's machine), so its calls always pass. `openai_compatible` is
+  *unpriced*: `cost.lookup_pricing` returns `None` and `cost.estimate_cost`
+  returns `None` for any call with tokens. An unknown price is never treated
+  as `$0` — that would admit any call past a cap set to bound spending — so
+  `ask_library` and a full `review_draft` refuse with
+  `{"error": "price not known ...", "estimated_cost_usd": null, "cap_usd": ...}`.
+  There is no "cap disabled" setting, so for `openai_compatible` those two
+  tools always refuse over MCP; the CLI and the Lab are unaffected. A `fast`
+  review makes no model call and still runs. Which providers count as
+  "configured" (and so get the costed tools registered at all) is
+  `llm.provider_ready`: a key for the hosted providers, a model name (plus a
+  base URL for `openai_compatible`) for the self-hosted ones.
 - **Restart asymmetry:** registration of costed tools is decided at server startup
   (`create_server`), but the cap (`mcp_cost_cap_usd`) is re-read on every call. Changing
   `mcp_costed_tools` or adding/removing the key does NOT change which tools a running

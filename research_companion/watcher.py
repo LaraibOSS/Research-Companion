@@ -186,6 +186,7 @@ class ArmedWatcher:
         self._now = now
         self._read_page1 = read_page1 if read_page1 is not None else _default_read_page1
         self._expiry: float | None = None
+        self._window: float = 0.0
         self._armed_since_wall: float = 0.0
         self._paper_ids: set[str] = set()
         self._queued_by_id: dict[str, dict] = {}
@@ -202,6 +203,7 @@ class ArmedWatcher:
             self._armed_since_wall = time.time()
             self._seen = {}
         self._expiry = self._now() + ttl
+        self._window = float(ttl)
         self._paper_ids |= {str(p) for p in paper_ids}
         for paper in queued or ():
             pid = _queued_id(paper)
@@ -222,7 +224,11 @@ class ArmedWatcher:
     def seconds_left(self) -> float:
         if self._expiry is None:
             return 0.0
-        return max(0.0, self._expiry - self._now())
+        # Never more than was asked for. (now + ttl) - now is not exactly ttl
+        # in floating point, so on a clock that has not ticked since arming
+        # the remainder could read as 3600.0000000000005 for a 3600s window:
+        # a countdown showing more time than the cap that bounds it.
+        return max(0.0, min(self._window, self._expiry - self._now()))
 
     @property
     def armed_paper_ids(self) -> set:
