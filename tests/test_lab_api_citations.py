@@ -580,3 +580,73 @@ class TestUnlinkCitation:
         with c:
             resp = c.post("/api/draft/citations/unlink", json={"index": 0})
             assert resp.status_code == 400
+
+
+class TestAutoDownloadIsBounded:
+    """Automatic downloads each cost a paid extraction and a paid alignment,
+    and each runs a PDF parse. Setting a draft with many references used to
+    start all of them at once: no ceiling on spend, none on memory."""
+
+    def _many_ref_draft(self, n, draft_id="local:bigdraft01"):
+        bib = "\n".join(
+            f"[{i}] A. Author and B. Writer. Paper number {i} about a topic. "
+            f"arXiv:21{i:02d}.{10000 + i}, 2021."
+            for i in range(1, n + 1))
+        store.PaperMetadata(paper_id=draft_id, title="Big draft", authors=["Me"],
+                            year=2026, added_at="2026-01-01T00:00:00Z").save()
+        store.save_text(draft_id, "Introduction\nBody.\n\nReferences\n" + bib + "\n")
+        return draft_id
+
+    def test_auto_add_stops_at_the_limit_and_leaves_the_rest_available(
+            self, isolated_papergraph_dir):
+        from research_companion.citations_coverage import load_coverage
+        from research_companion.lab_api import AUTO_ADD_LIMIT
+
+        draft = self._many_ref_draft(AUTO_ADD_LIMIT + 6)
+        bus = Bus()
+        app = create_lab_app(bus)
+        queued = []
+
+        async def spy_add(target, b):
+            queued.append(target)
+        app.state.add_paper_override = spy_add
+
+        with TestClient(app) as c:
+            c.post("/api/draft", json={"paper_id": draft})
+            assert _wait(lambda: len(queued) >= AUTO_ADD_LIMIT), queued
+            time.sleep(0.5)                      # give any overshoot time to show
+            assert len(queued) == AUTO_ADD_LIMIT
+            # The remainder is not dropped: it stays available to add by hand.
+            cov = load_coverage()
+            available = [r for r in cov["references"] if r.get("status") == "available"]
+            assert len(available) == AUTO_ADD_LIMIT + 6
+
+    def test_add_pipelines_never_exceed_the_concurrency_limit(
+            self, isolated_papergraph_dir, monkeypatch):
+        import asyncio
+
+        monkeypatch.setenv("RESEARCH_COMPANION_MAX_INGESTS", "2")
+        bus = Bus()
+        app = create_lab_app(bus)
+        state = {"now": 0, "peak": 0, "done": 0}
+
+        async def slow_add(target, b):
+            state["now"] += 1
+            state["peak"] = max(state["peak"], state["now"])
+            await asyncio.sleep(0.05)
+            state["now"] -= 1
+            state["done"] += 1
+        app.state.add_paper_override = slow_add
+
+        with TestClient(app) as c:
+            for i in range(7):
+                assert c.post("/api/papers", json={"target": f"2101.{10000 + i}"}).status_code == 202
+            assert _wait(lambda: state["done"] == 7), state
+        assert state["peak"] == 2
+
+    def test_the_limit_is_clamped_and_survives_a_bad_value(self, monkeypatch):
+        from research_companion.lab_api import max_concurrent_ingests
+
+        for raw, want in [("", 2), ("nope", 2), ("0", 1), ("-3", 1), ("5", 5), ("99", 8)]:
+            monkeypatch.setenv("RESEARCH_COMPANION_MAX_INGESTS", raw)
+            assert max_concurrent_ingests() == want
