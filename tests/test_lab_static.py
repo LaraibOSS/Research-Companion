@@ -4,7 +4,7 @@ Run from repo root with: python -m pytest -q tests/test_lab_static.py
 
 Node JS tests (run separately from repo root; the list below is asserted complete
 by test_documented_node_command_lists_every_js_test):
-  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs tests/js/handoffHelpers.test.mjs tests/js/noteOriginHelpers.test.mjs
+  node --test tests/js/reducer.test.mjs tests/js/sse.test.mjs tests/js/format.test.mjs tests/js/mapping.test.mjs tests/js/snapshotRefresher.test.mjs tests/js/graphview.test.mjs tests/js/graph_pipeline.test.mjs tests/js/draftdock.test.mjs tests/js/ingesthelpers.test.mjs tests/js/askcompare.test.mjs tests/js/theme.test.mjs tests/js/settingsHelpers.test.mjs tests/js/viewsHelpers.test.mjs tests/js/suggestionHelpers.test.mjs tests/js/home.test.mjs tests/js/timelineLayout.test.mjs tests/js/converse.test.mjs tests/js/glossary.test.mjs tests/js/libraryHelpers.test.mjs tests/js/draftLayout.test.mjs tests/js/workspaceHelpers.test.mjs tests/js/citationsHelpers.test.mjs tests/js/activityHelpers.test.mjs tests/js/placementHelpers.test.mjs tests/js/readerHelpers.test.mjs tests/js/readerPdfHelpers.test.mjs tests/js/readerSimplifiedHelpers.test.mjs tests/js/metadataForm.test.mjs tests/js/homehelpers.test.mjs tests/js/keyPromptHelpers.test.mjs tests/js/researchNudgeHelpers.test.mjs tests/js/citationPolarityColors.test.mjs tests/js/settings-connectors.test.mjs tests/js/oaLinkHelpers.test.mjs tests/js/opportunityHelpers.test.mjs tests/js/noteRecord.test.mjs tests/js/researchGuard.test.mjs tests/js/gapHelpers.test.mjs tests/js/discoverHelpers.test.mjs tests/js/directionsHelpers.test.mjs tests/js/noveltyHelpers.test.mjs tests/js/scaffoldHelpers.test.mjs tests/js/reportHelpers.test.mjs tests/js/helpContent.test.mjs tests/js/drafthelpers.test.mjs tests/js/brainstormSessionHelpers.test.mjs tests/js/briefHelpers.test.mjs tests/js/directionsProvenance.test.mjs tests/js/addReceipt.test.mjs tests/js/viewSymbols.test.mjs tests/js/timelineGuide.test.mjs tests/js/claimAuditHelpers.test.mjs tests/js/reportView.static.test.mjs tests/js/draftClaimAudit.static.test.mjs tests/js/signalHelpers.test.mjs tests/js/acquireHelpers.test.mjs tests/js/libraryGapsHelpers.test.mjs tests/js/handoffHelpers.test.mjs tests/js/noteOriginHelpers.test.mjs tests/js/agentsHelpers.test.mjs
 Tests:
   - Every file referenced by index.html exists in lab/static
   - index.html contains the module script tag and vendor script tag
@@ -2979,7 +2979,7 @@ def test_lab_css_has_task4_notebook_styles():
 # ---------------------------------------------------------------------------
 
 ALL_NAV_LABELS = ("Home", "Researches", "Library", "Graph", "Draft", "Timeline",
-                  "Ask", "Compare", "Citations", "Notes", "Help", "Settings")
+                  "Ask", "Compare", "Citations", "Notes", "Agents", "Help", "Settings")
 
 
 def test_index_html_has_researches_nav_button_positioned_correctly():
@@ -3807,3 +3807,45 @@ def test_brief_note_records_which_section_it_came_from():
         "the brief note must carry the section title as its origin label — "
         "pinned so the label can't regress to the bullet's own excerpt"
     )
+
+
+def test_agents_page_is_routed_navigable_and_helped():
+    """The Agents page must be reachable: a nav button after Notes and before
+    the spacer, a registered route, and its own help entry."""
+    html = _index_text()
+    notes_pos = html.find('data-route="/notes"')
+    agents_pos = html.find('data-route="/agents"')
+    spacer_pos = html.find("nav-spacer")
+    assert -1 < notes_pos < agents_pos < spacer_pos
+    main_js = (STATIC_DIR / "js" / "main.js").read_text(encoding="utf-8")
+    assert "./views/agents.js" in main_js and "registerRoute('/agents'" in main_js
+    help_js = (STATIC_DIR / "js" / "helpContent.js").read_text(encoding="utf-8")
+    assert "  agents: {" in help_js
+
+
+def test_agents_view_escapes_what_it_renders():
+    """Every interpolation into the Agents page's HTML goes through escapeHtml,
+    except values the view computes itself (counts, booleans, fixed attributes)."""
+    import re
+
+    src = (STATIC_DIR / "js" / "views" / "agents.js").read_text(encoding="utf-8")
+    allowed = {"cost.tone", "last.tone", "count", "count === 1 ? '' : 's'",
+               "summary.usesModel ? 'warn' : 'ok'", "checked", "disabled ? ' disabled' : ''",
+               "disabled ? ' agent-card-disabled' : ''", "sel", "disabled", "needs", "onlyCli",
+               "lastDetail", "added", "blockerHtml", "options",
+               "fields.join('')", "group.agents.map(_agentHtml).join('')",
+               "groupByStage(_agents).map(_groupHtml).join('')", "_paperPickerHtml()",
+               "_inputsHtml(summary)", "_footerHtml(summary)",
+               "res.agents.length", "res.agents.length === 1 ? '' : 's'"}
+    for expr in re.findall(r"\$\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", src):
+        expr = expr.strip()
+        if expr.startswith("escapeHtml(") or expr in allowed:
+            continue
+        if ".map(" in expr and "=> `" in expr:
+            # A list built by mapping a template: each item must be escaped.
+            assert "escapeHtml(" in expr, expr
+            continue
+        if expr.startswith(("_loadError ?", "a.last ?", "count ?")):
+            assert "escapeHtml(" in expr, expr
+            continue
+        raise AssertionError(f"unescaped interpolation in agents.js: ${{{expr}}}")

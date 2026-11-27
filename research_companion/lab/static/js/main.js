@@ -45,6 +45,7 @@ import { themeVars, applyTheme } from './theme.js';
 import * as suggestionsView from './views/suggestions.js';
 import * as researchesView from './views/researches.js';
 import * as notesView from './views/notes.js';
+import * as agentsView from './views/agents.js';
 import { openHelpPanel } from './components/helpPanel.js';
 import { mountWorkspaceSwitcher } from './components/workspaceSwitcher.js';
 import { openWelcomeDialog } from './components/welcomeDialog.js';
@@ -67,6 +68,7 @@ registerRoute('/settings',    settingsView);
 registerRoute('/suggestions', suggestionsView);
 registerRoute('/researches',  researchesView);
 registerRoute('/notes',       notesView);
+registerRoute('/agents',      agentsView);
 
 // ---------------------------------------------------------------------------
 // Boot
