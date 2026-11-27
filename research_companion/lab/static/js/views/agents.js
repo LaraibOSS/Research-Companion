@@ -243,7 +243,6 @@ async function _run() {
   showToast(`Started ${res.agents.length} agent${res.agents.length === 1 ? '' : 's'}`, 'info');
   // Poll the job rather than relying on the event stream, so a missed event
   // can never leave the button stuck on "Running…".
-  const runSeq = _seq;
   const poll = async () => {
     if (!_el) return;                               // page left: stop
     let status = 'running';
@@ -252,8 +251,8 @@ async function _run() {
     } catch { status = 'unknown'; }
     if (status === 'running') { setTimeout(poll, 1500); return; }
     _running = false;
-    if (status === 'failed') showToast('The agent run failed. See each agent's result.', 'error');
-    if (runSeq === _seq || _el) _load();
+    if (status === 'failed') showToast('The agent run failed. See each agent’s result.', 'error');
+    _load();
   };
   setTimeout(poll, 800);
 }
