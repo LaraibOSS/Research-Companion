@@ -25,7 +25,7 @@ So 12 concerns means up to 24 model calls. Tell the user the number of concerns 
 
 These are the project's core promise. Follow them in every report.
 
-- **A check that did not run is never presented as a pass.** A reply whose quotes were not all found in the paper is reported as *quotes not confirmed*, and a reply that quotes nothing is reported as *no quotes to check* — never as verified.
+- **A check that did not run is never presented as a pass.** A reply whose quotes were not all found in the paper is reported as *quotes not confirmed*, and a reply that quotes nothing is reported as *no quotes to check* (not checked) — never as verified.
 - **Something not found is never called fabricated.** A quote that could not be matched in the extracted text may be a paraphrase, a line broken across a page, or text inside a table or figure the parser did not read. Say "could not be found in the paper's text — check it", never "the model made this up".
 
 ## Workspace safety
@@ -150,7 +150,7 @@ R1.2 (misunderstanding) — QUOTES NOT CONFIRMED
   Could not be found in the paper's text: "<span>"
   Check these against the PDF before using this reply.
 
-R2.1 (clarification) — no quotes to check
+R2.1 (clarification) — no quotes to check (not checked)
   <reply>
 
 Planned revisions (your to-do list)

@@ -31,7 +31,7 @@ This is the most important thing to get right in the report.
 
 These are the project's core promise. Follow them in every report.
 
-- **A check that did not run is never presented as a pass.** A search that was refused or failed is reported as *not searched* — never as "nothing has been published on this".
+- **A check that did not run is never presented as a pass.** A search that was refused or failed is reported as *not searched* (not checked) — never as "nothing has been published on this".
 - **Something not found is never called fabricated.** If a paper the user expected is missing from the list, that says this search did not surface it, not that the paper does not exist or is fake.
 
 ## Workspace safety
