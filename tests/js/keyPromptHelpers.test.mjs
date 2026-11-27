@@ -87,8 +87,11 @@ test('shouldShowWelcome false before settings loaded', () => {
   assert.equal(shouldShowWelcome(null, { seen: false }), false);
 });
 
-test('shouldShowWelcome true when LLM key missing (even if seen)', () => {
-  assert.equal(shouldShowWelcome(withKeys('anthropic', {}), { seen: true }), true);
+test('shouldShowWelcome stays dismissed even with no LLM key (the banner covers it)', () => {
+  // It used to reappear on every load while no key was set, which made the
+  // free checks feel locked behind a key.
+  assert.equal(shouldShowWelcome(withKeys('anthropic', {}), { seen: true }), false);
+  assert.equal(shouldShowWelcome(withKeys('anthropic', {}), { seen: false }), true);
 });
 
 test('shouldShowWelcome true on first launch when not seen', () => {

@@ -61,14 +61,15 @@ export function noKeyBannerModel(settings) {
 }
 
 /**
- * Whether to show the first-launch welcome dialog.
- * Shows when the LLM key is missing, OR on the very first launch (seen flag
- * not yet persisted) so new users always see the "get set up" guidance once.
- * Never shows before settings have loaded (settings.keys absent).
+ * Whether to show the first-launch welcome dialog: once, then never again
+ * once dismissed. Never before settings have loaded (settings.keys absent).
+ *
+ * It used to reappear on every page load while no model key was set. That
+ * made the free checks feel locked behind a key, and the persistent
+ * "Connect a model" banner (noKeyBannerModel) already covers a missing key.
  */
 export function shouldShowWelcome(settings, { seen } = {}) {
   if (!settings || !settings.keys) return false;
-  if (missingLlmKey(settings)) return true;
   return !seen;
 }
 

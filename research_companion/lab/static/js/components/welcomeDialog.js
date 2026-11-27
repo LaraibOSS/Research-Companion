@@ -46,11 +46,11 @@ export function openWelcomeDialog(settings) {
   dialog.innerHTML = `
     <button class="drawer-close welcome-close" aria-label="Close" title="Close">&times;</button>
     <h2 id="welcome-title" class="welcome-title">Get set up</h2>
-    <p class="welcome-sub">Research Companion needs a model to analyse your papers. Add your keys to unlock everything.</p>
+    <p class="welcome-sub">Many checks work with no key at all: references, statistics, overlap and venue rules run on your machine. A model key adds the AI features. You can add it now or later.</p>
     <ul class="welcome-keys">
       <li class="welcome-key">
         <div class="welcome-key-main">
-          <span class="welcome-key-name">${escapeHtml(llmLabel)} <span class="welcome-req">required</span></span>
+          <span class="welcome-key-name">${escapeHtml(llmLabel)} <span class="welcome-req">for AI features</span></span>
           <span class="welcome-key-desc">Powers extraction, chat, alignment and review.</span>
         </div>
         ${_statusPill(llmSet)}
@@ -64,6 +64,7 @@ export function openWelcomeDialog(settings) {
       </li>
     </ul>
     <div class="welcome-actions">
+      <a class="btn" id="welcome-agents" href="#/agents">Try the free agents</a>
       <button class="btn" id="welcome-later">Maybe later</button>
       <a class="btn btn-accent" id="welcome-settings" href="#/settings">Go to Settings</a>
     </div>
@@ -74,6 +75,7 @@ export function openWelcomeDialog(settings) {
 
   dialog.querySelector('.welcome-close').addEventListener('click', closeWelcomeDialog);
   dialog.querySelector('#welcome-later').addEventListener('click', closeWelcomeDialog);
+  dialog.querySelector('#welcome-agents').addEventListener('click', closeWelcomeDialog);
   dialog.querySelector('#welcome-settings').addEventListener('click', () => {
     // href already navigates to #/settings; just dismiss + persist.
     closeWelcomeDialog();
