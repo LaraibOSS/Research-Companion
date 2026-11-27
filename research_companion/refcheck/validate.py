@@ -40,6 +40,15 @@ class RefVerdict:
     status: Status
     reasons: list[str] = field(default_factory=list)
     matched: dict | None = None
+    #: Editorial notices on the MATCHED work: "retraction",
+    #: "partial_retraction", "expression_of_concern". Separate from `status`
+    #: on purpose: a retracted paper exists and may be cited correctly, so it
+    #: is neither "suspect" nor "unverified". It is a different fact.
+    notices: list[str] = field(default_factory=list)
+    #: True only when the catalogue that matched this reference records
+    #: retractions. False means nothing was established either way (arXiv,
+    #: a domain connector, or no match), never "not retracted".
+    retraction_checked: bool = False
 
 
 @dataclass
@@ -53,6 +62,19 @@ class BibReport:
         for _, verdict in self.entries:
             tally[verdict.status] += 1
         return tally
+
+    def retraction_counts(self) -> dict[str, int]:
+        """How many references carry a notice, and over what denominator.
+
+        ``checked`` is the honest denominator: references whose matched
+        catalogue records retractions at all. ``flagged`` of ``checked`` is the
+        claim; the remainder of the bibliography was not checked for this.
+        """
+        checked = sum(1 for _, v in self.entries if v.retraction_checked)
+        retracted = sum(1 for _, v in self.entries if "retraction" in v.notices)
+        flagged = sum(1 for _, v in self.entries if v.notices)
+        return {"checked": checked, "flagged": flagged, "retracted": retracted,
+                "not_checked": len(self.entries) - checked}
 
 
 # A lookup resolves a Reference to an authoritative record dict, or None if absent.
@@ -118,7 +140,11 @@ def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
         reasons.append("Cited PMID conflicts with the authoritative record")
 
     status: Status = "verified" if not reasons else "suspect"
-    return RefVerdict(status=status, reasons=reasons, matched=record)
+    return RefVerdict(
+        status=status, reasons=reasons, matched=record,
+        notices=[str(n) for n in (record.get("notices") or [])],
+        retraction_checked=bool(record.get("retraction_checked")),
+    )
 
 
 def validate_bibliography(refs: list[Reference], lookup: Lookup) -> BibReport:
