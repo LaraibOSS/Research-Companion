@@ -77,8 +77,8 @@ def fake_openai(monkeypatch):
 
 @pytest.fixture
 def clean_llm_env(monkeypatch):
-    for var in (llm.PROVIDER_ENV, llm.MODEL_ENV, llm.BASE_URL_ENV, llm.API_KEY_ENV,
-                llm.OLLAMA_URL_ENV, llm.OLLAMA_NUM_CTX_ENV):
+    for var in (llm.PROVIDER_ENV_VAR, llm.MODEL_ENV_VAR, llm.BASE_URL_ENV_VAR, llm.API_KEY_ENV_VAR,
+                llm.OLLAMA_URL_ENV_VAR, llm.OLLAMA_NUM_CTX_ENV_VAR):
         monkeypatch.delenv(var, raising=False)
     return monkeypatch
 
@@ -118,28 +118,28 @@ def fake_ollama(monkeypatch):
 def test_resolution_explicit_beats_env_beats_default(clean_llm_env):
     assert llm.resolve_provider_and_model() == ("anthropic", llm.DEFAULT_MODELS["anthropic"])
 
-    clean_llm_env.setenv(llm.PROVIDER_ENV, "openai")
-    clean_llm_env.setenv(llm.MODEL_ENV, "gpt-env")
+    clean_llm_env.setenv(llm.PROVIDER_ENV_VAR, "openai")
+    clean_llm_env.setenv(llm.MODEL_ENV_VAR, "gpt-env")
     assert llm.resolve_provider_and_model() == ("openai", "gpt-env")
 
     assert llm.resolve_provider_and_model("anthropic", "claude-x") == ("anthropic", "claude-x")
 
 
 def test_resolution_env_model_only_and_default_model_flag(clean_llm_env):
-    clean_llm_env.setenv(llm.PROVIDER_ENV, "openai")
+    clean_llm_env.setenv(llm.PROVIDER_ENV_VAR, "openai")
     assert llm.resolve_provider_and_model() == ("openai", llm.DEFAULT_MODELS["openai"])
     assert llm.resolve_provider_and_model(default_model=False) == ("openai", None)
 
 
 def test_resolution_normalises_env_provider(clean_llm_env):
-    clean_llm_env.setenv(llm.PROVIDER_ENV, "  Ollama ")
+    clean_llm_env.setenv(llm.PROVIDER_ENV_VAR, "  Ollama ")
     assert llm.resolve_provider_and_model()[0] == "ollama"
 
 
 def test_local_providers_have_no_default_model(clean_llm_env):
     assert llm.resolve_provider_and_model("ollama") == ("ollama", None)
     assert llm.resolve_provider_and_model("openai_compatible") == ("openai_compatible", None)
-    with pytest.raises(llm.LLMConfigError, match=llm.MODEL_ENV):
+    with pytest.raises(llm.LLMConfigError, match=llm.MODEL_ENV_VAR):
         llm.resolve_model("ollama")
 
 
@@ -264,7 +264,7 @@ def test_chat_seams_delegate_to_layer(fake_anthropic, fake_openai, clean_llm_env
 
 
 def test_openai_compatible_uses_base_url_and_placeholder_key(fake_openai, clean_llm_env):
-    clean_llm_env.setenv(llm.BASE_URL_ENV, "http://localhost:8000/v1")
+    clean_llm_env.setenv(llm.BASE_URL_ENV_VAR, "http://localhost:8000/v1")
     r = llm.complete("give json", provider="openai_compatible", model="qwen", json_mode=True)
     init = fake_openai.inits[-1]
     assert init["base_url"] == "http://localhost:8000/v1"
@@ -275,14 +275,14 @@ def test_openai_compatible_uses_base_url_and_placeholder_key(fake_openai, clean_
 
 
 def test_openai_compatible_sends_configured_key(fake_openai, clean_llm_env):
-    clean_llm_env.setenv(llm.BASE_URL_ENV, "http://h/v1")
-    clean_llm_env.setenv(llm.API_KEY_ENV, "sk-local")
+    clean_llm_env.setenv(llm.BASE_URL_ENV_VAR, "http://h/v1")
+    clean_llm_env.setenv(llm.API_KEY_ENV_VAR, "sk-local")
     llm.complete("p", provider="openai_compatible", model="m")
     assert fake_openai.inits[-1]["api_key"] == "sk-local"
 
 
 def test_openai_compatible_truncation(fake_openai, clean_llm_env):
-    clean_llm_env.setenv(llm.BASE_URL_ENV, "http://h/v1")
+    clean_llm_env.setenv(llm.BASE_URL_ENV_VAR, "http://h/v1")
     fake_openai.finish_reason = "length"
     assert llm.complete("p", provider="openai_compatible", model="m").truncated
 
@@ -290,13 +290,13 @@ def test_openai_compatible_truncation(fake_openai, clean_llm_env):
 def test_openai_compatible_requires_model_and_url(fake_openai, clean_llm_env):
     with pytest.raises(llm.LLMConfigError, match="model"):
         llm.complete("p", provider="openai_compatible")
-    with pytest.raises(llm.LLMConfigError, match=llm.BASE_URL_ENV):
+    with pytest.raises(llm.LLMConfigError, match=llm.BASE_URL_ENV_VAR):
         llm.complete("p", provider="openai_compatible", model="m")
 
 
 def test_openai_compatible_connection_failure_is_plain(fake_openai, clean_llm_env):
     import openai
-    clean_llm_env.setenv(llm.BASE_URL_ENV, "http://localhost:9/v1")
+    clean_llm_env.setenv(llm.BASE_URL_ENV_VAR, "http://localhost:9/v1")
     fake_openai.raise_on_create = openai.APIConnectionError(
         request=httpx.Request("POST", "http://localhost:9/v1/chat/completions"))
     with pytest.raises(llm.LLMConnectionError) as ei:
@@ -333,8 +333,8 @@ def test_ollama_prose_call_has_no_format(fake_ollama, clean_llm_env):
 
 
 def test_ollama_uses_configured_url_and_num_ctx(fake_ollama, clean_llm_env):
-    clean_llm_env.setenv(llm.OLLAMA_URL_ENV, "http://gpu-box:11434/")
-    clean_llm_env.setenv(llm.OLLAMA_NUM_CTX_ENV, "32768")
+    clean_llm_env.setenv(llm.OLLAMA_URL_ENV_VAR, "http://gpu-box:11434/")
+    clean_llm_env.setenv(llm.OLLAMA_NUM_CTX_ENV_VAR, "32768")
     llm.complete("p", provider="ollama", model="m")
     assert fake_ollama.sent[0]["url"] == "http://gpu-box:11434/api/chat"
     assert fake_ollama.sent[0]["json"]["options"]["num_ctx"] == 32768
@@ -356,12 +356,12 @@ def test_ollama_truncation(fake_ollama, clean_llm_env):
 
 
 def test_ollama_refuses_prompt_that_does_not_fit(fake_ollama, clean_llm_env):
-    clean_llm_env.setenv(llm.OLLAMA_NUM_CTX_ENV, "4096")
+    clean_llm_env.setenv(llm.OLLAMA_NUM_CTX_ENV_VAR, "4096")
     prompt = "x" * (4 * 3000)  # ~3000 tokens + 2048 output > 4096
     with pytest.raises(llm.LLMContextError) as ei:
         llm.complete(prompt, provider="ollama", model="m")
     msg = str(ei.value)
-    assert "4,096" in msg and llm.OLLAMA_NUM_CTX_ENV in msg
+    assert "4,096" in msg and llm.OLLAMA_NUM_CTX_ENV_VAR in msg
     assert fake_ollama.sent == []  # never sent and hoped
 
 
@@ -380,14 +380,14 @@ def test_ollama_server_error_is_reported(fake_ollama, clean_llm_env):
 
 
 def test_ollama_requires_model(fake_ollama, clean_llm_env):
-    with pytest.raises(llm.LLMConfigError, match=llm.MODEL_ENV):
+    with pytest.raises(llm.LLMConfigError, match=llm.MODEL_ENV_VAR):
         llm.complete("p", provider="ollama")
     assert fake_ollama.sent == []
 
 
 def test_call_text_routes_local_providers_through_complete(fake_ollama, clean_llm_env):
-    clean_llm_env.setenv(llm.PROVIDER_ENV, "ollama")
-    clean_llm_env.setenv(llm.MODEL_ENV, "m")
+    clean_llm_env.setenv(llm.PROVIDER_ENV_VAR, "ollama")
+    clean_llm_env.setenv(llm.MODEL_ENV_VAR, "m")
     text, usage = llm.call_text("say json")
     assert text == '{"ok": true}'
     assert usage == {"input_tokens": 120, "output_tokens": 30, "truncated": False}
@@ -398,6 +398,6 @@ def test_call_text_routes_local_providers_through_complete(fake_ollama, clean_ll
 def test_existing_call_site_works_with_ollama(fake_ollama, clean_llm_env):
     """A real call site (the novelty agent's default llm) reaches Ollama."""
     from research_companion.agents.novelty import _default_llm
-    clean_llm_env.setenv(llm.PROVIDER_ENV, "ollama")
-    clean_llm_env.setenv(llm.MODEL_ENV, "m")
+    clean_llm_env.setenv(llm.PROVIDER_ENV_VAR, "ollama")
+    clean_llm_env.setenv(llm.MODEL_ENV_VAR, "m")
     assert json.loads(_default_llm("answer in json")) == {"ok": True}

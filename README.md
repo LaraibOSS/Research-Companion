@@ -520,8 +520,12 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 | `RESEARCH_COMPANION_WORKSPACE` | Force a research (workspace) for one command | active workspace |
 | `ANTHROPIC_API_KEY` | Required for `--provider anthropic` (default) | – |
 | `OPENAI_API_KEY` | Required for `--provider openai` | – |
-| `RESEARCH_COMPANION_PROVIDER` | Default provider (`anthropic` / `openai`) | `anthropic` |
-| `RESEARCH_COMPANION_MODEL` | Override the model id | provider default |
+| `RESEARCH_COMPANION_PROVIDER` | Default provider (`anthropic` / `openai` / `ollama` / `openai_compatible`) | `anthropic` |
+| `RESEARCH_COMPANION_MODEL` | Override the model id. Required for `ollama` and `openai_compatible` | provider default |
+| `RESEARCH_COMPANION_OLLAMA_URL` | Ollama server address | `http://localhost:11434` |
+| `RESEARCH_COMPANION_OLLAMA_NUM_CTX` | Context length sent to Ollama (tokens). A request that does not fit is refused, not cut | `16384` |
+| `RESEARCH_COMPANION_BASE_URL` | Base URL of an OpenAI-compatible server (vLLM, LM Studio, llama.cpp…) | – |
+| `RESEARCH_COMPANION_API_KEY` | Optional key for that OpenAI-compatible server | – |
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
 | `RESEARCH_COMPANION_MAX_INGESTS` | How many papers are parsed and analysed at once in the Lab (1–8). Lower it if adding many papers runs out of memory | `2` |
@@ -529,13 +533,15 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 
 **What leaves your machine.** Your papers, notes, graph and reports are stored on disk under `RESEARCH_COMPANION_DIR`, and nothing is uploaded to a Research Companion service: there isn't one. Three things do go out, each to a service you chose:
 
-- **AI steps** (extraction, Ask, reports, gaps, directions, alignment, claim audit) send paper text to your model provider, Anthropic or OpenAI.
+- **AI steps** (extraction, Ask, reports, gaps, directions, alignment, claim audit) send paper text to your model provider: Anthropic, OpenAI, or the server you configured. With a local Ollama model they stay on your machine.
 - **Semantic search**, only when `HF_TOKEN` is set, sends section text to Hugging Face's hosted embedding API.
 - **Lookups** (adding by DOI or arXiv id, discovery, reference checking) send titles and identifiers to public catalogues such as Crossref, OpenAlex, arXiv and Semantic Scholar.
 
 The key-free checks on a local PDF (`check-stats`, `check-overlap`, `check-compliance`) send nothing.
 
 Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `research-companion cost-estimate` to project costs before building.
+
+**Using a local model.** Install [Ollama](https://ollama.com), pull a model (`ollama pull llama3.1:8b`), then pick *Local model (Ollama)* in Settings and enter the model name — or set `RESEARCH_COMPANION_PROVIDER=ollama` and `RESEARCH_COMPANION_MODEL=llama3.1:8b`. No key is needed and the cost is $0. Paper extraction needs about 14,000 tokens of context, so keep `RESEARCH_COMPANION_OLLAMA_NUM_CTX` at 16384 or more (within what your model supports); a request that does not fit is refused with a message rather than silently truncated. Small local models follow the JSON instructions less reliably than the hosted ones, so expect more failed extractions. Any other server that speaks the OpenAI chat API works through *Other OpenAI-compatible server* (`RESEARCH_COMPANION_BASE_URL`); its price is not known to the tool, so cost estimates say so, and the costed MCP tools refuse rather than treat it as free.
 
 ---
 

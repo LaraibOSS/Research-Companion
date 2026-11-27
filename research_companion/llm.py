@@ -39,12 +39,12 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
-PROVIDER_ENV = "RESEARCH_COMPANION_PROVIDER"
-MODEL_ENV = "RESEARCH_COMPANION_MODEL"
-BASE_URL_ENV = "RESEARCH_COMPANION_BASE_URL"
-API_KEY_ENV = "RESEARCH_COMPANION_API_KEY"
-OLLAMA_URL_ENV = "RESEARCH_COMPANION_OLLAMA_URL"
-OLLAMA_NUM_CTX_ENV = "RESEARCH_COMPANION_OLLAMA_NUM_CTX"
+PROVIDER_ENV_VAR = "RESEARCH_COMPANION_PROVIDER"
+MODEL_ENV_VAR = "RESEARCH_COMPANION_MODEL"
+BASE_URL_ENV_VAR = "RESEARCH_COMPANION_BASE_URL"
+API_KEY_ENV_VAR = "RESEARCH_COMPANION_API_KEY"
+OLLAMA_URL_ENV_VAR = "RESEARCH_COMPANION_OLLAMA_URL"
+OLLAMA_NUM_CTX_ENV_VAR = "RESEARCH_COMPANION_OLLAMA_NUM_CTX"
 
 DEFAULT_PROVIDER = "anthropic"
 PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "openai_compatible", "ollama")
@@ -70,7 +70,7 @@ _NO_KEY_PLACEHOLDER = "not-needed"
 KEY_ENV: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
-    "openai_compatible": API_KEY_ENV,
+    "openai_compatible": API_KEY_ENV_VAR,
 }
 KEY_REQUIRED = frozenset({"anthropic", "openai"})
 
@@ -131,8 +131,8 @@ def resolve_provider_and_model(provider: str | None = None, model: str | None = 
     ``default_model=False`` and none was given) -- the caller decides whether
     that is an error, so building a callable never fails before it is used.
     """
-    p = (provider or os.environ.get(PROVIDER_ENV, "") or "").strip().lower() or DEFAULT_PROVIDER
-    m = (model or os.environ.get(MODEL_ENV, "") or "").strip() or None
+    p = (provider or os.environ.get(PROVIDER_ENV_VAR, "") or "").strip().lower() or DEFAULT_PROVIDER
+    m = (model or os.environ.get(MODEL_ENV_VAR, "") or "").strip() or None
     if m is None and default_model:
         m = DEFAULT_MODELS.get(p)
     return p, m
@@ -150,7 +150,7 @@ def resolve_model(provider: str, model: str | None = None) -> str:
     if provider in _NO_DEFAULT_MODEL:
         raise LLMConfigError(
             f"No model name is set for provider {provider!r}. Set the model in "
-            f"Settings (Model) or with {MODEL_ENV}."
+            f"Settings (Model) or with {MODEL_ENV_VAR}."
         )
     return DEFAULT_MODELS.get(provider, DEFAULT_MODELS[DEFAULT_PROVIDER])
 
@@ -175,21 +175,21 @@ def _config_str(env_var: str, settings_key: str, default: str) -> str:
 
 def base_url() -> str:
     """The OpenAI-compatible server's base URL, or "" when not set."""
-    return _config_str(BASE_URL_ENV, "base_url", "")
+    return _config_str(BASE_URL_ENV_VAR, "base_url", "")
 
 
 def ollama_url() -> str:
-    return _config_str(OLLAMA_URL_ENV, "ollama_url", DEFAULT_OLLAMA_URL).rstrip("/")
+    return _config_str(OLLAMA_URL_ENV_VAR, "ollama_url", DEFAULT_OLLAMA_URL).rstrip("/")
 
 
 def ollama_num_ctx() -> int:
-    raw = (os.environ.get(OLLAMA_NUM_CTX_ENV) or "").strip()
+    raw = (os.environ.get(OLLAMA_NUM_CTX_ENV_VAR) or "").strip()
     if raw:
         try:
             return int(raw)
         except ValueError as e:
             raise LLMConfigError(
-                f"{OLLAMA_NUM_CTX_ENV} must be a whole number of tokens, got {raw!r}."
+                f"{OLLAMA_NUM_CTX_ENV_VAR} must be a whole number of tokens, got {raw!r}."
             ) from e
     saved = _saved_setting("ollama_num_ctx")
     if isinstance(saved, int) and not isinstance(saved, bool):
@@ -303,10 +303,10 @@ def _openai_compatible(prompt: str, *, system: str | None, model: str,
     if not url:
         raise LLMConfigError(
             "No server address is set for the OpenAI-compatible provider. Set "
-            f"Settings > Server URL or {BASE_URL_ENV} (for example "
+            f"Settings > Server URL or {BASE_URL_ENV_VAR} (for example "
             "http://localhost:8000/v1)."
         )
-    key = (os.environ.get(API_KEY_ENV) or "").strip() or _NO_KEY_PLACEHOLDER
+    key = (os.environ.get(API_KEY_ENV_VAR) or "").strip() or _NO_KEY_PLACEHOLDER
     client = openai.OpenAI(base_url=url, api_key=key)
     try:
         resp = client.chat.completions.create(
@@ -339,7 +339,7 @@ def _ollama(prompt: str, *, system: str | None, model: str, max_output_tokens: i
             f"This request needs about {needed:,} tokens (prompt ~{est_prompt:,} + up to "
             f"{max_output_tokens:,} for the answer), but the Ollama context length is "
             f"{num_ctx:,}. Raise it in Settings (Context length) or with "
-            f"{OLLAMA_NUM_CTX_ENV}, within what the model supports."
+            f"{OLLAMA_NUM_CTX_ENV_VAR}, within what the model supports."
         )
 
     body: dict = {
