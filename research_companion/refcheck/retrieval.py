@@ -178,6 +178,18 @@ def _record_transport_failure(resolver: str, exc: BaseException) -> None:
         sink.append(f"{resolver}: {type(exc).__name__}: {exc}")
 
 
+def transport_failures_recorded() -> int | None:
+    """How many transport failures the active lookup has recorded so far.
+
+    None outside :func:`lookup_with_outcome`, where nothing is listening and
+    a failure cannot be told apart from an empty answer. A caller that caches
+    catalogue responses compares this before and after a call, so it never
+    stores an outage as if the catalogue had answered "nothing found".
+    """
+    sink = _transport_failures.get()
+    return None if sink is None else len(sink)
+
+
 def _crossref_search(query: str, *, rows: int = 5, timeout: float = 30.0) -> list[dict]:
     """Query the CrossRef bibliographic search endpoint. Returns [] on failure."""
     params = {"query.bibliographic": query, "rows": rows}
