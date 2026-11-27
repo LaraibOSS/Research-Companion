@@ -5,6 +5,8 @@
  * renderOnboarding(state, el) renders the stepper into a DOM element.
  */
 
+import { providerReady } from '../keyPromptHelpers.js';
+
 // ---------------------------------------------------------------------------
 // Pure logic
 // ---------------------------------------------------------------------------
@@ -18,12 +20,8 @@
  */
 export function onboardingStep(state) {
   const settings = state.settings || {};
-  const keys = settings.keys || {};
-  const provider = settings.provider || 'anthropic';
-  const keyName = provider === 'openai' ? 'openai_api_key' : 'anthropic_api_key';
-  const keySet = keys[keyName] && keys[keyName].set;
 
-  if (!keySet) return 'connect';
+  if (!providerReady(settings)) return 'connect';
 
   if (!state.draftId) return 'add_draft';
 

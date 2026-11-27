@@ -2926,6 +2926,10 @@ sup.cite:hover { background: rgba(var(--accent-rgb), 0.15); }
   gap: var(--space-1);
 }
 
+/* Provider-specific fields are toggled with [hidden]; display:flex above
+   would otherwise override the user-agent [hidden] rule. */
+.settings-field[hidden] { display: none; }
+
 .settings-label {
   font-size: var(--text-sm);
   font-weight: 500;

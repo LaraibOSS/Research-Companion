@@ -3,6 +3,8 @@
  * DOM-free: no document/window references. Node-testable.
  */
 
+import { providerReady, isSelfHosted } from './keyPromptHelpers.js';
+
 /**
  * Select up to 3 next actions from application state.
  * Rules fire in priority order; first match wins per slot.
@@ -14,18 +16,16 @@ export function selectNextActions(state) {
   const candidates = [];
 
   const settings = state.settings || {};
-  const keys = settings.keys || {};
-  const provider = settings.provider || 'anthropic';
-  const keyName = provider === 'openai' ? 'openai_api_key' : 'anthropic_api_key';
-  const keySet = keys[keyName] && keys[keyName].set;
 
-  // Rule 1: no API key
-  if (!keySet) {
+  // Rule 1: no model ready (an API key, or for a local model its name)
+  if (!providerReady(settings)) {
     candidates.push({
       id: 'connect',
       priority: 1,
       label: 'Connect a model',
-      detail: 'Add your API key to enable AI features.',
+      detail: isSelfHosted(settings.provider)
+        ? 'Set your local model in Settings to enable AI features.'
+        : 'Add your API key to enable AI features.',
       route: '#/settings',
     });
   }

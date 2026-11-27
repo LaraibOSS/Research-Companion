@@ -1012,6 +1012,33 @@ def test_user_facing_toggles_have_a_settings_control():
     assert "Advisory" in settings_js or "advisory" in settings_js
 
 
+def test_settings_ui_offers_every_backend_provider_and_its_fields():
+    """Every provider settings.py accepts must be selectable, with a plain
+    label, and its server fields must reach the PUT body -- a field missing
+    from settingsHelpers' REGULAR_FIELDS is silently dropped from every save."""
+    from research_companion.settings import _VALID_PROVIDERS
+
+    key_js = (STATIC_DIR / "js" / "keyPromptHelpers.js").read_text(encoding="utf-8")
+    helpers_js = (STATIC_DIR / "js" / "settingsHelpers.js").read_text(encoding="utf-8")
+    settings_js = (STATIC_DIR / "js" / "views" / "settings.js").read_text(encoding="utf-8")
+
+    for provider in _VALID_PROVIDERS:
+        assert f"{provider}:" in key_js, f"provider {provider!r} has no label in the UI"
+    assert "Local model (Ollama)" in key_js
+    assert "Other OpenAI-compatible server" in key_js
+    assert "PROVIDER_LABELS" in settings_js
+
+    for field in ("base_url", "ollama_url", "ollama_num_ctx"):
+        assert f"'{field}'" in helpers_js, f"{field} missing from REGULAR_FIELDS"
+        assert f"{field}:" in settings_js, f"{field} never sent by the Save handler"
+    assert "'openai_compatible_api_key'" in helpers_js
+
+    # Server-supplied values are escaped where they enter innerHTML.
+    for expr in ("escapeHtml(s.base_url", "escapeHtml(s.ollama_url",
+                 "escapeHtml(String(s.ollama_num_ctx", "escapeHtml(label)"):
+        assert expr in settings_js, f"{expr} not escaped"
+
+
 def test_report_surfaces_claim_audit_without_overclaiming():
     """The Report must be able to run a claim audit and show per-citation
     outcomes, with 'could not check' visually distinct from 'not supported'."""

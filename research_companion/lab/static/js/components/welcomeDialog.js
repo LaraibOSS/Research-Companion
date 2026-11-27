@@ -14,7 +14,9 @@
  */
 
 import { escapeHtml } from '../format.js';
-import { activeKeyName, missingHfToken, WELCOME_SEEN_KEY } from '../keyPromptHelpers.js';
+import {
+  activeKeyName, missingHfToken, providerReady, isSelfHosted, PROVIDER_LABELS, WELCOME_SEEN_KEY,
+} from '../keyPromptHelpers.js';
 
 let _overlay = null;
 let _onKeydown = null;
@@ -26,10 +28,14 @@ function _statusPill(set) {
 }
 
 export function openWelcomeDialog(settings) {
-  const keys = (settings && settings.keys) || {};
+  const provider = (settings && settings.provider) || 'anthropic';
   const llmName = activeKeyName(settings);
-  const llmLabel = llmName === 'openai_api_key' ? 'OpenAI API key' : 'Anthropic API key';
-  const llmSet = !!(keys[llmName] && keys[llmName].set);
+  // A local or self-hosted model needs a model name (and server address),
+  // not a key; name the thing the user actually has to set.
+  const llmLabel = isSelfHosted(provider)
+    ? `${PROVIDER_LABELS[provider]}: model name`
+    : (llmName === 'openai_api_key' ? 'OpenAI API key' : 'Anthropic API key');
+  const llmSet = providerReady(settings);
   const hfSet = !missingHfToken(settings);
 
   if (_overlay) closeWelcomeDialog();

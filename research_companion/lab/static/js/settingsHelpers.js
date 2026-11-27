@@ -9,10 +9,53 @@
  */
 
 /** Fields treated as secrets (live in keys block of PUT body). */
-const SECRET_FIELDS = ['anthropic_api_key', 'openai_api_key', 'hf_token'];
+const SECRET_FIELDS = ['anthropic_api_key', 'openai_api_key', 'openai_compatible_api_key', 'hf_token'];
 
-/** Non-secret fields that can appear at the top level of a PUT body. */
-const REGULAR_FIELDS = ['provider', 'model', 'theme', 'accent', 'density', 'k_sections', 'char_budget', 'embed_model', 'contact_email', 'downloads_dir'];
+/**
+ * Non-secret fields that can appear at the top level of a PUT body.
+ * A field missing here is silently dropped from every save.
+ */
+const REGULAR_FIELDS = [
+  'provider', 'model', 'theme', 'accent', 'density', 'k_sections', 'char_budget', 'embed_model',
+  'contact_email', 'downloads_dir', 'base_url', 'ollama_url', 'ollama_num_ctx',
+];
+
+/** Ollama context-length bounds, mirroring settings.py. */
+export const OLLAMA_NUM_CTX_MIN = 2048;
+export const OLLAMA_NUM_CTX_MAX = 1048576;
+
+/**
+ * Which Model Provider fields the Settings card shows for a provider.
+ * Hosted providers show their own key; the self-hosted ones show their
+ * server fields and require a model name (they have no default model).
+ *
+ * @param {string} provider
+ * @returns {{anthropicKey:boolean, openaiKey:boolean, baseUrl:boolean,
+ *            compatKey:boolean, ollamaUrl:boolean, ollamaNumCtx:boolean,
+ *            modelRequired:boolean}}
+ */
+export function providerFields(provider) {
+  return {
+    anthropicKey: provider === 'anthropic' || !provider,
+    openaiKey: provider === 'openai',
+    baseUrl: provider === 'openai_compatible',
+    compatKey: provider === 'openai_compatible',
+    ollamaUrl: provider === 'ollama',
+    ollamaNumCtx: provider === 'ollama',
+    modelRequired: provider === 'ollama' || provider === 'openai_compatible',
+  };
+}
+
+/** "" or an http(s) URL with a host — the same rule settings.py enforces. */
+export function isHttpUrlOrEmpty(value) {
+  if (value === '' || value === null || value === undefined) return true;
+  try {
+    const u = new URL(String(value));
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !!u.host;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Build a minimal PUT /api/settings body from form state compared to original.
@@ -81,6 +124,19 @@ export function validateSettings(patch) {
     const v = patch.char_budget;
     if (typeof v !== 'number' || v < 1000 || v > 50000) {
       errors.push(`char_budget must be between 1000 and 50000 (got ${v})`);
+    }
+  }
+
+  if ('ollama_num_ctx' in patch) {
+    const v = patch.ollama_num_ctx;
+    if (!Number.isInteger(v) || v < OLLAMA_NUM_CTX_MIN || v > OLLAMA_NUM_CTX_MAX) {
+      errors.push(`Context length must be a whole number between ${OLLAMA_NUM_CTX_MIN} and ${OLLAMA_NUM_CTX_MAX} (got ${v})`);
+    }
+  }
+
+  for (const [field, label] of [['base_url', 'Server URL'], ['ollama_url', 'Ollama URL']]) {
+    if (field in patch && !isHttpUrlOrEmpty(patch[field])) {
+      errors.push(`${label} must start with http:// or https://`);
     }
   }
 
