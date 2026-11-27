@@ -31,6 +31,7 @@ from research_companion.acquire import acquire
 from research_companion.acquire.copy import reason_headline
 from research_companion.cost import estimate_cost as _estimate_cost
 from research_companion.llm import DEFAULT_MODELS as _DEFAULT_MODELS  # the one table
+from research_companion.llm import PROVIDERS as _LLM_PROVIDERS
 
 # Consistent status glyphs for terminal output across commands.
 # Every value is a fixed-width 2-character code so per-item rows in refcheck,
@@ -221,6 +222,7 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
 def _cmd_build(args: argparse.Namespace) -> int:
     from research_companion.extract import ExtractionError, extract_paper
     from research_companion.graph import build_graph, graph_stats, save_graph
+    from research_companion.llm import LLMContextError
     from research_companion.store import list_papers
 
     papers = list_papers()
@@ -240,7 +242,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
         prefix = f"  [{i}/{len(papers)}]"
         try:
             _, usage = extract_paper(meta, provider=provider, model=model, force=args.force)
-        except ExtractionError as e:
+        except (ExtractionError, LLMContextError) as e:
+            # Per-paper: one long paper not fitting the context does not mean
+            # the others will not. Config/connection errors abort in main().
             print(f"{prefix} FAILED  {meta.title[:60]}: {e}", file=sys.stderr)
             failed.append(meta.paper_id)
             continue
@@ -2307,14 +2311,14 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.set_defaults(func=_cmd_add)
 
     pb = sub.add_parser("build", help="Run extraction on all papers and build the graph")
-    pb.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pb.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pb.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pb.add_argument("--force", action="store_true", help="Re-extract even if cached")
     pb.set_defaults(func=_cmd_build)
 
     pce = sub.add_parser("cost-estimate", help="Estimate API cost for the next build")
-    pce.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pce.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pce.add_argument("--model", default=None, help="Model override (defaults to provider's recommended)")
     pce.set_defaults(func=_cmd_cost_estimate)
@@ -2325,7 +2329,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     pc = sub.add_parser("chat", help="Ask a question (one-shot if argument given, else REPL)")
     pc.add_argument("question", nargs="?", help="Question (omit for interactive REPL)")
-    pc.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pc.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                     help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pc.add_argument("--model", default=None)
     pc.add_argument("--depth", type=int, default=2, help="BFS hop depth (default 2)")
@@ -2482,7 +2486,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prv.add_argument("--port", type=int, default=8501,
                      help="Port for the dashboard (default: 8501)")
     prv.add_argument("--connectors", help="Comma-separated domain connectors: europepmc,pubmed,dblp")
-    prv.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    prv.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER). "
                           "Passing this also enables LLM-based taxonomy labeling "
                           "(keyword-based otherwise).")
@@ -2495,7 +2499,7 @@ def _build_parser() -> argparse.ArgumentParser:
     prb.add_argument("--emit-segments", help="Segment reviews, write JSON here, and stop")
     prb.add_argument("--segments", help="Resume from an edited segments JSON file")
     prb.add_argument("--tone", choices=["deferential", "balanced", "firm"], default="balanced")
-    prb.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    prb.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None)
     prb.add_argument("--model", default=None, help="Model override")
     prb.add_argument("--json", action="store_true", help="JSON output")
     prb.set_defaults(func=_cmd_rebuttal)
@@ -2512,7 +2516,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pal.add_argument("paper_id", help="Candidate paper ID to align against the draft")
     pal.add_argument("--against", metavar="PAPER_ID",
                      help="Draft paper ID (overrides configured draft)")
-    pal.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pal.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pal.add_argument("--model", default=None, help="Model override")
     pal.add_argument("--force", action="store_true", help="Re-run even if cached")
@@ -2533,7 +2537,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pcmp = sub.add_parser("compare", help="Compare two papers: entity overlap and metrics")
     pcmp.add_argument("paper_a", help="First paper ID")
     pcmp.add_argument("paper_b", help="Second paper ID")
-    pcmp.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    pcmp.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                      help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     pcmp.add_argument("--model", default=None, help="Model override (for summary LLM)")
     pcmp.add_argument("--no-summary", action="store_true", help="Skip LLM summary generation")
@@ -2544,7 +2548,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pgaps = sub.add_parser("gaps", help="Show research gaps from corpus papers vs your draft")
     pgaps.add_argument("--refresh", action="store_true",
                        help="Re-extract and re-resolve gaps before displaying")
-    pgaps.add_argument("--provider", choices=["anthropic", "openai"], default=None)
+    pgaps.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None)
     pgaps.add_argument("--model", default=None, help="Model override")
     pgaps.add_argument("--json", action="store_true", help="JSON output")
     pgaps.set_defaults(func=_cmd_gaps)
@@ -2559,7 +2563,7 @@ def _build_parser() -> argparse.ArgumentParser:
     plab_ingest = lab_sub.add_parser("ingest", help="Ingest a folder of PDFs into the knowledge graph")
     plab_ingest.add_argument("folder", help="Path to folder containing PDF files")
     plab_ingest.add_argument("--no-align", action="store_true", help="Skip alignment stage")
-    plab_ingest.add_argument("--provider", choices=["anthropic", "openai"], default=None,
+    plab_ingest.add_argument("--provider", choices=list(_LLM_PROVIDERS), default=None,
                              help="LLM provider (overrides RESEARCH_COMPANION_PROVIDER)")
     plab_ingest.add_argument("--model", default=None, help="Model override")
     plab_ingest.set_defaults(func=_cmd_lab_ingest)
@@ -2613,7 +2617,15 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    from research_companion.llm import LLMError
+    try:
+        return args.func(args)
+    except LLMError as e:
+        # A model-layer error (no model set, local server not running, prompt
+        # too large for the context) already says what to do; a traceback on
+        # top of it only hides the sentence.
+        print(f"research-companion: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

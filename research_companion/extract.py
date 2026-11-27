@@ -502,6 +502,16 @@ def extract_paper(
     raw, usage = _llm.call_text(prompt, provider=provider,
                                 model=resolve_model(provider, model))  # JSON mode (default)
 
+    # A reply cut off at the output limit is half a JSON object. Reporting it
+    # as "invalid JSON" sends the reader to blame the model's formatting; the
+    # actual cause is the token limit, so say that.
+    if usage.get("truncated"):
+        raise ExtractionError(
+            f"the model's answer for {meta.paper_id} was cut off at the output limit "
+            f"({usage.get('output_tokens', '?')} tokens) before the JSON was complete. "
+            "Try a model with a larger output limit."
+        )
+
     raw = _strip_code_fences(raw)
     try:
         parsed = json.loads(raw)
