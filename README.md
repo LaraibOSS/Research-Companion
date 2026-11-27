@@ -11,10 +11,10 @@
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue?style=flat-square)](pyproject.toml)
 [![CI](https://img.shields.io/github/actions/workflow/status/LaraibOSS/Research-Companion/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 
-[![4,407 tests, both suites ratcheted in CI](https://img.shields.io/badge/4%2C407%20tests-both%20suites%20ratcheted%20in%20CI-2b8a3e?style=flat-square)](tests)
+[![4,441 tests, both suites ratcheted in CI](https://img.shields.io/badge/4%2C441%20tests-both%20suites%20ratcheted%20in%20CI-2b8a3e?style=flat-square)](tests)
 [![Deterministic core runs with no API key](https://img.shields.io/badge/deterministic%20core-runs%20with%20no%20API%20key-8250df?style=flat-square)](#why-research-companion)
 [![20 degradation mechanisms proved in CI](https://img.shields.io/badge/20%20degradation%20mechanisms-proved%20in%20CI-c2255c?style=flat-square)](docs/DEGRADATION_REGISTRY.json)
-[![Your papers never leave your machine](https://img.shields.io/badge/your%20papers-never%20leave%20your%20machine-e8590c?style=flat-square)](#configuration--security)
+[![Your library is stored on your machine](https://img.shields.io/badge/your%20library-stored%20on%20your%20machine-e8590c?style=flat-square)](#configuration--security)
 
 Drop in papers. Get a knowledge graph you can question, answers with citations to
 the exact page, and a read on your own draft before a reviewer sees it.
@@ -517,6 +517,14 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
 | `NCBI_EMAIL` / `NCBI_API_KEY` | Optional — raises PubMed/E-utilities rate limits | – |
+
+**What leaves your machine.** Your papers, notes, graph and reports are stored on disk under `RESEARCH_COMPANION_DIR`, and nothing is uploaded to a Research Companion service: there isn't one. Three things do go out, each to a service you chose:
+
+- **AI steps** (extraction, Ask, reports, gaps, directions, alignment, claim audit) send paper text to your model provider, Anthropic or OpenAI.
+- **Semantic search**, only when `HF_TOKEN` is set, sends section text to Hugging Face's hosted embedding API.
+- **Lookups** (adding by DOI or arXiv id, discovery, reference checking) send titles and identifiers to public catalogues such as Crossref, OpenAlex, arXiv and Semantic Scholar.
+
+The key-free checks on a local PDF (`check-stats`, `check-overlap`, `check-compliance`) send nothing.
 
 Cost guidance per paper (Claude Sonnet): ~$0.02–$0.10 per extraction depending on length. Run `research-companion cost-estimate` to project costs before building.
 
