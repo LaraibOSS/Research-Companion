@@ -16,8 +16,14 @@ async function _handleResponse(res) {
     } catch {
       detail = await res.text().catch(() => res.statusText);
     }
-    const err = new Error(detail || `HTTP ${res.status}`);
+    // A structured detail ({problems: [...]}) is kept as-is on err.detail so
+    // a view can list every reason; the message stays readable either way.
+    const message = (detail && typeof detail === 'object')
+      ? (Array.isArray(detail.problems) ? detail.problems.join(' ') : JSON.stringify(detail))
+      : detail;
+    const err = new Error(message || `HTTP ${res.status}`);
     err.status = res.status;
+    err.detail = detail;
     throw err;
   }
   // No content responses (DELETE returning 204, etc.)
@@ -420,6 +426,23 @@ export const unlinkCitation = (index) =>
  * Used at boot for hydration. Non-fatal when 404 (older server).
  */
 export const getJobs = () => get('/api/jobs');
+
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
+
+/** GET /api/agents[?paper_id=] — { agents, handoffs, model_configured } */
+export const getAgents = (paperId) =>
+  get(paperId ? `/api/agents?paper_id=${encodeURIComponent(paperId)}` : '/api/agents');
+
+/** POST /api/agents/run — { job_id, agents, added, uses_model, uses_network } */
+export const runAgents = (paperId, agents, inputs = {}) =>
+  post('/api/agents/run', {
+    paper_id: paperId,
+    agents,
+    venue: inputs.venue || null,
+    problem_statement: inputs.problem_statement || null,
+  });
 
 // ---------------------------------------------------------------------------
 // Draft opportunities + revision notes endpoints (uncited-paper opportunities)
