@@ -176,6 +176,16 @@ export const getFailures = () => get('/api/failures');
 /** GET /api/jobs/{id} */
 export const getJob = (jobId) => get(`/api/jobs/${encodeURIComponent(jobId)}`);
 
+/** GET /api/zotero/status — { state, ok, message, url } */
+export const getZoteroStatus = () => get('/api/zotero/status');
+
+/** GET /api/zotero/collections — { collections: [{key, name, parent, items}] } */
+export const getZoteroCollections = () => get('/api/zotero/collections');
+
+/** POST /api/zotero/import — { job_id, dry_run }. Read-only on the Zotero side. */
+export const importZotero = (collectionKey, dryRun) =>
+  post('/api/zotero/import', { collection_key: collectionKey || null, dry_run: !!dryRun });
+
 /** POST /api/ingest — body: { folder: string, paths?: string[] } */
 export const ingest = (folder, paths) => post('/api/ingest', paths ? { folder, paths } : { folder });
 

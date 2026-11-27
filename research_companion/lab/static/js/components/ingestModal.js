@@ -9,6 +9,9 @@
  *     1. Scan step  — path input + "Scan folder" -> POST /api/ingest/scan
  *     2. Review step — summary + per-file list (new vs already-in-library) ->
  *        "Ingest N new" -> POST /api/ingest -> store.startIngestManifest(...) -> close
+ *   ZOTERO: GET /api/zotero/status -> collection choice -> Preview (dry run) ->
+ *           Import -> POST /api/zotero/import, polls GET /api/jobs/{id} and
+ *           shows the report. Read-only on the Zotero side.
  *
  * API:
  *   openModal(tab, opts)  — open (or re-open) the modal; opts.draft pre-checks
@@ -21,6 +24,9 @@ import * as store from '../store.js';
 import { showToast } from './toast.js';
 import { escapeHtml } from '../format.js';
 import { classifyIngestError, validateUploadFile, scanRows, initialSelection, selectionSummary } from './ingestHelpers.js';
+import {
+  statusView, collectionOptions, reportSummary, reportRows, nextPoll, progressText,
+} from '../zoteroHelpers.js';
 
 let _overlay = null;
 let _modal = null;
@@ -75,6 +81,7 @@ function _renderModal(activeTab = 'upload', opts = {}) {
       <button class="ingest-tab${activeTab === 'upload' ? ' ingest-tab-active' : ''}" data-tab="upload">Upload PDF</button>
       <button class="ingest-tab${activeTab === 'single' ? ' ingest-tab-active' : ''}" data-tab="single">arXiv / URL / path</button>
       <button class="ingest-tab${activeTab === 'folder' ? ' ingest-tab-active' : ''}" data-tab="folder">Ingest folder</button>
+      <button class="ingest-tab${activeTab === 'zotero' ? ' ingest-tab-active' : ''}" data-tab="zotero">Import from Zotero</button>
     </div>
     <div class="ingest-tab-body" id="ingest-tab-body"></div>
   `;
@@ -85,6 +92,7 @@ function _renderModal(activeTab = 'upload', opts = {}) {
     const tab = e.target.closest('[data-tab]');
     if (!tab) return;
     if (tab.dataset.tab !== 'folder') _resetFolderState();
+    _stopZoteroPoll();
     _renderModal(tab.dataset.tab, _lastOpts);
     // Focus first input
     setTimeout(() => {
@@ -237,6 +245,8 @@ function _renderModal(activeTab = 'upload', opts = {}) {
     // Auto-focus
     setTimeout(() => inp.focus(), 0);
 
+  } else if (activeTab === 'zotero') {
+    _renderZoteroTab(body);
   } else if (_folderState.step === 'review') {
     _renderFolderReviewStep(body);
   } else {
@@ -408,12 +418,191 @@ function _renderFolderReviewStep(body) {
 }
 
 // ---------------------------------------------------------------------------
+// Zotero tab — status, collection, Preview / Import, report
+// ---------------------------------------------------------------------------
+
+// Bumped to invalidate an in-flight poll when the tab changes or the modal
+// closes, so a late reply never writes into a body that is gone.
+let _zoteroPollToken = 0;
+let _zoteroPollTimer = null;
+const ZOTERO_POLL_MS = 1500;
+
+function _stopZoteroPoll() {
+  _zoteroPollToken += 1;
+  if (_zoteroPollTimer !== null) {
+    clearTimeout(_zoteroPollTimer);
+    _zoteroPollTimer = null;
+  }
+}
+
+async function _refreshLibraryPapers() {
+  try {
+    const fresh = await api.getPapers();
+    if (!Array.isArray(fresh)) return;
+    const s = store.getState();
+    for (const p of fresh) {
+      if (!p || !p.paper_id) continue;
+      s.papers.set(p.paper_id, { ...s.papers.get(p.paper_id), ...p });
+    }
+    store.notify(['papers']);
+  } catch (err) {
+    console.warn('[ingest] papers refresh after Zotero import failed', err);
+  }
+}
+
+function _renderZoteroReport(target, report) {
+  const rows = reportRows(report);
+  target.innerHTML = `
+    <div class="ingest-scan-summary">${escapeHtml(reportSummary(report))}</div>
+    ${rows.length ? `<div class="ingest-scan-list">${rows.map(r => `
+      <div class="ingest-scan-row">
+        <span class="ingest-scan-relpath" title="${escapeHtml(r.title)}">${escapeHtml(r.title)}</span>
+        <span class="badge badge-${r.tone === 'ok' ? 'ok' : r.tone === 'warn' ? 'warn' : 'muted'}">${escapeHtml(r.text)}</span>
+      </div>`).join('')}</div>` : ''}
+  `;
+}
+
+function _renderZoteroTab(body) {
+  body.innerHTML = `
+    <div class="ingest-form">
+      <div class="ingest-hint-line" id="zotero-status">Checking Zotero…</div>
+      <div id="zotero-controls" style="display:none">
+        <label class="ingest-label" for="zotero-collection">Collection</label>
+        <select id="zotero-collection" class="add-input"></select>
+        <div class="ingest-hint-line muted">Read-only: nothing is changed in Zotero.
+          Papers are added by arXiv id or DOI when they have one, else from the PDF in
+          Zotero, else as details only. Nothing is analysed until you ask.</div>
+        <div class="ingest-form-actions">
+          <button class="btn" id="zotero-preview-btn">Preview</button>
+          <button class="btn btn-accent" id="zotero-import-btn" disabled
+                  title="Preview first">Import</button>
+        </div>
+      </div>
+      <div class="ingest-error-line" id="zotero-error" style="display:none"></div>
+      <div class="muted" id="zotero-progress" style="display:none"></div>
+      <div id="zotero-report"></div>
+    </div>
+  `;
+
+  const statusLine = body.querySelector('#zotero-status');
+  const controls   = body.querySelector('#zotero-controls');
+  const select     = body.querySelector('#zotero-collection');
+  const previewBtn = body.querySelector('#zotero-preview-btn');
+  const importBtn  = body.querySelector('#zotero-import-btn');
+  const errLine    = body.querySelector('#zotero-error');
+  const progress   = body.querySelector('#zotero-progress');
+  const reportBox  = body.querySelector('#zotero-report');
+  const token = _zoteroPollToken;
+
+  function _showError(msg) {
+    errLine.textContent = msg;
+    errLine.style.display = '';
+  }
+
+  function _setBusy(busy) {
+    previewBtn.disabled = busy;
+    select.disabled = busy;
+    if (busy) importBtn.disabled = true;
+  }
+
+  function _watch(jobId, dryRun) {
+    let failures = 0;
+    const tick = async () => {
+      if (token !== _zoteroPollToken) return;
+      let job = null;
+      let error = null;
+      try { job = await api.getJob(jobId); } catch (e) { error = e; }
+      if (token !== _zoteroPollToken) return;
+      const next = nextPoll({ job, error, consecutiveFailures: failures });
+      failures = error ? failures + 1 : 0;
+      if (next === 'continue') {
+        if (job) progress.textContent = progressText(job);
+        _zoteroPollTimer = setTimeout(tick, ZOTERO_POLL_MS);
+        return;
+      }
+      _zoteroPollTimer = null;
+      progress.style.display = 'none';
+      _setBusy(false);
+      if (next === 'done') {
+        _renderZoteroReport(reportBox, job.report);
+        // A preview unlocks Import for the same choice; after an import the
+        // preview is spent, so Import waits for the next one.
+        importBtn.disabled = !dryRun;
+        if (!dryRun) {
+          _refreshLibraryPapers();
+          showToast(reportSummary(job.report), 'info');
+        }
+      } else if (next === 'failed') {
+        _showError((job && job.detail) || 'The Zotero import failed.');
+      } else {
+        _showError('Lost track of the Zotero import. It may still be running; '
+          + 'check the activity indicator.');
+      }
+    };
+    _zoteroPollTimer = setTimeout(tick, 300);
+  }
+
+  async function _start(dryRun) {
+    errLine.style.display = 'none';
+    reportBox.innerHTML = '';
+    _setBusy(true);
+    progress.textContent = dryRun ? 'Checking…' : 'Importing…';
+    progress.style.display = '';
+    try {
+      const res = await api.importZotero(select.value, dryRun);
+      if (token !== _zoteroPollToken) return;
+      _watch(res.job_id, dryRun);
+    } catch (err) {
+      progress.style.display = 'none';
+      _setBusy(false);
+      _showError(String(err.message || '').includes('no_active_workspace')
+        ? 'Open or create a research first.' : err.message);
+    }
+  }
+
+  select.addEventListener('change', () => {
+    importBtn.disabled = true;   // a preview is of one choice; re-preview on change
+    reportBox.innerHTML = '';
+  });
+  previewBtn.addEventListener('click', () => _start(true));
+  importBtn.addEventListener('click', () => _start(false));
+
+  (async () => {
+    let status;
+    try {
+      status = await api.getZoteroStatus();
+    } catch (err) {
+      status = { ok: false, state: 'error', message: err.message };
+    }
+    if (token !== _zoteroPollToken) return;
+    const view = statusView(status);
+    statusLine.textContent = view.message;
+    statusLine.className = `ingest-hint-line${view.tone === 'ok' ? '' : ' ingest-error-line'}`;
+    if (!view.ready) return;
+    try {
+      const cols = await api.getZoteroCollections();
+      if (token !== _zoteroPollToken) return;
+      select.innerHTML = collectionOptions(cols)
+        .map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+        .join('');
+    } catch (err) {
+      if (token !== _zoteroPollToken) return;
+      select.innerHTML = collectionOptions(null)
+        .map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+        .join('');
+      _showError(`Could not list collections: ${err.message}`);
+    }
+    controls.style.display = '';
+  })();
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
  * Open the add/ingest modal.
- * @param {'upload'|'single'|'folder'} [tab='upload']
+ * @param {'upload'|'single'|'folder'|'zotero'} [tab='upload']
  * @param {{draft?: boolean}} [opts] — draft:true pre-checks "This is my draft"
  */
 export function openModal(tab = 'upload', opts = {}) {
@@ -422,6 +611,7 @@ export function openModal(tab = 'upload', opts = {}) {
     _autoCloseTimer = null;
   }
   _resetFolderState();
+  _stopZoteroPoll();
   _lastOpts = opts || {};
   _ensureDOM();
   _renderModal(tab, _lastOpts);
@@ -438,6 +628,7 @@ export function closeModal() {
     _autoCloseTimer = null;
   }
   _resetFolderState();
+  _stopZoteroPoll();
   if (!_overlay) return;
   _overlay.classList.remove('open');
   document.body.style.overflow = '';
