@@ -139,7 +139,11 @@ def _best_match(
     for item in items:
         record = parser(item)
         score = matching.title_similarity(ref.title, record["title"])
-        if matching.title_is_cited(cited, record["title"]):
+        if not matching.title_is_cited(cited, record["title"]) and \
+                matching.short_title_matches_exactly(
+                    cited, record["title"], probable_title(cited), record.get("authors") or []):
+            score = max(score, floor)
+        elif matching.title_is_cited(cited, record["title"]):
             # A short catalogue title contained in a longer cited title passes
             # the title test on its own. Without an author in common it is a
             # different work, and accepting it would report a reference that

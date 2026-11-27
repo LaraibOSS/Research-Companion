@@ -193,17 +193,16 @@ def test_smoke_set_results_are_pinned():
     """The current matcher's numbers on the smoke set. Every miss below was
     investigated and is a real property of the checker, not of the harness:
 
-    * wrong_authors (freeform lines): parse_reference_string extracts no
-      authors, and authors are only consulted when a title matched by
-      containment, so a whole-title match with invented authors verifies.
-      The same mistake in BibTeX (structured authors) is caught.
     * wrong_year, invented_venue: neither year nor venue is compared.
     * short_title_prefix_real_authors: the containment rule asks for one
       author in common; a fabrication that reuses the real authors has one.
-    * real_short_title ("Deep learning", Nature 2015): the 15-character
-      shared-run floor deliberately rejects short generic phrases
-      (test_the_floor_still_blocks_a_short_generic_phrase), and it rejects
-      this real citation with them -- the one false accusation.
+
+    Moved by the author-corroboration change: both freeform wrong_authors
+    entries (lines 19, 20) are now caught, since a line naming people must
+    name one of the record's authors; and real_short_title ("Deep learning",
+    Nature 2015, line 11) is no longer falsely accused, since an exact short
+    title cited by one of its own authors is accepted. The generic-phrase
+    guard (test_the_floor_still_blocks_a_short_generic_phrase) still holds.
 
     If the matcher improves, update these numbers in the same change and say
     which entries moved.
@@ -212,30 +211,29 @@ def test_smoke_set_results_are_pinned():
     m = result["metrics"]
     assert m["not_checked"] == {"total": 0, "real": 0, "fabricated": 0}
     assert m["fabricated"] == {
-        "total": 15, "checked": 15, "detected": 9, "detected_as_suspect": 2,
-        "detected_as_not_found": 7, "missed": 6, "detection_rate": 0.6}
+        "total": 15, "checked": 15, "detected": 11, "detected_as_suspect": 4,
+        "detected_as_not_found": 7, "missed": 4, "detection_rate": 0.7333}
     assert m["real"] == {
-        "total": 15, "checked": 15, "accepted": 14, "falsely_accused": 1,
-        "accused_as_suspect": 0, "accused_as_not_found": 1,
-        "false_accusation_rate": 0.0667}
+        "total": 15, "checked": 15, "accepted": 15, "falsely_accused": 0,
+        "accused_as_suspect": 0, "accused_as_not_found": 0,
+        "false_accusation_rate": 0.0}
     per = {(g["type"], g["label"]): (g["checked"], g["flagged"]) for g in m["per_type"]}
     assert per == {
         ("invented_title", "fabricated"): (3, 3),
         ("invented_venue", "fabricated"): (2, 1),
         ("short_title_prefix", "fabricated"): (3, 3),
         ("short_title_prefix_real_authors", "fabricated"): (1, 0),
-        ("wrong_authors", "fabricated"): (2, 0),
+        ("wrong_authors", "fabricated"): (2, 2),
         ("wrong_authors_bibtex", "fabricated"): (1, 1),
         ("wrong_identifier", "fabricated"): (1, 1),
         ("wrong_year", "fabricated"): (2, 0),
         ("real", "real"): (12, 0),
         ("real_bibtex", "real"): (2, 0),
-        ("real_short_title", "real"): (1, 1),
+        ("real_short_title", "real"): (1, 0),
     }
     errors = {(r["line"], r["outcome"]) for r in result["rows"]
               if r["outcome"] in ("missed", "falsely_accused")}
-    assert errors == {(11, "falsely_accused"), (19, "missed"), (20, "missed"),
-                      (25, "missed"), (26, "missed"), (27, "missed"), (28, "missed")}
+    assert errors == {(25, "missed"), (26, "missed"), (27, "missed"), (28, "missed")}
 
 
 def test_the_containment_fix_holds_on_the_smoke_set():
@@ -365,11 +363,15 @@ def test_cli_human_summary_states_denominators(capsys):
     code = rb.main([str(SMOKE), "--catalogue", str(CATALOGUE)])
     out = capsys.readouterr().out
     assert code == 0
-    assert "Detection rate:        60.0% (9 of 15 checked)" in out
-    assert "False-accusation rate: 6.7% (1 of 15 checked)" in out
+    assert "Detection rate:        73.3% (11 of 15 checked)" in out
+    assert "False-accusation rate: 0.0% (0 of 15 checked)" in out
     assert "Not checked (no catalogue reachable): 0" in out
     assert "excluded from both rates" in out
-    assert "line 11 [real/real_short_title] -> unverified" in out
+    # The errors list names each entry the checker got wrong; line 11 (the real
+    # "Deep learning") is no longer one of them since short exact titles cited
+    # by their own authors are accepted.
+    assert "line 26 [fabricated/wrong_year] -> verified" in out
+    assert "line 11 [real/real_short_title]" not in out
 
 
 def test_cli_json_output_and_limit(capsys):

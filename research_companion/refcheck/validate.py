@@ -118,7 +118,12 @@ def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
     cited_text = ref.raw or ref.title
     # Imported here: parse imports Reference from this module.
     from research_companion.refcheck.parse import probable_title
-    if not matching.title_is_cited(cited_text, record.get("title", "")):
+    cited_title = probable_title(cited_text)
+    record_authors = record.get("authors") or []
+    title_ok = matching.title_is_cited(cited_text, record.get("title", "")) or \
+        matching.short_title_matches_exactly(cited_text, record.get("title", ""),
+                                             cited_title, record_authors)
+    if not title_ok:
         reasons.append("Title does not match the authoritative record")
     elif (matching.title_matched_by_containment(cited_text, record.get("title", ""),
                                                 probable_title(cited_text))
@@ -132,6 +137,14 @@ def validate_reference(ref: Reference, lookup: Lookup) -> RefVerdict:
         matching.author_overlap(ref.authors, record.get("authors", [])) < AUTHOR_OVERLAP_THRESHOLD
     ):
         reasons.append("Fewer than 60% of cited authors match the record")
+    elif (not ref.authors and title_ok and record_authors
+          and matching.names_people(cited_text, cited_title)
+          and matching.authors_corroborate(cited_text, record_authors) is False
+          and not any("none of its authors" in r for r in reasons)):
+        # A plain bibliography line yields no parsed authors, so a real title
+        # cited with invented authors used to verify. When the line names
+        # people ahead of the title, at least one must be the record's.
+        reasons.append("None of the matched record's authors appear in the citation")
     if _identifiers_conflict(ref.doi, record.get("doi")):
         reasons.append("Cited DOI conflicts with the authoritative record")
     if _identifiers_conflict(ref.arxiv_id, record.get("arxiv_id")):

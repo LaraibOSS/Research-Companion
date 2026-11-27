@@ -202,18 +202,20 @@ Current results, pinned in `tests/test_eval_refcheck_bench.py`:
 
 | | |
 |---|---|
-| Detection rate | 60.0% (9 of 15 checked) |
-| False-accusation rate | 6.7% (1 of 15 checked) |
+| Detection rate | 73.3% (11 of 15 checked) |
+| False-accusation rate | 0.0% (0 of 15 checked) |
 | Not checked | 0 |
 
+Before the author-corroboration change the same set gave 60.0% (9 of 15) and
+6.7% (1 of 15). That change caught both fabrications that put invented
+authors on a real title in a plain bibliography line, and stopped the one
+false accusation: the real "Deep learning" (LeCun, Bengio and Hinton, Nature
+2015), which the 15-character floor rejected along with short generic phrases.
+
 The containment fix holds (all three short-title-prefix fabrications with
-invented authors are caught). The misses are properties of the checker:
-wrong authors on a freeform line verify (the line parser extracts no authors;
-the same error in BibTeX is caught); wrong year and invented venue verify
-(neither is compared); a fabrication that reuses the real authors defeats the
-containment rule. The one false accusation is the real "Deep learning"
-(LeCun, Bengio and Hinton, Nature 2015), rejected by the 15-character
-shared-run floor that exists to block short generic phrases.
+invented authors are caught). The remaining misses are properties of the
+checker: wrong year and invented venue verify (neither is compared), and a
+fabrication that reuses the real authors defeats the containment rule.
 
 This is 30 hand-picked entries against a hand-written catalogue. It shows
 which kinds of fabrication the checker can and cannot see; it is not an
@@ -258,7 +260,7 @@ a fake model.
 These rules apply to every number from these harnesses, in a pull request, a
 paper or a README:
 
-1. **State the denominator.** "60% detection" means nothing without "9 of 15
+1. **State the denominator.** "73% detection" means nothing without "11 of 15
    checked". The harnesses print both; quote both.
 2. **Unreachable is not a pass.** An entry no catalogue answered for (or an
    audit that did not conclude) is neither a detection nor an acceptance.
