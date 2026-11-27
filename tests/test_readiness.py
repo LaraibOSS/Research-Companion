@@ -41,7 +41,9 @@ def test_coverage_caveats_and_failed_lane():
     lanes = {"compliance": _lane({"checks": []}),
              "citation": _lane({}, ok=False)}   # citation failed
     r = build_readiness(lanes)
-    assert "compliance" in r["coverage"]["ran"]
+    # A compliance lane with no checks examined nothing: it did not "run".
+    assert "compliance" not in r["coverage"]["ran"]
+    assert "compliance" in r["coverage"]["nothing_checked"]
     assert "citation" in r["coverage"]["failed"]
     # venue/novelty not present -> caveats surfaced
     assert "not run" in r["summary"]
@@ -97,3 +99,44 @@ def test_warnings_ordered_by_lane_priority():
              "citation": _lane({"counts": {"unverified": 1}})}
     order = [w["lane"] for w in build_readiness(lanes)["warnings"]]
     assert order == ["statsoundness", "citation", "overlap"]
+
+
+# --- "ran and found nothing wrong" is not "ran and had nothing to look at" ----
+
+def test_lanes_that_examined_nothing_never_produce_ready():
+    lanes = {
+        "compliance": _lane({"checks": [{"status": "skipped", "message": "no rule"}]}),
+        "citation": _lane({"counts": {"verified": 0, "suspect": 0, "unverified": 0}}),
+        "statsoundness": _lane({"summary": {"n_tests": 0, "n_means": 0}}),
+        "overlap": _lane({"summary": {"n_passages": 0, "n_compared": 0}}),
+        "novelty": _lane({"counts": {}}),
+    }
+    r = build_readiness(lanes)
+    assert r["verdict"] == "not_assessed"
+    assert r["coverage"]["ran"] == []
+    assert set(r["coverage"]["nothing_checked"]) == set(lanes)
+    assert "Ready" not in r["summary"]
+    assert "no references were found" in r["summary"]
+
+
+def test_one_lane_that_examined_something_supports_ready_and_names_the_rest():
+    lanes = {
+        "citation": _lane({"counts": {"verified": 12, "suspect": 0, "unverified": 0}}),
+        "statsoundness": _lane({"summary": {"n_tests": 0, "n_means": 0}}),
+    }
+    r = build_readiness(lanes)
+    assert r["verdict"] == "ready"
+    assert r["coverage"]["ran"] == ["citation"]
+    assert "statsoundness: no statistics were found to check" in r["summary"]
+
+
+def test_a_finding_always_counts_as_examined():
+    # A lane that reports a problem obviously looked at something, whatever
+    # its counters say.
+    r = build_readiness({"statsoundness": _lane({"summary": {"n_decision_inconsistent": 1}})})
+    assert r["verdict"] == "revise" and r["coverage"]["ran"] == ["statsoundness"]
+
+
+def test_unassessed_novelty_verdicts_do_not_count_as_examined():
+    r = build_readiness({"novelty": _lane({"counts": {"unassessed": 3}})})
+    assert r["verdict"] == "not_assessed"

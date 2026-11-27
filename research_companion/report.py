@@ -416,8 +416,10 @@ def _section_ingest(data: dict) -> str:
 
 
 _VERDICT_LABEL = {"not_ready": "Not ready to submit", "revise": "Revise before submitting",
-                  "ready": "Ready to submit"}
-_VERDICT_COLOR = {"not_ready": "#c62828", "revise": "#e65100", "ready": "#2e7d32"}
+                  "ready": "Ready to submit",
+                  "not_assessed": "Not assessed: nothing to examine"}
+_VERDICT_COLOR = {"not_ready": "#c62828", "revise": "#e65100", "ready": "#2e7d32",
+                  "not_assessed": "#6e7781"}
 
 
 def _render_readiness(readiness: dict | None) -> str:

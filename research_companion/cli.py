@@ -768,7 +768,8 @@ def _readiness_line(readiness: dict | None) -> str:
     """Format the submission-readiness verdict + top items for readable review output."""
     if not readiness:
         return ""
-    label = {"not_ready": "NOT READY", "revise": "REVISE", "ready": "READY"}.get(
+    label = {"not_ready": "NOT READY", "revise": "REVISE", "ready": "READY",
+             "not_assessed": "NOT ASSESSED"}.get(
         readiness.get("verdict", "revise"), "REVISE")
     lines = [f"\nSubmission readiness: {label} — {readiness.get('summary', '')}"]
     for b in (readiness.get("blockers") or [])[:3]:
@@ -1879,7 +1880,14 @@ def _cmd_check_compliance(args: argparse.Namespace) -> int:
         for c in skipped:
             print(f"  {_glyph(c['status'])} [{c['check']}] {c['message']}")
     if not desk_rejects and not warnings:
-        print("research-companion: no compliance issues found.")
+        applied = [c for c in result.get("checks", []) if c.get("status") == "ok"]
+        if applied:
+            print("research-companion: no compliance issues found "
+                  f"in the {len(applied)} check(s) that applied.")
+        else:
+            # Every check was skipped: nothing was verified, so nothing passed.
+            print("research-companion: no compliance check could be applied. "
+                  "Nothing was verified.")
 
     print(f"\n{result['disclaimer']}")
     return 0
