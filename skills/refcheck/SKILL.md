@@ -41,6 +41,20 @@ So report `unverified` as **"could not be found — check this one by hand"**, n
 
 A run where the catalogues could not be reached at all reports that distinctly. Network failure is not evidence against a reference.
 
+## Retractions — a separate question with its own denominator
+
+Some catalogues also record whether a work was later **retracted** or carries an **expression of concern**. That is a different fact from whether the reference exists, and it is reported separately:
+
+| notice | means |
+|---|---|
+| `retraction` | the matched work has been retracted |
+| `partial_retraction` | part of the matched work has been retracted |
+| `expression_of_concern` | the publisher has issued an expression of concern about the matched work |
+
+**A retracted paper exists.** It was found, so it is never "fabricated", "not found" or "unverified" on account of the retraction. Citing it may be entirely correct (for example, when discussing the retraction). The point is that the author should *know*.
+
+Only some catalogues record retractions (CrossRef does; OpenAlex does for some records; arXiv and the domain connectors do not). So retraction is checked over **fewer** references than existence is. Always report it as **"flagged of checked"** and say how many references were **not checked** for retraction. "No retractions" without the denominator would read as "none of the 40 references is retracted" when perhaps only 25 could be checked.
+
 ## Workspace safety
 
 Research Companion writes to a **global** store with named workspaces, not the current folder. Adding a paper into whatever workspace is active would pollute the user's real research.
@@ -100,14 +114,22 @@ In both cases the exit code is 1 and stdout is empty. Do not report "the check f
   "unparsed_count": 1,
   "unparsed": ["9"],
   "counts": {"verified": 1, "suspect": 0, "unverified": 1},
+  "retraction": {"checked": 1, "flagged": 0, "retracted": 0, "not_checked": 1},
   "references": [
-    {"title": "...", "status": "verified", "reasons": [], "doi": null, "arxiv_id": "1706.03762"}
+    {"title": "...", "status": "verified", "reasons": [], "doi": null, "arxiv_id": "1706.03762",
+     "notices": [], "retraction_checked": false}
   ]
 }
 ```
 
 - `source` — `text` means the bibliography was read from the paper itself; `extraction` means a previously built reference list was used.
 - `unparsed` — lines in the bibliography that could **not** be read as references. **These were never checked.** They are part of the denominator and must appear in the report.
+- `retraction` — the retraction check, over its own denominator:
+  - `checked` — references matched in a catalogue that records retractions
+  - `flagged` — of those, how many carry any notice (retraction, partial retraction, or expression of concern)
+  - `retracted` — of those, how many carry a full `retraction` notice
+  - `not_checked` — references for which nothing was established about retraction either way
+- per reference, `notices` lists any notices on the matched work, and `retraction_checked` says whether retraction could be checked for it at all. `retraction_checked: false` means **unknown**, never "not retracted".
 
 ### Step 4 — report
 
@@ -127,8 +149,14 @@ NOT FOUND — verify these by hand (3)
 DETAIL MISMATCH (1)
   ! Smith et al. Deep nets for X — record title differs; check the year and title
 
+RETRACTION NOTICES — 1 flagged of 31 checked
+  ! Doe et al. A result that did not hold. 2018 — RETRACTED
+  These papers exist; the notice is about what happened to them after publication.
+
 NOT CHECKED
   – 1 bibliography line could not be parsed: "9"
+  – 7 references could not be checked for retraction (matched only in a
+    catalogue that does not record it, or not matched at all)
 
 VERIFIED (34)
   ✓ all found in CrossRef / OpenAlex / arXiv
@@ -141,6 +169,8 @@ Rules:
 - Always report `unparsed`. A summary over 38 of 42 references that presents as complete is the failure this whole check exists to prevent.
 - If every reference is verified, say so plainly without hedging.
 - If a run reports the catalogues were unreachable, report that as **not checked**, never as unverified.
+- Report retraction notices in their **own** section, as "N flagged of M checked", and always state `not_checked`. Never fold a retracted reference into "not found" or "suspect", and never call it fabricated — it was found.
+- If `retraction.flagged` is 0, say "no retraction notices among the M references that could be checked" — not "no retracted references".
 
 ## What this does NOT check
 
