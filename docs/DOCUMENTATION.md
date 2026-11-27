@@ -189,6 +189,7 @@ datastore-like dependency is NetworkX (in-memory, serialized to JSON).
 | `check-overlap <id> [--external] [--json]` | Near-duplicate passages vs the library (external is opt-in/consent-gated) |
 | `export-bib [--format bibtex\|ris] [-o FILE]` | Export the library as BibTeX/RIS |
 | `import-bib <file.bib>` | Import a Zotero/Mendeley `.bib` into the library |
+| `import-zotero [--collection KEY] [--dry-run] [--json]` | Import from the Zotero desktop app through its local API (read-only; `--list-collections` lists keys) |
 | `cite-tex <file.tex> [--bib FILE]` | Resolve a LaTeX draft's `\cite` keys against a `.bib` |
 | `mcp serve [--transport stdio\|sse]` | Run the MCP trust-layer server (verification tools for external agents) |
 | `review <id> [--fast] [--report DIR] [--serve] [--venue SLUG]` | Run the review team |

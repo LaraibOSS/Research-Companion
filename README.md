@@ -54,6 +54,23 @@ naming the publisher that refused, and a button that opens the article in
 your browser. Download the PDF yourself and add it, or retry the whole queue
 later with `research-companion acquire --all`.
 
+**Already using Zotero?** Bring the library in with one step. Zotero 7 or
+later serves your library to other programs on this computer once you tick
+*Settings → Advanced → "Allow other applications on this computer to
+communicate with Zotero"*. No Zotero account or key is involved, and nothing
+is written back to Zotero.
+
+```bash
+research-companion import-zotero --dry-run    # see what would happen first
+research-companion import-zotero              # or --collection KEY (see --list-collections)
+```
+
+Each item is added by its arXiv id or DOI when it has one, else from the PDF
+Zotero already holds, else as details only; items already in your library are
+skipped. In the Lab, the same import is the **Import from Zotero** tab of *Add
+papers*, with a Preview before anything is added. Importing does not start
+any paid analysis.
+
 <br>
 
 ### 2 · It maps the ideas, not the citations
@@ -326,7 +343,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 ### 🔎 Discover & interoperate
 - **Discover missing papers** — topic search and citation‑expansion via Semantic Scholar (free, no key), deduped against your library.
 - **Domain connectors** — opt‑in **PubMed**, **Europe PMC**, and **DBLP** so biomedical and CS references verify and prior‑art reaches beyond the general databases.
-- **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
+- **Interoperability** — read‑only Zotero import through Zotero's local API, BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
 - **MCP trust‑layer server** — four deterministic, key‑free verification tools for any MCP‑capable agent (plus two opt‑in costed tools behind an explicit setting and cost cap).
 - **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code; `/literature-scout`, `/research-agents`, `/paper-review` and `/rebuttal` cover reading lists, choosing an agent, a pre-submission review and answering reviewers, stating any cost before it is spent. All run on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
 
@@ -468,6 +485,7 @@ research-companion mcp serve                                           # MCP tru
 # Interoperability
 research-companion export-bib [--format bibtex|ris] [--output FILE]
 research-companion import-bib <file.bib>
+research-companion import-zotero [--collection KEY] [--list-collections] [--dry-run] [--json]
 research-companion cite-tex <paper.tex>
 ```
 </details>

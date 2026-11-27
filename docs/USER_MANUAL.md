@@ -221,7 +221,7 @@ description is replaced by the tab's plain name instead.
 
 ## 5. Adding papers
 
-Click **"+ Add papers"** (top right). Three tabs:
+Click **"+ Add papers"** (top right). Four tabs:
 
 - **Upload PDF** (default) — drag a PDF onto the dropzone or click to browse.
   The **"This is my draft ★"** checkbox uploads and marks your draft in one
@@ -242,6 +242,16 @@ Click **"+ Add papers"** (top right). Three tabs:
   / Skipped** — so you can watch exactly where the pipeline is and which files
   were already in your library. The list scrolls for large folders, and when
   the run finishes the dock summarizes *"X added, Y skipped, Z failed."*
+- **Import from Zotero** — reads the library of the Zotero desktop app
+  (version 7 or later) on this computer. Zotero must be open, with
+  *Settings → Advanced → "Allow other applications on this computer to
+  communicate with Zotero"* ticked; the tab says so if it is not. Pick the whole
+  library or one collection, click **Preview** to see what each item would
+  become, then **Import**. Items are added by arXiv id or DOI when they have
+  one, else from the PDF Zotero holds, else as details only; items already in
+  your library are skipped, and the report lists anything that could not be
+  added with its reason. Nothing is written to Zotero and no analysis is
+  started. CLI: `research-companion import-zotero --dry-run`.
 
 Files that cannot be parsed (scanned/corrupt PDFs) become red failure cards
 with the exact reason and a one-click **Retry** — no silent failures.
@@ -753,6 +763,7 @@ research-companion check-stats <paper-id>           # recompute p-values + GRIM 
 research-companion check-overlap <paper-id> [--semantic] [--allow-remote]  # near-duplicate passages vs your library (+ opt-in paraphrase pass)
 research-companion export-bib [--format bibtex|ris] # export the library as BibTeX/RIS
 research-companion import-bib <file.bib>            # import a Zotero/Mendeley .bib into the library
+research-companion import-zotero --dry-run          # preview importing from the Zotero app (read-only); drop --dry-run to import
 research-companion cite-tex <file.tex> [--bib f.bib]  # resolve a LaTeX draft's \cite keys
 research-companion mcp serve                        # MCP server exposing verification to agents (+opt-in ask_library/review_draft)
 research-companion discover <topic> [--expand]      # find new papers via Semantic Scholar
