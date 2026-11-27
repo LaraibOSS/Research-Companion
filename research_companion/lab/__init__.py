@@ -99,16 +99,9 @@ def _default_embedder():
 
 def _build_llm_callable(provider: str, model: str | None) -> Callable[[str], str]:
     """Build a real LLM callable for the given provider/model (lazy import)."""
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+    from research_companion import llm
 
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _llm
+    return llm.text_callable(provider, model)
 
 
 def _acquisition_failure(paper_id: str, stage: str, error: str) -> dict:

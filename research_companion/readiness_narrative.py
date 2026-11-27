@@ -8,7 +8,6 @@ same shape as compare._generate_summary. readiness.py itself stays pure.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 
 _TAKE_MAX_CHARS = 800
@@ -18,16 +17,10 @@ _MAX_OUTPUT_TOKENS = 1024
 
 
 def _default_llm(prompt: str) -> str:
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+    from research_companion import llm
 
-    provider = os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-    model = resolve_model(provider, os.environ.get("RESEARCH_COMPANION_MODEL"))
-    if provider == "openai":
-        text, _usage = _call_openai(prompt, model=model,
-                                    max_output_tokens=_MAX_OUTPUT_TOKENS, json_mode=True)
-    else:
-        text, _usage = _call_anthropic(prompt, model=model,
-                                       max_output_tokens=_MAX_OUTPUT_TOKENS)
+    text, _usage = llm.call_text(prompt, json_mode=True,
+                                 max_output_tokens=_MAX_OUTPUT_TOKENS)
     return text
 
 

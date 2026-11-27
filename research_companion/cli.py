@@ -30,6 +30,7 @@ from research_companion import __version__
 from research_companion.acquire import acquire
 from research_companion.acquire.copy import reason_headline
 from research_companion.cost import estimate_cost as _estimate_cost
+from research_companion.llm import DEFAULT_MODELS as _DEFAULT_MODELS  # the one table
 
 # Consistent status glyphs for terminal output across commands.
 # Every value is a fixed-width 2-character code so per-item rows in refcheck,
@@ -140,10 +141,6 @@ def _cmd_add(args: argparse.Namespace) -> int:
     return 0 if not failed else 1
 
 
-_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-7",
-    "openai":    "gpt-4o-2024-11-20",
-}
 
 # Approximate output tokens per extraction (response is ~500-1000 tokens).
 _EST_OUTPUT_TOKENS_PER_PAPER = 800
@@ -159,13 +156,10 @@ def _resolve_provider_model(args: argparse.Namespace) -> tuple[str, str | None]:
     user actually passed the flag; this is what lets RESEARCH_COMPANION_PROVIDER
     take effect when the flag is omitted.
     """
-    import os
+    from research_companion.llm import resolve_provider_and_model
 
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    return provider, model
+    return resolve_provider_and_model(getattr(args, "provider", None),
+                                      getattr(args, "model", None), default_model=False)
 
 
 def _cmd_cost_estimate(args: argparse.Namespace) -> int:
@@ -1189,22 +1183,9 @@ def _resolve_llm_for_align(args: argparse.Namespace) -> object:
         return injected
 
     # Real provider wiring (lazy import, mirrors agents/novelty.py::_default_llm)
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(getattr(args, "provider", None), getattr(args, "model", None))
 
 
 def _resolve_llm_for_review(args: argparse.Namespace, ctx_data: dict) -> object | None:
@@ -1228,22 +1209,9 @@ def _resolve_llm_for_review(args: argparse.Namespace, ctx_data: dict) -> object 
     if not (getattr(args, "provider", None) or getattr(args, "model", None)):
         return None
 
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(getattr(args, "provider", None), getattr(args, "model", None))
 
 
 def _resolve_llm_for_rebuttal(args: argparse.Namespace, ctx_data: dict) -> object | None:
@@ -1260,22 +1228,9 @@ def _resolve_llm_for_rebuttal(args: argparse.Namespace, ctx_data: dict) -> objec
     if not (getattr(args, "provider", None) or getattr(args, "model", None)):
         return None
 
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = getattr(args, "provider", None) or os.environ.get(
-        "RESEARCH_COMPANION_PROVIDER", "anthropic"
-    )
-    model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-    resolved_model = resolve_model(provider, model)
-    call = _call_openai if provider == "openai" else _call_anthropic
-
-    def _real_llm(prompt: str) -> str:
-        text, _usage = call(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(getattr(args, "provider", None), getattr(args, "model", None))
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
@@ -1291,25 +1246,11 @@ def _cmd_compare(args: argparse.Namespace) -> int:
         llm = COMPARE_CONTEXT_OVERRIDES.get("llm")
         if llm is None:
             # Wire real provider (mirrors _resolve_llm_for_align pattern)
-            import os
+            from research_companion import llm as _llm_layer
 
-            from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-            provider = getattr(args, "provider", None) or os.environ.get(
-                "RESEARCH_COMPANION_PROVIDER", "anthropic"
-            )
-            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-            resolved_model = resolve_model(provider, model)
-
-            def _real_llm(prompt: str) -> str:
-                if provider == "openai":
-                    # Narrative summary is prose: JSON mode would mangle it.
-                    text, _usage = _call_openai(prompt, model=resolved_model, json_mode=False)
-                else:
-                    text, _usage = _call_anthropic(prompt, model=resolved_model)
-                return text
-
-            llm = _real_llm
+            # Narrative summary is prose: JSON mode would mangle it.
+            llm = _llm_layer.text_callable(getattr(args, "provider", None),
+                                           getattr(args, "model", None), json_mode=False)
 
     try:
         result = compare_papers(paper_a, paper_b, llm=llm)
@@ -2111,24 +2052,10 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
         # Resolve LLM
         llm = GAPS_CONTEXT_OVERRIDES.get("llm")
         if llm is None:
-            import os
+            from research_companion import llm as _llm_layer
 
-            from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-            provider = getattr(args, "provider", None) or os.environ.get(
-                "RESEARCH_COMPANION_PROVIDER", "anthropic"
-            )
-            model = getattr(args, "model", None) or os.environ.get("RESEARCH_COMPANION_MODEL")
-            resolved_model = resolve_model(provider, model)
-
-            def _real_llm(prompt: str) -> str:
-                if provider == "openai":
-                    text, _usage = _call_openai(prompt, model=resolved_model, json_mode=True)
-                else:
-                    text, _usage = _call_anthropic(prompt, model=resolved_model)
-                return text
-
-            llm = _real_llm
+            llm = _llm_layer.text_callable(getattr(args, "provider", None),
+                                           getattr(args, "model", None), json_mode=True)
 
         print("research-companion: extracting gaps...")
         extract_all_gaps(llm=llm)

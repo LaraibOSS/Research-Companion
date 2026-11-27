@@ -4826,19 +4826,10 @@ def _resolve_llm(*, json_mode: bool = True):
     format does not mangle free text.
     """
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
+    from research_companion import llm
 
     provider, model = _pipeline_provider_model()
-    resolved_model = resolve_model(provider, model)
-
-    def _real_llm(prompt: str) -> str:
-        if provider == "openai":
-            text, _usage = _call_openai(prompt, model=resolved_model, json_mode=json_mode)
-        else:
-            text, _usage = _call_anthropic(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    return llm.text_callable(provider, model, json_mode=json_mode)
 
 
 # ---------------------------------------------------------------------------

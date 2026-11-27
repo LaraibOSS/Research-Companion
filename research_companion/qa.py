@@ -476,20 +476,7 @@ def _resolve_llm(*, provider: str | None = None, model: str | None = None):
     """Return an LLM callable; provider/model default from the environment
     (RESEARCH_COMPANION_PROVIDER / RESEARCH_COMPANION_MODEL), matching the
     other commands' resolution rules."""
-    import os
+    from research_companion import llm
 
-    from research_companion.extract import _call_anthropic, _call_openai, resolve_model
-
-    provider = provider or os.environ.get("RESEARCH_COMPANION_PROVIDER", "anthropic")
-    model = model or os.environ.get("RESEARCH_COMPANION_MODEL") or None
-    resolved_model = resolve_model(provider, model)
-
-    def _real_llm(prompt: str) -> str:
-        if provider == "openai":
-            # Prose answer: JSON mode would mangle free text.
-            text, _usage = _call_openai(prompt, model=resolved_model, json_mode=False)
-        else:
-            text, _usage = _call_anthropic(prompt, model=resolved_model)
-        return text
-
-    return _real_llm
+    # Prose answer: JSON mode would mangle free text.
+    return llm.text_callable(provider, model, json_mode=False)
