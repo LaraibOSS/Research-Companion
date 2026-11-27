@@ -11,7 +11,7 @@
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue?style=flat-square)](pyproject.toml)
 [![CI](https://img.shields.io/github/actions/workflow/status/LaraibOSS/Research-Companion/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/LaraibOSS/Research-Companion/actions/workflows/ci.yml)
 
-[![4,441 tests, both suites ratcheted in CI](https://img.shields.io/badge/4%2C441%20tests-both%20suites%20ratcheted%20in%20CI-2b8a3e?style=flat-square)](tests)
+[![4,459 tests, both suites ratcheted in CI](https://img.shields.io/badge/4%2C459%20tests-both%20suites%20ratcheted%20in%20CI-2b8a3e?style=flat-square)](tests)
 [![Deterministic core runs with no API key](https://img.shields.io/badge/deterministic%20core-runs%20with%20no%20API%20key-8250df?style=flat-square)](#why-research-companion)
 [![20 degradation mechanisms proved in CI](https://img.shields.io/badge/20%20degradation%20mechanisms-proved%20in%20CI-c2255c?style=flat-square)](docs/DEGRADATION_REGISTRY.json)
 [![Your library is stored on your machine](https://img.shields.io/badge/your%20library-stored%20on%20your%20machine-e8590c?style=flat-square)](#configuration--security)
@@ -173,7 +173,7 @@ catalogues. Every reference looked up for real, every reported statistic
 recomputed, every venue rule checked.
 
 ```bash
-research-companion refcheck    <paper_id>             # do the references exist?
+research-companion refcheck    <paper_id>             # do the references exist? has any been retracted?
 research-companion check-stats <paper_id>             # do the numbers add up?
 research-companion check-compliance <paper_id> --venue neurips
 ```
@@ -516,6 +516,7 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 | `RESEARCH_COMPANION_MODEL` | Override the model id | provider default |
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
+| `RESEARCH_COMPANION_MAX_INGESTS` | How many papers are parsed and analysed at once in the Lab (1–8). Lower it if adding many papers runs out of memory | `2` |
 | `NCBI_EMAIL` / `NCBI_API_KEY` | Optional — raises PubMed/E-utilities rate limits | – |
 
 **What leaves your machine.** Your papers, notes, graph and reports are stored on disk under `RESEARCH_COMPANION_DIR`, and nothing is uploaded to a Research Companion service: there isn't one. Three things do go out, each to a service you chose:

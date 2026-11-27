@@ -1515,6 +1515,13 @@ def _cmd_rebuttal(args: argparse.Namespace) -> int:
     return 0
 
 
+_NOTICE_LABELS = {
+    "retraction": "RETRACTED: the matched work has been retracted",
+    "partial_retraction": "PARTIALLY RETRACTED: part of the matched work has been retracted",
+    "expression_of_concern": "EXPRESSION OF CONCERN issued on the matched work",
+}
+
+
 def _cmd_refcheck(args: argparse.Namespace) -> int:
     from research_companion.prompts import extraction_prompt_sha256
     from research_companion.refcheck.parse import references_from_extraction
@@ -1568,6 +1575,9 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
             "unparsed_count": len(unparsed),
             "unparsed": unparsed,
             "counts": counts,
+            # Retraction is reported over its own denominator: only some
+            # catalogues record it, so "flagged of checked", never "of all".
+            "retraction": report.retraction_counts(),
             "references": [
                 {
                     "title": ref.title,
@@ -1575,6 +1585,8 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
                     "reasons": verdict.reasons,
                     "doi": ref.doi,
                     "arxiv_id": ref.arxiv_id,
+                    "notices": verdict.notices,
+                    "retraction_checked": verdict.retraction_checked,
                 }
                 for ref, verdict in report.entries
             ],
@@ -1590,11 +1602,20 @@ def _cmd_refcheck(args: argparse.Namespace) -> int:
         print(f"{_glyph(verdict.status)} [{verdict.status}] {ref.title}")
         for reason in verdict.reasons:
             print(f"        - {reason}")
+        for notice in verdict.notices:
+            print(f"        ! {_NOTICE_LABELS.get(notice, notice)}")
     print(
         f"\nSummary: {counts['verified']} verified, "
         f"{counts['suspect']} suspect, {counts['unverified']} unverified "
         f"({len(report.entries)} references)"
     )
+    rc = report.retraction_counts()
+    if rc["checked"]:
+        print(f"Retraction: {rc['flagged']} of {rc['checked']} checked reference(s) "
+              "carry a retraction or expression of concern.")
+    if rc["not_checked"]:
+        print(f"            {rc['not_checked']} reference(s) were NOT checked for "
+              "retraction (not matched in a catalogue that records it).")
     if source == "text":
         print("References read from the paper's bibliography (no model call).")
     # State what was NOT read. Without this the summary counts read as the whole

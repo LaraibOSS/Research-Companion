@@ -171,7 +171,7 @@ function _buildHtml(coverage, downloadTargets = new Set(), papers = null) {
   // Settings — the panel's job is to present what could NOT be fetched.
   const settings = _storeRef.getState().settings || {};
   const autoNote = (settings.auto_add_citations !== false && counts.total > 0)
-    ? `<div class="citations-note-muted">Missing papers download automatically — anything listed as Unresolved could not be fetched.</div>`
+    ? `<div class="citations-note-muted">Up to 10 missing papers download automatically. Any others are listed below with an Add button, and anything listed as Unresolved could not be fetched.</div>`
     : '';
 
   // "Add all" button

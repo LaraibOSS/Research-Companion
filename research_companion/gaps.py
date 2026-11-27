@@ -352,6 +352,7 @@ def resolve_gaps(
                     "rationale": "No candidate papers found.",
                     "evidence": {"quote": "", "verified": False},
                     "checked_papers": [],
+                    "check": CHECK_NO_CANDIDATES,
                 }
                 continue
 
@@ -364,6 +365,7 @@ def resolve_gaps(
                     "rationale": "No section units for candidate papers.",
                     "evidence": {"quote": "", "verified": False},
                     "checked_papers": list(candidates),
+                    "check": CHECK_NO_CANDIDATES,
                 }
                 continue
 
@@ -386,6 +388,7 @@ def resolve_gaps(
                     "rationale": f"No sufficiently similar content found (best score {best_score:.3f} < {sim_threshold}).",
                     "evidence": {"quote": "", "verified": False},
                     "checked_papers": list(candidates),
+                    "check": CHECK_NO_SIMILAR,
                 }
                 continue
 
@@ -410,9 +413,10 @@ def resolve_gaps(
                 resolutions[gid] = {
                     "status": "open",
                     "resolved_by": None,
-                    "rationale": "LLM call failed.",
+                    "rationale": "The model call failed, so this gap was not judged.",
                     "evidence": {"quote": "", "verified": False},
                     "checked_papers": list(candidates),
+                    "check": CHECK_FAILED,
                 }
                 continue
 
@@ -423,9 +427,21 @@ def resolve_gaps(
             except (json.JSONDecodeError, ValueError):
                 res_data = {}
 
-            status = res_data.get("status", "open")
+            status = res_data.get("status")
             if status not in ("addressed", "partially", "open"):
-                status = "open"
+                # An answer that could not be read, or a status outside the
+                # vocabulary, is a check that did not happen. The gap stays
+                # "open" because that is the safe reading, but it must not be
+                # recorded as the model's judgement.
+                resolutions[gid] = {
+                    "status": "open",
+                    "resolved_by": None,
+                    "rationale": "The model's answer could not be read, so this gap was not judged.",
+                    "evidence": {"quote": "", "verified": False},
+                    "checked_papers": list(candidates),
+                    "check": CHECK_FAILED,
+                }
+                continue
             resolved_by = res_data.get("resolved_by")
             rationale = str(res_data.get("rationale", ""))
             ev_quote = str(res_data.get("evidence_quote", ""))
@@ -439,8 +455,11 @@ def resolve_gaps(
             if ev_quote:
                 ev_verified, _ = verify_quote(ev_quote, candidate_excerpts)
 
-            # Honesty downgrade: addressed + unverified -> partially
-            if status == "addressed" and ev_quote and not ev_verified:
+            # Honesty downgrade: "addressed" needs a quote that is really in
+            # the candidate text. An unverifiable quote was already downgraded;
+            # NO quote at all slipped through, which made the weakest answer
+            # the one that escaped the check.
+            if status == "addressed" and not ev_verified:
                 status = "partially"
 
             resolutions[gid] = {
@@ -449,6 +468,7 @@ def resolve_gaps(
                 "rationale": rationale,
                 "evidence": {"quote": ev_quote, "verified": ev_verified},
                 "checked_papers": list(candidates),
+                "check": CHECK_JUDGED,
             }
 
     result = {
@@ -465,6 +485,36 @@ def resolve_gaps(
 # ---------------------------------------------------------------------------
 # gaps_overview
 # ---------------------------------------------------------------------------
+
+# Why a gap carries the status it does. "open" alone covers four different
+# situations, and only one of them is a judgement that the gap is still open.
+CHECK_JUDGED = "judged"                # the model compared it with later work
+CHECK_NO_CANDIDATES = "no_candidates"  # no later paper in the library to compare
+CHECK_NO_SIMILAR = "no_similar"        # later papers exist; none came close
+CHECK_FAILED = "failed"                # the model call or its answer failed
+CHECK_NOT_RUN = "not_run"              # resolution has not been computed
+
+
+def resolution_check_counts(resolutions) -> dict[str, int]:
+    """Tally why each gap has its status, for an honest denominator.
+
+    "12 open gaps" means little if for 9 of them nothing was compared. The
+    count that supports a claim is ``judged``; ``failed`` is the one a reader
+    can act on by re-running.
+    """
+    counts = {CHECK_JUDGED: 0, CHECK_NO_CANDIDATES: 0, CHECK_NO_SIMILAR: 0,
+              CHECK_FAILED: 0, CHECK_NOT_RUN: 0, "unknown": 0}
+    for res in resolutions:
+        res = res or {}
+        check = res.get("check")
+        if check not in counts:
+            # The {"status": "open"} placeholder for a gap never resolved has
+            # no rationale. A stored result from before this field existed
+            # does, but which of the four cases it was is not recoverable.
+            check = "unknown" if "rationale" in res else CHECK_NOT_RUN
+        counts[check] += 1
+    return counts
+
 
 def gaps_overview() -> dict:
     """Build the GET /api/gaps shape.
@@ -545,6 +595,8 @@ def gaps_overview() -> dict:
         "papers": papers_out,
         "draft_addresses": draft_addresses,
         "stale": stale,
+        "resolution_checks": resolution_check_counts(
+            g["resolution"] for p in papers_out for g in p["gaps"]),
     }
 
 

@@ -35,6 +35,30 @@ def _year_from_date_parts(*candidates: dict) -> int | None:
     return None
 
 
+#: Crossref ``updated-by[].type`` values that mean a reader should not rely on
+#: the work as published. Crossref carries the Retraction Watch database, so
+#: these arrive on the ordinary work record. A plain correction or erratum is
+#: deliberately not listed: it amends a paper, it does not withdraw it.
+_NOTICE_TYPES = {
+    "retraction": "retraction",
+    "withdrawal": "retraction",
+    "removal": "retraction",
+    "partial_retraction": "partial_retraction",
+    "expression_of_concern": "expression_of_concern",
+}
+
+
+def _crossref_notices(item: dict) -> list[str]:
+    """Editorial notices recorded against a Crossref work, most serious first."""
+    found: set[str] = set()
+    for update in item.get("updated-by") or []:
+        kind = str((update or {}).get("type", "")).strip().lower().replace("-", "_").replace(" ", "_")
+        if kind in _NOTICE_TYPES:
+            found.add(_NOTICE_TYPES[kind])
+    order = ["retraction", "partial_retraction", "expression_of_concern"]
+    return [n for n in order if n in found]
+
+
 def parse_crossref_item(item: dict) -> dict:
     """Map a CrossRef work item to a record dict. Pure; tolerant of missing keys."""
     title_list = item.get("title") or []
@@ -59,6 +83,10 @@ def parse_crossref_item(item: dict) -> dict:
         "year": year,
         "doi": item.get("DOI"),
         "arxiv_id": None,
+        # This catalogue records retractions, so an empty list here is a real
+        # "none recorded" and not merely "nobody looked".
+        "notices": _crossref_notices(item),
+        "retraction_checked": True,
     }
 
 
@@ -83,6 +111,10 @@ def parse_openalex_item(item: dict) -> dict:
         "year": item.get("publication_year"),
         "doi": _bare_doi(item.get("doi")),
         "arxiv_id": None,
+        # OpenAlex exposes one flag, retraction only (no expressions of
+        # concern). Absent on a partial record means it could not be told.
+        "notices": ["retraction"] if item.get("is_retracted") is True else [],
+        "retraction_checked": isinstance(item.get("is_retracted"), bool),
     }
 
 
