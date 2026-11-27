@@ -562,10 +562,12 @@ function _navRowHtml(state) {
 function _nbaHtml(actions) {
   if (!actions || actions.length === 0) return '';
 
-  const cards = actions.map((action, i) => {
-    const isPrimary = i === 0;
-    const cls = `home-nba-card${isPrimary ? ' primary' : ''}`;
-    const tag = isPrimary ? `<div class="home-nba-tag">Do this next</div>` : '';
+  // The research path above Home owns "the one next step". These are other
+  // shortcuts, so none of them is singled out: a second "Do this next" could
+  // name a different action from the path's card and leave the reader torn.
+  const cards = actions.map((action) => {
+    const cls = 'home-nba-card';
+    const tag = '';
     const dataAttr = action.route
       ? `data-nba-route="${escapeHtml(action.route)}"`
       : `data-nba-action="${escapeHtml(action.action || '')}"`;
@@ -580,7 +582,7 @@ function _nbaHtml(actions) {
 
   return `
     <div>
-      <div class="home-section-title">Next Steps</div>
+      <div class="home-section-title">Other shortcuts</div>
       <div class="home-nba-strip">${cards}</div>
     </div>`;
 }
