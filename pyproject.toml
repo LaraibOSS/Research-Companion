@@ -65,7 +65,12 @@ semantic = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "ruff>=0.4",
+    # Pinned to one minor series. Ruff adds and tightens rules in minor
+    # releases, so an open range let CI install a newer linter than
+    # contributors had and fail a pull request on code it never touched.
+    # Dependabot proposes the next series as its own PR, where any new
+    # findings are fixed deliberately.
+    "ruff>=0.17,<0.18",
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
