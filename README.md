@@ -555,6 +555,7 @@ API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and optional `HF_TOKEN` for sem
 | `HF_TOKEN` | Optional — enables hybrid semantic search (else BM25) | – |
 | `RESEARCH_COMPANION_PARSER` | Force `pypdfium` or `docling` | auto |
 | `RESEARCH_COMPANION_MAX_INGESTS` | How many papers are parsed and analysed at once in the Lab (1–8). Lower it if adding many papers runs out of memory | `2` |
+| `RESEARCH_COMPANION_ZOTERO_URL` | Where Zotero's local API answers, for `import-zotero` | `http://localhost:23119` |
 | `NCBI_EMAIL` / `NCBI_API_KEY` | Optional — raises PubMed/E-utilities rate limits | – |
 
 **What leaves your machine.** Your papers, notes, graph and reports are stored on disk under `RESEARCH_COMPANION_DIR`, and nothing is uploaded to a Research Companion service: there isn't one. Three things do go out, each to a service you chose:
