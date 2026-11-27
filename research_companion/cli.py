@@ -175,7 +175,11 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
         return 1
 
     provider, model_flag = _resolve_provider_model(args)
-    model = model_flag or _DEFAULT_MODELS.get(provider, _DEFAULT_MODELS["anthropic"])
+    from research_companion.llm import LLMConfigError, resolve_model
+    try:
+        model = resolve_model(provider, model_flag)
+    except LLMConfigError:
+        model = "(not set)"
     prompt_sha = extraction_prompt_sha256()
 
     cached_n = 0
@@ -212,7 +216,13 @@ def _cmd_cost_estimate(args: argparse.Namespace) -> int:
     print()
     print(f"  Estimated input tokens:   ~{est_input_tokens:>,}")
     print(f"  Estimated output tokens:  ~{est_output_tokens:>,}")
-    print(f"  Estimated cost:           ~${est_cost:,.2f}")
+    if est_cost is None:
+        # An OpenAI-compatible server may be free or a paid gateway: a dollar
+        # figure here would be invented.
+        print(f"  Estimated cost:           price not known for {provider} "
+              "(check your server's pricing)")
+    else:
+        print(f"  Estimated cost:           ~${est_cost:,.2f}")
     print()
     print("Run `research-companion build` to proceed. Cached papers are free.")
     print()
@@ -262,8 +272,12 @@ def _cmd_build(args: argparse.Namespace) -> int:
     if total_in + total_out > 0:
         model_label = model or _DEFAULT_MODELS.get(provider, provider)
         est = _estimate_cost(total_in, total_out, provider)
-        print(f"research-companion: estimated cost: ~${est:,.2f} "
-              f"(based on {provider} {model_label} pricing)")
+        if est is None:
+            print(f"research-companion: estimated cost: price not known for {provider} "
+                  f"({model_label})")
+        else:
+            print(f"research-companion: estimated cost: ~${est:,.2f} "
+                  f"(based on {provider} {model_label} pricing)")
 
     print("research-companion: building cross-paper graph...")
     G = build_graph(papers)

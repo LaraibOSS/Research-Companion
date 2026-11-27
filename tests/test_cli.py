@@ -169,6 +169,26 @@ def test_build_with_local_model_but_no_model_name(monkeypatch: pytest.MonkeyPatc
     assert "RESEARCH_COMPANION_MODEL" in capsys.readouterr().err
 
 
+def test_cost_estimate_local_and_unpriced(monkeypatch: pytest.MonkeyPatch, tmp_path,
+                                          fake_pdf_bytes, capsys):
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(fake_pdf_bytes)
+    cli.main(["add", str(pdf), "--title", "GraphRAG paper"])
+    capsys.readouterr()
+    monkeypatch.delenv("RESEARCH_COMPANION_MODEL", raising=False)
+
+    assert cli.main(["cost-estimate", "--provider", "ollama", "--model", "llama3.1:8b"]) == 0
+    out = capsys.readouterr().out
+    assert "Estimated cost:           ~$0.00" in out
+
+    # An OpenAI-compatible server's price is unknown: no invented dollar figure.
+    assert cli.main(["cost-estimate", "--provider", "openai_compatible"]) == 0
+    out = capsys.readouterr().out
+    assert "price not known for openai_compatible" in out
+    assert "model: (not set)" in out
+    assert "$" not in out.split("Estimated cost:")[1].splitlines()[0]
+
+
 # ---------------------------------------------------------------------------
 # build --provider: flag > RESEARCH_COMPANION_PROVIDER > "anthropic" default.
 #
