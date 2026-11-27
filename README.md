@@ -302,7 +302,7 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 - **Domain connectors** — opt‑in **PubMed**, **Europe PMC**, and **DBLP** so biomedical and CS references verify and prior‑art reaches beyond the general databases.
 - **Interoperability** — BibTeX/RIS export, `.bib` import from Zotero/Mendeley, LaTeX `\cite`‑key resolution, and Obsidian/Markdown/CSV/JSON graph export.
 - **MCP trust‑layer server** — four deterministic, key‑free verification tools for any MCP‑capable agent (plus two opt‑in costed tools behind an explicit setting and cost cap).
-- **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code, on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
+- **Claude Code skills** — `/refcheck` and `/submission-check` run the free, deterministic checks from inside Claude Code; `/literature-scout`, `/research-agents`, `/paper-review` and `/rebuttal` cover reading lists, choosing an agent, a pre-submission review and answering reviewers, stating any cost before it is spent. All run on a scratch workspace that never touches your real research. See [Claude Code skills](#claude-code-skills).
 
 ### 🧪 Research Lab (browser)
 - **Live‑growing graph** over SSE, section‑wise subgraphs that keep retrieval focused, a built‑in reader (Text + original‑PDF tabs), a **Simplified** plain‑English reader, **Notes** you can capture anywhere and export as a revision checklist, an adaptive **Home** dashboard (a genuinely empty workspace opens on a two‑path first‑run chooser — *Brainstorm from an idea* or *I already have a draft* — then a product intro with quick‑nav to every tab, then a compact journey view with next‑steps and a timeline once you have a draft), and a **Researches** tab: a sortable table tracking every research — papers/analyzed/failed, draft + version count, citation coverage, strength mix, open items, and draft‑updated / last‑activity / created — with a persistent **+ New research** button plus rename / archive / delete.
@@ -317,28 +317,36 @@ python examples/demo_lab_offline.py    # Research Lab event replay (papers, grap
 
 ## Claude Code skills
 
-The checks that need no model also need no UI. Two [Claude Code](https://claude.com/claude-code)
-skills live in [`skills/`](skills/) and answer a question directly on a PDF:
+Research Companion's commands also work without the UI. Six [Claude Code](https://claude.com/claude-code)
+skills live in [`skills/`](skills/) and answer a researcher's question directly:
 
 | skill | question | cost |
 |---|---|---|
 | [`/submission-check`](skills/submission-check/SKILL.md) | Would this get desk-rejected? Venue rules, statcheck/GRIM, self-overlap. | free |
-| [`/refcheck`](skills/refcheck/SKILL.md) | Do these references actually exist? CrossRef / OpenAlex / arXiv. | free (network only) |
+| [`/refcheck`](skills/refcheck/SKILL.md) | Do these references actually exist? Are any retracted? CrossRef / OpenAlex / arXiv. | free (network only) |
+| [`/literature-scout`](skills/literature-scout/SKILL.md) | What should I read on this topic? Candidates from Semantic Scholar. | free (network only) |
+| [`/research-agents`](skills/research-agents/SKILL.md) | Which agent do I want, and what will it cost? | free |
+| [`/paper-review`](skills/paper-review/SKILL.md) | What would a reviewer flag? A readiness verdict with the checks that did not run. | fast review free after a one-time paid extraction; full review paid — asks first |
+| [`/rebuttal`](skills/rebuttal/SKILL.md) | Help me answer these reviews. Drafts grounded in quotes checked against the paper. | paid (model calls per concern) — asks first |
 
 ```bash
-cp -r skills/refcheck skills/submission-check ~/.claude/skills/
+cp -r skills/refcheck skills/submission-check skills/literature-scout \
+      skills/paper-review skills/rebuttal skills/research-agents ~/.claude/skills/
 ```
 
 ```
 /refcheck paper.pdf
 /submission-check paper.pdf --venue neurips
+/literature-scout speculative decoding
+/paper-review paper.pdf
 ```
 
 They also trigger on the question phrased naturally — "are these citations real?",
-"will this get desk-rejected?".
+"will this get desk-rejected?", "help me answer these reviews".
 
-Both default to a **scratch workspace**, so an agent invoked from any directory
-cannot write into whichever research you last had open. And both follow the same
+All default to a **scratch workspace**, so an agent invoked from any directory
+cannot write into whichever research you last had open. The two that can spend
+money show the estimate and ask before any paid call. And all follow the same
 reporting rule as the rest of the tool: a check that did not run is never shown
 as a check that passed, and a reference that could not be found is reported as
 *not found*, never as fabricated. Details and the rationale: [`skills/README.md`](skills/README.md).
