@@ -461,6 +461,46 @@ def _cmd_acquire(args: argparse.Namespace) -> int:
     return 1
 
 
+_COST_WORDS = {
+    "free": "free, runs on this machine",
+    "network": "free, looks things up online",
+    "model": "uses your model provider (paid)",
+}
+_STAGE_HEADINGS = {
+    "prepare": "Prepare",
+    "check": "Check the paper",
+    "position": "Position the work",
+    "prioritise": "Decide what to fix first",
+    "respond": "Respond to reviewers",
+}
+
+
+def _cmd_agents(args: argparse.Namespace) -> int:
+    """List the agents: what each does, what it costs, and how to run it."""
+    from research_companion.agents.catalog import catalog
+
+    rows = catalog()
+    if args.json:
+        print(json.dumps({"agents": rows}, indent=2, ensure_ascii=False))
+        return 0
+
+    stage = None
+    for row in rows:
+        if row["stage"] != stage:
+            stage = row["stage"]
+            print(f"\n{_STAGE_HEADINGS[stage]}")
+        print(f"  {row['title']}  ({_COST_WORDS[row['cost']]})")
+        print(f"      {row['does']}")
+        if row["needs"]:
+            print(f"      Needs: {', '.join(row['needs'])}.")
+        if row["reachable_from"]:
+            cmds = ", ".join(f"research-companion {c}" for c in row["reachable_from"])
+            print(f"      Runs as part of: {cmds}")
+        else:
+            print("      Not available from a command yet.")
+    return 0
+
+
 def _cmd_stats(args: argparse.Namespace) -> int:
     from research_companion.graph import graph_stats, load_graph
 
@@ -2306,6 +2346,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ps = sub.add_parser("stats", help="Print graph statistics as JSON")
     ps.set_defaults(func=_cmd_stats)
+
+    pag = sub.add_parser(
+        "agents", help="List the agents: what each does, what it costs, how to run it")
+    pag.add_argument("--json", action="store_true", help="Emit JSON instead of text")
+    pag.set_defaults(func=_cmd_agents)
 
     pe = sub.add_parser("export", help="Export the knowledge graph to a portable format")
     pe.add_argument("--format", choices=["markdown", "csv", "json", "obsidian"],
