@@ -17,9 +17,13 @@ def test_the_agents_command_lists_every_agent_with_its_cost(capsys):
     for card in CARDS:
         assert card.title in out
     assert "paid" in out and "free" in out
-    # Agents nothing can start yet are said to be so, not listed as if usable.
+    # Every agent says how to start it: alone, as part of a command, or not yet.
+    from research_companion.agents.runner import runnable_here
+    for card in CARDS:
+        if runnable_here(card.name):
+            assert f"run-agents <paper_id> {card.name}" in out
     assert out.count("Not available from a command yet.") == sum(
-        1 for c in CARDS if not c.reachable_from)
+        1 for c in CARDS if not c.reachable_from and not runnable_here(c.name))
 
     assert cli.main(["agents", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
